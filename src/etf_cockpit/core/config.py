@@ -215,17 +215,23 @@ class ModelMonitoringSettings(BaseModel):
     alert_threshold: float = Field(default=1.0, gt=0)
 
 
+PROMOTION_MINIMUM_MATURED_FORECASTS = 100
+PROMOTION_MINIMUM_FORECAST_ORIGINS = 5
+
+
 class ModelPromotionSettings(BaseModel):
     """Evidence an optional model needs before its forecasts count in scores.
 
     100 matured pairs across 5 forecast dates is conservative: pairs from one
     date share the market move, so the date count limits that clustering.
+    These are hard floors: configuration may raise them, never lower them, and a
+    lower value is rejected at load.
     ``enabled=false`` returns every optional model to diagnostic-only output.
     """
 
     enabled: bool = True
-    minimum_matured_forecasts: int = Field(default=100, ge=2)
-    minimum_forecast_origins: int = Field(default=5, ge=1)
+    minimum_matured_forecasts: int = Field(default=PROMOTION_MINIMUM_MATURED_FORECASTS, ge=PROMOTION_MINIMUM_MATURED_FORECASTS)
+    minimum_forecast_origins: int = Field(default=PROMOTION_MINIMUM_FORECAST_ORIGINS, ge=PROMOTION_MINIMUM_FORECAST_ORIGINS)
     evidence_horizon_days: int = Field(default=60, ge=1)
 
 
@@ -329,6 +335,10 @@ class SettlementConfig(BaseModel):
         return settlement
 
 
+class DataSettings(BaseModel):
+    allow_synthetic_sample_data: bool = False
+
+
 class AppConfig(BaseModel):
     universe: UniverseConfig
     targets: PortfolioTargets
@@ -339,6 +349,7 @@ class AppConfig(BaseModel):
     chatgpt_schema: dict[str, Any]
     data_providers: DataProvidersConfig = Field(default_factory=DataProvidersConfig)
     settlement: SettlementConfig = Field(default_factory=SettlementConfig)
+    data: DataSettings = Field(default_factory=DataSettings)
 
     @property
     def forecast_uncertainty(self) -> ForecastUncertaintySettings:
@@ -375,10 +386,37 @@ def load_settlement_config(config_dir: Path = CONFIG_DIR) -> SettlementConfig:
         raise ConfigError(f"Settlement config validation failed: {exc}") from exc
 
 
+def _inject_action_composite_weights(model_settings: dict[str, Any], config_dir: Path) -> dict[str, Any]:
+    """Set ``ensemble.weights`` from ``score_engine_v3.yaml`` (``action_composite.weights``), the one weight source.
+
+    ``model_settings.yaml`` must not carry weights (a second source is refused). A config directory without the
+    score-engine file keeps no weights, and the scoring entry points then fail closed.
+    """
+
+    ensemble = dict(model_settings.get("ensemble") or {})
+    if "weights" in ensemble:
+        raise ConfigError(
+            "model_settings.yaml ensemble.weights moved to score_engine_v3.yaml action_composite.weights; remove it here."
+        )
+    formula_path = config_dir / "score_engine_v3.yaml"
+    if not formula_path.exists():
+        return model_settings
+    composite = (_read_yaml(formula_path).get("action_composite") or {}).get("weights")
+    if not isinstance(composite, dict) or not composite:
+        raise ConfigError("score_engine_v3.yaml has no action_composite.weights.")
+    weights: dict[str, float] = {}
+    for key, value in composite.items():
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0.0 <= float(value) < float("inf"):
+            raise ConfigError(f"score_engine_v3.yaml action_composite weight is not a finite non-negative number: {key}")
+        weights[str(key)] = float(value)
+    return {**model_settings, "ensemble": {**ensemble, "weights": weights}}
+
+
 def load_config(config_dir: Path = CONFIG_DIR) -> AppConfig:
     try:
         provider_path = config_dir / "data_providers.yaml"
         model_settings = _read_yaml(config_dir / "model_settings.yaml") if (config_dir / "model_settings.yaml").exists() else {}
+        model_settings = _inject_action_composite_weights(model_settings, config_dir)
         data_providers = DataProvidersConfig(**(_read_yaml(provider_path) if provider_path.exists() else {}))
         data_providers = _apply_provider_env(data_providers, config_dir)
         return AppConfig(
@@ -391,6 +429,7 @@ def load_config(config_dir: Path = CONFIG_DIR) -> AppConfig:
             chatgpt_schema=_read_json(config_dir / "chatgpt_schema.json") if (config_dir / "chatgpt_schema.json").exists() else {},
             data_providers=data_providers,
             settlement=load_settlement_config(config_dir),
+            data=DataSettings(**(_read_yaml(config_dir / "settings.yaml").get("data", {}) if (config_dir / "settings.yaml").exists() else {})),
         )
     except ConfigError:
         raise

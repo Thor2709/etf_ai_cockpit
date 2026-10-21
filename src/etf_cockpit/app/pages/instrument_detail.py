@@ -44,7 +44,7 @@ from etf_cockpit.application.instrument_detail_view import (
     build_etf_structure_panel,
     build_instrument_detail,
 )
-from etf_cockpit.application.ui_facade import bitemporal_history_summary, load_market_series_projection
+from etf_cockpit.application.ui_facade import bitemporal_history_summary, load_market_series_projection, log_to_simple_return
 from etf_cockpit.core.paths import ROOT
 
 _MISSING = "\u2014"
@@ -850,22 +850,25 @@ def _price_chart(
 def _forecast_chart(forecasts: object) -> ft.Control:
     rows = forecasts.get("rows", ()) if isinstance(forecasts, Mapping) else ()
     rows = [row for row in rows if isinstance(row, Mapping)] if isinstance(rows, Sequence) else []
-    complete = [
-        row
-        for row in rows
-        if row.get("horizon_days") is not None
-        if all(isinstance(row.get(key), (int, float)) for key in ("q10", "q50", "q90"))
-        and row.get("q10") <= row.get("q50") <= row.get("q90")
-    ]
+    # Stored quantiles are horizon log returns (q10_return, ...); the legacy q10/q50/q90 keys are read too.
+    # The fan shows simple returns, exp(y) - 1, through the canonical conversion.
+    complete = []
+    for row in rows:
+        simple = [
+            log_to_simple_return(row.get(f"{level}_return") if row.get(f"{level}_return") is not None else row.get(level))
+            for level in ("q10", "q50", "q90")
+        ]
+        if row.get("horizon_days") is not None and None not in simple and simple[0] <= simple[1] <= simple[2]:
+            complete.append((row.get("horizon_days"), *(value * 100.0 for value in simple)))
     if not complete:
         return EmptyState(
             "No forecast fan",
             "No complete ordered q10/q50/q90 distribution is stored for this instrument; a fan chart is not drawn and missing quantiles are never filled.",
         )
-    horizons = [row.get("horizon_days") for row in complete]
-    lower = [row["q10"] for row in complete]
-    median = [row["q50"] for row in complete]
-    upper = [row["q90"] for row in complete]
+    horizons = [item[0] for item in complete]
+    lower = [item[1] for item in complete]
+    median = [item[2] for item in complete]
+    upper = [item[3] for item in complete]
     return ck.line_chart(
         horizons,
         [ck.Series("q50", median, color=theme.CYAN, glow=True)],
@@ -1300,6 +1303,20 @@ def _render_opportunity_card(value: object) -> ft.Control:
     opportunity = value if isinstance(value, Mapping) else {}
     percentile = opportunity.get("percentile")
     percentile_text = f"{float(percentile):.1f}%" if isinstance(percentile, (int, float)) else "unavailable"
+    net_excess = opportunity.get("expected_net_excess_return")
+    net_excess_text = (
+        f"{float(net_excess):+.1%}"
+        if isinstance(net_excess, (int, float))
+        and not isinstance(net_excess, bool)
+        and math.isfinite(float(net_excess))
+        else "unavailable"
+    )
+    decision_state = str(opportunity.get("decision_state", "SOURCE_UNAVAILABLE"))
+    purchase_text = (
+        "Candidate only; no active purchase."
+        if decision_state == "CANDIDATE_BUY"
+        else "No active purchase."
+    )
     domain_scores = opportunity.get("domain_scores", ())
     domain_line = ", ".join(
         f"{row[0]}={row[1] if row[1] is not None else 'unavailable'}"
@@ -1319,6 +1336,7 @@ def _render_opportunity_card(value: object) -> ft.Control:
         [
             Tag(str(opportunity.get("status", "Insufficient Evidence")), "mute"),
             Note(f"Universe rank: {opportunity.get('universe_rank', 'unavailable')}/{opportunity.get('universe_support', 'unavailable')} | Percentile: {percentile_text}"),
+            Note(f"Decision: {decision_state} | Net excess vs VWCE ({opportunity.get('absolute_horizon') or 'horizon unavailable'}): {net_excess_text} | {purchase_text}"),
             Note(f"Peer: {opportunity.get('peer_id', 'unavailable')} | Peer rank: {opportunity.get('peer_rank', 'unavailable')}/{opportunity.get('peer_support', 'unavailable')} | Peer percentile: {opportunity.get('peer_percentile', 'unavailable')}"),
             Note(f"Domains: {domain_line}"),
             Note(f"Confidence: {opportunity.get('confidence', 'unavailable')} | Coverage: {opportunity.get('coverage', 'unavailable')}"),

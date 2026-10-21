@@ -40,6 +40,58 @@ def is_baseline(model_name: object) -> bool:
     return "baseline" in str(model_name).casefold()
 
 
+def _number(value: object) -> float | None:
+    try:
+        number = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    return number if number == number and abs(number) != float("inf") else None
+
+
+def calibration_label(coverage: object, low: object, high: object) -> tuple[str, str, str]:
+    """(label, tone, why) of the stored conformal coverage against its 90% target and 95% Wilson interval.
+
+    Good needs the interval to keep the target AND the point coverage to reach it; a target the interval merely
+    overlaps while coverage sits below it is inconclusive, never Good. A target outside the interval is Poor.
+    """
+    point, lower, upper = _number(coverage), _number(low), _number(high)
+    if point is None or lower is None or upper is None:
+        return "n/a", "mute", "Pending: not enough matured samples."
+    if not lower <= CONFORMAL_TARGET <= upper:
+        return "Poor", "bad", "The Wilson interval excludes the 90% target."
+    if point >= CONFORMAL_TARGET:
+        return "Good", "ok", "The Wilson interval contains the 90% target and coverage reaches it."
+    return "Inconclusive", "warn", "The Wilson interval contains the 90% target but coverage is below it; calibration is not established."
+
+
+def model_available(model_id: str, models: pd.DataFrame, registry: dict[str, object], artefact_available: bool | None) -> bool:
+    """Availability of one model: baselines always; an optional model by its stored artefact; otherwise the registry
+    status, and only when that is missing, stored rows that include at least one ok forecast (failed-only is not available)."""
+    if is_baseline(model_id):
+        return True
+    if artefact_available is not None:
+        return bool(artefact_available)
+    if model_id in registry:
+        return bool(registry[model_id])
+    if models is None or models.empty or "model_name" not in models.columns:
+        return False
+    rows = models.loc[models["model_name"].astype(str) == model_id]
+    if rows.empty:
+        return False
+    if "ok_rows" not in rows.columns:
+        return True
+    return bool(pd.to_numeric(rows["ok_rows"], errors="coerce").fillna(0).gt(0).any())
+
+
+def recent_runs(runs: pd.DataFrame, limit: int) -> pd.DataFrame:
+    """Newest runs first (as-of date, then run id), so a row limit never cuts the latest runs."""
+    if runs is None or runs.empty or "as_of_date" not in runs.columns:
+        return runs
+    key = pd.to_datetime(runs["as_of_date"], errors="coerce", utc=True)
+    ordered = runs.assign(__as_of=key).sort_values(["__as_of", "run_id"], ascending=False, na_position="last", kind="stable")
+    return ordered.drop(columns="__as_of").head(limit)
+
+
 def _naive_day(values: pd.Series) -> pd.Series:
     return pd.to_datetime(values, errors="coerce", utc=True, format="mixed").dt.tz_convert(None).dt.normalize()
 

@@ -1,5 +1,5 @@
 schema_version: 1
-version: opportunity-v1.0.0
+version: opportunity-v1.1.0
 minimum_universe_support: 3
 minimum_peer_support: 3
 minimum_exposure_peer_sector_share: 0.35
@@ -11,3 +11,14 @@ labels:
 timing:
   supportive_momentum_percentile: 75.0
   adverse_momentum_percentile: 25.0
+absolute_merit:
+  # Absolute merit is advisory. A Buy candidate must clear verified costs,
+  # the calibrated forecast uncertainty margin, and this additional hurdle.
+  benchmark_id: benchmark:ftse-all-world
+  benchmark_instrument_id: VWCE
+  base_currency: EUR
+  tactical_horizons: [20_sessions, 60_sessions]
+  valuation_horizons: [1_year, 2_years, 3_years]
+  uncertainty_hurdle: 0.02
+  hysteresis_band: 0.002
+  maximum_evidence_age_days: 5

@@ -763,6 +763,20 @@ class OrderLifecycle:
     def get_state(self, order_id: str) -> OrderState:
         return self.get_intent(order_id).state
 
+    def intents_in_state(self, account_id: str, state: OrderState | str) -> tuple[OrderIntent, ...]:
+        """Return the account's order intents currently in ``state``, oldest first."""
+
+        wanted = self._state(state)
+        connection = self._connect()
+        try:
+            rows = connection.execute(
+                "SELECT * FROM order_intents WHERE account_id = ? AND state = ? ORDER BY created_at, order_id",
+                (self._required_text(account_id, "account_id"), wanted.value),
+            ).fetchall()
+            return tuple(self._intent_from_row(row) for row in rows)
+        finally:
+            connection.close()
+
     def get_reservation(self, order_id: str) -> CashReservation | None:
         connection = self._connect()
         try:

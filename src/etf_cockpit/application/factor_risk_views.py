@@ -82,10 +82,24 @@ def load_bound_factor_risk_panel(snapshot: object, instrument_id: str) -> dict[s
             raise ValueError("feature identity and dates must be unambiguous")
         # A price checksum binds inputs, not supplied descriptor values. Replay
         # the canonical calculation before accepting those descriptors as bound.
-        from etf_cockpit.features.feature_pipeline import compute_features
+        from etf_cockpit.data.fx_data import fx_rates_for_prices
+        from etf_cockpit.features.feature_pipeline import compute_features, eur_basis_prices
         replay_prices = scoped_prices.copy()
         if "volume" not in replay_prices:
             replay_prices["volume"] = float("nan")  # FeatureService's explicit missing-volume convention.
+        fx_binding = features.attrs.get("fx_binding")
+        if isinstance(fx_binding, Mapping):
+            # Features built on the EUR basis are replayed on the same basis from the same FX series.
+            config = getattr(snapshot, "config", None)
+            configured = {etf.id: etf.currency for etf in config.universe.etfs} if config is not None else {}
+            try:
+                fx_rates = fx_rates_for_prices(replay_prices)
+            except Exception:
+                fx_rates = pandas.DataFrame()
+            eur_basis = eur_basis_prices(replay_prices, fx_rates, configured_currency=configured, known_by=window["decision_time"])
+            if dict(eur_basis.binding) != dict(fx_binding):
+                raise ValueError("FX series differs from the one the features were built from")
+            replay_prices = eur_basis.frame
         replay_features = compute_features(replay_prices)
         descriptor_columns = ["etf_id", "date", "momentum_120d", "momentum_60d", "return_60d_log", "vol_60d_ann", "vol_120d_ann", "ewma_vol_ann"]
         if not set(descriptor_columns).issubset(scoped_features):

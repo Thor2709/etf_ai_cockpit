@@ -33,14 +33,14 @@ from etf_cockpit.app.components.kit import (
 from etf_cockpit.app.components.shell.page_view import PageChrome, PageView, SegmentGroup
 from etf_cockpit.app.formatting import format_count, format_date, format_number
 from etf_cockpit.app.state import AppState
-from etf_cockpit.application.benchmark_reference import context_from_snapshot
+from etf_cockpit.application.benchmark_reference import context_from_snapshot as context_from_snapshot
 from etf_cockpit.application.instrument_detail_view import (
     _latest_operational_row,
     _operational_evidence_panel,
 )
 from etf_cockpit.application.score_views import confidence_cap_note, score_card_values, sparebank_score_context
 from etf_cockpit.application.sparebank_peers import axis_evidence_notes
-from etf_cockpit.application.ui_facade import build_simple_instrument_scores
+from etf_cockpit.application.ui_facade import build_simple_instrument_scores as build_simple_instrument_scores
 from etf_cockpit.app.components.simple_scores import simple_score_grouped_sections  # noqa: F401
 
 _MISSING = "\u2014"
@@ -174,6 +174,15 @@ def _score_rows(scores: Sequence[object], on_scorecard_click=None) -> list[dict[
             score_cell.on_click = on_scorecard_click
         else:
             score_cell = ScoreBar(_number(_read(score, "final_score_10")))
+            band_low = _number(_read(score, "score_band_low"))
+            band_high = _number(_read(score, "score_band_high"))
+            if band_low is not None and band_high is not None and 0.0 <= band_low <= band_high <= 10.0:
+                stable = _read(score, "label_stable")
+                stability = "label stable" if stable is True else "label may change" if stable is False else "label stability unavailable"
+                score_cell = ft.Column(
+                    [score_cell, Note(f"Band {band_low:.1f}–{band_high:.1f}/10 · {stability}")],
+                    spacing=4,
+                )
         rows.append(
             {
                 "rank": format_count(index),

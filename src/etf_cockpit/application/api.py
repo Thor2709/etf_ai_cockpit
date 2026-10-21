@@ -108,6 +108,33 @@ class _LedgerEntry:
     result: CommandResult
 
 
+def _friction_gate_for(request: ProposalReviewRequest):
+    """Size-aware friction verdict; ``None`` (proposal suppressed) unless benefit, price and uncertainty are supplied."""
+
+    from etf_cockpit.core.config import load_config
+    from etf_cockpit.portfolio.costs import estimate_execution_cost
+    from etf_cockpit.signals.friction_edge import evaluate_friction_gate
+
+    if request.expected_benefit_bps is None or request.reference_price_eur is None or request.uncertainty_bps is None:
+        return None
+    order_value = abs(request.target_quantity - request.current_quantity) * request.reference_price_eur
+    if order_value <= 0.0:
+        return None
+    estimate = estimate_execution_cost(
+        load_config(),
+        request.instrument_id,
+        order_value,
+        adv_eur=request.adv_eur,
+        daily_volatility=request.daily_volatility,
+    )
+    return evaluate_friction_gate(
+        request.expected_benefit_bps,
+        order_value_eur=order_value,
+        cost_estimate=estimate.as_dict(),
+        uncertainty_bps=request.uncertainty_bps,
+    )
+
+
 class LocalApplicationApi:
     """Typed, local-first query and command boundary.
 
@@ -705,6 +732,7 @@ class LocalApplicationApi:
 
         decision = build_proposal_decision(
             ProposalRequest(
+                friction_gate=_friction_gate_for(request),
                 instrument_id=request.instrument_id,
                 current_quantity=request.current_quantity,
                 target_quantity=request.target_quantity,

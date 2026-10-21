@@ -30,9 +30,8 @@ from etf_cockpit.application.snapshot_builder import CockpitSnapshot
 from etf_cockpit.signals.canonical_scoring import FORECAST_DOMAIN, RANK_DOMAINS, load_score_policy, rank_domain_weights
 from etf_cockpit.signals.simple_scores import (
     COMPONENT_LABELS,
-    ETF_EVIDENCE_WEIGHTS,
-    STOCK_EVIDENCE_WEIGHTS,
     build_simple_instrument_scores as build_simple_instrument_scores,
+    headline_weights,
     load_latest_candidate_report,
     simple_scoreboard_frame,
     write_simple_scoreboard,
@@ -48,6 +47,7 @@ LINEAGE_SCHEMA_VERSION = "score_lineage.v1"
 SCORE_SURFACES = ("ui", "export", "scoreboard", "history", "api", "decision")  # "decision": DA-v1 / QV / QVM assessment
 AUTHORITIES = ("descriptive", "rank", "decision")
 _V3_CONFIG = "configs/score_engine_v3.yaml"
+_HEADLINE_CONFIG = _V3_CONFIG + "#asset_policies.*.headline_evidence"  # NS1: the legacy composite reads the v3 yaml
 _V3_CODE = "signals/canonical_scoring.py:build_canonical_score"
 _LEGACY_CODE = "signals/simple_scores.py:build_simple_instrument_scores (legacy evidence composite, forecast weight 0 by owner rule F5)"
 _ALL_PERSISTED = ("ui", "export", "scoreboard", "history")
@@ -239,16 +239,12 @@ def score_rank_authority(*, promotion_record: Mapping[str, object] | None = None
     }
 
 
-def _weights_digest(weights: Mapping[str, object]) -> str:
-    return hashlib.sha256(json.dumps(weights, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
-
-
 def _formula_version(row: ScoreLineageRow, policy: Any, cutover_policy: Any) -> str:
-    if row.weights_source == "v3_policy":
-        return str(policy.formula_version)
     if row.weights_source == _DA_POLICY:
         return str(cutover_policy.version)
-    return "legacy-evidence-composite"
+    if row.weights_source == "none":
+        return "not-weighted"
+    return str(policy.formula_version)  # v3 groups and the headline composite: the v3 yaml version
 
 
 def score_lineage_manifest(*, promotion_record: Mapping[str, object] | None = None) -> list[dict[str, object]]:
@@ -260,7 +256,7 @@ def score_lineage_manifest(*, promotion_record: Mapping[str, object] | None = No
     from etf_cockpit.analysis.decision.rank_validation import load_rank_validation_policy
 
     policy = load_score_policy("ETF")
-    legacy = {"ETF": dict(ETF_EVIDENCE_WEIGHTS), "STOCK": dict(STOCK_EVIDENCE_WEIGHTS)}
+    legacy = {"ETF": headline_weights("ETF"), "STOCK": headline_weights("Stock")}
     rank_authority = score_rank_authority(promotion_record=promotion_record)
     display_only_code = [_PATH_CODE[path] for path in rank_authority["display_only_paths"]]  # type: ignore[attr-defined]
     cutover_policy = load_rank_validation_policy()
@@ -268,7 +264,7 @@ def score_lineage_manifest(*, promotion_record: Mapping[str, object] | None = No
     sources: dict[str, tuple[object, str, str]] = {
         "v3_policy": (policy.groups, policy.formula_checksum, _V3_CONFIG),
         _DA_POLICY: (da_weights, cutover_policy.checksum, "configs/decision_cutover_v1.yaml"),
-        _LEGACY_WEIGHTS: (legacy, _weights_digest(legacy), "signals/simple_scores.py:ETF_EVIDENCE_WEIGHTS|STOCK_EVIDENCE_WEIGHTS"),
+        _LEGACY_WEIGHTS: (legacy, policy.formula_checksum, _HEADLINE_CONFIG),
         "none": ({}, "none", "none"),
     }
     forecast_weight = rank_domain_weights(policy)[FORECAST_DOMAIN]
@@ -296,6 +292,8 @@ def score_lineage_manifest(*, promotion_record: Mapping[str, object] | None = No
                     "weights_source": source,
                     "active_weights": weights,
                     "config_hash": digest,
+                    "score_engine_version": policy.formula_version,
+                    "score_engine_checksum": policy.formula_checksum,
                     "data_cutoff": row.data_cutoff,
                     "eligibility_rule": row.eligibility_rule,
                     "authority": authority,
@@ -381,7 +379,13 @@ def _write_current_scoreboard(session: ScoreboardSession) -> Path:
             try:
                 if not isinstance(history_path, Path) or not history_path.is_file():
                     raise RuntimeError("Score history publication path is unavailable.")
-                _record_scoreboard_publication_binding(path, history_path, scoreboard_frame)
+                # The trust writer names the run it wrote; a plain mapping without that identity (legacy writers)
+                # keeps the previous newest-run binding.
+                run_id = getattr(paths, "run_id", None)
+                if run_id is None:
+                    _record_scoreboard_publication_binding(path, history_path, scoreboard_frame)
+                else:
+                    _record_scoreboard_publication_binding(path, history_path, scoreboard_frame, run_id=str(run_id))
             except Exception as binding_exc:
                 raise ScoreboardPublicationBindingError(str(binding_exc)) from binding_exc
     except Exception as exc:
@@ -397,8 +401,14 @@ def _record_scoreboard_publication_binding(
     scoreboard_path: Path,
     history_path: Path,
     expected_scoreboard: pd.DataFrame,
+    *,
+    run_id: str | None = None,
 ) -> dict[str, Any]:
-    """Bind exact scoreboard bytes to the score-history run that published them."""
+    """Bind exact scoreboard bytes to the score-history run that published them.
+
+    ``run_id`` is the run that wrote this scoreboard's history; the binding uses exactly that run's rows. Without
+    it (direct callers that only hold the file) the globally newest history run is used, as before.
+    """
 
     scoreboard_bytes = scoreboard_path.read_bytes()
     actual_scoreboard = pd.read_parquet(BytesIO(scoreboard_bytes))
@@ -418,6 +428,12 @@ def _record_scoreboard_publication_binding(
     completed = pd.to_datetime(history["run_completed_at"], utc=True, errors="coerce")
     if completed.isna().any():
         raise ValueError("Score history contains an unverifiable completion time.")
+    if run_id is not None:
+        selected = history["run_id"].astype(str).str.strip().eq(str(run_id).strip())
+        if not selected.any():
+            raise ValueError("Score history has no rows for the publishing run.")
+        history = history.loc[selected]
+        completed = completed.loc[selected]
     newest = completed.max()
     latest = history.loc[completed.eq(newest)]
     run_ids = {str(value).strip() for value in latest["run_id"] if pd.notna(value)}

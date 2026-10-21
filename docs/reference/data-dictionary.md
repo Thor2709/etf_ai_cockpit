@@ -337,13 +337,13 @@ Generated with `python scripts/generate_data_dictionary.py`. Regenerate after a 
 | configs/analysis_parity_v1.yaml | numeric_analysis_fields, numeric_tolerances, portfolio_artifacts, required_core_surfaces, schema_version, version | schema_version=1; version=analysis-parity-v1 |
 | configs/audit_manifest.yaml | governance, required, version | version=1 |
 | configs/authority_matrix.yaml | adr_id, adr_path, authority_stages, capabilities, completion_contract, executable_authority, execution_allowed, mandatory_core, optional_enrichment, policy_id, policy_version, schema_version | policy_version="2026-07-21"; schema_version="1.0" |
-| configs/backtest_default.yaml | end_date, initial_value_eur, rebalance_frequency_days, start_date, strategies, transaction_cost_bps | — |
+| configs/backtest_default.yaml | end_date, enforce_capacity, initial_value_eur, legacy_override_qualifies, qualification_cost_regime, rebalance_frequency_days, start_date, strategies, stress_cost_multiplier, transaction_cost_bps | — |
 | configs/costs.yaml | base_currency, broker, cost_model, per_etf | — |
 | configs/data_providers.yaml | providers | — |
 | configs/data_source_policy.yaml | mandatory_tiers, policy_version, quota_failure, schema_version, sources | policy_version="2026-07-17"; schema_version="data-source-policy.v1" |
 | configs/decision_cutover_v1.yaml | monitoring, rankers, replay, schema_version, validation, version | schema_version=1; version=decision-cutover-v1.0.0 |
 | configs/decision_domains_v1.yaml | critical_evidence, etf_decision_graph, hash_scheme, metrics, rank_cutover, schema_version, stock_decision, version | schema_version=1; version=decision-domains-v1.0.0 |
-| configs/decision_opportunity_v1.yaml | labels, minimum_exposure_peer_sector_share, minimum_peer_support, minimum_universe_support, schema_version, timing, version | schema_version=1; version=opportunity-v1.0.0 |
+| configs/decision_opportunity_v1.yaml | absolute_merit, labels, minimum_exposure_peer_sector_share, minimum_peer_support, minimum_universe_support, schema_version, timing, version | schema_version=1; version=opportunity-v1.1.0 |
 | configs/esef_extension_concepts.yaml | equity_member_rules, issuers | — |
 | configs/etf_tax_assumptions_v1.yaml | hedge_enabled, hedge_ratio, hedge_target_currency, known_at, source_withholding_label, source_withholding_rate, tax_enabled, tax_residence_country, version | version=1 |
 | configs/euronext_listing_v1.yaml | endpoint, markets, minimum_rows, provider_id, savings_bank_exclude_names, savings_bank_include_names, savings_bank_patterns, schema_version, scope, timeout_seconds, user_agent | schema_version=euronext-listing.v1 |
@@ -357,7 +357,8 @@ Generated with `python scripts/generate_data_dictionary.py`. Regenerate after a 
 | configs/market_calendar_corrections.yaml | corrections, ledger_version, schema_version | ledger_version="2026-07-22"; schema_version=market-calendar-corrections.v1 |
 | configs/model_settings.yaml | ensemble, forecast_horizons_trading_days, models, promotion | — |
 | configs/mutation_thresholds_v1.yaml | critical_mutants, required_kill_rate, scope, version | version=1 |
-| configs/paper_bots_v1.yaml | baseline_score_version, benchmark, bots, decision_period, eligibility, initial_virtual_cash_eur, max_snapshot_age_hours, monthly_contribution_eur, schema_version | baseline_score_version=score-engine-v3.0.0; schema_version=paper_bots.v1 |
+| configs/paper_bots_execution_v1.yaml | account_capability, base_currency, cost_model, fill_rule, fill_time_utc, lot_size, max_buy_retry_sessions, max_stale_mark_sessions, min_trade_value_eur, missed_fill_grace_calendar_days, model_id, paper_approvals, proposal_validity_days, rebalance_tolerance_weight, replay, rule_expected_benefit_bps, rule_uncertainty_bps, schema_version, sizing_price_max_age_days, strategy_id, uncertainty | schema_version=paper_bots_execution.v1 |
+| configs/paper_bots_v1.yaml | baseline_score_version_source, benchmark, bots, decision_period, eligibility, initial_virtual_cash_eur, max_snapshot_age_hours, monthly_contribution_eur, schema_version | baseline_score_version_source=score_engine_v3.formula_version; schema_version=paper_bots.v1 |
 | configs/performance_budgets.yaml | budgets, policy_version, regression_tolerance_pct, schema_version | policy_version="2026-07-17"; schema_version="performance-budgets.v1" |
 | configs/plugin_registry.yaml | allowlist, execution_allowed, schema_version | schema_version="plugin-registry.v1" |
 | configs/portfolio_forecast_v1.yaml | scenario_count, scenario_seed, schema_version, stress_correlation | schema_version=portfolio_forecast.v1 |
@@ -370,9 +371,9 @@ Generated with `python scripts/generate_data_dictionary.py`. Regenerate after a 
 | configs/risk_limits.yaml | portfolio_limits, signal_limits | — |
 | configs/risk_profiles_v1.yaml | default_profile_id, preset_version, profiles, schema_version | preset_version=1; schema_version=risk_profiles.v1 |
 | configs/sample_calendar_identities.yaml | identities, schema_version | schema_version=sample-calendar-identities.v1 |
-| configs/score_engine_v3.yaml | asset_policies, formula_version, horizons, schema_version | formula_version=score-engine-v3.0.0; schema_version=1 |
+| configs/score_engine_v3.yaml | action_composite, asset_policies, etf_product_quality, formula_version, horizons, liquidity, schema_version | formula_version=score-engine-v3.3.0; schema_version=1 |
 | configs/security_policy.yaml | credentials, network, parser_limits, schema_version, security_findings | schema_version="security-policy.v1" |
-| configs/settings.yaml | controls, execution_allowed, revision, schema_version, semantic_version, settings_version | schema_version=settings_bundle.v1; semantic_version=1.0.0; settings_version=0 |
+| configs/settings.yaml | controls, data, execution_allowed, revision, schema_version, semantic_version, settings_version | schema_version=settings_bundle.v1; semantic_version=1.0.0; settings_version=0 |
 | configs/settlement_v1.yaml | settlement_lags | — |
 | configs/sparebank_scorecard_v1.yaml | axes, formula_version, hard_gates, horizons, judgement, schema_version, scorecard, valuation_defaults | formula_version=sparebank-scorecard-v1.2.0; schema_version=1 |
 | configs/stock_fundamentals_v1.yaml | growth, peers, reporting, schema_version, scope, scoring, sec_edgar_concepts, sources, text, valuation, yfinance_labels | schema_version=1 |

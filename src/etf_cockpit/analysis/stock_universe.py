@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import threading
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -18,14 +18,30 @@ import pandas as pd
 
 from etf_cockpit.analysis import stock_metrics as sm
 from etf_cockpit.analysis.stock_evidence import AnalystInputs, MarketInputs, StockEvidence, build_stock_evidence, metric_freshness_reason
-from etf_cockpit.analysis.stock_peers import PeerPick, PeerProfile, auto_peers, effective_peers
+from etf_cockpit.analysis.stock_peers import PeerPick, PeerProfile, auto_peers, cohort_members, effective_peers
 from etf_cockpit.core.frame_signature import columns_key
 from etf_cockpit.core.paths import ROOT
 from etf_cockpit.data import stock_fundamentals as store
 from etf_cockpit.data.stock_peer_picks import load_user_peers
 
 LIVE_GRACE_DAYS = 5
+SECTOR_ROUTE_MISSING = "sector_route_missing"
+# Insurers, exchanges and diversified financials have no dedicated fundamentals route yet. Banks are excluded from the
+# generic route by ``scope.excluded_sectors`` (the Sparebank scorecard owns them) and never match here.
+_NON_BANK_FINANCIAL_TOKENS = ("financ", "insur", "assurance")
+_BANK_TOKENS = ("bank", "savings")
+
+
+def is_non_bank_financial_sector(sector: object) -> bool:
+    """True for a Financials / Insurance / Financial exchanges classification (never for banks or blank labels)."""
+
+    text = "" if _blank(sector) else str(sector).strip().casefold()
+    if not text or any(token in text for token in _BANK_TOKENS):
+        return False
+    return any(token in text for token in _NON_BANK_FINANCIAL_TOKENS)
+
 PEER_METRIC_KEYS = ("pe", "ev_ebit", "ev_sales", "pb", "roe", "ebit_margin", "fcf_yield", "dividend_yield", "revenue_cagr")
+COHORT_METRIC_KEYS = ("pe", "earnings_yield", "fcf_yield", "ebit_ev_yield", "roe", "roic", "ebit_margin", "net_debt_to_ebitda", "fcf_conversion", "revenue_cagr")
 
 
 def live_decision_time(as_of: date | None, now: datetime | None = None) -> datetime:
@@ -284,7 +300,16 @@ def build_universe_evidence(
         }
         for key in PEER_METRIC_KEYS
     }
-    candidates = [result.profiles[r.instrument_id] for r in records]
+    cohort_metrics = {
+        key: {
+            iid: ev.metrics[key].value
+            for iid, ev in first.items()
+            if key in ev.metrics and ev.metrics[key].available and metric_freshness_reason(ev.metrics[key], decision_time, stale_days) is None
+        }
+        for key in COHORT_METRIC_KEYS
+    }
+    # Non-bank financials are not scored by the industrial ratios, so they must not shape industrial peer cohorts either.
+    candidates = [profile for profile in (result.profiles[r.instrument_id] for r in records) if not is_non_bank_financial_sector(getattr(profile, "sector", None))]
     for record in records:
         iid = record.instrument_id
         automatic = auto_peers(result.profiles[iid], candidates, cfg)
@@ -297,14 +322,41 @@ def build_universe_evidence(
         scoped = {key: {pid: value for pid, value in values.items() if pid in members} for key, values in peer_values.items()}
         periods = store.periods_for(iid, periods_frame, chain)
         snapshot = store.latest_snapshot(iid, snapshots, decision_time)
-        result.evidence[iid] = build_stock_evidence(
+        cohorts = {
+            level: {key: {pid: cohort_metrics[key][pid] for pid in ids if pid in cohort_metrics[key]} for key in COHORT_METRIC_KEYS}
+            for level, ids in cohort_members(result.profiles[iid], candidates).items()
+        }
+        result.evidence[iid] = with_sector_route(build_stock_evidence(
             iid, periods, decision_time, result.prices[iid], analyst_inputs(analysts[iid]), cfg,
-            peer_values=scoped, no_data_reason=store.no_data_reason(iid, snapshots, decision_time, bool(sm.known_periods(periods, decision_time))),
-        )
+            peer_values=scoped, cohort_values=cohorts, no_data_reason=store.no_data_reason(iid, snapshots, decision_time, bool(sm.known_periods(periods, decision_time))),
+        ), getattr(result.profiles[iid], "sector", None))
     for pid, evidence in first.items():
         if pid.startswith("peer:"):
             result.evidence[pid] = evidence
     return result
+
+
+def with_sector_route(evidence: StockEvidence, sector: object) -> StockEvidence:
+    """Non-bank financials have no fundamentals route: value and quality are unavailable (analyst revision is sector-neutral)."""
+
+    if not is_non_bank_financial_sector(sector):
+        return evidence
+    unavailable = {}
+    for key in ("stock_value", "stock_quality"):
+        part = evidence.components[key]
+        unavailable[key] = replace(
+            part,
+            score_10=None,
+            inputs=(),
+            freshness="unavailable",
+            why=f"{part.label}: {SECTOR_ROUTE_MISSING}: non-bank financials have no dedicated fundamentals route yet, "
+            "and the generic industrial ratios (ROE, ROIC, net debt/EBITDA, EBIT margin) do not apply to them.",
+            band_low=None,
+            band_high=None,
+            label_stable=None,
+            band_basis=None,
+        )
+    return replace(evidence, components={**evidence.components, **unavailable})
 
 
 def _market_from_snapshot(snapshot: Mapping[str, Any] | None, decision_time: datetime) -> MarketInputs:

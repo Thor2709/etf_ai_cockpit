@@ -16,6 +16,31 @@ from etf_cockpit.models.distribution_store import (
 )
 
 MIN_BASELINE_OBSERVATIONS = 20
+MAX_MISSING_SESSION_SHARE = 0.10
+MAX_OBSERVED_GAP_DAYS = 7
+# Excess return needs the asset and benchmark means over the dates both traded: at least this many
+# of them and at least this share of the asset's 180-return window (a few cross-exchange holidays
+# pass; a benchmark that mostly misses the window does not).
+MIN_BENCHMARK_OVERLAP_OBSERVATIONS = MIN_BASELINE_OBSERVATIONS
+MIN_BENCHMARK_OVERLAP_SHARE = 0.75
+BENCHMARK_OVERLAP_REASON = "benchmark_overlap_insufficient_for_excess_return"
+
+
+def observed_history_is_sparse(series: pd.Series) -> bool:
+    """True when observed dates are too gappy to be read as consecutive-session returns.
+
+    Measured on non-NaN observations only: a gap over 7 calendar days or fewer than 90% of the
+    weekdays between the first and last observation present.
+    """
+    days = pd.DatetimeIndex(series.dropna().index)
+    if len(days) < 2:
+        return False
+    days = (days.tz_convert("UTC").tz_localize(None) if days.tz is not None else days).normalize()
+    weekdays = len(pd.bdate_range(days[0], days[-1]))
+    return bool(
+        int(pd.Series(days).diff().dt.days.max()) > MAX_OBSERVED_GAP_DAYS
+        or (weekdays > 1 and len(days) / weekdays < 1 - MAX_MISSING_SESSION_SHARE)
+    )
 
 
 def baseline_forecast(
@@ -26,8 +51,21 @@ def baseline_forecast(
     run_id: str,
     benchmark_returns: pd.Series | None = None,
 ) -> list[ForecastResult]:
+    if any(isinstance(h, bool) or not np.isfinite(h) or h != int(h) or h <= 0 for h in horizons):
+        raise ValueError("forecast horizons must be positive integers")
     # Only history known at the forecast date may enter the estimates.
     adjusted_close = adjusted_close.loc[pd.to_datetime(adjusted_close.index, utc=True).date <= forecast_date]
+    adjusted_close = adjusted_close.sort_index()
+    if isinstance(adjusted_close.index, pd.DatetimeIndex) and not adjusted_close.empty:
+        # Legacy direct callers have no certified listing calendar. A week without
+        # an endpoint is never accepted as current history; service callers apply
+        # the stricter certified-session freshness check before this boundary.
+        if (forecast_date - adjusted_close.index[-1].date()).days > MAX_OBSERVED_GAP_DAYS:
+            return []
+        # Sparse (e.g. weekly) observations would be read as daily returns and overscale horizons.
+        if observed_history_is_sparse(adjusted_close):
+            return []
+        forecast_date = adjusted_close.index[-1].date()
     log_returns = daily_log_returns(adjusted_close)
     log_returns = log_returns[np.isfinite(log_returns)]
     if len(log_returns) < MIN_BASELINE_OBSERVATIONS:
@@ -37,11 +75,37 @@ def baseline_forecast(
     vol = float(log_returns.tail(60).std() * np.sqrt(252))
     coverage = history_coverage_ratio(len(log_returns))
     results: list[ForecastResult] = []
-    benchmark_mean = float(benchmark_returns.tail(180).mean() * 0.35) if benchmark_returns is not None and not benchmark_returns.empty else 0.0
+    # No benchmark supplied keeps the legacy zero-benchmark contract (the service nulls relative
+    # fields itself); a supplied benchmark without enough overlap with the training window gives None.
+    benchmark_mean: float | None = 0.0
+    asset_mean = mean
+    overlap_reason: str | None = None
+    if benchmark_returns is not None and not benchmark_returns.empty:
+        benchmark_mean = None
+        if isinstance(benchmark_returns.index, pd.DatetimeIndex):
+            benchmark_returns = benchmark_returns.loc[benchmark_returns.index.date <= forecast_date]
+            window = log_returns.tail(180)
+            if benchmark_returns.index.is_unique:
+                common = window.index.intersection(benchmark_returns.index)
+                paired = benchmark_returns.reindex(common).to_numpy(dtype=float)
+                finite = np.isfinite(paired)
+                common = common[finite]
+                if len(common) >= max(MIN_BENCHMARK_OVERLAP_OBSERVATIONS, MIN_BENCHMARK_OVERLAP_SHARE * len(window)):
+                    # Both means use the same dates, so a holiday on one calendar cannot bias the excess.
+                    if len(common) < len(window):
+                        asset_mean = float(window.reindex(common).mean() * 0.35)
+                    benchmark_mean = float(benchmark_returns.reindex(common).mean() * 0.35)
+            if benchmark_mean is None:
+                overlap_reason = BENCHMARK_OVERLAP_REASON
+        else:
+            # Explicit ordinal return vectors retain their legacy input contract.
+            benchmark_mean = float(benchmark_returns.tail(min(180, len(log_returns))).mean() * 0.35)
     for horizon in horizons:
         expected = mean * horizon
-        expected_excess = expected - benchmark_mean * horizon
+        expected_excess = asset_mean * horizon - benchmark_mean * horizon if benchmark_mean is not None else None
         horizon_vol = vol * np.sqrt(horizon / 252) if vol else 0.0
+        # A zero/NaN horizon volatility cannot support a relative-strength score: fail closed.
+        beat_vol_ok = bool(np.isfinite(horizon_vol) and horizon_vol > 0)
         q10 = expected - 1.2816 * horizon_vol
         q90 = expected + 1.2816 * horizon_vol
         results.append(
@@ -64,8 +128,14 @@ def baseline_forecast(
                 # Logistic scores are heuristics: no out-of-sample calibration backs them, so the
                 # calibrated-probability fields stay unavailable (None).
                 heuristic_probability_positive=float(1 / (1 + np.exp(-expected / max(horizon_vol, 1e-6)))),
-                heuristic_probability_beat_benchmark=float(1 / (1 + np.exp(-expected_excess / max(horizon_vol, 1e-6)))),
+                heuristic_probability_beat_benchmark=(
+                    float(1 / (1 + np.exp(-expected_excess / max(horizon_vol, 1e-6))))
+                    if expected_excess is not None and beat_vol_ok and expected_excess >= 0 else
+                    float(np.exp(expected_excess / max(horizon_vol, 1e-6)) / (1 + np.exp(expected_excess / max(horizon_vol, 1e-6))))
+                    if expected_excess is not None and beat_vol_ok else None
+                ),
                 status="ok",
+                reason_unavailable=overlap_reason,
             )
         )
     return results

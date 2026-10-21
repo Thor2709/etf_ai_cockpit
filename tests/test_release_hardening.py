@@ -443,12 +443,19 @@ def test_stale_etf_metadata_import_reports_block_staleness(tmp_path) -> None:
     assert result.metadata.staleness_status == "block"
 
 
+def _utc_today() -> str:
+    # The FX future-quote check compares against the UTC clock; local date.today() is a day ahead after local midnight.
+    from datetime import datetime, timezone
+
+    return datetime.now(timezone.utc).date().isoformat()
+
+
 def test_fx_import_writes_clean_snapshot_and_metadata(tmp_path) -> None:
     source_path = tmp_path / "fx.csv"
     pd.DataFrame(
         [
-            {"as_of_date": date.today().isoformat(), "pair": "USD/EUR", "rate": 0.93, "source": "manual_test"},
-            {"as_of_date": date.today().isoformat(), "pair": "GBP/EUR", "rate": 1.17, "source": "manual_test"},
+            {"as_of_date": _utc_today(), "pair": "USD/EUR", "rate": 0.93, "source": "manual_test"},
+            {"as_of_date": _utc_today(), "pair": "GBP/EUR", "rate": 1.17, "source": "manual_test"},
         ]
     ).to_csv(source_path, index=False)
     result = ManualLocalFileProvider().import_file(source_path, "fx")
@@ -668,8 +675,13 @@ def test_unavailable_models_are_not_allowed_in_score() -> None:
 
 def test_forecast_service_runs_optional_model_rows_when_enabled(tmp_path, monkeypatch) -> None:
     config = load_config()
-    config.models.models["timesfm"] = {"enabled": True, "mode": "mock", "revision": "a" * 40}
-    config.models.models["toto"] = {"enabled": True, "mode": "mock", "context_length": 128, "revision": "a" * 40}
+    config.data.allow_synthetic_sample_data = True
+    # Checkpoint identity is the hash of the local weights, so the mock run needs a fixture checkpoint.
+    checkpoint = tmp_path / "checkpoint"
+    checkpoint.mkdir()
+    (checkpoint / "model.safetensors").write_bytes(b"fixture weights")
+    config.models.models["timesfm"] = {"enabled": True, "mode": "mock", "model_path": str(checkpoint)}
+    config.models.models["toto"] = {"enabled": True, "mode": "mock", "context_length": 128, "model_path": str(checkpoint)}
     # Calibration-evidence sufficiency has its own tests (test_forecast_honesty); this one covers the run itself.
     monkeypatch.setattr("etf_cockpit.application.forecast_service.horizon_calibration_scores", lambda frame: pd.DataFrame({"status": ["ok"]}))
     # The run manifest requires the canonical prices dataset; materialise it explicitly instead of

@@ -214,7 +214,9 @@ def test_split_adjusted_price_return_excludes_dividend_and_total_return_includes
     assert frame["price_return_index"].iloc[-1] == pytest.approx(95.0)
     assert frame["total_return_index"].iloc[-1] == pytest.approx(100.0)
     assert frame["adjusted_close_basis"].eq("total_return").all()
-    assert frame["price_adjusted_close"].iloc[-1] == pytest.approx(47.5)
+    # PT2: price_adjusted_close is anchored on each row's own as-known snapshot (first close 100 x index 95/100),
+    # never on the LAST raw close (47.5), which made every historical value depend on later publications.
+    assert frame["price_adjusted_close"].iloc[-1] == pytest.approx(95.0)
 
 
 # --- A110-N003 / A010-N005 -------------------------------------------------------------

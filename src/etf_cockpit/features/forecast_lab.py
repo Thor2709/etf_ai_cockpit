@@ -242,10 +242,10 @@ def build_forecast_lab_report(
 ) -> dict[str, object]:
     """Build a read-only report from local forecast and adjusted-price rows.
 
-    Forecast rows after ``as_of_date`` are excluded.  A forecast is matured
-    only when its target session exists in the adjusted-close price history;
-    for a requested ``as_of_date`` only prices up to that date count, so later
-    prices can never grade a historical replay.
+    Forecast rows after ``as_of_date`` are excluded.  If it is omitted, the
+    latest forecast date is the effective as-of. A forecast is matured only
+    when its target session exists in adjusted-close prices up to that date, so
+    later prices can never grade the view.
     Conformal widths use only residuals from *earlier matured forecasts* for
     the same model/horizon, so the current observation cannot calibrate itself.
     Net forward value is the forecast direction times the matured return less
@@ -404,12 +404,9 @@ def build_forecast_lab_report(
             subgroup_results_by_model=subgroup_results_by_model,
         )
 
-    # For a requested historical as-of, later outcomes were not yet knowable.
-    known_prices = (
-        price_frame.loc[price_frame["date"] <= effective_as_of]
-        if pd.notna(requested_as_of)
-        else price_frame
-    )
+    # Later outcomes were not knowable at the effective as-of, whether it was
+    # requested explicitly or inferred from the latest forecast.
+    known_prices = price_frame.loc[price_frame["date"] <= effective_as_of]
     stale_columns = [
         column
         for column in ("is_stale", "stale", "staleness_status", "freshness_status")
@@ -730,6 +727,7 @@ def _matured_rows(
         rows.append(
             {
                 "model_name": str(row["model_name"]),
+                "model_version": _noneable_text(row.get("model_version")),
                 "run_id": run_id,
                 "etf_id": str(row["etf_id"]),
                 "forecast_date": row["forecast_date"],
@@ -897,7 +895,12 @@ def _conformal_diagnostics(evaluated: pd.DataFrame, minimum_samples: int) -> dic
     if evaluated.empty:
         return {"coverage": None, "coverage_ci_lower": None, "coverage_ci_upper": None, "status": "conformal_pending"}
     calibrated_hits = []
-    for _, group in evaluated.groupby(["etf_id", "horizon_days"], sort=True):
+    # Residuals of one model version never calibrate another version's band.
+    keys = ["etf_id", "horizon_days"]
+    if "model_version" in evaluated.columns:
+        evaluated = evaluated.assign(_model_version=evaluated["model_version"].fillna(""))
+        keys = ["_model_version", *keys]
+    for _, group in evaluated.groupby(keys, sort=True):
         group = group.sort_values("forecast_date")
         earlier: list[tuple[pd.Timestamp, float]] = []
         for _, row in group.iterrows():
@@ -979,14 +982,18 @@ def _pooled_mase(evaluated: pd.DataFrame, price_lookup: Mapping[str, pd.DataFram
 
     if evaluated.empty:
         return None
-    scales: dict[tuple[str, int], float | None] = {}
+    scales: dict[tuple[str, int, pd.Timestamp], float | None] = {}
     scaled: list[float] = []
-    for etf_id, horizon, error in zip(
-        evaluated["etf_id"].astype(str), evaluated["horizon_days"].astype(int), evaluated["absolute_error"], strict=True
+    for etf_id, horizon, error, origin in zip(
+        evaluated["etf_id"].astype(str), evaluated["horizon_days"].astype(int), evaluated["absolute_error"],
+        pd.to_datetime(evaluated["forecast_date"], utc=True), strict=True
     ):
-        key = (etf_id, horizon)
+        key = (etf_id, horizon, origin)
         if key not in scales:
             prices = price_lookup.get(etf_id)
+            if prices is not None and not prices.empty:
+                # Training window only: sessions after the forecast origin never set the scale.
+                prices = prices.loc[pd.to_datetime(prices.index, errors="coerce", utc=True) <= origin]
             scales[key] = (
                 None
                 if prices is None or prices.empty
@@ -1030,10 +1037,16 @@ def _horizon_diagnostics(
     outcomes: pd.DataFrame,
     configured_horizons: list[int],
 ) -> tuple[list[int], list[dict[str, object]]]:
-    observed = sorted({int(value) for value in pd.to_numeric(group["horizon_days"], errors="coerce").dropna()})
+    horizons = pd.to_numeric(group["horizon_days"], errors="coerce")
+    ok_rows = group["status"].eq("ok") if "status" in group.columns else pd.Series(True, index=group.index)
+    # A horizon whose rows all failed is not covered: it is reported as skipped with the stored failure reason.
+    observed = sorted({int(value) for value in horizons[ok_rows].dropna()})
     skipped_reasons: dict[int, set[str]] = {
         horizon: {"no_forecast_row"} for horizon in configured_horizons if horizon not in observed
     }
+    for horizon in sorted({int(value) for value in horizons.dropna()} - set(observed)):
+        failed = group.loc[horizons.eq(horizon) & ~ok_rows]
+        skipped_reasons[horizon] = {f"forecast_failed: {_forecast_row_reason(row)}" for _, row in failed.iterrows()}
     for row in outcomes.itertuples(index=False):
         if row.outcome_status == "matured":
             continue

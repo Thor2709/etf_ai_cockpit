@@ -99,6 +99,7 @@ def test_signal_pipeline_removes_only_the_non_fund_structure_block(monkeypatch):
          "relative_strength_60d": 0.05, "price_freshness": "ok",
          "score_momentum": 0.8, "score_trend": 0.8, "score_risk": 0.8,
          "score_baseline_ml": 0.8, "score_toto": None, "score_timesfm": None,
+         "score_baseline_source": "forecast",
          "trend_200": 1.0, "drawdown_60d_max": -0.01, "ewma_vol_ann": 0.1}
         for instrument_id in ids
     ])
@@ -164,8 +165,8 @@ def test_backtest_and_signal_service_call_the_same_scope(monkeypatch):
     monkeypatch.setattr(structural_evidence, "structure_cap_scope", scope)
     monkeypatch.setattr(engine, "structure_cap_scope", scope)
     monkeypatch.setattr(structural_evidence, "_load_local_structural_evidence", lambda: evidence)
-    monkeypatch.setattr(signal_service, "load_prices", lambda: prices.copy())
-    monkeypatch.setattr(signal_service, "load_holdings", lambda: pd.DataFrame(columns=["etf_id", "current_weight", "market_value_eur"]))
+    monkeypatch.setattr(signal_service, "load_prices", lambda **_kwargs: prices.copy())
+    monkeypatch.setattr(signal_service, "load_holdings", lambda **_kwargs: pd.DataFrame(columns=["etf_id", "current_weight", "market_value_eur"]))
     monkeypatch.setattr(signal_service, "load_features", lambda *args, **kwargs: pd.DataFrame())
     monkeypatch.setattr(signal_service, "load_latest_forecasts", lambda *args, **kwargs: pd.DataFrame())
     monkeypatch.setattr(signal_service, "load_forecast_history", pd.DataFrame)

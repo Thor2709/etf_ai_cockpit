@@ -53,11 +53,13 @@ def test_timesfm_probability_uses_row_quantiles_and_labels_median(model_name):
     assert row.distribution_status == "available"
     # q25 is -.025; q50 is .02, so interpolate their CDF at zero.
     expected = 1 - (0.25 + 0.025 / 0.045 * 0.25)
-    assert 0 < row.prob_positive_return < 1
-    assert row.prob_positive_return == pytest.approx(expected)
+    # The CDF value is a heuristic score until calibration for this model, target and horizon is admitted.
+    assert row.prob_positive_return is None
+    assert 0 < row.heuristic_probability_positive < 1
+    assert row.heuristic_probability_positive == pytest.approx(expected)
     no_quantiles = _row(model_name=model_name)
     assert no_quantiles.status == "ok" and no_quantiles.point_statistic == "median"
-    assert no_quantiles.prob_positive_return is None
+    assert no_quantiles.prob_positive_return is None and no_quantiles.heuristic_probability_positive is None
     assert no_quantiles.distribution_status == "unavailable"
 
 
@@ -67,7 +69,8 @@ def test_toto_probability_uses_same_cdf():
         quantiles=quantiles, horizons=[1], etf_id="AAA", forecast_date=DAY,
         run_id="work-w-test", model_version="test",
     )[0]
-    assert row.prob_positive_return == pytest.approx(1 - (0.25 + 0.025 / 0.045 * 0.25))
+    assert row.prob_positive_return is None
+    assert row.heuristic_probability_positive == pytest.approx(1 - (0.25 + 0.025 / 0.045 * 0.25))
     assert row.forecast_vol == pytest.approx((0.06 - -0.04) / 2 / 1.2816)
 
 
@@ -230,6 +233,9 @@ def test_scoring_renormalises_per_instrument_and_preserves_complete_score(missin
     assert "model_missing:toto" in partial.iloc[1].score_unavailable_reason_codes
     assert "model_missing:toto" not in partial.iloc[0].score_unavailable_reason_codes
     weights = effective_ensemble_weights(config.models.ensemble["weights"], toto_available=True, timesfm_available=False)
-    expected = sum(weight * partial.iloc[1]["score_" + key] for key, weight in weights.items()
-                   if weight > 0 and key != "toto" and "score_" + key in partial)
-    assert partial.iloc[1].total_score == pytest.approx(expected / (1 - weights["toto"]) - partial.iloc[1].cost_penalty)
+    # NS1: the unsupplied manual thesis is NaN (not eligible), never 0.0, so it leaves the denominator as well.
+    retained = {key: weight for key, weight in weights.items()
+                if weight > 0 and key != "toto" and "score_" + key in partial and np.isfinite(partial.iloc[1]["score_" + key])}
+    assert "chatgpt_thesis" not in retained
+    expected = sum(weight * partial.iloc[1]["score_" + key] for key, weight in retained.items())
+    assert partial.iloc[1].total_score == pytest.approx(expected / sum(retained.values()) - partial.iloc[1].cost_penalty)

@@ -7,12 +7,14 @@ import re
 import threading
 import traceback
 import uuid
+from collections.abc import Mapping
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from etf_cockpit.core.constants import APP_VERSION
 from etf_cockpit.core.atomic_io import atomic_write_bytes
+from etf_cockpit.core.file_guard import persistent_file_guard
 from etf_cockpit.core.paths import LOG_DIR, ROOT, ensure_project_dirs
 
 SESSION_LOG_PATH = LOG_DIR / "session.jsonl"
@@ -24,6 +26,7 @@ _SESSION_ID = uuid.uuid4().hex
 _SEQUENCE = 0
 _INITIALISED = False
 _EVENT_COUNTS: dict[Path, int] = {}
+_WRITER_LOCK_TIMEOUT_SECONDS = 10.0
 
 # The one secret-key matcher; etf_cockpit.security.policy re-exports it (policy imports this module).
 SECRET_KEY_RE = re.compile(
@@ -162,7 +165,7 @@ def log_event(
         )
         if extra:
             event["extra"] = extra
-        _append_event(event, path=path)
+        _append_event(event, path=path, assign_sequence=True)
     except Exception:
         pass
 
@@ -328,21 +331,34 @@ def _session_log_event_count(path: Path) -> int:
     return sum(bool(row.strip()) for row in path.read_text(encoding="utf-8", errors="strict").splitlines())
 
 
-def _append_event(event: dict[str, Any], *, path: Path | None = None) -> None:
+def event_log_lock_path(path: Path) -> Path:
+    """Cross-process writer/recovery sidecar for one JSONL trace."""
+    return path.with_name(f"{path.name}.lock")
+
+
+def _append_event(event: dict[str, Any], *, path: Path | None = None, assign_sequence: bool = False) -> None:
+    global _SEQUENCE
     try:
         ensure_project_dirs()
         target = SESSION_LOG_PATH if path is None else path
         event = _redact(event)
-        with _LOCK:
-            target.parent.mkdir(parents=True, exist_ok=True)
-            event_count = _EVENT_COUNTS.get(target)
-            if event_count is None:
-                event_count = _session_log_event_count(target)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        # The thread lock orders in-process writers; the file guard orders processes, so the chain
+        # head and the sequence are always read from disk while no other writer can append.
+        with _LOCK, persistent_file_guard(
+            event_log_lock_path(target), timeout_seconds=_WRITER_LOCK_TIMEOUT_SECONDS
+        ):
+            event_count = _session_log_event_count(target)  # other processes may have appended
             if event_count >= SESSION_LOG_MAX_EVENTS:
                 _compact_session_log(target, max_events=SESSION_LOG_MAX_EVENTS - 1)
                 event_count = min(event_count, SESSION_LOG_MAX_EVENTS - 1)
+            previous = _last_event(target)
+            if assign_sequence:
+                event["sequence_number"] = _next_sequence(previous)
+                _SEQUENCE = int(event["sequence_number"])
             event["event_id"] = str(event.get("event_id") or uuid.uuid4().hex)
-            event["prior_event_hash"] = _last_event_hash(target)
+            previous_hash = None if previous is None else previous.get("event_hash")
+            event["prior_event_hash"] = str(previous_hash) if previous_hash else None
             event.pop("event_hash", None)
             event["event_hash"] = _event_hash(event)
             with target.open("a", encoding="utf-8") as handle:
@@ -352,15 +368,21 @@ def _append_event(event: dict[str, Any], *, path: Path | None = None) -> None:
         pass
 
 
-def _last_event_hash(path: Path) -> str | None:
+def _next_sequence(previous: dict[str, Any] | None) -> int:
+    if previous is None:
+        return 1
+    value = previous.get("sequence_number")
+    return (value if isinstance(value, int) and not isinstance(value, bool) else 0) + 1
+
+
+def _last_event(path: Path) -> dict[str, Any] | None:
     if not path.exists() or path.stat().st_size == 0:
         return None
-    lines = path.read_text(encoding="utf-8", errors="strict").splitlines()
+    lines = [row for row in path.read_text(encoding="utf-8", errors="strict").splitlines() if row.strip()]
     if not lines:
         return None
     previous = json.loads(lines[-1])
-    value = previous.get("event_hash")
-    return str(value) if value else None
+    return previous if isinstance(previous, dict) else None
 
 
 def _event_hash(event: dict[str, Any]) -> str:
@@ -384,7 +406,14 @@ def _redact(value: Any) -> Any:
         return tuple(_redact(item) for item in value)
     if isinstance(value, str):
         return redact_text(value)
-    return value
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    if isinstance(value, Mapping):
+        return _redact(dict(value))
+    if isinstance(value, (set, frozenset)):
+        return sorted((_redact(item) for item in value), key=repr)
+    # Arbitrary objects would otherwise reach json.dumps(default=str) unredacted via their repr/str.
+    return redact_text(str(value))
 
 
 def redact_text(value: str) -> str:

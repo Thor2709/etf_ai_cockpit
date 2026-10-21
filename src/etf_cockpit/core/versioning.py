@@ -299,17 +299,26 @@ def settings_bound_run_id(
     return candidate
 
 
-def price_bound_run_label(base_run_id: str, price_binding: Mapping[str, object]) -> str:
-    """Bind a run label to the exact adjusted-price snapshot it is built from.
+def price_bound_run_label(
+    base_run_id: str,
+    price_binding: Mapping[str, object],
+    fx_binding: Mapping[str, object] | None = None,
+) -> str:
+    """Bind a run label to the exact adjusted-price snapshot (and FX series) it is built from.
 
     The result still goes through ``settings_bound_run_id``, so one run identity covers the
-    label, the price state and the settings revision.
+    label, the price state, the FX series behind an EUR currency basis and the settings revision.
+    An ``fx_binding`` whose checksum is not a SHA-256 digest (``not_required``: an all-EUR
+    universe) adds nothing, so EUR-only run identities are unchanged.
     """
 
     checksum = str(price_binding.get("price_snapshot_checksum") or "").casefold()
     if re.fullmatch(r"[0-9a-f]{64}", checksum) is None:
         raise VersionRegistryError("price snapshot checksum must be a SHA-256 digest")
     suffix = f"_p{checksum[:12]}"
+    fx_checksum = str((fx_binding or {}).get("fx_snapshot_checksum") or "").casefold()
+    if re.fullmatch(r"[0-9a-f]{64}", fx_checksum) is not None:
+        suffix += f"_x{fx_checksum[:12]}"
     # Leave room for the "__s" + 12-hex settings suffix added by settings_bound_run_id.
     return f"{str(base_run_id).strip()[: 128 - 15 - len(suffix)]}{suffix}"
 
@@ -410,7 +419,7 @@ def compatibility_summary(registry: Mapping[str, object]) -> dict[str, object]:
 def _build_records(root: Path) -> tuple[VersionRecord, ...]:
     specs = (
         ("schema:local-storage", "schema", "4.0.0", "configs/storage_policy.yaml", (), "storage_schema_version"),
-        ("formula:score-engine-v3", "formula", "3.0.0", "configs/score_engine_v3.yaml", ("schema:local-storage",), "formula_version"),
+        ("formula:score-engine-v3", "formula", "3.3.0", "configs/score_engine_v3.yaml", ("schema:local-storage",), "formula_version"),
         ("feature:feature-registry", "feature", "1.0.0", "configs/feature_registry.yaml", ("schema:local-storage",), "policy_version"),
         ("policy:gate-policy", "policy", "1.0.0", "configs/gate_policy.yaml", ("schema:local-storage",), "policy_version"),
         ("policy:product-governance", "policy", "1.0.0", "configs/product_governance.yaml", (), "policy_version"),

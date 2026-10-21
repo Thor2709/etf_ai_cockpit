@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import hashlib
 import json
+import math
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
@@ -13,6 +14,7 @@ import yaml
 
 from etf_cockpit.backtest.benchmarks import momentum_weights, trend_weights
 from etf_cockpit.core.paths import CONFIG_DIR
+from etf_cockpit.core.types import SignalResult
 from etf_cockpit.portfolio.benchmark_reference_contract import (
     BenchmarkReferenceError,
     load_canonical_benchmark_registry,
@@ -41,6 +43,8 @@ TEMPLATE_IDS = (
 )
 FORBIDDEN_STRATEGY_TYPES = frozenset({"martingale", "grid", "rl", "rl_agents", "reinforcement_learning"})
 CONTEXT_ONLY_TEMPLATE_IDS = frozenset({"news_context_watchlist"})
+_ASSET_SCOPES = frozenset({"etf", "stock"})
+_SIGNAL_EVIDENCE_METRICS = ("asset_type", "asset_class", "quality", "stock_quality", "value", "stock_value", "volatility", "volatility_annualised", "dividend_yield", "regime", "market_regime", "news", "news_context", "context")
 _STAGE_NAMES = ("analyse", "portfolio", "backtest", "paper", "draft_order", "canary", "bounded_automatic")
 
 
@@ -107,6 +111,9 @@ def load_strategy_templates(path: Path | None = None) -> tuple[StrategyTemplate,
             raise ValueError(f"unknown canonical benchmark: {template_id}: {benchmark}")
         if not version or not strategy_id or not profile_id or not isinstance(definition, Mapping):
             raise ValueError(f"incomplete strategy template metadata: {template_id}")
+        asset_scope = definition.get("asset_scope")
+        if not isinstance(asset_scope, list) or not asset_scope or not all(item in _ASSET_SCOPES for item in asset_scope):
+            raise ValueError(f"strategy template must declare a valid asset_scope: {template_id}")
         stages = _canonical_stages(strategy_scope, strategy_id, profile_id)
         if bool(raw.get("context_only", False)) != (profile_id == "context_only"):
             raise ValueError(f"strategy template context authority does not match canonical profile: {template_id}")
@@ -192,10 +199,12 @@ def validate_strategy_authority(strategy_type: str, *, execution_allowed: bool =
 def compute_template_matches(snapshot: Iterable[Mapping[str, Any]] | pd.DataFrame, templates: Iterable[StrategyTemplate] | None = None, *, decision_time: object | None = None) -> tuple[TemplateMatch, ...]:
     """Compute stable review matches from a fixed, already point-in-time snapshot."""
 
-    registry = tuple(templates or load_strategy_templates())
+    registry = tuple(load_strategy_templates() if templates is None else templates)  # an explicit empty registry matches nothing
     rows = snapshot.to_dict("records") if isinstance(snapshot, pd.DataFrame) else list(snapshot)
     matches: list[TemplateMatch] = []
     for row in rows:
+        if isinstance(row, SignalResult):
+            row = _row_from_signal_result(row)
         if not isinstance(row, Mapping) or not _evidence_available_at_decision(row, decision_time):
             continue
         instrument_id = str(row.get("instrument_id", row.get("id", row.get("symbol", "")))).strip()
@@ -210,6 +219,30 @@ def compute_template_matches(snapshot: Iterable[Mapping[str, Any]] | pd.DataFram
 
 def match_templates(snapshot: Iterable[Mapping[str, Any]] | pd.DataFrame, templates: Iterable[StrategyTemplate] | None = None, *, decision_time: object | None = None) -> tuple[TemplateMatch, ...]:
     return compute_template_matches(snapshot, templates, decision_time=decision_time)
+
+
+def _row_from_signal_result(signal: SignalResult) -> Mapping[str, Any] | None:
+    """Adapt a typed signal to a template row; missing evidence timestamps or a non-ok status fail closed."""
+
+    if signal.status != "ok" or signal.timestamp is None:
+        return None
+    components = signal.components
+    metrics = signal.supporting_metrics if isinstance(signal.supporting_metrics, Mapping) else {}
+    row: dict[str, Any] = {key: metrics[key] for key in _SIGNAL_EVIDENCE_METRICS if key in metrics}
+    row.setdefault("asset_type", "etf")  # SignalResult is keyed by etf_id; supporting_metrics may state another class
+    row.update(
+        {
+            "instrument_id": signal.etf_id,
+            "score": signal.total_score,
+            "momentum": components.momentum,
+            "momentum_status": "available",
+            "trend": components.trend,
+            "trend_status": "available",
+            "known_at": signal.timestamp,
+            "available_at": signal.timestamp,
+        }
+    )
+    return row
 
 
 def _row_at_decision(row: Mapping[str, Any], decision_time: object | None) -> Mapping[str, Any]:
@@ -306,7 +339,7 @@ def _canonical_momentum_available(row: Mapping[str, Any], instrument_id: str, fa
         return _positive(weights.get(instrument_id))
     if str(row.get("momentum_status", "")).casefold() not in {"available", "ok"}:
         return False
-    return _positive(row.get("momentum_score", fallback))
+    return _all_positive(row.get("momentum_score", fallback), fallback)
 
 
 def _canonical_trend_available(row: Mapping[str, Any], instrument_id: str, fallback: float | None) -> bool:
@@ -334,10 +367,16 @@ def _canonical_quality_momentum_available(row: Mapping[str, Any], instrument_id:
             weights = quality_momentum_weights(evidence, [instrument_id], mode="quality_momentum")
         except (TypeError, ValueError, KeyError):
             return False
-        return _positive(weights.get(instrument_id))
+        if not _positive(weights.get(instrument_id)):
+            return False
+        # The composite alone must not hide negative momentum: every stated momentum reading has to be positive.
+        readings: list[Any] = [momentum]
+        if "momentum_score" in evidence.columns:
+            readings.append(evidence.loc[evidence["instrument_id"].astype(str) == instrument_id, "momentum_score"].iloc[-1])
+        return _all_positive(*readings)
     if str(row.get("quality_momentum_status", "")).casefold() not in {"available", "ok"}:
         return False
-    return _positive(row.get("quality_momentum_score", quality)) and _positive(momentum)
+    return _positive(row.get("quality_momentum_score", quality)) and _all_positive(momentum, row.get("momentum_score"))
 
 
 def _match_reason(template_id: str) -> str:
@@ -359,7 +398,7 @@ def _number(value: Any) -> float | None:
         number = float(value)
     except (TypeError, ValueError):
         return None
-    return number if pd.notna(number) else None
+    return number if math.isfinite(number) else None
 
 
 def strategy_template_labels(*, asset_type: str, evidence_score: float | None, risk_friction_score: float | None, component_scores: dict[str, float | None], regime_label: str) -> list[str]:
@@ -411,6 +450,13 @@ def _at_least(value: float | None, threshold: float) -> bool:
 def _positive(value: Any) -> bool:
     number = _number(value)
     return number is not None and number > 0.0
+
+
+def _all_positive(*values: Any) -> bool:
+    """True when at least one reading is stated and every stated reading is finite and positive."""
+
+    stated = [value for value in values if value is not None]
+    return bool(stated) and all(_positive(value) for value in stated)
 
 
 __all__ = ["CONTEXT_ONLY_TEMPLATE_IDS", "FORBIDDEN_STRATEGY_TYPES", "STRATEGY_TEMPLATE_DESCRIPTIONS", "TEMPLATE_IDS", "StrategyTemplate", "TemplateMatch", "compute_template_matches", "load_strategy_templates", "match_templates", "strategy_template_frame", "strategy_template_labels", "template_description", "validate_strategy_authority", "write_strategy_template_frame"]

@@ -10,7 +10,9 @@ income.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Iterator, Mapping
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 import hashlib
@@ -813,9 +815,42 @@ def read_classification_projection(
     return _context_projection(context, min_leaf_confidence=min_leaf_confidence)
 
 
+_STATE_MEMO: ContextVar[dict[tuple[str, str], dict[str, object]] | None] = ContextVar(
+    "classification_score_state_memo", default=None
+)
+
+
+@contextmanager
+def classification_state_memo() -> Iterator[None]:
+    """Read each instrument's classification score state once inside the scope.
+
+    A backtest asks for the same, unchanging store state at every rebalance of every cost regime; the scope bounds
+    the reuse so no other caller can ever see a stale value.  Nested scopes share the outermost memo.
+    """
+
+    if _STATE_MEMO.get() is not None:
+        yield
+        return
+    token = _STATE_MEMO.set({})
+    try:
+        yield
+    finally:
+        _STATE_MEMO.reset(token)
+
+
 def classification_score_state(root: Path, instrument_id: str) -> dict[str, object]:
     """Return the canonical token used to reject stale classification-dependent scores."""
 
+    memo = _STATE_MEMO.get()
+    if memo is None:
+        return _classification_score_state(root, instrument_id)
+    key = (str(Path(root).resolve()), str(instrument_id))
+    if key not in memo:
+        memo[key] = _classification_score_state(root, instrument_id)
+    return dict(memo[key])
+
+
+def _classification_score_state(root: Path, instrument_id: str) -> dict[str, object]:
     try:
         context = read_instrument_context(root, instrument_id)
     except (ClassificationSchemaError, OSError, ValueError):

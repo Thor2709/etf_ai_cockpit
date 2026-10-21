@@ -195,9 +195,17 @@ def test_shipped_registry_reads_current_values_from_real_configs() -> None:
     configs = Path(__file__).resolve().parents[1] / "configs"
     registry = load_tuning_registry(configs / "tuning_v1.yaml")  # against the real settings, read-only
 
-    assert len(registry.parameters) == 16
+    # NS1: the rebalance knob is gone (drift is not part of the instrument score); PSF: the two relative_strength knobs are gone
+    # (weight 0 while one global anchor is used), momentum/trend upper bounds sum to the 30% price-family cap.
+    # FPQ: the etf_exposure headline knob is gone (concentration is a risk-role term; its headline weight is fixed at 0).
+    assert len(registry.parameters) == 12
+    assert "score.etf.headline.etf_exposure" not in {item.key for item in registry.parameters}
     current = registry.current_values()
-    assert current["ensemble.toto"] == 0.15 and current["score.etf.attractiveness.momentum"] == 0.28
+    assert current["ensemble.toto"] == 0.21 and current["score.etf.headline.momentum"] == 0.165
+    upper = {item.key: item.upper for item in registry.parameters}
+    assert upper["score.etf.headline.momentum"] + upper["score.etf.headline.trend"] <= 0.30 + 1e-9
+    assert upper["ensemble.momentum"] + upper["ensemble.trend"] <= 0.30 * 0.9 + 1e-9  # 30% of the 0.9 action-composite total
+    assert set(registry.source_checksums) == {"score_engine_v3.yaml"}
     assert registry.materialise(current) == current
     assert registry.models_in_scope() == ("timesfm", "toto")
     assert all(item.group for item in registry.parameters)

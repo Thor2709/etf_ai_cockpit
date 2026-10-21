@@ -8,7 +8,10 @@ the module never fills a missing mark or carries a stale price forward.
 from __future__ import annotations
 
 from datetime import date, datetime
+import hashlib
+import json
 import math
+from typing import Mapping
 
 import exchange_calendars as xcals
 import numpy as np
@@ -38,6 +41,11 @@ SNAPSHOT_COLUMNS = (
     "execution_allowed",
 )
 
+# Content-addressed identity of one dated valuation (prices, cash and flows it used). It is appended after the
+# canonical columns, so saved histories written without it stay loadable; consumers bind by id when present.
+SNAPSHOT_ID_COLUMN = "snapshot_id"
+SNAPSHOT_ID_PREFIX = "valsnap_"
+
 _FLOW_CLASS = {
     "contribution": "external_inflow",
     "deposit": "external_inflow",
@@ -64,6 +72,29 @@ _FLOW_CLASS = {
 
 class PortfolioValuationError(ValueError):
     """Raised when required local valuation inputs cannot be interpreted."""
+
+
+def valuation_snapshot_id(evidence: Mapping[str, object]) -> str:
+    """Return the deterministic id of one valuation's evidence (prices, FX, as-of, totals).
+
+    The id is a digest of the canonical JSON of ``evidence``; equal evidence always yields the same id and any
+    changed price, rate or as-of yields a different one. Non-finite floats are recorded as ``null``.
+    """
+
+    def clean(value: object) -> object:
+        if isinstance(value, float) and not math.isfinite(value):
+            return None
+        if isinstance(value, Mapping):
+            return {str(key): clean(item) for key, item in value.items()}
+        if isinstance(value, (list, tuple)):
+            return [clean(item) for item in value]
+        return value
+
+    text = json.dumps(
+        {"model": VALUATION_MODEL_VERSION, "evidence": clean(evidence)},
+        sort_keys=True, separators=(",", ":"), default=str,
+    )
+    return SNAPSHOT_ID_PREFIX + hashlib.sha256(text.encode("utf-8")).hexdigest()[:24]
 
 
 def classify_portfolio_flow(event_type: object) -> str:
@@ -213,10 +244,25 @@ def build_daily_portfolio_snapshots(
                 "availability_evidence": availability_evidence,
                 "missing_reasons": ";".join(dict.fromkeys(reasons)),
                 "execution_allowed": False,
+                SNAPSHOT_ID_COLUMN: valuation_snapshot_id(
+                    {
+                        "date": pd.Timestamp(observed_date).strftime("%Y-%m-%d"),
+                        "prices": sorted(
+                            (str(instrument), None if pd.isna(price) else float(price))
+                            for instrument, price in zip(day_prices["instrument_id"], pd.to_numeric(day_prices["price"], errors="coerce"))
+                        ),
+                        "cash_value": cash_value,
+                        "securities_value": securities_value,
+                        "external_flow": external_flow,
+                        "valuation_status": valuation_status,
+                        "flow_status": flow_status,
+                        "availability_evidence": availability_evidence,
+                    }
+                ),
             }
         )
 
-    snapshots = pd.DataFrame.from_records(records, columns=SNAPSHOT_COLUMNS)
+    snapshots = pd.DataFrame.from_records(records, columns=(*SNAPSHOT_COLUMNS, SNAPSHOT_ID_COLUMN))
     for index in range(len(snapshots)):
         current = snapshots.iloc[index]
         current_complete = current["valuation_status"] == "available" and current["flow_status"] == "available"

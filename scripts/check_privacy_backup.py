@@ -13,6 +13,7 @@ if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from etf_cockpit.data.backup_restore import (
+    create_backup,
     create_encrypted_backup,
     restore_encrypted_backup,
     run_disaster_recovery_drill,
@@ -44,6 +45,11 @@ def main(argv: list[str] | None = None) -> int:
             export = export_redacted_records([json.loads(source.read_text(encoding="utf-8"))], root / "export.json")
             if "private_notes" in export.path.read_text(encoding="utf-8"):
                 failures.append("private field appeared in standard export")
+            private_note = root / "data" / "private" / "notes.txt"
+            private_note.parent.mkdir(parents=True)
+            private_note.write_text("owner note", encoding="utf-8")
+            if "data/private/notes.txt" in create_backup([root / "data"], root / "plain.backup").checksums:
+                failures.append("private note was written to a plaintext backup")
             drill = run_disaster_recovery_drill([source], root / "drill", recovery_key="correct recovery key")
             if not drill.ok:
                 failures.extend(drill.errors or ("recovery drill failed",))

@@ -64,9 +64,10 @@ def test_forecast_quantiles_are_passed_through_never_interpolated() -> None:
     assert len(complete.forecasts) == 1
     assert all(value is not None for value in complete.forecasts[0].q25)
     assert all(value is not None for value in complete.forecasts[0].q75)
-    anchor = _prices()["close"].iloc[-1]
-    np.testing.assert_allclose(complete.forecasts[0].q25, anchor * (1 + _forecasts()["q25_return"]))
-    np.testing.assert_allclose(complete.forecasts[0].q75, anchor * (1 + _forecasts()["q75_return"]))
+    # stored quantiles are adjusted log returns (see adjusted_log_return_target), so the band is anchor * exp(q)
+    anchor = _prices()["adjusted_close"].iloc[-1]
+    np.testing.assert_allclose(complete.forecasts[0].q25, anchor * np.exp(_forecasts()["q25_return"]))
+    np.testing.assert_allclose(complete.forecasts[0].q75, anchor * np.exp(_forecasts()["q75_return"]))
     broken = _forecasts()
     broken.loc[0, "q50_return"] = np.nan
     unavailable = build_stock_view(_prices(), broken, "AAA", "1Y")

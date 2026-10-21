@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pytest
 from datetime import date
 
 import numpy as np
@@ -56,14 +57,19 @@ def _decide(forecasts: pd.DataFrame, prices: pd.DataFrame, as_of: str | None = N
     return evaluate_model_promotions(forecasts, prices, date.fromisoformat(as_of) if as_of else prices["date"].max().date(), SETTINGS)
 
 
-PINNED = {"timesfm3": {"revision": "a" * 40}, "timesfm": {"revision": "a" * 40}, "toto": {"revision": "a" * 40}}
+def _checkpoint_settings(tmp_path, model_name="timesfm3"):
+    checkpoint = tmp_path / f"{model_name}-checkpoint"
+    checkpoint.mkdir(exist_ok=True)
+    (checkpoint / "config.json").write_text("{}", encoding="utf-8")
+    (checkpoint / "model.safetensors").write_bytes(b"verified fixture weights")
+    return {model_name: {"model_path": str(checkpoint)}}
 
 
 def _row(model: str) -> ForecastResult:
     return ForecastResult("r", model, "v", "E1", date(2025, 6, 2), HORIZON, 0.02, 0.02, target_id=f"adj_close_log_return_{HORIZON}d")
 
 
-def test_model_below_the_evidence_minimum_is_not_counted() -> None:
+def test_model_below_the_evidence_minimum_is_not_counted(tmp_path) -> None:
     prices = _prices()
     decision = _decide(_forecasts(prices, {"timesfm3": _days("2024-01-02", 6)}), prices)["timesfm3"]
     assert decision.state == NOT_PROVEN and not decision.counting
@@ -72,10 +78,10 @@ def test_model_below_the_evidence_minimum_is_not_counted() -> None:
     row = _apply_promotion(_row("timesfm3"), {"timesfm3": decision}, False)
     assert row.model_allowed_in_score is False and row.promotion_status == NOT_PROVEN
     assert row.calibration_status in {"good", "mixed", "weak", "limited"}
-    assert _forecast_to_row(row, {"timesfm3": decision}, PINNED)["promotion_state"] == NOT_PROVEN
+    assert _forecast_to_row(row, {"timesfm3": decision}, _checkpoint_settings(tmp_path))["promotion_state"] == NOT_PROVEN
 
 
-def test_model_beating_the_baseline_after_its_cutoff_is_counted() -> None:
+def test_model_beating_the_baseline_after_its_cutoff_is_counted(tmp_path) -> None:
     prices = _prices()
     decision = _decide(_forecasts(prices, {"timesfm3": _days("2023-12-04", 30)}), prices)["timesfm3"]
     assert decision.state == COUNTING, decision.reason
@@ -83,7 +89,7 @@ def test_model_beating_the_baseline_after_its_cutoff_is_counted() -> None:
     assert decision.model_mase < decision.baseline_mase and decision.model_directional > decision.baseline_directional
     row = _apply_promotion(_row("timesfm3"), {"timesfm3": decision}, False)
     assert row.model_allowed_in_score is True and row.oos_mase == decision.model_mase
-    stored = _forecast_to_row(row, {"timesfm3": decision}, PINNED)
+    stored = _forecast_to_row(row, {"timesfm3": decision}, _checkpoint_settings(tmp_path))
     assert stored["promotion_state"] == COUNTING and stored["promotion_evidence_allowed"] is True
     assert stored["contamination_status"] == "after_declared_cutoff" and stored["execution_allowed"] is False
     # The service decides from stored history; the same evidence with a worse model never counts.
@@ -109,6 +115,7 @@ def test_pre_cutoff_and_first_run_windows_never_count() -> None:
     assert early.matured_forecasts == 0 and early.state == NOT_PROVEN
 
 
+@pytest.mark.usefixtures("synthetic_sample_opt_in")
 def test_run_forecasts_applies_the_decision_to_stored_rows(tmp_path, monkeypatch) -> None:
     from etf_cockpit.application.forecast_service import _config_with_optional_models_disabled
     from etf_cockpit.application.reference_context import _benchmark_reference_snapshot_inputs, _reference_context_from_inputs
@@ -123,7 +130,7 @@ def test_run_forecasts_applies_the_decision_to_stored_rows(tmp_path, monkeypatch
     )
     etf = config.universe.enabled_ids[0]
     seen = {}
-    config.models.models["timesfm"] = {**dict(config.models.models.get("timesfm") or {}), "revision": "a" * 40}
+    config.models.models["timesfm"] = {**dict(config.models.models.get("timesfm") or {}), **_checkpoint_settings(tmp_path, "timesfm")["timesfm"]}
     # Calibration-evidence sufficiency has its own tests (test_forecast_honesty); this one covers promotion.
     monkeypatch.setattr("etf_cockpit.application.forecast_service.horizon_calibration_scores", lambda frame: pd.DataFrame({"status": ["ok"]}))
 

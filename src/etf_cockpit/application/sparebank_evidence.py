@@ -18,7 +18,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from etf_cockpit.data.pillar3_queue import confirmed_figures, load_queue
+from etf_cockpit.data.pillar3_queue import PILLAR3_METRICS, confirmed_figures, load_queue
 
 # name -> (field holding the selector, selector). Selectors are canonical statement metrics or IFRS concept names.
 _STATEMENT_SELECTORS: dict[str, tuple[str, str]] = {
@@ -156,6 +156,22 @@ def statement_series(rows: Iterable[Mapping[str, object]], *, target_period: str
     return result
 
 
+def pillar3_review_queue(root: Path, instrument_id: str, *, decision_time: object = None) -> dict[str, object]:
+    """The review queue as of ``decision_time``, each figure carrying the unit its metric is stored in."""
+
+    queue = load_queue(root, instrument_id, decision_time=decision_time)
+    figures = []
+    for figure in queue.get("figures", ()):
+        item = dict(figure) if isinstance(figure, Mapping) else {}
+        item.setdefault("unit", PILLAR3_METRICS.get(str(item.get("metric")), ("", ""))[1])
+        figures.append(item)
+    return {**queue, "figures": figures}
+
+
+# Funding/credit fields Pillar 3 supplies; a curated value of the same name from another vintage is withheld.
+_PILLAR3_RATIO_FIELDS = frozenset({"lcr", "nsfr", "deposit_to_loan_ratio", "stage_2_ratio_pct", "stage_3_ratio_pct"})
+
+
 # Pillar 3 metric -> (evidence path, conversion). Percent figures become ratios, as the analysis expects.
 def pillar3_evidence(
     root: Path,
@@ -201,6 +217,9 @@ def pillar3_evidence(
             "printed_text": item.get("printed_text"),
             "confirmed_at": item.get("decided_at"),
             "period": item.get("period"),
+            # A figure states its own scope; otherwise the disclosure document identifies the reporting entity.
+            "scope": item.get("scope") or item.get("consolidation_scope"),
+            "document_id": item.get("document_id") or document.get("document_id"),
         }
 
     def ratio(metric: str) -> float | None:
@@ -241,7 +260,7 @@ def pillar3_evidence(
         credit["provenance"] = credit_provenance
         evidence["credit"] = credit
     rwa = figures.get("rwa_nok")
-    if rwa is not None and _number(rwa.get("value")) is not None:
+    if rwa is not None and _number(rwa.get("value")) is not None and _number(rwa.get("value")) > 0:
         evidence["rwa_nok"] = _number(rwa.get("value"))
     return evidence
 
@@ -254,7 +273,30 @@ def merge_bank_economics_evidence(
     """Curated filing evidence, then owner-confirmed Pillar 3 figures on top (field by field for nested blocks)."""
 
     merged: dict[str, object] = dict(curated or {})
+    def vintage(block: Mapping[str, object]) -> str | None:
+        provenance = block.get("provenance", {})
+        periods = {str(item.get("period")) for item in provenance.values() if isinstance(item, Mapping) and item.get("period")} if isinstance(provenance, Mapping) else set()
+        if block.get("period"):
+            periods.add(str(block["period"]))
+        return next(iter(periods)) if len(periods) == 1 else None
+
     for key, value in (pillar3 or {}).items():
+        if key in {"funding", "credit"} and isinstance(value, Mapping) and isinstance(merged.get(key), Mapping):
+            if not vintage(value) or vintage(value) != vintage(merged[key]):
+                # The overlapping curated ratios are from another vintage and are withheld; the curated
+                # reconciliation fields (not Pillar 3 ratios) and their provenance stay.
+                curated_block = merged[key]
+                kept = {name: item for name, item in curated_block.items() if name not in _PILLAR3_RATIO_FIELDS and name not in value and name != "provenance"}  # type: ignore[union-attr]
+                curated_provenance = curated_block.get("provenance")  # type: ignore[union-attr]
+                kept_provenance = {name: item for name, item in curated_provenance.items() if name in kept} if isinstance(curated_provenance, Mapping) else {}
+                new_provenance = value.get("provenance")
+                merged[key] = {
+                    **kept,
+                    **{name: item for name, item in value.items() if name != "provenance"},
+                    "provenance": {**kept_provenance, **(new_provenance if isinstance(new_provenance, Mapping) else {})},
+                }
+                merged.setdefault("unavailable_reasons", {})[key] = "EVIDENCE_VINTAGE_MISMATCH_OR_UNVERIFIED"
+                continue
         if isinstance(value, Mapping) and isinstance(merged.get(key), Mapping):
             block = dict(merged[key])  # type: ignore[arg-type]
             for inner_key, inner_value in value.items():
@@ -290,7 +332,10 @@ def _ownership_share(facts: Mapping[str, object]) -> float | None:
     return reconstruct_eierbrok(owner, own)
 
 
-def with_derived_owner_earnings(ec_facts: Mapping[str, object], statements: Mapping[str, object] | None) -> dict[str, object]:
+def with_derived_owner_earnings(
+    ec_facts: Mapping[str, object], statements: Mapping[str, object] | None,
+    *, effective_at: str | None = None,
+) -> dict[str, object]:
     """Fill a missing EC-attributable result and EC count from the filing, each labelled ``derived``.
 
     EC result (only when the facts carry none):
@@ -309,6 +354,16 @@ def with_derived_owner_earnings(ec_facts: Mapping[str, object], statements: Mapp
         return facts
     template = next((item for item in facts.values() if isinstance(item, Mapping) and item.get("known_at")), {})
     period = statements.get("period_end")  # type: ignore[union-attr]
+    # Do not combine a later statement's earnings/EPS with an older EC book.
+    book_periods = []
+    for name in ("ec_capital", "overkursfond", "utjevningsfond", "owner_attributable_book", "ec_attributable_result"):
+        item = facts.get(name)
+        if not isinstance(item, Mapping) or _available(facts, name) is None:
+            continue
+        book_periods.append(_date(item.get("period") or item.get("effective_at") or effective_at))
+    target = _date(period)
+    if target is None or not book_periods or any(item is None or item != target for item in book_periods):
+        return facts
 
     def derived(value: float, unit: str, locator: str) -> dict[str, object]:
         return {
@@ -326,7 +381,7 @@ def with_derived_owner_earnings(ec_facts: Mapping[str, object], statements: Mapp
         if owners is not None and ownerless is not None and share is not None and owners + ownerless > 0 and abs(owners / (owners + ownerless) - share) <= 0.02:
             result = owners
             locator = f"derived: profit attributable to owners of the parent; the issuer tags the ownerless share ({ownerless:,.0f}) separately and the split {owners / (owners + ownerless):.4f} matches the ownership fraction {share:.4f}"
-        else:
+        elif ownerless is None:
             profit = owners if owners is not None else _number(current.get("net_profit"))
             if profit is not None and share is not None and 0.0 < share <= 1.0:
                 result = profit * share

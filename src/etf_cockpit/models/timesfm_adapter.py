@@ -268,7 +268,7 @@ class TimesFMAdapter:
                     **derived_quantile_columns(complete_return_quantiles(q10, expected, q90), QUANTILE_METHOD_NORMAL),
                     coverage_ratio=coverage,
                     forecast_vol=horizon_vol,
-                    prob_positive_return=probability_positive_return(q10, expected, q90, complete_return_quantiles(q10, expected, q90)),
+                    heuristic_probability_positive=probability_positive_return(q10, expected, q90, complete_return_quantiles(q10, expected, q90)),
                     point_statistic="median",
                     distribution_status="available",
                     status="ok",
@@ -412,7 +412,7 @@ def timesfm_level_forecast_to_results(
                 **derived_quantile_columns(completed, QUANTILE_METHOD_DECILES),
                 coverage_ratio=coverage,
                 forecast_vol=_quantile_vol_proxy(q10, q90, horizon),
-                prob_positive_return=probability_positive_return(q10, q50, q90, completed),
+                heuristic_probability_positive=probability_positive_return(q10, q50, q90, completed),
                 point_statistic="median",
                 distribution_status="available" if completed is not None else "unavailable",
                 status="ok",
@@ -554,6 +554,9 @@ def probability_positive_return(
     quantiles: dict[str, float] | None = None,
 ) -> float | None:
     """Interpolate this row's log-return CDF at zero and return P(return > 0).
+
+    The value is a heuristic score: adapters store it as ``heuristic_probability_positive`` and it
+    becomes a probability only after the service admits calibration for that model, target and horizon.
 
     Use the row's full quantile vector when available, otherwise its q10/q50/q90.
     Clamp the CDF to the outermost supplied probabilities (no tail extrapolation).

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
 import threading
+import uuid
 
 import flet as ft
 
@@ -404,7 +404,8 @@ def jobs_page(page: ft.Page | None, state: AppState | None) -> PageView:
             status_message.value = "The durable self-check is unavailable."
             update_page()
             return
-        dedupe_key = f"durable-self-check:{datetime.now(timezone.utc).date().isoformat()}"
+        # One key per click: a same-day replay must not return a terminal old workflow as if a new check ran.
+        dedupe_key = f"durable-self-check:{uuid.uuid4().hex}"
         try:
             result = api.execute(
                 SubmitWorkflowCommand(

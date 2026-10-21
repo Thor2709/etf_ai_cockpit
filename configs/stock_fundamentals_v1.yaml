@@ -91,6 +91,27 @@ peers:
   weights: {industry: 3, sector: 2, region: 1, size_band: 1}
 
 scoring:
+  # Value and quality inputs are scored as the percentile (mid-rank) of the instrument inside its peer cohort:
+  # industry, widening to sector, then region, then the whole stock universe, at the first level with at least
+  # `min_peers` peers that report the input. If no level qualifies the input is unavailable (never the ladder below).
+  # The low/high ladders below apply only when a caller supplies no cohort context at all (cohort_level
+  # `absolute_unadjusted`). A non-positive yield (earnings/FCF/EBIT-EV) is capped at `negative_yield_score_cap`
+  # so it can never rank as cheap; 0.0 matches `loss_subscore`.
+  cohort:
+    min_peers: 3
+    negative_yield_score_cap: 0.0
+  # Noisy fundamentals from few annual observations are pulled toward the cohort (sector -> ladder) median:
+  # shrunk = w * raw + (1 - w) * cohort median, w = n / (n + k), n = annual observations. Raw and shrunk are both
+  # stored; the score uses the shrunk value. No cohort median -> the input is not scored (no invented prior).
+  shrinkage:
+    k: 4
+  # Informational uncertainty bands (never raise a score, never bypass a gate): bootstrap p10/p90 of the cohort
+  # percentile. label_stable is false when a band spans a headline-label boundary (see final_label_from_scores).
+  uncertainty:
+    lower_quantile: 0.10
+    upper_quantile: 0.90
+    bootstrap_samples: 200
+    label_boundaries: [4.0, 5.0, 6.5, 8.0]
   # sub-score mapping: value at/below `low` -> 0, at/above `high` -> 10, linear in between
   # (`low` may exceed `high` for "lower is better" inputs). weight is the share inside the component.
   value:

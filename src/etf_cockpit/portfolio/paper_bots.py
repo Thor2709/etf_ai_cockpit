@@ -26,11 +26,14 @@ from etf_cockpit.data.local_storage import (
 )
 from etf_cockpit.data.score_history import project_classification_score_frame
 from etf_cockpit.data.trust_artifacts import SCORE_HISTORY_PATH
+from etf_cockpit.signals.canonical_scoring import load_score_policy
 
 
 # DEFAULTS: the history location is the configured trust-artifact path, relocated under the recorder root.
 _SCORE_HISTORY_RELATIVE_PATH = SCORE_HISTORY_PATH.resolve().relative_to(ROOT.resolve())
 PAPER_BOTS_CONFIG_PATH = CONFIG_DIR / "paper_bots_v1.yaml"
+# DEFAULTS: the frozen comparator is the score engine version currently published by the canonical score policy.
+_SCORE_POLICY_VERSION_SOURCE = "score_engine_v3.formula_version"
 DECISION_ENTITY_TYPE = "paper_bot_decision"
 MONTH_SLOT_ENTITY_TYPE = "paper_bot_month_slot"
 BASELINE_ENTITY_TYPE = "paper_bot_score_baseline"
@@ -251,9 +254,7 @@ def run_paper_bots(
                 first_candidate = candidates[0]
                 for strategy_family in ("B1", "B2"):
                     source_spec = next(item for item in config["bots"] if item["family_id"] == strategy_family)
-                    challenger_spec = dict(source_spec)
-                    challenger_spec["family_id"] = f"B3-{strategy_family.lower()}"
-                    challenger_spec["name"] = f"Challenger {first_candidate.score_version}: {source_spec['name']}"
+                    challenger_spec = _challenger_spec(source_spec, strategy_family, first_candidate.score_version)
                     bot_id = _bot_identity(challenger_spec, config_hash, lineage_hash)
                     tasks.append((challenger_spec, tuple(candidates), lineage_hash, bot_id))
 
@@ -419,6 +420,15 @@ def run_paper_bots(
         )
 
 
+def _challenger_spec(source_spec: Mapping[str, Any], strategy_family: str, score_version: str) -> dict[str, Any]:
+    """The B3.x challenger of a B1/B2 spec: same rule, pinned to a new score version (a new bot ID)."""
+
+    spec = dict(source_spec)
+    spec["family_id"] = f"B3-{strategy_family.lower()}"
+    spec["name"] = f"Challenger {score_version}: {source_spec['name']}"
+    return spec
+
+
 def _load_config(path: Path) -> tuple[bytes, dict[str, Any]]:
     raw = path.read_bytes()
     payload = yaml.safe_load(raw.decode("utf-8"))
@@ -436,6 +446,14 @@ def _load_config(path: Path) -> tuple[bytes, dict[str, Any]]:
         payload[key] = number
     if not isinstance(payload.get("benchmark"), dict):
         raise ValueError("paper bot benchmark is missing")
+    source = payload.get("baseline_score_version_source")
+    if source is not None:
+        if payload.get("baseline_score_version") is not None or source != _SCORE_POLICY_VERSION_SOURCE:
+            raise ValueError("baseline score version must come from exactly one supported source")
+        try:
+            payload["baseline_score_version"] = load_score_policy().formula_version
+        except (OSError, ValueError, yaml.YAMLError) as exc:
+            raise ValueError("baseline score version is unavailable from the score policy") from exc
     baseline_version = _real_text(payload.get("baseline_score_version"))
     if baseline_version is None:
         raise ValueError("baseline score version is unavailable")

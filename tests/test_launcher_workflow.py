@@ -17,11 +17,12 @@ def test_normalise_port_validates_user_input() -> None:
         launcher_core.normalise_port("80")
 
 
-def test_choose_launch_port_reuses_ready_existing_http(monkeypatch) -> None:
+def test_choose_launch_port_reuses_verified_existing_app_instance(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(launcher_core, "probe_http_ready", lambda host, port, timeout_s=1.0: True)
+    monkeypatch.setattr(launcher_core, "verify_app_instance", lambda host, port, root, timeout_s=1.5: True)
     monkeypatch.setattr(launcher_core, "is_tcp_port_busy", lambda host, port: True)
 
-    decision = launcher_core.choose_launch_port("127.0.0.1", 8550)
+    decision = launcher_core.choose_launch_port("127.0.0.1", 8550, runtime_root=tmp_path)
 
     assert decision.reuse_existing is True
     assert decision.port == 8550
@@ -145,12 +146,14 @@ def test_windows_build_uses_fresh_native_staging_when_default_is_locked() -> Non
     assert "setlocal EnableExtensions EnableDelayedExpansion" in text
     assert "set NATIVE_OUT_ROOT=build\\flet_dist" in text
     assert "set NATIVE_OUT_ROOT_FILE=build\\native_outdir.txt" in text
-    assert 'prepare-output-dir "%NATIVE_OUT_ROOT%" --allow-alternate --path-file "%NATIVE_OUT_ROOT_FILE%"' in text
+    # Builds are staged: the last good native output is replaced only by a validated promotion.
+    assert 'prepare-output-dir "%NATIVE_STAGE_ROOT%" --allow-alternate --path-file "%NATIVE_STAGE_FILE%"' in text
+    assert 'promote-output-dir "!NATIVE_STAGE!" "%NATIVE_OUT_ROOT%"' in text
     assert 'set /p NATIVE_OUT_ROOT=<"%NATIVE_OUT_ROOT_FILE%"' in text
-    assert '--distpath "!NATIVE_OUT_ROOT!"' in text
+    assert '--distpath "!NATIVE_STAGE!"' in text
     assert "set NATIVE_DIST=!NATIVE_OUT_ROOT!\\%APPNAME%" in text
     assert 'if exist "!NATIVE_DIST!\\%APPNAME%.exe" set NATIVE_PACK_READY=1' in text
-    assert '> "%NATIVE_OUT_ROOT_FILE%" echo !NATIVE_OUT_ROOT!' in text
+    assert '--path-file "%NATIVE_OUT_ROOT_FILE%"' in text.partition("promote-output-dir")[2].splitlines()[0]
 
 
 def _make_source_root(path: Path) -> Path:

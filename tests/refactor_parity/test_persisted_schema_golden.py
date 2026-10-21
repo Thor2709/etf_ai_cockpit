@@ -36,10 +36,10 @@ def test_persisted_schema_golden_covers_the_required_families(pipeline_capture: 
         "data/features/features_daily.parquet",
         "data/features/features_daily.parquet.meta.json",
         "data/derived/scoreboard.parquet",
-        "data/derived/run_manifests/backtest__s2e451e324e57.json",
+        "data/derived/run_manifests/backtest__s5307f54f8af7.json",
     ):
         assert required in files, required
-    manifest = section["files"]["data/derived/run_manifests/backtest__s2e451e324e57.json"]
+    manifest = section["files"]["data/derived/run_manifests/backtest__s5307f54f8af7.json"]
     assert ["dataset:prices", "dataset", "1.0.0"] in manifest["dataset_tuples"]
     assert section["forecast_file"]["present"] is True
 
@@ -63,3 +63,20 @@ def test_feature_manifest_price_digest_is_masked_without_hiding_schema_or_settin
     other.write_text(json.dumps({"schema_version": 1}), encoding="utf-8")
     other.rename(other.with_name("features_2026-09-30_pe25bce0c2421__s123456789abc.json"))
     assert persisted_schema_section(tmp_path) != original
+
+
+def test_feature_manifest_fx_digest_is_masked_like_the_price_digest(tmp_path) -> None:
+    import json
+
+    from refactor_parity._capture import persisted_schema_section
+
+    manifests = tmp_path / "data" / "derived" / "run_manifests"
+    manifests.mkdir(parents=True)
+    path = manifests / "features_2026-09-30_p50feb083c593_xd7a3c565b08f__s2e451e324e57.json"
+    path.write_text(json.dumps({"schema_version": 1}), encoding="utf-8")
+    original = persisted_schema_section(tmp_path)
+    path.rename(path.with_name("features_2026-09-30_pe25bce0c2421_x6c7b84ca98ac__s2e451e324e57.json"))
+    assert persisted_schema_section(tmp_path) == original
+    assert list(original["files"]) == [
+        "data/derived/run_manifests/features_2026-09-30_p<12hex>_x<12hex>__s2e451e324e57.json"
+    ]

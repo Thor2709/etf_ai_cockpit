@@ -24,6 +24,7 @@ from etf_cockpit.application.forecast_service import (
 from etf_cockpit.core.types import ForecastResult
 from etf_cockpit.models.baseline_models import baseline_forecast
 from etf_cockpit.models.calibration import (
+    TARGET_REGISTRY,
     TargetMismatchError,
     adjusted_log_return_target,
     evaluate_forecast_calibration,
@@ -155,7 +156,9 @@ def test_probability_admission_requires_chronological_out_of_sample_evidence() -
     noisy = pd.DataFrame({
         "forecast_date": dates, "probability": probability, "outcome": (rng.uniform(size=len(dates)) < probability).astype(int),
     })
-    assert probability_admission(noisy)["status"] in {"calibrated", "unavailable"}
+    refused = probability_admission(noisy)  # seeded noise: reliable in no fold sequence, so never admitted
+    assert refused["status"] == "unavailable" and refused["reason"] == "fold 1 reliability gap exceeds 0.1"
+    assert len(refused["folds"]) == 3 and max(float(fold["reliability_gap"]) for fold in refused["folds"]) > 0.1
     # Sharp, correct probabilities beat the earlier-fold base rate in every fold and stay reliable.
     outcome = (np.arange(len(dates)) % 3 == 0).astype(int)
     informative = pd.DataFrame({"forecast_date": dates, "probability": np.where(outcome == 1, 0.95, 0.05), "outcome": outcome})
@@ -171,7 +174,9 @@ def test_probability_admission_requires_chronological_out_of_sample_evidence() -
 # 4. Target registry ----------------------------------------------------------------------------
 def test_target_mismatch_is_rejected() -> None:
     sixty = adjusted_log_return_target(60)
-    assert require_same_target(sixty.target_id, sixty.target_id) == sixty
+    resolved = require_same_target(sixty.target_id, sixty.target_id)
+    assert resolved is TARGET_REGISTRY[sixty.target_id] and resolved == sixty
+    assert resolved.target_id == sixty.target_id and resolved.horizon_days == 60
     assert sixty.return_space == "log" and sixty.horizon_days == 60 and sixty.cost_policy
     with pytest.raises(TargetMismatchError):
         require_same_target(sixty.target_id, adjusted_log_return_target(20).target_id)
@@ -302,10 +307,17 @@ def test_promotion_evidence_excludes_mismatched_registered_targets() -> None:
 
 
 # 8. Checkpoint evidence (correction pass 1) ------------------------------------------------------
-def test_checkpoint_evidence_records_declared_revision_and_config() -> None:
-    declared = {"toto": {"revision": "abc123", "backend": "toto2", "context_length": 2048, "model_path": "models/x", "device": "auto"}}
+def test_checkpoint_evidence_hashes_local_weights_and_records_config(tmp_path) -> None:
+    from etf_cockpit.models.local_weights import checkpoint_content_sha
+
+    checkpoint = tmp_path / "toto-checkpoint"
+    checkpoint.mkdir()
+    (checkpoint / "config.json").write_text("{}", encoding="utf-8")
+    (checkpoint / "model.safetensors").write_bytes(b"verified fixture weights")
+    declared = {"toto": {"revision": "abc123", "backend": "toto2", "context_length": 2048, "model_path": str(checkpoint), "device": "auto"}}
+    digest = checkpoint_content_sha(checkpoint)
     evidence = _checkpoint_evidence("toto", declared)
-    assert evidence["checkpoint_sha"] == "abc123"
+    assert evidence["checkpoint_sha"] == digest and digest != "abc123"
     assert json.loads(evidence["checkpoint_config"]) == {"backend": "toto2", "context_length": 2048}  # no paths/devices
     # An absent source stays unknown and is never taken from another model's entry.
     missing = _checkpoint_evidence("timesfm", declared)
@@ -314,7 +326,7 @@ def test_checkpoint_evidence_records_declared_revision_and_config() -> None:
     shipped = _checkpoint_evidence("timesfm")
     assert json.loads(shipped["checkpoint_config"])["hf_repo_id"] == "google/timesfm-2.5-200m-transformers"
     row = _forecast_to_row(_shadow_forecast(_producer_row("toto")), None, declared)
-    assert row["checkpoint_sha"] == "abc123" and json.loads(row["checkpoint_config"])["backend"] == "toto2"
+    assert row["checkpoint_sha"] == digest and json.loads(row["checkpoint_config"])["backend"] == "toto2"
     assert row["checkpoint_licence"] == "unknown" and row["cutoff_scope"] == "unknown"
 
 
@@ -420,10 +432,13 @@ def test_component_maps_exclude_rows_without_expected_return():
     assert "X" not in scores and "Y" in scores
 
 
-def test_adapter_forecast_with_immutable_revision_reaches_calibrated_from_heuristic_history():
+def test_adapter_forecast_with_local_checkpoint_reaches_calibrated_from_heuristic_history(tmp_path):
     from types import SimpleNamespace
-    revision = "a" * 40
-    settings = {"timesfm": {"revision": revision}}
+    checkpoint = tmp_path / "timesfm-checkpoint"
+    checkpoint.mkdir()
+    (checkpoint / "config.json").write_text("{}", encoding="utf-8")
+    (checkpoint / "model.safetensors").write_bytes(b"verified fixture weights")
+    settings = {"timesfm": {"model_path": str(checkpoint)}}
     service = object.__new__(ForecastService)
     service.config = SimpleNamespace(models=SimpleNamespace(models=settings))
     history, prices = _matured_history()

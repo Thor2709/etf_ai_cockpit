@@ -1,13 +1,18 @@
 from __future__ import annotations
 
+import bisect
+import hashlib
 import json
 import math
 import re
 import shutil
 import sys
 from collections import deque
+from collections.abc import Iterable, Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Literal
 
@@ -27,6 +32,13 @@ FX_CLEAN_PATH = CLEAN_DIR / "fx.parquet"
 DATE_COLUMNS = ("as_of_date", "date", "rate_date")
 RATE_COLUMNS = ("rate", "fx_rate", "exchange_rate", "mid")
 FX_RATE_CONSISTENCY_TOLERANCE = 1e-6
+
+# Stored prices are already in major units (the provider scales pence once), so a minor-unit label
+# only names the major currency and must never trigger a second /100.
+MINOR_UNIT_MAJOR_CURRENCY = {"GBp": "GBP", "GBX": "GBP", "ILA": "ILS", "ZAc": "ZAR"}
+
+# Calendar look-back covered by an FX identity: the ok staleness band (3 business days) plus weekends/holidays.
+_FX_LOOKBACK_CALENDAR_DAYS = 10
 
 
 @dataclass(frozen=True)
@@ -389,6 +401,291 @@ def fx_cross_rate(
         selected_legs,
         f"{sources} reference rate; informational and non-executable.",
     )
+
+
+def major_currency(value: object) -> str | None:
+    """Three-letter major currency code of a quote-currency label (minor units named by their major)."""
+
+    text = str(value).strip() if value is not None else ""
+    if not text or text.lower() in {"nan", "none", "<na>"}:
+        return None
+    return _normalise_currency(MINOR_UNIT_MAJOR_CURRENCY.get(text, text))
+
+
+@dataclass(frozen=True)
+class EurRateSeries:
+    """EUR per one major unit of ``currency`` for each requested session (NaN = unavailable)."""
+
+    currency: str
+    rates: pd.Series
+    reasons: pd.Series
+
+
+class EurRateBook:
+    """Point-in-time, session-dated currency->EUR rates built on the canonical FX path.
+
+    Rows are filtered to those ingested by ``known_by`` (same cut-off rule as
+    ``build_fx_rate_snapshot``). A session reads the latest quote dated on or before it, never a
+    later one, and only while that quote is within the ``ok`` staleness band. A quote date whose
+    rows are duplicated, contradictory (reciprocal/cycle) or lack an unambiguous ``fx_cross_rate``
+    leg is unavailable. 1 is never assumed for a foreign currency.
+    """
+
+    def __init__(self, fx: pd.DataFrame | None, *, known_by: date | datetime | str | None) -> None:
+        self.unavailable_reason: str | None = None
+        self._rows: pd.DataFrame = pd.DataFrame()
+        self._by_date: dict[date, pd.DataFrame] = {}
+        self._dates: list[date] = []
+        self._cross: dict[tuple[date, str], tuple[float | None, str | None]] = {}
+        try:
+            self._prepare(fx, known_by)
+        except Exception as exc:  # malformed frames fail closed with an explicit reason
+            self._rows = pd.DataFrame()
+            self._by_date = {}
+            self._dates = []
+            self.unavailable_reason = f"FX rates could not be read ({type(exc).__name__})."
+
+    def _prepare(self, fx: pd.DataFrame | None, known_by: date | datetime | str | None) -> None:
+        if fx is None or fx.empty:
+            self.unavailable_reason = "FX rates are missing."
+            return
+        known_date, cutoff, date_only = _decision_cutoff(known_by)
+        if known_date is None or (cutoff is None and not date_only):
+            self.unavailable_reason = "FX knowledge cutoff is missing or invalid."
+            return
+        date_column = _first_present(fx, DATE_COLUMNS)
+        rate_column = _first_present(fx, RATE_COLUMNS)
+        if date_column is None:
+            self.unavailable_reason = "FX rates have no quote date."
+            return
+        if rate_column is None:
+            self.unavailable_reason = "FX rates have no rate column."
+            return
+        if "pair" not in fx.columns and not {"base_currency", "quote_currency"}.issubset(fx.columns):
+            self.unavailable_reason = "FX rates have no currency pair."
+            return
+        if "ingested_at" not in fx.columns:
+            self.unavailable_reason = "FX rates have no ingested_at timestamp; point-in-time availability cannot be verified."
+            return
+        quote_dates = pd.to_datetime(fx[date_column], errors="coerce", utc=False)
+        ingested = pd.to_datetime(fx["ingested_at"], errors="coerce", utc=True)
+        if quote_dates.isna().any():
+            self.unavailable_reason = "FX rates contain a missing or invalid quote date."
+            return
+        if ingested.isna().any():
+            self.unavailable_reason = "FX rates contain a missing or invalid ingested_at timestamp."
+            return
+        if fx[rate_column].map(lambda value: isinstance(value, (bool, np.bool_))).any():
+            self.unavailable_reason = "FX rates must be numeric values, not booleans."
+            return
+        rates = pd.to_numeric(fx[rate_column], errors="coerce")
+        if not rates.map(_usable_rate).all():
+            self.unavailable_reason = "FX rates must be finite numeric values above the subnormal guard with a finite inverse."
+            return
+        pairs = _parse_currency_pairs(fx)
+        if pairs.errors:
+            self.unavailable_reason = "; ".join(pairs.errors)
+            return
+        known = ingested.dt.date.lt(known_date) if date_only else ingested.le(cutoff)
+        rows = pd.DataFrame(
+            {
+                "as_of_date": quote_dates.dt.date,
+                "base_currency": pairs.base_currency,
+                "quote_currency": pairs.quote_currency,
+                "rate": rates.astype(float),
+                "source": _column_or_default(fx, "source", "unspecified"),
+                "ingested_at": ingested,
+            }
+        )
+        rows = rows.loc[known & rows["as_of_date"].le(known_date)].copy()
+        if rows.empty:
+            self.unavailable_reason = "No FX snapshot was known by the analysis decision time."
+            return
+        rows["pair"] = rows["base_currency"] + "/" + rows["quote_currency"]
+        rows = rows.sort_values(["as_of_date", "pair", "source", "ingested_at"], kind="stable").reset_index(drop=True)
+        self._rows = rows
+        self._by_date = {day: frame for day, frame in rows.groupby("as_of_date", sort=True)}
+        self._dates = sorted(self._by_date)
+
+    def identity(self, start: date, end: date) -> str:
+        """SHA-256 of the known FX rows dated within the window (plus the as-of look-back)."""
+
+        if self.unavailable_reason is not None:
+            return hashlib.sha256(f"fx:unavailable:{self.unavailable_reason}".encode("utf-8")).hexdigest()
+        first = start - timedelta(days=_FX_LOOKBACK_CALENDAR_DAYS)
+        window = self._rows.loc[self._rows["as_of_date"].ge(first) & self._rows["as_of_date"].le(end)]
+        frame = window[["as_of_date", "pair", "rate", "source", "ingested_at"]].copy()
+        frame["rate"] = frame["rate"].map(repr)
+        frame["ingested_at"] = frame["ingested_at"].map(lambda value: pd.Timestamp(value).isoformat())
+        return sha256_dataframe(frame.reset_index(drop=True))
+
+    def series(self, currency: str, sessions: Iterable[date]) -> EurRateSeries:
+        major = major_currency(currency)
+        days = list(sessions)
+        index = pd.Index(days, dtype=object)
+        if major is None:
+            return EurRateSeries(
+                str(currency),
+                pd.Series(np.nan, index=index, dtype=float),
+                pd.Series("quote currency is unknown", index=index, dtype=object),
+            )
+        if major == "EUR":
+            return EurRateSeries(major, pd.Series(1.0, index=index, dtype=float), pd.Series([None] * len(days), index=index, dtype=object))
+        values: list[float] = []
+        reasons: list[str | None] = []
+        for session in days:
+            rate, reason = self._rate(major, session)
+            values.append(float("nan") if rate is None else rate)
+            reasons.append(reason)
+        return EurRateSeries(major, pd.Series(values, index=index, dtype=float), pd.Series(reasons, index=index, dtype=object))
+
+    def _rate(self, currency: str, session: date) -> tuple[float | None, str | None]:
+        if self.unavailable_reason is not None:
+            return None, self.unavailable_reason
+        position = bisect.bisect_right(self._dates, session)
+        if position == 0:
+            return None, f"no {currency}/EUR FX quote dated on or before {session.isoformat()}"
+        quote_day = self._dates[position - 1]
+        if quote_day != session:
+            age = _business_days_between(quote_day, session)
+            if price_staleness_status(age) != "ok":
+                return None, f"latest FX quote {quote_day.isoformat()} is {age} business days older than {session.isoformat()}"
+        key = (quote_day, currency)
+        if key not in self._cross:
+            self._cross[key] = self._cross_rate(quote_day, currency)
+        rate, reason = self._cross[key]
+        if rate is None:
+            return None, f"{reason} on {quote_day.isoformat()}"
+        return rate, None
+
+    def _cross_rate(self, quote_day: date, currency: str) -> tuple[float | None, str | None]:
+        dated = self._by_date[quote_day]
+        # The outcome is a pure function of the day's quotes, so inside a ``fx_cross_rate_memo`` scope identical content
+        # is validated once instead of once per EurRateBook (a backtest builds several books over the same days).
+        memo = _CROSS_RATE_MEMO.get()
+        if memo is None:
+            return self._compute_cross_rate(dated, quote_day, currency)
+        content = (
+            quote_day,
+            currency,
+            tuple(
+                zip(
+                    dated["as_of_date"].tolist(),
+                    dated["pair"].tolist(),
+                    dated["base_currency"].tolist(),
+                    dated["quote_currency"].tolist(),
+                    dated["rate"].tolist(),
+                    dated["source"].tolist(),
+                    strict=True,
+                )
+            ),
+        )
+        known = memo.get(content)
+        if known is None:
+            known = self._compute_cross_rate(dated, quote_day, currency)
+            if len(memo) >= _CROSS_RATE_MEMO_LIMIT:
+                memo.clear()
+            memo[content] = known
+        return known
+
+    @staticmethod
+    def _compute_cross_rate(dated: pd.DataFrame, quote_day: date, currency: str) -> tuple[float | None, str | None]:
+        if dated.duplicated(["as_of_date", "pair"]).any():
+            return None, "FX rates contain duplicate date/pair rows"
+        errors = _fx_rate_consistency_errors(dated)
+        if errors:
+            return None, "FX quotes are contradictory (" + errors[0] + ")"
+        snapshot = FxRateSnapshot(
+            decision_date=quote_day,
+            as_of_date=quote_day,
+            rates=tuple(
+                FxRate(str(row.base_currency), str(row.quote_currency), float(row.rate), str(row.source))
+                for row in dated.itertuples(index=False)
+            ),
+            source_snapshot=None,
+            age_business_days=0,
+            staleness_status="ok",
+            available=True,
+            reason=None,
+        )
+        cross = fx_cross_rate(snapshot, currency, "EUR")
+        if cross is None or not _usable_rate(cross.rate):
+            return None, f"no unambiguous {currency}/EUR rate"
+        return float(cross.rate), None
+
+
+_CROSS_RATE_MEMO: ContextVar[dict[tuple[object, ...], tuple[float | None, str | None]] | None] = ContextVar(
+    "fx_cross_rate_memo", default=None
+)
+_CROSS_RATE_MEMO_LIMIT = 100_000
+
+
+@contextmanager
+def fx_cross_rate_memo() -> Iterator[None]:
+    """Validate each distinct day of FX quotes once inside the scope; nothing survives the scope (also on error).
+
+    Nested scopes share the outermost memo.  Outside a scope every cross-rate is computed directly.
+    """
+
+    if _CROSS_RATE_MEMO.get() is not None:
+        yield
+        return
+    token = _CROSS_RATE_MEMO.set({})
+    try:
+        yield
+    finally:
+        _CROSS_RATE_MEMO.reset(token)
+
+
+SAMPLE_PRICE_SOURCE = "synthetic_sample"
+
+
+def sample_fx_rates(prices: pd.DataFrame) -> pd.DataFrame:
+    """Deterministic synthetic ``<currency>/EUR`` quotes for a purely synthetic (sample) price frame.
+
+    The sample pipeline has no FX file, so without this its non-EUR sample instruments would have no
+    EUR basis. The quotes carry ``source=synthetic_sample`` and exist only in memory; they are never
+    persisted and never used for real (provider) prices.
+    """
+
+    columns = ["as_of_date", "base_currency", "quote_currency", "rate", "source", "ingested_at"]
+    if prices.empty or not {"date", "currency"}.issubset(prices.columns):
+        return pd.DataFrame(columns=columns)
+    days = sorted({day for day in pd.to_datetime(prices["date"], errors="coerce").dt.date.dropna()})
+    currencies = sorted({code for code in prices["currency"].map(major_currency).dropna().unique() if code != "EUR"})
+    if not days or not currencies:
+        return pd.DataFrame(columns=columns)
+    known_at = (pd.Timestamp(days[0]) - pd.Timedelta(days=1)).tz_localize("UTC").isoformat()
+    frames = []
+    for currency in currencies:
+        seed = int.from_bytes(hashlib.sha256(f"sample-fx:{currency}".encode("utf-8")).digest()[:4], "big")
+        steps = np.random.default_rng(seed).normal(0.0, 0.002, size=len(days))
+        frames.append(
+            pd.DataFrame(
+                {
+                    "as_of_date": days,
+                    "base_currency": currency,
+                    "quote_currency": "EUR",
+                    "rate": 0.1 * np.exp(np.cumsum(steps)),
+                    "source": SAMPLE_PRICE_SOURCE,
+                    "ingested_at": known_at,
+                }
+            )
+        )
+    return pd.concat(frames, ignore_index=True)
+
+
+def fx_rates_for_prices(prices: pd.DataFrame | None) -> pd.DataFrame:
+    """FX rates behind an EUR price basis: the synthetic sample quotes for a sample-only frame, else the canonical store."""
+
+    if (
+        prices is not None
+        and not prices.empty
+        and "source" in prices.columns
+        and prices["source"].astype(str).isin({SAMPLE_PRICE_SOURCE, "sample_generator"}).all()
+    ):
+        return sample_fx_rates(prices)
+    return load_fx_rates()
 
 
 def fx_data_inventory(path: Path = FX_CLEAN_PATH) -> dict[str, object]:

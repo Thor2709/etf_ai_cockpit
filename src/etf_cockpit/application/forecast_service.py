@@ -11,6 +11,7 @@ from collections import Counter
 import importlib.util
 import json
 import math
+import hashlib
 from datetime import date
 from pathlib import Path
 import pandas as pd
@@ -30,7 +31,13 @@ from etf_cockpit.core.versioning import (
 from etf_cockpit.data.duckdb_store import load_prices
 from etf_cockpit.features.forecast_lab import build_forecast_lab_workspace as _build_forecast_lab_workspace
 from etf_cockpit.features.returns import daily_log_returns
-from etf_cockpit.models.baseline_models import baseline_forecast
+from etf_cockpit.models.baseline_models import (
+    MAX_MISSING_SESSION_SHARE,
+    MAX_OBSERVED_GAP_DAYS,
+    baseline_forecast,
+    observed_history_is_sparse,
+)
+from etf_cockpit.models.local_weights import checkpoint_content_sha
 from etf_cockpit.models.calibration import adjusted_log_return_target, load_forecast_history, target_matches_evaluation, horizon_calibration_scores
 from etf_cockpit.models.forecast_scores import configured_forecast_request_identity as configured_forecast_request_identity, forecast_request_identity
 from etf_cockpit.models.model_promotion import (
@@ -51,6 +58,7 @@ from etf_cockpit.portfolio.benchmark_reference import (
     CanonicalReferenceContext,
     clip_to_decision_window,
     unavailable_reference_projection,
+    _is_date_only_observation,
 )
 from etf_cockpit.application.derived_cache import (
     _calculation_window,
@@ -92,17 +100,20 @@ class ForecastService:
         promotions: Mapping[str, ModelPromotion] | None = None,
         promotion_prices: pd.DataFrame | None = None,
     ) -> list[ForecastResult]:
+        if as_of_date is None or pd.isna(as_of_date):
+            # No dated price observation to forecast from (e.g. max() of an empty price frame): fail closed.
+            raise ValueError("forecast_as_of_date_unavailable: no dated price observation to forecast from")
         settings_identity = current_settings_identity()
-        price_frame = prices if prices is not None else load_prices()
+        price_frame = prices if prices is not None else load_prices(config=self.config)
         price_frame = price_frame.copy()
-        price_frame["date"] = pd.to_datetime(price_frame["date"], errors="coerce", utc=True, format="mixed")
         # Promotion evidence is graded on the full stored history, not the shorter forecast calculation window.
         evidence_prices = price_frame
         context = reference_context if reference_context is not None else self.reference_context
         calculation_window = _calculation_window(context, as_of_date, price_frame)
         if calculation_window is None:
             raise ValueError("canonical forecast calculation window is unavailable")
-        price_frame = clip_to_decision_window(price_frame, **calculation_window)
+        price_frame = _forecast_price_window(price_frame, calculation_window)
+        price_frame["date"] = pd.to_datetime(price_frame["date"], errors="coerce", utc=True, format="mixed")
         price_binding = _price_snapshot_binding(price_frame, calculation_window=calculation_window)
         if price_binding is None:
             raise ValueError("adjusted-price snapshot identity is unavailable")
@@ -128,8 +139,13 @@ class ForecastService:
         benchmark_id = context.benchmark_data_id if context is not None else None
         benchmark_returns = daily_log_returns(pivot[benchmark_id]).dropna() if benchmark_id in pivot else None
         forecasts: list[ForecastResult] = []
+        origins: dict[str, date] = {}
+        request_hash = hashlib.sha256(json.dumps(
+            {"request": derived_request_identity, "prices": price_binding, "instruments": sorted(set(etf_ids))},
+            sort_keys=True, separators=(",", ":"), default=str,
+        ).encode()).hexdigest()
         run_id = settings_bound_run_id(
-            f"forecast_{as_of_date:%Y%m%d}",
+            f"forecast_{as_of_date:%Y%m%d}_{request_hash}",
             settings_identity=settings_identity,
         )
         if progress_callback is not None:
@@ -137,15 +153,21 @@ class ForecastService:
         # Per-family durations are the Forecast Lab's measured resource use.
         with timed_step("forecasts", "model:baseline", run_id=run_id):
             for etf_id in etf_ids:
-                series = pivot[etf_id].dropna() if etf_id in pivot else pd.Series(dtype=float)
-                baseline_rows = baseline_forecast(
-                    etf_id,
-                    series,
-                    horizons,
-                    as_of_date,
-                    run_id=run_id,
-                    benchmark_returns=benchmark_returns,
-                )
+                reason = "insufficient_adjusted_price_history"
+                origin = as_of_date
+                try:
+                    series = _baseline_price_series(
+                        pivot, etf_id, as_of_date, decision_time=calculation_window["decision_time"],
+                    )
+                    if not series.dropna().empty:
+                        origin = series.dropna().index[-1].date()
+                        origins[etf_id] = origin
+                    baseline_rows = baseline_forecast(
+                        etf_id, series, horizons, origin, run_id=run_id, benchmark_returns=benchmark_returns,
+                    )
+                except ValueError as exc:
+                    baseline_rows = []
+                    reason = str(exc)
                 if not baseline_rows:
                     baseline_rows = [
                         ForecastResult(
@@ -153,13 +175,13 @@ class ForecastService:
                             model_name="baseline",
                             model_version="momentum_shrunk_v1",
                             etf_id=etf_id,
-                            forecast_date=as_of_date,
+                            forecast_date=origin,
                             horizon_days=horizon,
                             expected_return=None,
                             expected_excess_return=None,
                             status="unavailable",
                             model_allowed_in_score=False,
-                            reason_unavailable="insufficient_adjusted_price_history",
+                            reason_unavailable=reason,
                         )
                         for horizon in horizons
                     ]
@@ -177,6 +199,7 @@ class ForecastService:
             progress_callback("Checking cached Toto forecasts", 3, 4)
         with timed_step("forecasts", "model:toto", run_id=run_id):
             forecasts.extend(_stamp_adjusted_log_return_target(self._run_toto_forecasts(price_frame, etf_ids, horizons, as_of_date, run_id)))
+        forecasts = _align_forecast_origins(forecasts, origins, as_of_date)
         forecasts = self._evidence_gated_forecasts(forecasts, as_of_date, evidence_prices)
         forecasts = _postprocess_forecast_benchmark_fields(
             forecasts,
@@ -408,6 +431,22 @@ def _stamp_adjusted_log_return_target(forecasts: list[ForecastResult]) -> list[F
     ]
 
 
+def _align_forecast_origins(forecasts: list[ForecastResult], origins: Mapping[str, date], as_of_date: date) -> list[ForecastResult]:
+    """Optional-model rows share the baseline's origin: the last observed session, not a weekend or holiday as-of.
+
+    Only rows dated at the requested as-of move, and only back to an earlier observed session of the
+    same instrument; the optional models read exactly the history up to that session.
+    """
+
+    return [
+        replace(forecast, forecast_date=origins[forecast.etf_id])
+        if forecast.model_name != "baseline" and forecast.forecast_date == as_of_date
+        and forecast.etf_id in origins and origins[forecast.etf_id] < as_of_date
+        else forecast
+        for forecast in forecasts
+    ]
+
+
 def _identity_gated_forecast(forecast: ForecastResult, model_settings=None) -> ForecastResult:
     if forecast.status != "ok":
         return forecast  # keep the producer's own, more specific unavailable reason
@@ -415,7 +454,7 @@ def _identity_gated_forecast(forecast: ForecastResult, model_settings=None) -> F
         return _unavailable_forecast(forecast, "Missing, unregistered or mismatched target identity.")
     if forecast.model_name in OPTIONAL_MODELS:
         revision = str(_checkpoint_evidence(forecast.model_name, model_settings)["checkpoint_sha"])
-        if len(revision) != 40 or any(char not in "0123456789abcdefABCDEF" for char in revision):
+        if len(revision) not in (40, 64) or any(char not in "0123456789abcdefABCDEF" for char in revision):
             return _unavailable_forecast(forecast, "Missing or unverifiable immutable checkpoint identity.")
     return forecast
 
@@ -434,6 +473,8 @@ def _forecast_to_row(
     forecast = _identity_gated_forecast(forecast, model_settings)
     data = asdict(forecast)
     data["forecast_date"] = forecast.forecast_date.isoformat()
+    if forecast.model_name in OPTIONAL_MODELS:
+        data.update(_checkpoint_evidence(forecast.model_name, model_settings))
     promotion = _promotion_for_row(forecast, promotions or {})
     if forecast.promotion_status in {COUNTING, NOT_PROVEN} and promotion is not None:
         data.update(_promotion_evidence(forecast, promotion, model_settings))
@@ -445,7 +486,6 @@ def _forecast_to_row(
 
 
 
-_CHECKPOINT_REVISION_KEYS = ("revision", "hf_revision", "model_sha", "checkpoint_sha")
 # Metadata that identifies the checkpoint; paths, devices and timeouts are runtime choices, not identity.
 _CHECKPOINT_CONFIG_KEYS = ("backend", "hf_repo_id", "model_size", "context_length", "use_quantiles", "decode_block_size")
 
@@ -464,14 +504,16 @@ def _declared_model_settings() -> Mapping[str, object]:
 def _checkpoint_evidence(model_name: str, model_settings: Mapping[str, object] | None = None) -> dict[str, object]:
     """Checkpoint SHA, config, licence and cutoff scope of this model alone (a cutoff is never shared).
 
-    The revision and identifying config come from the model's entry in model_settings.yaml; an absent
-    source stays ``unknown`` (SHA) or empty (config), never copied from another checkpoint.
+    The SHA comes from this model's local checkpoint bytes; missing weights stay ``unknown`` and
+    identifying config stays scoped to this model, never copied from another checkpoint.
     """
 
     settings = model_settings if model_settings is not None else _declared_model_settings()
     entry = settings.get(model_name)
     entry = entry if isinstance(entry, Mapping) else {}
-    revision = next((str(entry[key]).strip() for key in _CHECKPOINT_REVISION_KEYS if str(entry.get(key) or "").strip()), None)
+    # A declared repository revision is not proof of the bytes actually loaded; absent local weights
+    # therefore remain unknown and cannot pass the identity gate.
+    revision = checkpoint_content_sha(entry.get("model_path"))
     config = {key: entry[key] for key in _CHECKPOINT_CONFIG_KEYS if entry.get(key) is not None}
     row = checkpoint_provenance(model_name, model_sha=revision, config=config).as_row()
     return {
@@ -597,7 +639,7 @@ def build_forecast_lab_workspace(
             for model in OPTIONAL_MODELS
         }
     report["promotion"] = promotion_frame(promotions)
-    return _stamp_promotion_states(report, promotions)
+    return _stamp_promotion_states(report, promotions, history)
 
 
 _OPTIONAL_RUNTIME_PACKAGES = {"timesfm": "timesfm", "timesfm3": "timesfm", "toto": "toto2"}
@@ -644,8 +686,16 @@ def _promotion_as_of(requested: object, prices: pd.DataFrame, history: pd.DataFr
     return date.today()
 
 
-def _stamp_promotion_states(report: dict[str, object], promotions: Mapping[str, ModelPromotion]) -> dict[str, object]:
-    """Replace the diagnostic placeholder state in the report tables with each model's promotion decision."""
+def _stamp_promotion_states(
+    report: dict[str, object],
+    promotions: Mapping[str, ModelPromotion],
+    history: pd.DataFrame | None = None,
+) -> dict[str, object]:
+    """Replace the diagnostic placeholder state in the report tables with promotion decisions.
+
+    The model table shows today's decision. A run keeps the state stored with its own rows at run time,
+    never today's decision: a later promotion cannot relabel a historical run.
+    """
 
     models, runs = report.get("models"), report.get("runs")
     if isinstance(models, pd.DataFrame) and not models.empty:
@@ -657,21 +707,133 @@ def _stamp_promotion_states(report: dict[str, object], promotions: Mapping[str, 
         report["models"] = models
     if isinstance(runs, pd.DataFrame) and not runs.empty:
         runs = runs.copy()
-        runs["promotion_state"] = [_run_promotion_text(str(members), promotions) for members in runs["models"]]
+        recorded = _recorded_run_states(history)
+        runs["promotion_state"] = [
+            _run_promotion_text(str(members), promotions, recorded.get(str(run_id), {}))
+            for members, run_id in zip(runs["models"], runs["run_id"])
+        ]
         report["runs"] = runs
     return report
 
 
-def _run_promotion_text(members: str, promotions: Mapping[str, ModelPromotion]) -> str:
-    parts = [
-        f"{name}: {'counting' if promotions[name].counting else 'not yet proven'}"
-        for name in (item.strip() for item in members.split(","))
-        if name in promotions
-    ]
+def _recorded_run_states(history: pd.DataFrame | None) -> dict[str, dict[str, str]]:
+    """Promotion state each stored row carried when its run wrote it, per run and model."""
+
+    if not isinstance(history, pd.DataFrame) or not {"model_name", "promotion_state"}.issubset(history.columns):
+        return {}
+    run_ids = history["run_id"].astype(str) if "run_id" in history.columns else pd.Series("local-cache", index=history.index)
+    states: dict[str, dict[str, str]] = {}
+    for run_id, model, state in zip(run_ids, history["model_name"].astype(str), history["promotion_state"]):
+        if isinstance(state, str) and state.strip() and state.strip().lower() != "nan":
+            states.setdefault(run_id, {})[model] = state.strip()
+    return states
+
+
+def _run_promotion_text(members: str, promotions: Mapping[str, ModelPromotion], recorded: Mapping[str, str] | None = None) -> str:
+    recorded = recorded or {}
+    parts = []
+    for name in (item.strip() for item in members.split(",")):
+        if name not in promotions:
+            continue
+        state = recorded.get(name)
+        parts.append(
+            f"{name}: not recorded at run time"
+            if state is None
+            else f"{name}: {'counting' if state == COUNTING else 'not yet proven'}"
+        )
     return "; ".join(parts) or "reference"
 
 
-def _timesfm_price_series(pivot: pd.DataFrame, etf_id: str, as_of_date: date) -> pd.Series:
+def _forecast_calendar(rows: pd.DataFrame, etf_id: str):
+    """Resolve only the immutable listing evidence carried by the price rows."""
+    from etf_cockpit.data.market_calendar import MarketCalendarService
+
+    if "calendar_identity" not in rows:
+        raise ValueError("forecast_session_calendar_unavailable")
+    identities = []
+    for value in rows["calendar_identity"].dropna():
+        try:
+            identity = json.loads(value) if isinstance(value, str) else value
+        except ValueError as exc:
+            raise ValueError("forecast_session_calendar_invalid") from exc
+        if not isinstance(identity, Mapping):
+            raise ValueError("forecast_session_calendar_invalid")
+        if identity not in identities:
+            identities.append(identity)
+    if len(identities) != 1:
+        raise ValueError("forecast_session_calendar_missing_or_conflicting")
+    calendar = MarketCalendarService.from_correction_ledger(CONFIG_DIR / "market_calendar_corrections.yaml")
+    listing = calendar.listing_from_identity_projection(identities[0])
+    if listing.instrument_id != etf_id:
+        raise ValueError("calendar identity does not match forecast instrument")
+    return calendar, listing
+
+
+def _forecast_price_window(prices: pd.DataFrame, window: Mapping[str, str]) -> pd.DataFrame:
+    """Preserve date precision until exchange-local closing availability is checked."""
+    from etf_cockpit.data.market_calendar import ClockContext
+
+    dated = prices.copy()
+    raw = prices["date"]
+    dates = pd.to_datetime(raw, errors="coerce", utc=True, format="mixed")
+    cutoff = pd.Timestamp(window["decision_time"])
+    effective = dates.copy()
+    date_only = raw.map(_is_date_only_observation)
+    # With no verifiable exchange close, daily observations become available
+    # only at UTC end-of-day. They cannot masquerade as midnight observations.
+    effective.loc[date_only] = dates.loc[date_only].dt.normalize() + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
+    for etf_id, rows in prices.loc[dates.dt.date <= cutoff.date()].groupby("etf_id"):
+        same_day = rows.index[date_only.loc[rows.index] & dates.loc[rows.index].dt.date.eq(cutoff.date())]
+        if same_day.empty:
+            continue
+        try:
+            calendar, listing = _forecast_calendar(rows, str(etf_id))
+            state = calendar.market_state(listing, ClockContext.at(cutoff.to_pydatetime()))
+            if state.session_close is not None and state.session_close.date() == cutoff.date():
+                effective.loc[same_day] = pd.Timestamp(state.session_close)
+        except ValueError:
+            pass  # The conservative end-of-day cutoff remains in force.
+    dated["date"] = effective
+    selected = clip_to_decision_window(dated, **window).index
+    return prices.loc[selected].copy()
+
+
+_MAX_MISSING_SESSION_RUN = 5
+
+
+def _baseline_price_series(
+    pivot: pd.DataFrame, etf_id: str, as_of_date: date, *, decision_time: str | None = None,
+) -> pd.Series:
+    """Session-calendar series for the baseline; observed rows only when no calendar evidence exists.
+
+    With certified listing evidence the series is laid on the instrument's sessions and a few
+    missing sessions stay NaN (never filled). Without it the observed rows are accepted only
+    when dense (no gap over 7 calendar days, at least 90% of weekdays present) and current.
+    """
+    rows = pivot.attrs.get("timesfm_price_rows", {}).get(etf_id)
+    if rows is not None and "calendar_identity" in rows and rows["calendar_identity"].notna().any():
+        series = _timesfm_price_series(pivot, etf_id, as_of_date, require_calendar=True, decision_time=decision_time)
+        missing = series.isna()
+        if missing.any():
+            runs = missing.groupby((~missing).cumsum()).sum()
+            if missing.mean() > MAX_MISSING_SESSION_SHARE or runs.max() > _MAX_MISSING_SESSION_RUN:
+                raise ValueError("sparse_adjusted_price_session_history")
+        return series
+    series = pivot[etf_id].dropna() if etf_id in pivot else pd.Series(dtype=float)
+    series = series.loc[pd.to_datetime(series.index, utc=True).date <= as_of_date].sort_index()
+    if series.empty:
+        return series
+    if (as_of_date - pd.Timestamp(series.index[-1]).date()).days > MAX_OBSERVED_GAP_DAYS:
+        raise ValueError("stale_adjusted_price_session_history")
+    if observed_history_is_sparse(series):
+        raise ValueError("sparse_adjusted_price_session_history")
+    return series
+
+
+def _timesfm_price_series(
+    pivot: pd.DataFrame, etf_id: str, as_of_date: date, *,
+    require_calendar: bool = False, decision_time: str | None = None,
+) -> pd.Series:
     """Keep own-session gaps, exclude certified closures; never infer a holiday from NaN."""
     from datetime import datetime, time, timezone
     import json
@@ -689,7 +851,31 @@ def _timesfm_price_series(pivot: pd.DataFrame, etf_id: str, as_of_date: date) ->
     series.index = pd.DatetimeIndex(series.index).normalize()
     if series.index.has_duplicates:
         raise ValueError("TimesFM session grid unavailable: duplicate instrument session dates.")
-    cutoff = datetime.combine(as_of_date, time.max, timezone.utc)
+    cutoff = pd.Timestamp(decision_time).to_pydatetime() if decision_time else datetime.combine(as_of_date, time.max, timezone.utc)
+    if require_calendar:
+        from etf_cockpit.data.market_calendar import ClockContext
+
+        if rows is None:
+            raise ValueError("forecast_session_calendar_unavailable")
+        calendar, listing = _forecast_calendar(rows, etf_id)
+        days = pd.date_range(series.index.min().normalize(), pd.Timestamp(as_of_date, tz=series.index.tz), freq="D")
+        sessions = days[[calendar.is_business_day(listing, day.date(), knowledge_cutoff=cutoff) for day in days]]
+        # The origin session's own close: probe inside that local date, not at the cutoff instant,
+        # whose local date can already be the next session.
+        state = calendar.market_state(listing, ClockContext.at(datetime.combine(as_of_date, time(12), timezone.utc)))
+        if not sessions.empty and sessions[-1].date() == as_of_date and (
+            state.session_close is None or state.session_close > cutoff
+        ):
+            sessions = sessions[:-1]
+        if sessions.empty or series.dropna().empty:
+            return series.iloc[:0]
+        if series.dropna().index[-1] != sessions[-1]:
+            raise ValueError("stale_adjusted_price_session_history")
+        if not series.index.isin(sessions).all():
+            # A non-session price contradicts the supplied calendar; never use it
+            # to estimate a session return.
+            series = series.loc[series.index.isin(sessions)]
+        return series.reindex(sessions)
     identity = None
     if rows is not None and "calendar_identity" in rows:
         candidates = rows.loc[pd.to_datetime(rows["date"]).dt.date <= as_of_date, "calendar_identity"].dropna()
@@ -739,17 +925,31 @@ def _demote_unadmitted_probabilities(
     heuristic = forecast.heuristic_probability_positive
     if heuristic is None and positive is not None and math.isfinite(positive) and 0.0 <= positive <= 1.0:
         heuristic = positive
+    # Adapters emit their CDF/logistic P(up) only as a heuristic; an admitted scope promotes that value.
+    promoted = positive if positive is not None and math.isfinite(positive) and 0.0 <= positive <= 1.0 else heuristic
     beat = forecast.heuristic_probability_beat_benchmark
     if beat is None and forecast.prob_beat_benchmark is not None and math.isfinite(forecast.prob_beat_benchmark):
         beat = forecast.prob_beat_benchmark
     return replace(
         forecast,
-        prob_positive_return=positive if admitted else None,
+        prob_positive_return=promoted if admitted else None,
         prob_beat_benchmark=None,
         heuristic_probability_positive=None if admitted else heuristic,
         heuristic_probability_beat_benchmark=beat,
         probability_calibration_status="calibrated" if admitted else "unavailable",
     )
+
+
+def _finite_positive_vol(value: object) -> float | None:
+    try:
+        volatility = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    return volatility if math.isfinite(volatility) and volatility > 0 else None
+
+
+def _append_reason(existing: str | None, reason: str) -> str:
+    return f"{existing}; {reason}" if existing else reason
 
 
 def _postprocess_forecast_benchmark_fields(
@@ -771,25 +971,46 @@ def _postprocess_forecast_benchmark_fields(
     benchmark_daily = float(benchmark_returns.tail(180).mean() * 0.35)
     output: list[ForecastResult] = []
     for forecast in forecasts:
+        producer_owned_benchmark = forecast.model_name == "baseline" and isinstance(benchmark_returns.index, pd.DatetimeIndex)
+        if producer_owned_benchmark:
+            # The producer used the asset's exact training dates. Replacing that
+            # result with the benchmark's independent 180-row window leaks scope,
+            # so only the benchmark/excess recomputation is skipped; the
+            # volatility guard below still applies to the producer's row.
+            volatility = _finite_positive_vol(forecast.forecast_vol)
+            if volatility is None and (
+                forecast.prob_beat_benchmark is not None or forecast.heuristic_probability_beat_benchmark is not None
+            ):
+                output.append(
+                    replace(
+                        forecast,
+                        prob_beat_benchmark=None,
+                        heuristic_probability_beat_benchmark=None,
+                        reason_unavailable=_append_reason(
+                            forecast.reason_unavailable, "forecast_vol_unavailable_for_benchmark_probability"
+                        ),
+                    )
+                )
+            else:
+                output.append(forecast)
+            continue
+        if isinstance(benchmark_returns.index, pd.DatetimeIndex):
+            bounded = benchmark_returns.loc[benchmark_returns.index.date <= forecast.forecast_date]
+            benchmark_daily = float(bounded.tail(180).mean() * 0.35)
         if forecast.expected_return is None or not math.isfinite(forecast.expected_return) or not math.isfinite(benchmark_daily):
             output.append(replace(forecast, expected_excess_return=None, prob_beat_benchmark=None, heuristic_probability_beat_benchmark=None))
             continue
         excess = float(forecast.expected_return - benchmark_daily * forecast.horizon_days)
-        try:
-            volatility = float(forecast.forecast_vol)
-        except (TypeError, ValueError):
-            volatility = None
-        if volatility is None or not math.isfinite(volatility) or volatility <= 0:
+        volatility = _finite_positive_vol(forecast.forecast_vol)
+        if volatility is None:
             output.append(
                 replace(
                     forecast,
                     expected_excess_return=excess,
                     prob_beat_benchmark=None,
                     heuristic_probability_beat_benchmark=None,
-                    reason_unavailable=(
-                        f"{forecast.reason_unavailable}; forecast_vol_unavailable_for_benchmark_probability"
-                        if forecast.reason_unavailable
-                        else "forecast_vol_unavailable_for_benchmark_probability"
+                    reason_unavailable=_append_reason(
+                        forecast.reason_unavailable, "forecast_vol_unavailable_for_benchmark_probability"
                     ),
                 )
             )

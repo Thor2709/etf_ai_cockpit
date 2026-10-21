@@ -44,6 +44,9 @@ class LedgerAccountMapping:
     reason: str
     supersedes_mapping_id: str | None
     execution_allowed: bool = False
+    # Namespace of ``source_account_id``: two providers may reuse one account number. ``None`` is a legacy
+    # provider-less mapping, used only when no provider-specific mapping exists for the row.
+    provider_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -86,6 +89,32 @@ class PortfolioAdjustment:
     execution_allowed: bool = False
 
 
+_KEY_SEPARATOR = chr(31)  # unit separator: cannot occur in a provider or account id
+
+
+def _provider_namespace(provider_id: object) -> str | None:
+    text = "" if provider_id is None else str(provider_id).strip().lower()
+    return text or None
+
+
+def mapping_key(provider_id: object, source_account_id: object) -> str:
+    """Key of a mapping in the dict ``load_account_mappings`` returns (provider-qualified when it has a provider)."""
+
+    account = str(source_account_id or "")
+    namespace = _provider_namespace(provider_id)
+    return account if namespace is None else f"{namespace}{_KEY_SEPARATOR}{account}"
+
+
+def lookup_account_mapping(
+    mappings: Mapping[str, LedgerAccountMapping], row: Mapping[str, Any]
+) -> LedgerAccountMapping | None:
+    """Return the mapping for a source row: its provider's mapping first, else a legacy provider-less one."""
+
+    account = row.get("account_id")
+    specific = mappings.get(mapping_key(row.get("provider_id"), account))
+    return specific if specific is not None else mappings.get(mapping_key(None, account))
+
+
 def map_source_account(
     connection: sqlite3.Connection,
     *,
@@ -97,8 +126,13 @@ def map_source_account(
     reviewer: str,
     reason: str,
     supersedes_mapping_id: str | None = None,
+    provider_id: str | None = None,
 ) -> LedgerAccountMapping:
-    """Validate an explicit source-to-ledger mapping and return its proposal."""
+    """Validate an explicit source-to-ledger mapping and return its proposal.
+
+    ``provider_id`` namespaces ``source_account_id`` so providers that reuse an account number keep separate
+    mappings; omit it only for a legacy provider-less mapping.
+    """
 
     authority = _required(authority, "authority")
     if authority not in {"paper", "broker"}:
@@ -110,6 +144,7 @@ def map_source_account(
     reviewer = _required(reviewer, "reviewer")
     reason = _required(reason, "reason")
 
+    namespace = _provider_namespace(provider_id)
     ledger = Ledger(connection)
     cash = ledger.get_account(cash_account_id, authority=authority)
     position = ledger.get_account(position_account_id, authority=authority)
@@ -130,6 +165,7 @@ def map_source_account(
         "reason": reason.strip(),
         "supersedes_mapping_id": supersedes_mapping_id,
         "execution_allowed": False,
+        **({} if namespace is None else {"provider_id": namespace}),
     }
     mapping_id = _digest(decision)
     return LedgerAccountMapping(
@@ -142,6 +178,7 @@ def map_source_account(
         reviewer=reviewer.strip(),
         reason=reason.strip(),
         supersedes_mapping_id=supersedes_mapping_id,
+        provider_id=namespace,
     )
 
 
@@ -150,6 +187,8 @@ def store_account_mapping(store: Any, mapping: LedgerAccountMapping) -> LedgerAc
 
     payload = asdict(mapping)
     payload.pop("mapping_id")
+    if payload.get("provider_id") is None:
+        payload.pop("provider_id", None)  # legacy records keep their exact stored shape and hash
     payload["mapping_hash"] = _digest(payload)
     transaction = nullcontext(store.connection) if store.connection.in_transaction else store.transaction()
     with transaction as connection:
@@ -184,10 +223,15 @@ def load_account_mappings(
         if knowledge_cutoff is not None and _instant(record.created_at, "mapping created_at") > knowledge_cutoff:
             continue
         mapping = LedgerAccountMapping(mapping_id=record.entity_id, **payload)
-        current = latest.get(mapping.source_account_id)
+        key = mapping_key(mapping.provider_id, mapping.source_account_id)
+        current = latest.get(key)
         if current is None or (record.created_at, record.entity_id) > current[0]:
-            latest[mapping.source_account_id] = ((record.created_at, record.entity_id), mapping)
+            latest[key] = ((record.created_at, record.entity_id), mapping)
     return {key: value[1] for key, value in latest.items()}
+
+
+# Market-price and account-metadata facts never produce journal postings.
+_NON_LEDGER_RECORDS = frozenset({"price", "account"})
 
 
 def reconcile_imports(
@@ -298,7 +342,9 @@ def reconcile_imports(
         if row_status not in {"accepted", "correction"}:
             continue
         visible.append(row)
-        mapping = mappings.get(str(row.get("account_id") or ""))
+        if record_type in _NON_LEDGER_RECORDS:
+            continue
+        mapping = lookup_account_mapping(mappings, row)
         if mapping is None:
             discrepancies.append(
                 _discrepancy(
@@ -424,7 +470,7 @@ def reconcile_imports(
         source_events=tuple(_json_mapping(row) for row in audit_rows),
         account_mappings=tuple(
             _json_mapping(asdict(mapping))
-            for mapping in sorted(mappings.values(), key=lambda item: item.source_account_id)
+            for mapping in sorted(mappings.values(), key=lambda item: (item.source_account_id, item.provider_id or ""))
         ),
         journal_entries=tuple(journal_entries),
         adjustments=tuple(adjustment_rows),

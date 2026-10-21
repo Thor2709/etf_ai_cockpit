@@ -40,6 +40,10 @@ def _as_timestamp(value: datetime) -> datetime:
 
 
 def _number(value: float, *, field_name: str, minimum: float | None = None) -> float:
+    # Numeric strings and booleans are coerced by float() but crash later replay
+    # arithmetic (or silently mean 1.0); reject them at ingest.
+    if isinstance(value, (str, bytes, bool)):
+        raise EventReplayError(f"{field_name} must be numeric")
     try:
         result = float(value)
     except (TypeError, ValueError) as exc:
@@ -119,8 +123,9 @@ class MarketEvent:
 
     def __post_init__(self) -> None:
         _as_timestamp(self.timestamp)
-        if not self.instrument_id.strip():
-            raise EventReplayError("market instrument_id is required")
+        _require_text(self.instrument_id, "market instrument_id")
+        if not isinstance(self.listed, bool):
+            raise EventReplayError("market listed must be a bool")
         values = {
             "open_price": _number(self.open_price, field_name="open_price", minimum=0.0),
             "high_price": _number(self.high_price, field_name="high_price", minimum=0.0),
@@ -144,6 +149,13 @@ class SignalEvent:
     sequence: int = 0
     kind: Literal["signal"] = "signal"
 
+    def __post_init__(self) -> None:
+        _as_timestamp(self.timestamp)
+        _require_text(self.signal_id, "signal_id")
+        _require_text(self.instrument_id, "signal instrument_id")
+        if self.action not in {"buy", "sell", "hold"}:
+            raise EventReplayError(f"unsupported signal action: {self.action}")
+
 
 @dataclass(frozen=True)
 class TargetEvent:
@@ -156,6 +168,8 @@ class TargetEvent:
 
     def __post_init__(self) -> None:
         _as_timestamp(self.timestamp)
+        _require_text(self.target_id, "target_id")
+        _require_text(self.instrument_id, "target instrument_id")
         _number(self.target_quantity, field_name="target_quantity", minimum=0.0)
 
 
@@ -192,8 +206,8 @@ class OrderRequest:
 
     def __post_init__(self) -> None:
         _as_timestamp(self.timestamp)
-        if not self.order_id.strip() or not self.instrument_id.strip():
-            raise EventReplayError("order_id and instrument_id are required")
+        _require_text(self.order_id, "order_id")
+        _require_text(self.instrument_id, "instrument_id")
         _validate_side_type(self.side, self.order_type, self.quantity, self.limit_price)
         if self.expires_at is not None:
             expiry = _as_timestamp(self.expires_at)
@@ -271,6 +285,11 @@ class ReplayResult:
         return tuple(event for event in self.events if isinstance(event, FillEvent))
 
 
+def _require_text(value: object, field_name: str) -> None:
+    if not isinstance(value, str) or not value.strip():
+        raise EventReplayError(f"{field_name} is required")
+
+
 def _validate_side_type(side: str, order_type: str, quantity: float, limit_price: float | None) -> None:
     if side not in {"buy", "sell"}:
         raise EventReplayError(f"unsupported order side: {side}")
@@ -282,7 +301,8 @@ def _validate_side_type(side: str, order_type: str, quantity: float, limit_price
     if order_type == "limit":
         if limit_price is None:
             raise EventReplayError("limit_price is required for limit orders")
-        _number(limit_price, field_name="limit_price", minimum=0.0)
+        if _number(limit_price, field_name="limit_price", minimum=0.0) <= 0:
+            raise EventReplayError("limit_price must be strictly positive")
     elif limit_price is not None:
         raise EventReplayError("limit_price is only valid for limit orders")
 
@@ -305,19 +325,57 @@ def proposal_to_order(proposal: ProposalEvent, *, order_id: str | None = None, e
 
 
 def _priority(event: ReplayInput) -> int:
-    # Market data is consumed before an order at the same timestamp.  This
-    # prevents same-bar fills and keeps the next valid market event explicit.
-    return {"market": 0, "signal": 1, "target": 2, "proposal": 3, "cancel": 4, "expiry": 4, "order": 5}[event.kind]
+    # Cancels and expiries at a timestamp precede the market bar of that
+    # timestamp, so a cancelled order never fills on the same bar.  Market data
+    # is consumed before an order at the same timestamp, which prevents
+    # same-bar fills and keeps the next valid market event explicit.
+    return {"cancel": 0, "expiry": 0, "market": 1, "signal": 2, "target": 3, "proposal": 4, "order": 5}[event.kind]
 
 
-def _event_key(event: ReplayInput) -> tuple[datetime, int, str, int]:
+def _event_key(event: ReplayInput) -> tuple[datetime, int, int, str]:
     identifier = getattr(event, "order_id", None) or getattr(event, "proposal_id", None) or getattr(event, "signal_id", None) or getattr(event, "target_id", None) or getattr(event, "instrument_id", "")
-    return (_as_timestamp(event.timestamp), _priority(event), str(identifier), int(event.sequence))
+    # Submit time, then event sequence; the identifier is only a deterministic
+    # tie-break and never decides priority between differently sequenced events.
+    return (_as_timestamp(event.timestamp), _priority(event), int(event.sequence), str(identifier))
+
+
+def _serialise_market(event: MarketEvent) -> dict[str, object]:
+    return {
+        "timestamp": _as_timestamp(event.timestamp).isoformat(),
+        "instrument_id": event.instrument_id,
+        "open": round(float(event.open_price), 12),
+        "high": round(float(event.high_price), 12),
+        "low": round(float(event.low_price), 12),
+        "close": round(float(event.close_price), 12),
+        "available_quantity": None if event.available_quantity is None else round(float(event.available_quantity), 12),
+        "listed": event.listed,
+    }
+
+
+def _dedupe_market_events(events: list[ReplayInput] | tuple[ReplayInput, ...]) -> list[ReplayInput]:
+    """Drop identical duplicate bars; conflicting bars at one key are an error."""
+
+    seen: dict[tuple[datetime, str], dict[str, object]] = {}
+    kept: list[ReplayInput] = []
+    for event in events:
+        if isinstance(event, MarketEvent):
+            key = (_as_timestamp(event.timestamp), event.instrument_id)
+            payload = _serialise_market(event)
+            previous = seen.get(key)
+            if previous is not None:
+                if previous != payload:
+                    raise EventReplayError(
+                        f"conflicting market events for {event.instrument_id} at {key[0].isoformat()}"
+                    )
+                continue  # identical duplicate: must not add liquidity twice
+            seen[key] = payload
+        kept.append(event)
+    return kept
 
 
 def _serialise_event(event: ReplayEvent, sequence: int) -> dict[str, object]:
     payload: dict[str, object] = {"kind": event.kind, "timestamp": _as_timestamp(event.timestamp).isoformat(), "sequence": sequence}
-    for name in ("order_id", "instrument_id", "fill_id", "signal_id", "target_id", "proposal_id", "source_id", "side", "action", "order_type", "quantity", "price", "limit_price", "expires_at", "remaining_quantity", "requested_quantity", "filled_quantity", "accepted", "reason", "status"):
+    for name in ("order_id", "instrument_id", "fill_id", "signal_id", "target_id", "proposal_id", "source_id", "side", "action", "order_type", "quantity", "target_quantity", "price", "limit_price", "expires_at", "remaining_quantity", "requested_quantity", "filled_quantity", "accepted", "reason", "status"):
         if hasattr(event, name):
             value = getattr(event, name)
             if isinstance(value, datetime):
@@ -337,7 +395,11 @@ class EventDrivenBacktest:
         self,
         *,
         calendars: Mapping[str, CertifiedSessionCalendar] | None = None,
+        require_liquidity: bool = False,
     ) -> None:
+        # ``require_liquidity`` fails closed when a fill would need a bar without
+        # available_quantity; the default keeps the unlimited-liquidity research contract.
+        self.require_liquidity = bool(require_liquidity)
         self.calendars = dict(calendars or {})
         for instrument_id, calendar in self.calendars.items():
             if instrument_id != calendar.listing.instrument_id:
@@ -346,13 +408,22 @@ class EventDrivenBacktest:
                 )
 
     def replay(self, events: list[ReplayInput] | tuple[ReplayInput, ...]) -> ReplayResult:
-        ordered = sorted(events, key=_event_key)
+        ordered = sorted(_dedupe_market_events(events), key=_event_key)
+        market_inputs = [_serialise_market(event) for event in ordered if isinstance(event, MarketEvent)]
         seen_orders: set[str] = set()
         active: dict[str, dict[str, object]] = {}
         states: dict[str, OrderState] = {}
         output: list[ReplayEvent] = []
 
         for event in ordered:
+            # Orders expire at their expiry time, not at the next matching bar.
+            self._expire_due(
+                _as_timestamp(event.timestamp),
+                active,
+                states,
+                output,
+                inclusive=not isinstance(event, (CancelEvent, ExpiryEvent)),
+            )
             instrument_id = self._event_instrument_id(event, active, states)
             calendar = self.calendars.get(instrument_id)
             if calendar is None:
@@ -382,7 +453,9 @@ class EventDrivenBacktest:
             state = _state_from_active(record)
             states[state.order_id] = state
         serialised = tuple(_serialise_event(event, index) for index, event in enumerate(output))
-        ledger_hash = hashlib.sha256(json.dumps(serialised, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+        # The ledger binds the consumed market inputs as well as the lifecycle output.
+        ledger = {"events": serialised, "market_inputs": market_inputs}
+        ledger_hash = hashlib.sha256(json.dumps(ledger, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
         return ReplayResult(tuple(output), tuple(states[key] for key in sorted(states)), ledger_hash)
 
     @staticmethod
@@ -418,7 +491,15 @@ class EventDrivenBacktest:
         output: list[ReplayEvent],
     ) -> None:
         left = market.available_quantity
-        for order_id in sorted(tuple(active)):
+        # Priority is submit time, then event sequence, then arrival order; never the lexical order id.
+        arrival = {order_id: index for index, order_id in enumerate(active)}
+
+        def priority(order_id: str) -> tuple[datetime, int, int]:
+            request = active[order_id]["request"]
+            assert isinstance(request, OrderRequest)
+            return (request.timestamp, int(request.sequence), arrival[order_id])
+
+        for order_id in sorted(tuple(active), key=priority):
             record = active[order_id]
             request = record["request"]
             assert isinstance(request, OrderRequest)
@@ -431,6 +512,10 @@ class EventDrivenBacktest:
                 continue
             filled = float(record["filled"])
             remaining = request.quantity - filled
+            if left is None and self.require_liquidity:
+                raise UnsupportedExecutionDataError(
+                    f"market bar has no available_quantity: {market.instrument_id} at {market.timestamp.isoformat()}"
+                )
             capacity = left if left is not None else remaining
             quantity = min(remaining, capacity)
             if quantity <= 0:
@@ -458,6 +543,27 @@ class EventDrivenBacktest:
             states[order_id] = _state_for(request, float(record["filled"]), status)
             if remaining == 0:
                 del active[order_id]
+
+    def _expire_due(
+        self,
+        timestamp: datetime,
+        active: dict[str, dict[str, object]],
+        states: dict[str, OrderState],
+        output: list[ReplayEvent],
+        *,
+        inclusive: bool = True,
+    ) -> None:
+        due: list[tuple[datetime, int, int, str]] = []
+        for index, (order_id, record) in enumerate(active.items()):
+            request = record["request"]
+            assert isinstance(request, OrderRequest)
+            expiry = request.expires_at
+            if expiry is None:
+                continue
+            if expiry < timestamp or (inclusive and expiry == timestamp):
+                due.append((expiry, int(request.sequence), index, order_id))
+        for expiry, _sequence, _index, order_id in sorted(due):
+            self._close_order(ExpiryEvent(expiry, order_id), active, states, output)
 
     def _close_order(
         self,

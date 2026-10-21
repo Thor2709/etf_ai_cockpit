@@ -512,7 +512,7 @@ def write_score_formula_registry() -> Path:
     policies = {asset_type: load_score_policy(asset_type).as_dict() for asset_type in ("ETF", "STOCK")}
     unsigned = {
         "schema_version": 1,
-        "formula_version": "score-engine-v3.0.0",
+        "formula_version": load_score_policy("ETF").formula_version,
         "policies": policies,
         "execution_allowed": False,
         "immutable_after_run": True,
@@ -529,6 +529,12 @@ def write_score_formula_registry() -> Path:
         lambda path: json.loads(path.read_text(encoding="utf-8")),
     )
     return SCORE_FORMULA_REGISTRY_PATH
+
+
+class TrustArtifactPaths(dict):
+    """Artifact path mapping that also carries the identity of the score run that wrote it."""
+
+    run_id: str | None = None
 
 
 def write_trust_artifacts_for_scores(
@@ -556,7 +562,7 @@ def write_trust_artifacts_for_scores(
     )
     refresh_static_trust_artifacts(config)
     run_manifest = build_run_manifest(run_id, manifest_dependencies)
-    paths = {
+    paths = TrustArtifactPaths({
         "evidence_ledger": write_evidence_ledger(scores, run_id=run_id, created_at=now),
         "score_components": write_score_components(scores, run_id=run_id, created_at=now),
         "score_history": append_score_history(
@@ -575,7 +581,8 @@ def write_trust_artifacts_for_scores(
             weights={instrument_id: 1.0 for instrument_id in ranked_instruments},
         ),
         "benchmark_attribution": write_benchmark_attribution(scoreboard),
-    }
+    })
+    paths.run_id = run_id
     paths["version_registry"] = write_version_registry()
     paths["run_manifest"] = ensure_run_manifest(
         run_id,

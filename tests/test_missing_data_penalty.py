@@ -91,9 +91,9 @@ def test_candidate_rows_never_duplicate_configured_instruments():
 
 
 def test_forecasts_carry_no_score_weight_owner_rule_f5():
-    from etf_cockpit.signals.simple_scores import ETF_EVIDENCE_WEIGHTS, STOCK_EVIDENCE_WEIGHTS
+    from etf_cockpit.signals.simple_scores import headline_weights
 
-    for weights in (ETF_EVIDENCE_WEIGHTS, STOCK_EVIDENCE_WEIGHTS):
+    for weights in (headline_weights("ETF"), headline_weights("Stock")):
         assert all(weights[key] == 0.0 for key in ("baseline", "timesfm", "toto"))
 
 

@@ -31,7 +31,7 @@ from etf_cockpit.data.identity_master import (
     IdentityMasterSchemaError,
     IdentityMasterStore,
 )
-from etf_cockpit.data.import_export import ImportPreview, ImportService
+from etf_cockpit.data.import_export import ImportPreview
 from etf_cockpit.data.local_storage import StorageSchemaError, TransactionalStore
 
 
@@ -194,9 +194,6 @@ class PortfolioRebuild:
     execution_allowed: bool = False
 
 
-_PREVIEWS: dict[str, ImportPreview] = {}
-
-
 class PortfolioImportStore:
     """Durable portfolio import store backed by the canonical ACID database."""
 
@@ -281,10 +278,7 @@ class PortfolioImportStore:
                 (f"read_failed:{type(exc).__name__}:{exc}",),
                 pd.DataFrame(),
             )
-        _PREVIEWS[preview.preview_id] = preview
-        # Reuse the established preview registry contract. Portfolio commits
-        # remain here because the generic service has no historical ledger.
-        ImportService(self.root).register(preview)
+        # Staged durably and re-verified on commit; no process-wide preview is retained.
         return preview
 
     def commit(self, preview: ImportPreview | str) -> PortfolioCommitResult:
@@ -443,6 +437,7 @@ class PortfolioImportStore:
                 "execution_allowed": False,
             }
             rollback_payload["rollback_hash"] = _payload_hash(rollback_payload)
+            self._verify_rollback_chain(store, batch_key, rollback_payload)
             store.put_many(
                 (
                     (
@@ -455,19 +450,73 @@ class PortfolioImportStore:
             )
         return True
 
+    def _verify_rollback_chain(
+        self,
+        store: TransactionalStore,
+        batch_id: str,
+        rollback_payload: Mapping[str, Any],
+    ) -> None:
+        """Fail closed unless rolling back ``batch_id`` leaves a valid revision chain."""
+
+        try:
+            if not store.integrity().ok:
+                raise PortfolioImportError(
+                    "rollback refused: portfolio storage integrity check failed"
+                )
+            batches = [(r.entity_id, dict(r.payload)) for r in store.list(_BATCH_TYPE)]
+            events = [(r.entity_id, dict(r.payload)) for r in store.list(_EVENT_TYPE)]
+            rollbacks = [
+                (r.entity_id, dict(r.payload)) for r in store.list(_ROLLBACK_TYPE)
+            ]
+            stages = [(r.entity_id, dict(r.payload)) for r in store.list(_STAGE_TYPE)]
+            if any(payload.get("batch_id") == batch_id for _, payload in rollbacks):
+                raise PortfolioImportError(
+                    f"rollback refused: batch {batch_id} is already rolled back"
+                )
+            # The current chain must verify (gaps, foreign batches) before and after.
+            _verified_active_payloads(batches, events, rollbacks, stages)
+            _verified_active_payloads(
+                batches,
+                events,
+                [
+                    *rollbacks,
+                    (str(rollback_payload["rollback_id"]), dict(rollback_payload)),
+                ],
+                stages,
+            )
+        except PortfolioImportError as exc:
+            if str(exc).startswith("rollback refused"):
+                raise
+            raise PortfolioImportError(
+                f"rollback refused: chain unverifiable: {exc}"
+            ) from exc
+        except (StorageSchemaError, sqlite3.DatabaseError, OSError) as exc:
+            raise PortfolioImportError(
+                f"rollback refused: storage unavailable: {exc}"
+            ) from exc
+
     def source_events(
         self,
         *,
         as_of: str | None = None,
-        known_at: str | None = None,
+        known_at: str | Mapping[Any, str] | None = None,
         store: TransactionalStore | None = None,
     ) -> pd.DataFrame:
         """Return imported source evidence, optionally visible at both cutoffs.
+
+        ``known_at`` is one cutoff for every source, or a mapping of
+        ``(provider_id, source_system)`` (or ``"provider|system"``) to that
+        source's own knowledge cutoff. A source without an entry is unavailable
+        (excluded), never defaulted to another source's cutoff.
 
         This store is an ingestion adapter. Canonical balances are available only
         from the journal replay in ``PortfolioImportApplication.reconcile``.
         """
 
+        if isinstance(known_at, Mapping):
+            return self._source_events_per_source(
+                as_of=as_of, known_at=known_at, store=store
+            )
         if store is not None and as_of is not None and known_at is not None:
             events = self._active_events_as_of(store, as_of=as_of, known_at=known_at)
         else:
@@ -492,6 +541,40 @@ class PortfolioImportStore:
             decision = pd.to_datetime(selected["decision_time"], utc=True, errors="coerce")
             selected = selected.loc[decision.le(cutoff)]
         return selected.copy()
+
+    def _source_events_per_source(
+        self,
+        *,
+        as_of: str | None,
+        known_at: Mapping[Any, str],
+        store: TransactionalStore | None,
+    ) -> pd.DataFrame:
+        cutoffs: dict[tuple[str, str], str] = {}
+        for key, value in known_at.items():
+            parts = key if isinstance(key, tuple) else str(key).split("|", 1)
+            if len(parts) != 2:
+                raise PortfolioImportError(
+                    "per-source known_at keys must be (provider_id, source_system)"
+                )
+            cutoffs[(str(parts[0]).strip().lower(), str(parts[1]).strip().lower())] = str(
+                value
+            )
+        parts_frames: list[pd.DataFrame] = []
+        for cutoff in sorted(set(cutoffs.values())):
+            sources = {key for key, value in cutoffs.items() if value == cutoff}
+            events = self.source_events(as_of=as_of, known_at=cutoff, store=store)
+            if events.empty:
+                continue
+            keys = list(
+                zip(
+                    events["provider_id"].astype(str).str.lower(),
+                    events["source_system"].astype(str).str.lower(),
+                )
+            )
+            parts_frames.append(events.loc[[key in sources for key in keys]])
+        if not parts_frames:
+            return self.source_events(as_of=as_of, known_at="1900-01-01T00:00:00Z", store=store)
+        return pd.concat(parts_frames, ignore_index=True)
 
     def rebuild(self) -> PortfolioRebuild:
         raise PortfolioImportError(
@@ -629,8 +712,6 @@ class PortfolioImportStore:
             parent_preview_id=previous.preview_id,
             decision_time=decision_time,
         )
-        _PREVIEWS[new_id] = mapped
-        ImportService(self.root).register(mapped)
         return mapped
 
     def stages(self) -> tuple[dict[str, Any], ...]:
@@ -762,7 +843,6 @@ class PortfolioImportStore:
             tuple(str(item) for item in stage["warnings"]),
             str(stage["preview_checksum"]),
         )
-        _PREVIEWS[preview_id] = preview
         return preview
 
     def _active_events(self, store: TransactionalStore | None = None) -> pd.DataFrame:
@@ -1260,7 +1340,7 @@ def _map_identity(
         )
     row["identity_candidates"] = "|".join(candidates)
     row["identity_mapping_method"] = method
-    if len(candidates) != 1:
+    if len(candidates) != 1 or method == "id_isin_conflict":
         row["instrument_id"] = ""
         return row
     canonical_id = candidates[0]
@@ -1304,6 +1384,7 @@ def _identity_candidates(
     decision_time: str,
 ) -> tuple[tuple[str, ...], str]:
     explicit = str(row.get("instrument_id") or "").strip()
+    explicit_resolved = False
     if explicit:
         try:
             with IdentityMasterStore(root) as identity_store:
@@ -1312,7 +1393,7 @@ def _identity_candidates(
                     effective_at=effective_at,
                     decision_time=decision_time,
                 )
-            return (explicit,), "canonical_id"
+            explicit_resolved = True
         except (KeyError, ValueError, IdentityMasterSchemaError):
             pass
     try:
@@ -1322,6 +1403,8 @@ def _identity_candidates(
                 for record in store.list(_IDENTITY_CLAIM_TYPE)
             ]
     except (StorageSchemaError, sqlite3.DatabaseError, OSError):
+        if explicit_resolved and _missing(row.get("isin")):
+            return (explicit,), "canonical_id"
         return (), "identity_master_unavailable"
     claims = [
         claim
@@ -1340,6 +1423,23 @@ def _identity_candidates(
             and str(claim.get("value", "")).strip().casefold() == text
         }
 
+    if explicit_resolved:
+        supplied_isin = matches({"isin"}, row.get("isin"))
+        if supplied_isin and explicit not in supplied_isin:
+            return tuple(sorted(supplied_isin | {explicit})), "id_isin_conflict"
+        supplied_text = str(row.get("isin") or "").strip().casefold()
+        if supplied_text and not supplied_isin:
+            own_isins = {
+                str(claim.get("value", "")).strip().casefold()
+                for claim in claims
+                if str(claim.get("instrument_id")) == explicit
+                and str(claim.get("field", "")).casefold() == "isin"
+            }
+            if own_isins and supplied_text not in own_isins:
+                # Supplied ISIN is unknown to the master yet contradicts the
+                # explicit instrument's own ISIN claims: unverifiable, fail closed.
+                return (explicit,), "id_isin_conflict"
+        return (explicit,), "canonical_id"
     isin = matches({"isin"}, row.get("isin"))
     if isin:
         return tuple(sorted(isin)), "isin"
@@ -1353,7 +1453,7 @@ def _identity_candidates(
         ticker &= venue
         return tuple(sorted(ticker)), "ticker+mic"
     if ticker:
-        return tuple(sorted(ticker)), "ticker"
+        return (), "ticker_requires_exchange"
     return (), "unresolved"
 
 
@@ -1361,26 +1461,32 @@ def _claim_effective(
     claim: Mapping[str, Any], effective_at: str, decision_time: str
 ) -> bool:
     try:
-        effective = pd.Timestamp(effective_at)
+        effective = _utc_timestamp(effective_at)
         valid_from = (
-            pd.Timestamp(claim["valid_from"]) if claim.get("valid_from") else None
+            _utc_timestamp(claim["valid_from"]) if claim.get("valid_from") else None
         )
-        valid_to = pd.Timestamp(claim["valid_to"]) if claim.get("valid_to") else None
+        valid_to = _utc_timestamp(claim["valid_to"]) if claim.get("valid_to") else None
         available = (
-            pd.Timestamp(claim["available_at"]) if claim.get("available_at") else None
+            _utc_timestamp(claim["available_at"]) if claim.get("available_at") else None
+        )
+        decision = _utc_timestamp(decision_time)
+        return not (
+            (valid_from is not None and effective < valid_from)
+            or (valid_to is not None and effective >= valid_to)
+            or available is None
+            or available > decision
         )
     except (TypeError, ValueError):
         return False
-    try:
-        decision = pd.Timestamp(decision_time)
-    except (TypeError, ValueError):
-        return False
-    return not (
-        (valid_from is not None and effective < valid_from)
-        or (valid_to is not None and effective >= valid_to)
-        or available is None
-        or available > decision
-    )
+
+
+def _utc_timestamp(value: object) -> pd.Timestamp:
+    """Parse a timestamp as UTC; naive values are read as UTC (never mixed)."""
+
+    stamp = pd.Timestamp(value)  # type: ignore[arg-type]
+    if pd.isna(stamp):
+        raise ValueError("missing timestamp")
+    return stamp.tz_localize("UTC") if stamp.tzinfo is None else stamp.tz_convert("UTC")
 
 
 def _mapped_identity_error(row: Mapping[str, Any]) -> str:
@@ -1390,6 +1496,8 @@ def _mapped_identity_error(row: Mapping[str, Any]) -> str:
     )
     if method.startswith("currency_conflict:"):
         return "identity_currency_conflict"
+    if method == "id_isin_conflict":
+        return "identity_id_isin_conflict"
     if len(candidates) > 1 or method == "ambiguous":
         return "identity_ambiguous"
     if not str(row.get("instrument_id") or ""):
@@ -1514,8 +1622,11 @@ def _normalise_frame(
         if column not in result:
             result[column] = None
     result = result.loc[:, list(CANONICAL_COLUMNS)]
+    canonical_source = str(source_format).strip().lower().startswith("canonical")
     for column in result.columns:
         result[column] = result[column].map(_clean_value)
+        if canonical_source:
+            result[column] = result[column].map(_spreadsheet_unescape)
     result["decision_time"] = decision_time
     inferred_sides = result["record_type"].map(
         lambda value: (
@@ -1529,7 +1640,9 @@ def _normalise_frame(
         inferred_sides,
     )
     result["record_type"] = result["record_type"].map(_normalise_record_type)
-    result["source_id"] = result["source_id"].map(lambda value: str(value).strip())
+    result["source_id"] = result["source_id"].map(
+        lambda value: "" if _missing(value) else str(value).strip()
+    )
     default_system = str(source_system or source_format).strip().lower()
     default_provider = str(provider_id or "user_local").strip().lower()
     result["source_system"] = result["source_system"].map(
@@ -1596,7 +1709,8 @@ def _normalise_frame(
     result["numeric_error"] = numeric_errors
     result["event_key"] = result.apply(
         lambda row: "|".join(
-            (
+            _escape_key_part(part)
+            for part in (
                 str(row["provider_id"]),
                 str(row["source_system"]),
                 str(row.get("account_id") or "_market"),
@@ -1606,6 +1720,12 @@ def _normalise_frame(
         axis=1,
     )
     return result
+
+
+def _escape_key_part(part: str) -> str:
+    """Escape the key delimiter so distinct components never share a key."""
+
+    return part.replace("\\", "\\\\").replace("|", "\\|")
 
 
 def _resolve_currency(
@@ -1939,10 +2059,24 @@ def _json_row(row: Mapping[str, Any]) -> dict[str, Any]:
     return {str(key): _json_value(value) for key, value in row.items()}
 
 
+_FORMULA_TRIGGERS = ("=", "+", "-", "@")
+
+
 def _spreadsheet_safe(value: object) -> object:
+    """Prefix formula-like text with an apostrophe (reversible, see unescape)."""
+
     if not isinstance(value, str):
         return value
-    return "'" + value if value.startswith(("=", "+", "-", "@")) else value
+    return "'" + value if value.lstrip("'").startswith(_FORMULA_TRIGGERS) else value
+
+
+def _spreadsheet_unescape(value: object) -> object:
+    """Undo `_spreadsheet_safe` so exported text re-imports with its identity."""
+
+    if isinstance(value, str) and value.startswith("'"):
+        if value.lstrip("'").startswith(_FORMULA_TRIGGERS):
+            return value[1:]
+    return value
 
 
 def _read_xlsx(path: Path) -> pd.DataFrame:

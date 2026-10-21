@@ -610,17 +610,14 @@ def test_total_return_row_revisions_select_latest_eligible_and_exclude_future() 
 
     missing_known_at = revised.frame.copy()
     missing_known_at.loc[0, "known_at"] = pd.NA
-    missing_report = calculate_etf_economics(
-        "VWCE",
-        _economics_records(),
-        fund_total_return=_replace_evidence(revised, missing_known_at),
-        benchmark_total_return=_total_return_series([100, 100.5, 101, 103], instrument_id="FTSE-ALL-WORLD"),
-        as_of="2026-01-06T18:00:00Z",
-        horizon_days=3,
-        closure_policy=_closure_policy(),
-    )
-    assert missing_report.status == "unavailable"
-    assert "missing known_at" in missing_report.message
+    # PT2: a row with an explicit but missing knowledge time cannot establish a point-in-time price path, so
+    # the adjustment is unavailable at derivation and can no longer be bound as total-return evidence at all
+    # (stricter than the former "economics report unavailable: missing known_at"; same fail-closed outcome).
+    with pytest.raises(EtfEconomicsError, match="available and reconciled"):
+        _replace_evidence(revised, missing_known_at)
+    # The evidence layer still refuses a forged frame whose known_at was blanked after the fact.
+    with pytest.raises(EtfEconomicsError, match="checksum mismatch"):
+        replace(revised, frame=missing_known_at)
 
 
 def test_closure_policy_loader_accepts_local_json_and_fails_closed(tmp_path) -> None:

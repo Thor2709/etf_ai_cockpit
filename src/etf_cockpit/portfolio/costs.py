@@ -4,12 +4,21 @@ from dataclasses import asdict, dataclass
 import hashlib
 import json
 import math
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 
 from etf_cockpit.core.config import AppConfig
 
 
 COST_MODEL_ID = "execution-cost-v1"
+
+# Cost evidence classes (P4-06): configured assumptions, paper fills and imported
+# broker fills are kept apart; only imported broker fills may calibrate spread
+# and slippage.
+EVIDENCE_CONFIGURED = "configured_assumption"
+EVIDENCE_PAPER_FILL = "paper_fill"
+EVIDENCE_BROKER_FILL = "imported_broker_fill"
+EVIDENCE_UNCLASSIFIED = "unclassified_local_calibration"
+_UNKNOWN_SPREAD_RANGE_FACTOR = 2.0
 
 
 def _finite(value: object, default: float = 0.0) -> float:
@@ -22,6 +31,50 @@ def _finite(value: object, default: float = 0.0) -> float:
 
 def _non_negative(value: object, default: float = 0.0) -> float:
     return max(0.0, _finite(value, default))
+
+
+def _valid_quote(value: object) -> float | None:
+    """Return a finite non-negative observed input, else None (never a coerced zero)."""
+
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        number = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) and number >= 0.0 else None
+
+
+def _finite_order_value(value: object) -> float:
+    """A supplied order value must be finite: NaN/inf never normalises to a zero-cost order.
+
+    ``None`` keeps meaning "no order size" (the size-neutral view); anything else that is
+    not a finite number is rejected instead of being priced as a free trade.
+    """
+
+    if value is None:
+        return 0.0
+    if isinstance(value, bool):
+        raise ValueError("order_value_eur must be a finite number")
+    try:
+        number = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError) as exc:
+        raise ValueError("order_value_eur must be a finite number") from exc
+    if not math.isfinite(number):
+        raise ValueError("order_value_eur must be a finite number")
+    return number
+
+
+def conservative_cost_tier(config: AppConfig) -> tuple[float, float]:
+    """Most conservative documented (spread_bps, slippage_bps): the largest of the default and every per-ETF tier."""
+
+    model = config.costs.cost_model
+    spreads = [_non_negative(getattr(model, "default_spread_bps", 0.0))]
+    slippages = [_non_negative(getattr(model, "default_slippage_bps", 0.0))]
+    for entry in getattr(config.costs, "per_etf", {}).values():
+        spreads.append(_non_negative(entry.get("spread_bps")))
+        slippages.append(_non_negative(entry.get("slippage_bps")))
+    return max(spreads), max(slippages)
 
 
 def fixed_cost_eur(commission_eur: float, order_value_eur: float) -> float:
@@ -87,6 +140,10 @@ class CostEstimate:
     estimate_kind: str = "research_estimate"
     execution_allowed: bool = False
     assumptions: tuple[str, ...] = ()
+    side: str = "buy"
+    evidence_class: str = "configured_assumption"
+    spread_range_bps: tuple[float, float] = (0.0, 0.0)
+    precise_alpha_claims_blocked: bool = True
 
     def as_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -105,11 +162,34 @@ class PortfolioCostEstimate:
     execution_allowed: bool = False
 
 
+_BROKER_FILL_AUTHORITIES = frozenset({"imported_broker_fills", "imported_broker_fill", "broker_fill"})
+
+
+def _broker_provenance(calibration: Mapping[str, object] | None, name: str) -> bool:
+    """A component is broker evidence only with a positive fill count and a broker source authority.
+
+    Per-component ``<name>_sample_count`` / ``<name>_source_authority`` entries win over the shared ones,
+    mirroring ``calibrate_completed_fills`` (``evidence_classes`` sample count + broker authority).
+    """
+
+    if not calibration:
+        return False
+    count = calibration.get(f"{name}_sample_count", calibration.get("sample_count"))
+    authority = str(calibration.get(f"{name}_source_authority", calibration.get("source_authority")) or "").strip().lower()
+    if isinstance(count, bool) or not isinstance(count, (int, float)) or not math.isfinite(count) or count <= 0:
+        return False
+    return authority in _BROKER_FILL_AUTHORITIES
+
+
 def _calibration_value(calibration: Mapping[str, object] | None, name: str, fallback: float) -> tuple[float, bool]:
+    """Return (value, calibrated); only a finite, non-negative entry calibrates."""
+
     if not calibration or name not in calibration:
         return fallback, False
-    value = _finite(calibration.get(name), fallback)
-    return (value if value >= 0 else fallback), value >= 0
+    value = _valid_quote(calibration.get(name))
+    if value is None:
+        return fallback, False
+    return value, True
 
 
 def estimate_execution_cost(
@@ -128,6 +208,7 @@ def estimate_execution_cost(
     listing: str | None = None,
     stress_multiplier: float = 1.0,
     calibration: Mapping[str, object] | None = None,
+    conservative_tier: bool = False,
 ) -> CostEstimate:
     """Build a deterministic, conservative local execution-cost estimate.
 
@@ -137,7 +218,10 @@ def estimate_execution_cost(
     """
 
     instrument = str(instrument_id or "").strip() or "unknown"
-    order_value = _non_negative(order_value_eur)
+    # Buy and sell cost the same: the signed order is reduced to its magnitude.
+    signed_order = _finite_order_value(order_value_eur)
+    side = "sell" if signed_order < 0 else "buy"
+    order_value = abs(signed_order)
     per_instrument = getattr(config.costs, "per_etf", {}).get(instrument, {})
     model = config.costs.cost_model
     model_id = str(getattr(model, "model_version", COST_MODEL_ID) or COST_MODEL_ID)
@@ -156,12 +240,40 @@ def estimate_execution_cost(
     )
     listing_name = str(listing or configured_listing or "unknown").strip() or "unknown"
 
-    configured_spread = _finite(per_instrument.get("spread_bps"), getattr(model, "default_spread_bps", 0.0))
-    configured_slippage = _finite(per_instrument.get("slippage_bps"), getattr(model, "default_slippage_bps", 0.0))
-    spread, spread_calibrated = _calibration_value(calibration, "spread_bps", quoted_spread_bps if quoted_spread_bps is not None else configured_spread)
-    slippage, slippage_calibrated = _calibration_value(calibration, "slippage_bps", realised_slippage_bps if realised_slippage_bps is not None else configured_slippage)
-    adv, adv_calibrated = _calibration_value(calibration, "adv_eur", adv_eur if adv_eur is not None else per_instrument.get("adv_eur", 0.0))
-    volatility, volatility_calibrated = _calibration_value(calibration, "daily_volatility", daily_volatility if daily_volatility is not None else per_instrument.get("daily_volatility", 0.0))
+    spread_configured_for_instrument = _valid_quote(per_instrument.get("spread_bps")) is not None
+    configured_spread = _non_negative(per_instrument.get("spread_bps"), _non_negative(getattr(model, "default_spread_bps", 0.0)))
+    configured_slippage = _non_negative(per_instrument.get("slippage_bps"), _non_negative(getattr(model, "default_slippage_bps", 0.0)))
+    # A missing, NaN or negative quote/realised input never overrides the
+    # configured assumption (and is never coerced to a zero cost).
+    quoted_spread = _valid_quote(quoted_spread_bps)
+    realised_slippage = _valid_quote(realised_slippage_bps)
+    calibration_class = str((calibration or {}).get("evidence_class") or "").strip().lower() if calibration else ""
+    # Only verified imported broker fills may calibrate spread or slippage.
+    # Paper fills, configured assumptions and unclassified calibrations are kept
+    # apart: the conservative configured/quoted assumption stays in force.
+    # The class label alone is a caller-supplied string: each component also needs fill-count and
+    # broker source-authority provenance, otherwise the configured/quoted assumption stays in force.
+    broker_labelled = calibration_class == EVIDENCE_BROKER_FILL
+    spread, spread_calibrated = _calibration_value(
+        calibration if broker_labelled and _broker_provenance(calibration, "spread") else None,
+        "spread_bps",
+        quoted_spread if quoted_spread is not None else configured_spread,
+    )
+    slippage, slippage_calibrated = _calibration_value(
+        calibration if broker_labelled and _broker_provenance(calibration, "slippage") else None,
+        "slippage_bps",
+        realised_slippage if realised_slippage is not None else configured_slippage,
+    )
+    if conservative_tier:
+        # No quote exists for this listing (for example an equity certificate without a manual quote):
+        # price it at the most conservative documented tier and flag the estimate.
+        tier_spread, tier_slippage = conservative_cost_tier(config)
+        if not spread_calibrated:
+            spread = max(spread, tier_spread)
+        if not slippage_calibrated:
+            slippage = max(slippage, tier_slippage)
+    adv, adv_calibrated = _calibration_value(calibration, "adv_eur", _valid_quote(adv_eur) if _valid_quote(adv_eur) is not None else _non_negative(per_instrument.get("adv_eur", 0.0)))
+    volatility, volatility_calibrated = _calibration_value(calibration, "daily_volatility", _valid_quote(daily_volatility) if _valid_quote(daily_volatility) is not None else _non_negative(per_instrument.get("daily_volatility", 0.0)))
     configured_fx = getattr(model, "fx_conversion_bps", 0.0)
     configured_gap = getattr(model, "gap_stress_bps", 0.0)
     fx = _non_negative(configured_fx if fx_bps is None else fx_bps)
@@ -204,12 +316,27 @@ def estimate_execution_cost(
         capacity_status = "exceeds_configured_participation"
     else:
         capacity_status = "within_configured_participation"
-    if missing_microstructure:
+    if conservative_tier:
+        quality = "cost_estimated"
+    elif missing_microstructure:
         quality = "degraded_missing_microstructure"
     elif spread_calibrated or slippage_calibrated or adv_calibrated or volatility_calibrated:
         quality = "calibrated_local_inputs"
     else:
         quality = "configured_assumptions"
+    spread_known = spread_configured_for_instrument or quoted_spread is not None or spread_calibrated
+    if spread_calibrated or slippage_calibrated:
+        # Only imported broker fills reach here; a missing component stays a conservative assumption.
+        evidence_class = EVIDENCE_BROKER_FILL
+    elif calibration_class == EVIDENCE_PAPER_FILL:
+        evidence_class = EVIDENCE_PAPER_FILL
+    elif calibration_class and calibration_class != EVIDENCE_CONFIGURED:
+        evidence_class = EVIDENCE_UNCLASSIFIED
+    else:
+        evidence_class = EVIDENCE_CONFIGURED
+    effective_spread = spread_cost_bps(spread, order_type=order_type)
+    # Unknown spread: report a conservative range; the point estimate is the low end.
+    spread_range = (effective_spread, effective_spread if spread_known else effective_spread * _UNKNOWN_SPREAD_RANGE_FACTOR)
     assumptions = [
         f"order_type={order_type}",
         f"session={session_name}",
@@ -220,6 +347,24 @@ def estimate_execution_cost(
         assumptions.append("missing_microstructure_widens_estimate")
     if calibration:
         assumptions.append("completed_local_calibration_inputs_only")
+    if calibration and calibration_class != EVIDENCE_BROKER_FILL:
+        assumptions.append("non_broker_calibration_not_applied_to_spread_or_slippage")
+    elif calibration and not (spread_calibrated and slippage_calibrated):
+        assumptions.append("partial_broker_calibration_remaining_component_assumed")
+    if broker_labelled and calibration and not (_broker_provenance(calibration, "spread") and _broker_provenance(calibration, "slippage")):
+        assumptions.append("broker_calibration_requires_sample_count_and_broker_source_authority")
+    if not spread_known:
+        assumptions.append("spread_unknown_conservative_range")
+    if side == "sell":
+        assumptions.append("side=sell")
+    if conservative_tier:
+        assumptions.append("cost_estimated_conservative_tier_no_quote")
+    for label, supplied, valid in (
+        ("quoted_spread", quoted_spread_bps, quoted_spread),
+        ("realised_slippage", realised_slippage_bps, realised_slippage),
+    ):
+        if supplied is not None and valid is None:
+            assumptions.append(f"invalid_{label}_ignored")
     payload = {
         "model_id": model_id,
         "instrument_id": instrument,
@@ -229,6 +374,12 @@ def estimate_execution_cost(
         "market_impact_bps": round(market_impact, 8),
         "fx_bps": round(fx, 8),
         "gap_bps": round(gap, 8),
+        "order_type": order_type,
+        "commission_eur": round(fixed_eur, 8),
+        # Capacity inputs change capacity_eur/capacity_status, so they are part of the estimate identity.
+        "adv_eur": round(adv, 8),
+        "participation_limit": round(participation_limit, 8),
+        "conservative_tier": bool(conservative_tier),
         "session": session_name,
         "listing": listing_name,
         "session_multiplier": round(session_multiplier, 8),
@@ -256,17 +407,42 @@ def estimate_execution_cost(
         capacity_status=capacity_status,
         data_quality=quality,
         assumptions=tuple(assumptions),
+        side=side,
+        evidence_class=evidence_class,
+        spread_range_bps=(round(spread_range[0], 8), round(spread_range[1], 8)),
+        precise_alpha_claims_blocked=not (spread_calibrated and slippage_calibrated and spread_known),
     )
 
 
-def estimate_rebalance_cost(config: AppConfig, portfolio_value_eur: float, weight_changes: Mapping[str, float]) -> PortfolioCostEstimate:
-    """Estimate a portfolio rebalance using the same instrument model."""
+def estimate_rebalance_cost(
+    config: AppConfig,
+    portfolio_value_eur: float,
+    weight_changes: Mapping[str, float],
+    *,
+    stress_multiplier: float = 1.0,
+    adv_eur_by_instrument: Mapping[str, float] | None = None,
+    conservative_instruments: Collection[str] | None = None,
+) -> PortfolioCostEstimate:
+    """Estimate a portfolio rebalance using the same instrument model.
 
-    portfolio_value = _non_negative(portfolio_value_eur)
+    ``conservative_instruments`` are listings without a usable quote: they are priced at the most
+    conservative documented tier and flagged ``cost_estimated``.
+    """
+
+    portfolio_value = _non_negative(_finite_order_value(portfolio_value_eur))
+    conservative = {str(item) for item in (conservative_instruments or ())}
+    changes = {str(key): _finite_order_value(value) for key, value in weight_changes.items()}
     estimates = tuple(
-        estimate_execution_cost(config, str(instrument_id), portfolio_value * abs(_finite(weight_change)))
-        for instrument_id, weight_change in sorted(weight_changes.items())
-        if abs(_finite(weight_change)) > 0
+        estimate_execution_cost(
+            config,
+            instrument_id,
+            portfolio_value * abs(weight_change),
+            stress_multiplier=stress_multiplier,
+            adv_eur=(adv_eur_by_instrument or {}).get(instrument_id),
+            conservative_tier=instrument_id in conservative,
+        )
+        for instrument_id, weight_change in sorted(changes.items())
+        if abs(weight_change) > 0
     )
     total_order_value = sum(item.order_value_eur for item in estimates)
     total_cost = sum(item.total_cost_eur for item in estimates)
@@ -299,10 +475,15 @@ def compare_realised_fill(estimate: CostEstimate, *, reference_price: float, fil
     }
 
 
-def estimated_cost_bps(config: AppConfig, etf_id: str) -> float:
-    """Return the configured-size-neutral cost used by score/net-return views."""
+def estimated_cost_bps(config: AppConfig, etf_id: str, order_value_eur: float | None = None) -> float:
+    """Return the cost used by score/net-return views and cost gates.
 
-    return estimate_execution_cost(config, etf_id, 0.0).total_cost_bps
+    Without an order size this is the size-neutral view and must not be used to
+    gate a trade; pass ``order_value_eur`` for a size-aware figure (the fixed
+    commission and the participation impact both depend on the order size).
+    """
+
+    return estimate_execution_cost(config, etf_id, 0.0 if order_value_eur is None else order_value_eur).total_cost_bps
 
 
 def estimated_trade_cost_eur(config: AppConfig, etf_id: str, trade_value_eur: float) -> float:
@@ -327,8 +508,114 @@ def cost_capacity_status(config: AppConfig, instrument_id: str, order_value_eur:
     }
 
 
+def average_daily_value_eur(
+    volume_shares: object,
+    close_price: object,
+    *,
+    currency: str = "EUR",
+    fx_to_eur: float | None = None,
+    window: int = 20,
+) -> float | None:
+    """Average traded value per session in EUR over the last ``window`` sessions.
+
+    Callers pass history up to the decision date only (point-in-time).  A
+    zero-volume session counts as zero traded value, so thin listings are not
+    flattered; a missing volume/price is excluded and fewer than half the
+    window observed gives None.  A non-EUR listing needs a positive finite
+    ``fx_to_eur``; otherwise the ADV is unavailable (never an unconverted
+    local-currency figure presented as EUR).
+    """
+
+    import pandas as pd
+
+    rate = 1.0
+    if str(currency or "EUR").strip().upper() != "EUR":
+        fx = _valid_quote(fx_to_eur)
+        if fx is None or fx <= 0.0:
+            return None
+        rate = fx
+    try:
+        volume = pd.to_numeric(pd.Series(volume_shares), errors="coerce").astype(float)
+        close = pd.to_numeric(pd.Series(close_price), errors="coerce").astype(float)
+    except (TypeError, ValueError):
+        return None
+    size = max(1, int(window))
+    value = (volume * close * rate).tail(size)
+    value = value.where((volume.tail(size) >= 0) & (close.tail(size) > 0))
+    observed = value.dropna()
+    if len(observed) * 2 < size or not len(observed):
+        return None
+    result = float(observed.mean())
+    return result if math.isfinite(result) else None
+
+
+@dataclass(frozen=True)
+class FillFeasibility:
+    """Whether an order can be filled on one session under the participation cap."""
+
+    status: str
+    order_value_eur: float
+    fillable_eur: float
+    unfilled_eur: float
+    days_to_fill: int | None
+    reason: str
+    execution_allowed: bool = False
+
+
+def fill_feasibility(
+    order_value_eur: float,
+    *,
+    day_volume_shares: float | None,
+    price_eur: float | None,
+    adv_eur: float | None,
+    participation_rate: float,
+    manual_quote_required: bool = False,
+    manual_quote_eur: float | None = None,
+) -> FillFeasibility:
+    """Cap one session's fill at ``participation_rate`` of that day's traded value.
+
+    A zero/missing-volume session gives no fill, a listing that needs a manual
+    quote (thin Norwegian equity certificates) gives no fill without one, and an
+    order above the cap is a partial fill whose remainder needs further sessions
+    (``days_to_fill``, from the ADV).  No midpoint fill is ever invented.
+    """
+
+    order = abs(_finite(order_value_eur))
+    rate = min(1.0, _non_negative(participation_rate))
+
+    def result(status: str, fillable: float, days: int | None, reason: str) -> FillFeasibility:
+        fillable = max(0.0, min(order, fillable))
+        return FillFeasibility(status, round(order, 8), round(fillable, 8), round(order - fillable, 8), days, reason)
+
+    if order <= 0.0:
+        return result("no_order", 0.0, 0, "no order value")
+    if manual_quote_required and _valid_quote(manual_quote_eur) in (None, 0.0):
+        return result("manual_quote_required", 0.0, None, "thin listing needs a manual quote; no midpoint fill is assumed")
+    volume = _valid_quote(day_volume_shares)
+    price = _valid_quote(price_eur)
+    if volume is None or volume <= 0.0 or price is None or price <= 0.0:
+        return result("no_fill_zero_volume", 0.0, None, "no traded volume on the execution session")
+    if rate <= 0.0:
+        return result("no_fill_zero_participation", 0.0, None, "participation cap is zero")
+    day_capacity = volume * price * rate
+    adv = _valid_quote(adv_eur)
+    per_day = adv * rate if adv is not None and adv > 0.0 else day_capacity
+    days = int(math.ceil(order / per_day)) if per_day > 0.0 else None
+    if order <= day_capacity:
+        return result("full_fill", order, 1, "within the participation cap")
+    return result("partial_fill", day_capacity, days, "order exceeds the participation cap; remainder unfilled")
+
+
 __all__ = [
     "COST_MODEL_ID",
+    "EVIDENCE_BROKER_FILL",
+    "EVIDENCE_CONFIGURED",
+    "EVIDENCE_PAPER_FILL",
+    "EVIDENCE_UNCLASSIFIED",
+    "FillFeasibility",
+    "average_daily_value_eur",
+    "conservative_cost_tier",
+    "fill_feasibility",
     "CostEstimate",
     "PortfolioCostEstimate",
     "compare_realised_fill",

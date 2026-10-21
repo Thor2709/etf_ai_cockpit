@@ -23,13 +23,14 @@ from typing import Literal, Mapping
 import pandas as pd
 
 from etf_cockpit.core.config import load_config, load_settlement_config
+from etf_cockpit.core.atomic_io import atomic_write_bytes
 from etf_cockpit.core.paths import CONFIG_DIR
 from etf_cockpit.portfolio.benchmark_reference import (
     VWCE_QUOTE_CURRENCY,
     VwceReferenceSeriesCheck,
     vwce_series_source_hash,
 )
-from etf_cockpit.portfolio.valuation import build_daily_portfolio_snapshots
+from etf_cockpit.portfolio.valuation import build_daily_portfolio_snapshots, valuation_snapshot_id
 from etf_cockpit.trading.cash_reservation import CashReservationError
 from etf_cockpit.trading.order_lifecycle import (
     ALLOWED_TRANSITIONS,
@@ -236,6 +237,16 @@ class PaperLedger:
             self._append("external_flow_recorded", payload, occurred_at=effective)
             return payload
 
+    def external_flows(self) -> tuple[dict[str, object], ...]:
+        """Return the recorded external cash flows (oldest first) with the time each was recorded."""
+
+        with self._lock:
+            return tuple(
+                {**dict(event["payload"]), "recorded_at": str(event["occurred_at"])}
+                for event in self._read_events()
+                if event.get("event_type") == "external_flow_recorded" and isinstance(event.get("payload"), Mapping)
+            )
+
     def cash_balance(self, *, account_id: str, currency: str, as_of: datetime) -> Decimal:
         """Expose the simulated account cash projection to the reservation service."""
 
@@ -319,6 +330,7 @@ class PaperLedger:
         occurred_at: datetime | None = None,
         control_binding: object | None = None,
         quote_currency: str | None = None,
+        expiry_reference: datetime | None = None,
     ) -> dict[str, object]:
         """Accept one policy-approved proposal as a simulated open order.
 
@@ -329,6 +341,9 @@ class PaperLedger:
         ``fx_rate`` may be omitted only when the quote currency is the account base currency; a foreign
         quote currency requires an explicit rate. The quote currency is ``quote_currency``, else the
         proposal's ``currency``, else the configured instrument currency, else the account base currency.
+
+        ``expiry_reference`` is the clock the proposal expiry is checked against (default: the real UTC clock); a
+        simulation passes its own simulated time so a historical session is not refused as expired.
         """
 
         # Expiry is checked after the read-only idempotent lookup so a retry of an accepted order still returns it.
@@ -354,6 +369,7 @@ class PaperLedger:
         )[:20]
         with self._lock, self._file_lock():
             self._recover_interrupted_fills()
+            self._release_expired_reservations_locked(None, expiry_reference)
             events = self._read_events()
             state = self._replay(events)
             self._require_open(state)
@@ -387,7 +403,7 @@ class PaperLedger:
                             occurred_at=occurred_at,
                         )
                 return dict(existing)
-            self._require_unexpired(proposal)
+            self._require_unexpired(proposal, expiry_reference)
             self._require_within_target(proposal, state, instrument_id, quantity_delta)
             if quantity_delta < 0 and state["positions"].get(instrument_id, {}).get("quantity", 0.0) + 1e-8 < quantity:
                 raise PaperLedgerError("A paper sell cannot exceed the current simulated position.")
@@ -748,6 +764,7 @@ class PaperLedger:
         fx_rate: float | None = None,
         occurred_at: datetime | None = None,
         quote_currency: str | None = None,
+        expiry_reference: datetime | None = None,
     ) -> dict[str, object]:
         """Record an explicitly selected automatic paper decision.
 
@@ -763,6 +780,7 @@ class PaperLedger:
             decision_mode="auto_paper",
             occurred_at=occurred_at,
             quote_currency=quote_currency,
+            expiry_reference=expiry_reference,
         )
 
     def record_fill(
@@ -837,8 +855,14 @@ class PaperLedger:
             policy_payload = state["cost_policy"]
             if policy_payload is not None:
                 policy = ShadowCostPolicy(**{key: Decimal(str(value)) for key, value in policy_payload.items()})
+                base_currency = str(state["base_currency"]).upper()
+                # A foreign-currency order keeps the explicit rate it was accepted with; a base-currency fill is unit-rate.
+                expected_fx = (
+                    Decimal(1) if str(order["currency"]).upper() == base_currency
+                    else _decimal_number(order.get("fx_rate"), "fx_rate", positive=True)
+                )
                 if (fill_quantity_decimal % policy.lot_size != 0 or fill_fee_decimal != policy.commission
-                        or fill_fx_decimal != 1 or order["currency"] != "EUR"):
+                        or fill_fx_decimal != expected_fx or base_currency != "EUR"):
                     raise PaperLedgerError("The active fill conflicts with the canonical cost, FX or lot policy.")
                 if reference_price is None:
                     raise PaperLedgerError("A canonical-policy fill requires its reference price.")
@@ -857,6 +881,9 @@ class PaperLedger:
                 raise PaperLedgerError("Insufficient paper cash for this fill.")
             if order["side"] == "sell" and position["quantity"] + 1e-8 < fill_quantity:
                 raise PaperLedgerError("A paper sell fill exceeds the current simulated position.")
+            # One stamp serves the lifecycle journal, the ledger row and the snapshot id, so replay can re-derive it.
+            fill_stamp = _timestamp(occurred_at)
+            occurred_at = datetime.fromisoformat(fill_stamp)
             if order.get("lifecycle_idempotency_key"):
                 self._record_lifecycle_fill(
                     order,
@@ -880,6 +907,7 @@ class PaperLedger:
                 "price_basis": "execution_quote",
                 "execution_allowed": False,
             }
+            fill["valuation_snapshot_id"] = _fill_snapshot_id(fill, fill_stamp)
             self._append("fill_recorded", fill, occurred_at=occurred_at)
             events = self._read_events()
             return dict(self._replay(events)["orders"][order["order_id"]])
@@ -890,6 +918,11 @@ class PaperLedger:
             raise PaperLedgerError("A cancellation reason is required.")
         with self._lock, self._file_lock():
             return self._cancel_order_locked(order_id, reason=text, occurred_at=occurred_at)
+
+    def cancel_paper_order(self, order_id: str, *, reason: str, occurred_at: datetime | None = None) -> dict[str, object]:
+        """Internal paper-ledger cancellation (rolls back an unfilled local paper order); the one entry for in-package callers."""
+
+        return self.cancel_order(order_id, reason=reason, occurred_at=occurred_at)
 
     def _cancel_order_locked(
         self, order_id: str, *, reason: str, occurred_at: datetime | None = None
@@ -934,6 +967,67 @@ class PaperLedger:
         self._append("order_cancelled", {"order_id": key, "reason": reason}, occurred_at=occurred_at)
         events = self._read_events()
         return dict(self._replay(events)["orders"][key])
+
+    def release_expired_reservations(
+        self,
+        proposals: Mapping[str, Mapping[str, object]] | None = None,
+        *,
+        reference: datetime | None = None,
+    ) -> tuple[str, ...]:
+        """Release cash held for acceptances that never reached the ledger once their proposal has expired.
+
+        An interrupted acceptance can leave a lifecycle reservation without an ``order_accepted`` row. A retry
+        completes it, but after the proposal expires no retry is allowed, so the reservation is cancelled and
+        the cash freed. A proposal that cannot be found or read keeps its reservation (fail closed). Returns the
+        released order ids.
+        """
+
+        if reference is not None and reference.tzinfo is None:
+            raise PaperLedgerError("The expiry reference time must be timezone-aware.")
+        with self._lock, self._file_lock():
+            return self._release_expired_reservations_locked(proposals, reference)
+
+    def _release_expired_reservations_locked(
+        self, proposals: Mapping[str, Mapping[str, object]] | None, reference: datetime | None
+    ) -> tuple[str, ...]:
+        state = self._replay(self._read_events())
+        now = reference or datetime.now(timezone.utc)
+        prefix = f"paper:{self.account_id}:"
+        lifecycle = self._order_lifecycle()
+        released: list[str] = []
+        try:
+            orphans = lifecycle.intents_in_state(self.account_id, OrderState.RESERVED)
+        except OrderLifecycleError as exc:
+            raise PaperLedgerError(str(exc)) from exc
+        for intent in orphans:
+            if intent.order_id in state["orders"] or not intent.idempotency_key.startswith(prefix):
+                continue
+            proposal_id = intent.idempotency_key[len(prefix):]
+            proposal = (proposals or {}).get(proposal_id)
+            if proposal is None:
+                try:
+                    proposal = load_proposal_for_paper(self.root, proposal_id)
+                except (PaperLedgerError, OSError, ValueError):
+                    continue
+            try:
+                expired = datetime.fromisoformat(str(proposal.get("expires_at"))) <= now
+            except ValueError:
+                continue
+            if not expired:
+                continue
+            try:
+                lifecycle.transition(
+                    intent.order_id,
+                    OrderState.CANCELLED,
+                    event_key=f"paper-expired:{intent.order_id}",
+                    event_type="paper_proposal_expired",
+                    payload={"reason": "proposal expired before its acceptance reached the ledger"},
+                    occurred_at=now,
+                )
+            except OrderLifecycleError as exc:
+                raise PaperLedgerError(str(exc)) from exc
+            released.append(intent.order_id)
+        return tuple(released)
 
     def mature_outcome(
         self,
@@ -1234,6 +1328,8 @@ class PaperLedger:
                     "instrument_id": instrument_id, "split_ratio": ratio,
                     "cash_dividend_per_unit": float(dividend_decimal),
                     "source_checksum": provenance["source_checksum"],
+                    # Equal terms on distinct dates are distinct actions; without a date the legacy hash stands.
+                    **({} if occurred_at is None else {"occurred_at": _timestamp(occurred_at)}),
                 }
             )[:20]
             if action_key in state["corporate_actions"]:
@@ -1315,6 +1411,7 @@ class PaperLedger:
                         "fee": float(fill.get("fee", 0.0)),
                         "currency": str(fill.get("currency", state["base_currency"])),
                         "price_basis": str(fill.get("price_basis", "execution_quote")),
+                        "valuation_snapshot_id": fill.get("valuation_snapshot_id"),
                         "as_of": str(event.get("occurred_at", "")),
                         "source_authority": "local_paper_ledger",
                         "execution_allowed": False,
@@ -1883,6 +1980,7 @@ class PaperLedger:
                 "price_basis": "execution_quote",
                 "execution_allowed": False,
             }
+            fill["valuation_snapshot_id"] = _fill_snapshot_id(fill, _timestamp(lifecycle_event.occurred_at))
             self._append("fill_recorded", fill, occurred_at=lifecycle_event.occurred_at)
             recorded.add(fill_id)
             events = self._read_events()
@@ -1975,12 +2073,8 @@ class PaperLedger:
             "event_hash": event["event_hash"],
         }
         record["anchor_hash"] = _digest(record)
-        temporary = self._anchor_path.with_suffix(".tmp")
-        with temporary.open("w", encoding="utf-8", newline="\n") as handle:
-            handle.write(json.dumps(record, sort_keys=True, separators=(",", ":")) + "\n")
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temporary, self._anchor_path)
+        payload = (json.dumps(record, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8")
+        atomic_write_bytes(self._anchor_path, payload, lambda staged: json.loads(staged.read_bytes()))
 
     def _verify_anchor(self, events: list[dict[str, object]]) -> None:
         """Fail closed when the log is shorter than, or diverges from, its recorded head.
@@ -2151,6 +2245,9 @@ class PaperLedger:
                 _validate_frozen_evidence(payload.get("proposal_evidence_hashes"))
                 deferred[proposal_id] = dict(payload)
             elif kind == "fill_recorded":
+                recorded_snapshot = payload.get("valuation_snapshot_id")
+                if recorded_snapshot is not None and recorded_snapshot != _fill_snapshot_id(payload, str(event["occurred_at"])):
+                    raise PaperLedgerIntegrityError("A paper fill's valuation snapshot id does not match its pricing evidence.")
                 self._apply_fill(state, payload, occurred_at=_event_time(event))
             elif kind == "outcome_matured":
                 outcomes = state["outcomes"]
@@ -2443,13 +2540,15 @@ class PaperLedger:
             self._require_unexpired(proposal)
 
     @staticmethod
-    def _require_unexpired(proposal: Mapping[str, object]) -> None:
+    def _require_unexpired(proposal: Mapping[str, object], reference: datetime | None = None) -> None:
         expires_at = proposal.get("expires_at")
         if not isinstance(expires_at, str):
             raise PaperLedgerError("Proposal expiry is missing.")
+        if reference is not None and reference.tzinfo is None:
+            raise PaperLedgerError("The expiry reference time must be timezone-aware.")
         try:
             expiry = datetime.fromisoformat(expires_at)
-            expired = expiry <= datetime.now(timezone.utc)
+            expired = expiry <= (datetime.now(timezone.utc) if reference is None else reference)
         except ValueError as exc:
             raise PaperLedgerError("Proposal expiry is malformed.") from exc
         if expired:
@@ -2578,6 +2677,21 @@ def _shadow_prefix_hash(prices: pd.DataFrame, executed: pd.Timestamp) -> str:
 
     sessions = pd.to_datetime(prices["date"]).dt.normalize()
     return vwce_series_source_hash(prices.loc[sessions <= executed].reset_index(drop=True))
+
+
+def _fill_snapshot_id(fill: Mapping[str, object], priced_at: str) -> str:
+    """Id of the prices + FX as-of one fill was valued with; replay re-derives it from the stored row."""
+
+    return valuation_snapshot_id(
+        {
+            "kind": "paper_fill",
+            "instrument_id": str(fill["instrument_id"]),
+            "currency": str(fill["currency"]),
+            "price": str(fill["price"]),
+            "fx_rate": str(fill["fx_rate"]),
+            "price_as_of": priced_at,
+        }
+    )
 
 
 def _provenance(source_authority: object, source_checksum: object) -> dict[str, str]:

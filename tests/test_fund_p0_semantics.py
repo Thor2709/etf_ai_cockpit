@@ -198,7 +198,13 @@ def test_quality_component_exposes_the_two_of_six_case_without_claiming_solvency
         )
         for year in range(2022, 2026)
     ]
-    quality = build_stock_evidence("T", periods, DECISION, MarketInputs(), None, CONFIG).components["stock_quality"]
+    cohorts = {
+        "sector": {
+            "roe": {"P1": 0.05, "P2": 0.10, "P3": 0.15},
+            "revenue_cagr": {"P1": 0.05, "P2": 0.10, "P3": 0.20},
+        }
+    }
+    quality = build_stock_evidence("T", periods, DECISION, MarketInputs(), None, CONFIG, cohort_values=cohorts).components["stock_quality"]
 
     assert quality.input_count == 6
     assert quality.used_count == 2
@@ -314,6 +320,7 @@ def test_diluted_weighted_average_shares_do_not_replace_point_in_time_shares() -
             "forecast_years": 3,
             "scenarios": {"base": {"growth": 0.05}},
         },
+        strict_comparability=False,
     )
     base = report["intrinsic_value"]["scenarios"]["base"]
 

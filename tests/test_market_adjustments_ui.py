@@ -172,6 +172,7 @@ def test_market_series_facade_returns_controlled_unavailable_for_malformed_price
     assert result["execution_allowed"] is False
 
 
+@pytest.mark.usefixtures("synthetic_sample_opt_in")
 def test_etf_detail_exposes_price_basis_currency_and_series_controls() -> None:
     snapshot = build_snapshot()
     state = AppState(snapshot=snapshot, selected_etf=snapshot.config.ui.default_etf)

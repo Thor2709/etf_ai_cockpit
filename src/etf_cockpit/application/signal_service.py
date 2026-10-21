@@ -52,12 +52,18 @@ from etf_cockpit.application.data_service import DataService
 class SignalService:
     def __init__(self, config: AppConfig):
         self.config = config
+        self.last_unavailable_reason: str | None = None
 
     def generate_signals(self, as_of_date: date | None = None, features: pd.DataFrame | None = None) -> list[SignalResult]:
-        prices = load_prices()
+        self.last_unavailable_reason = None
+        prices = load_prices(config=self.config)
+        if prices.empty or "date" not in prices:
+            # No price evidence: no signals (as build_snapshot does), with the reason kept for the caller.
+            self.last_unavailable_reason = str(prices.attrs.get("reason") or "no price data")
+            return []
         prices["date"] = pd.to_datetime(prices["date"]).dt.date
         effective_date = as_of_date or max(prices["date"])
-        holdings = load_holdings()
+        holdings = load_holdings(config=self.config)
         benchmark_reference = _benchmark_reference_snapshot_inputs(
             self.config,
             effective_date,
@@ -79,6 +85,14 @@ class SignalService:
         universe_revision = _current_universe_revision()
         settings_revision = current_settings_revision()
         request_identity = configured_forecast_request_identity(self.config)
+        feature_service = FeatureService(self.config, reference_context=reference_context)
+        # Price features are on an EUR basis: cached or supplied features are reused only when
+        # built from the same FX series (an FX revision invalidates them).
+        fx_binding = (
+            None
+            if calculation_window is None
+            else feature_service.fx_binding(universe_prices, calculation_window)
+        )
         cached_features = (
             load_features(
                 FEATURE_PARQUET,
@@ -86,7 +100,9 @@ class SignalService:
                 settings_revision=settings_revision,
                 reference_identity=reference_context.identity,
                 price_binding=price_binding,
-                extra_binding=_feature_cache_binding(universe_prices, calculation_window=calculation_window),
+                extra_binding=_feature_cache_binding(
+                    universe_prices, calculation_window=calculation_window, fx_binding=fx_binding
+                ),
             )
             if price_binding is not None and calculation_window is not None
             else pd.DataFrame()
@@ -101,6 +117,7 @@ class SignalService:
             )
             and isinstance(features.attrs.get("price_binding"), Mapping)
             and _price_binding_matches(features.attrs["price_binding"], price_binding)
+            and features.attrs.get("fx_binding") == fx_binding
         )
         if supplied_matches and features is not None:
             feature_frame = features.copy()
@@ -109,7 +126,7 @@ class SignalService:
         elif not cached_features.empty:
             feature_frame = cached_features
         else:
-            feature_frame = FeatureService(self.config, reference_context=reference_context).compute_features(
+            feature_frame = feature_service.compute_features(
                 effective_date,
                 prices,
                 reference_context=reference_context,

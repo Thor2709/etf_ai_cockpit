@@ -10,6 +10,7 @@ import pytest
 
 from etf_cockpit.analysis import stock_metrics as sm
 from etf_cockpit.analysis import stock_universe as su
+from etf_cockpit.analysis.peer_cohorts import weighted_empirical_cdf
 from etf_cockpit.analysis.stock_evidence import AnalystInputs, MarketInputs, build_stock_evidence
 from etf_cockpit.data import stock_fundamentals as store
 from etf_cockpit.data.stock_fundamentals import load_stock_config
@@ -144,15 +145,34 @@ def test_reverse_valuation_is_unavailable_until_cost_of_equity_is_configured() -
     configured = {**CONFIG, "valuation": {**CONFIG["valuation"], "cost_of_equity": 0.09, "terminal_growth": 0.02}}
     ev = build_stock_evidence("T", [_period(y) for y in (2022, 2023, 2024, 2025)], DECISION, _market(), None, configured)
     pe, payout = ev.metrics["pe"].value, 30.0 / (100.0 * 1.1**3)
-    assert ev.metrics["implied_growth_pe"].value == pytest.approx(0.09 - payout / pe)
+    # trailing P/E Gordon contract (#940 B106-N003, flagged for Opus): g = (r * P/E - payout) / (P/E + payout)
+    assert ev.metrics["implied_growth_pe"].value == pytest.approx((0.09 * pe - payout) / (pe + payout))
     assert ev.metrics["implied_growth_dcf"].status == sm.OK
 
 
 def test_components_score_from_available_inputs_and_state_what_is_missing() -> None:
-    ev = _evidence()
+    cohort_values = {
+        "sector": {
+            metric: {"P1": low, "P2": median, "P3": high}
+            for metric, low, median, high in (
+                ("roe", 0.05, 0.10, 0.15),
+                ("roic", 0.04, 0.08, 0.12),
+                ("ebit_margin", 0.10, 0.15, 0.20),
+                ("fcf_conversion", 0.80, 1.00, 1.20),
+                ("revenue_cagr", 0.00, 0.05, 0.10),
+                ("earnings_yield", 0.05, 0.10, 0.15),
+                ("fcf_yield", 0.02, 0.05, 0.08),
+                ("ebit_ev_yield", 0.04, 0.08, 0.12),
+                ("pe", 15.0, 20.0, 25.0),
+            )
+        }
+    }
+    ev = _evidence(cohort_values=cohort_values)
     quality = ev.components["stock_quality"]
     roe = next(s for s in quality.inputs if s.key == "roe")
-    assert roe.score == pytest.approx(10 * ev.metrics["roe"].value / 0.20, abs=1e-3)  # 0 at 0 %, 10 at 20 %
+    peers = list(cohort_values["sector"]["roe"].values())
+    assert roe.shrunk_value is not None and roe.raw_value == roe.value
+    assert roe.score == pytest.approx(10 * weighted_empirical_cdf(peers, [1.0] * len(peers), roe.shrunk_value), abs=1e-3)
     assert quality.score_10 == pytest.approx(sum(s.score for s in quality.used) / len(quality.used), abs=1e-2)
     value = ev.components["stock_value"]
     assert value.score_10 is not None and "Not used" in value.why and "P/E vs own history" in value.why
@@ -263,3 +283,13 @@ def test_disabled_delisted_stock_keeps_historical_fundamentals_and_peer_contribu
     assert evidence.evidence["OLD"].metrics["revenue_cagr"].available
     assert evidence.peers["T"][0].instrument_id == "OLD"
     assert evidence.evidence["T"].peer_stats["revenue_cagr"].count == 1
+
+
+def test_ev_never_combines_net_debt_and_minority_interest_from_different_balance_sheets() -> None:
+    # B03-C2-N002: the latest balance carries debt/cash but its minority interest was only reported a year earlier.
+    periods = [_period(y) for y in (2022, 2023, 2024, 2025)]
+    latest = periods[-1]
+    periods[-1] = replace(latest, values={key: value for key, value in latest.values.items() if key != "minority_interest"})
+    ev = _evidence(periods=periods).metrics["ev"]
+    assert ev.value is None and "period_mismatch" in ev.reason
+    assert _evidence().metrics["ev"].value == pytest.approx(730.0)

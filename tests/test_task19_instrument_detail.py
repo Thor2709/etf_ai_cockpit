@@ -45,7 +45,7 @@ _SNAPSHOT_TEMPLATE = None
 
 
 @pytest.fixture(scope="module", autouse=True)
-def _snapshot_template():
+def _snapshot_template(synthetic_sample_opt_in_module):
     global _SNAPSHOT_TEMPLATE
     _SNAPSHOT_TEMPLATE = build_snapshot()
     yield
@@ -144,6 +144,9 @@ def test_valuation_scenario_results_and_context(valuation_scenario_evidence):
         "decision_time": "2026-07-01T23:59:59+00:00", "session_preview_only": True,
         "score_authority": False, "execution_allowed": False, "assumptions": assumptions}
     assert panel["execution_allowed"] is False
+    assert panel["comparability_mode"] == "diagnostic_only"
+    assert panel["valuation_status"] in {"current", "provisional"} and "expires_at" in panel and "refresh_reason" in panel
+    assert panel["operator_weights"]["status"] == "not_supplied" and panel["cost_of_capital"]["basis"] == "scenario"
     assert _valuation_panel("ACME", "etf", "2026-07-01", assumptions)["status"] == "not_applicable"
 
 
@@ -173,7 +176,8 @@ def test_valuation_scenario_accepts_boundaries(valuation_scenario_evidence, year
     from etf_cockpit.application.ui_facade import load_valuation_evidence
 
     path, assumptions = valuation_scenario_evidence
-    assumptions.update(forecast_years=years, discount_rate=1, terminal_growth=-1,
+    # -100 % terminal growth is rejected by the DCF, so the preview boundary is just above it (#940 B06-C2-N002; flagged for Opus).
+    assumptions.update(forecast_years=years, discount_rate=1, terminal_growth=-0.99,
                        scenarios={"bear": {"growth": -0.5}, "base": {"growth": 0}, "bull": {"growth": 1}})
     result = load_valuation_evidence(path, instrument_id="ACME", decision_time="2026-07-01", assumptions=assumptions)
     assert result["status"] == "available"
@@ -686,7 +690,7 @@ def test_instrument_detail_route_and_legacy_etf_compatibility(monkeypatch) -> No
     assert instrument_detail_route("VWCE") == "/instrument/VWCE"
     assert _page_route("/instrument/VWCE") == "/instrument"
     assert PAGES["/etf"][0] == "Instrument Detail"
-    assert PAGES["/etf"][1] is instrument_detail_page
+    assert PAGES["/etf"][1].resolve() is instrument_detail_page
 
     class Page:
         route = "/"

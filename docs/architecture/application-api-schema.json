@@ -1501,6 +1501,19 @@
           "title": "Account Stage",
           "type": "string"
         },
+        "adv_eur": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Adv Eur"
+        },
         "approvals": {
           "default": [],
           "items": {
@@ -1525,6 +1538,19 @@
           "title": "Current Quantity",
           "type": "number"
         },
+        "daily_volatility": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Daily Volatility"
+        },
         "data_revision": {
           "anyOf": [
             {
@@ -1547,6 +1573,18 @@
             }
           ],
           "default": null
+        },
+        "expected_benefit_bps": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expected Benefit Bps"
         },
         "expires_at": {
           "format": "date-time",
@@ -1613,6 +1651,19 @@
           "title": "Rationale",
           "type": "string"
         },
+        "reference_price_eur": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reference Price Eur"
+        },
         "strategy_id": {
           "minLength": 1,
           "title": "Strategy Id",
@@ -1635,6 +1686,19 @@
           "minimum": 0,
           "title": "Target Quantity",
           "type": "number"
+        },
+        "uncertainty_bps": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Uncertainty Bps"
         }
       },
       "required": [
