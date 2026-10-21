@@ -451,6 +451,16 @@ def accrued_interest(valuation: FixedIncomeValuationInput) -> Decimal:
 
     item = _validate_input(valuation)
     coupons = tuple(flow for flow in item.cashflows if flow.kind == "coupon")
+    # A coupon whose accrual period has ended but is still unpaid (payment date
+    # after settlement, not yet ex-coupon) is still owed to the buyer in full.
+    owed = Decimal("0")
+    for flow in coupons:
+        if (
+            flow.accrual_end is not None
+            and flow.accrual_end <= item.settlement_date
+            and cashflow_entitled(flow, item.settlement_date)
+        ):
+            owed += flow.amount
     for flow in coupons:
         if (
             flow.accrual_start is None
@@ -472,8 +482,8 @@ def accrued_interest(valuation: FixedIncomeValuationInput) -> Decimal:
             and flow.ex_coupon_date <= item.settlement_date < flow.payment_date
         ):
             amount -= flow.amount
-        return amount / item.face_value * Decimal("100")
-    return Decimal("0")
+        return (owed + amount) / item.face_value * Decimal("100")
+    return owed / item.face_value * Decimal("100")
 
 
 def clean_price_from_yield(
@@ -680,6 +690,21 @@ def _interpolate(nodes: tuple[CurveNode, ...], tenor: Decimal) -> Decimal:
     raise FixedIncomeAnalyticsError("curve interpolation failed")
 
 
+def _price_consistency_tolerance(item: FixedIncomeValuationInput) -> Decimal:
+    """Tolerance for price/yield consistency, widened to half the quote precision.
+
+    A clean price quoted to two decimals is only known to +/-0.005, so a rounded
+    quote must not be rejected by the strict default tolerance.
+    """
+
+    assert item.clean_price is not None
+    exponent = item.clean_price.as_tuple().exponent
+    if not isinstance(exponent, int):
+        return item.tolerance
+    half_quote_unit = Decimal(1).scaleb(min(exponent, 0)) / Decimal(2)
+    return max(item.tolerance, half_quote_unit)
+
+
 def _validate_input(
     item: FixedIncomeValuationInput,
 ) -> FixedIncomeValuationInput:
@@ -723,7 +748,7 @@ def _validate_input(
         implied = clean_price_from_yield(
             replace(item, clean_price=None), item.yield_to_maturity
         )
-        if abs(implied - item.clean_price) > item.tolerance:
+        if abs(implied - item.clean_price) > _price_consistency_tolerance(item):
             raise FixedIncomeAnalyticsError("clean price and yield are contradictory")
     if any(not shift.is_finite() for shift in item.scenario_shifts_bps):
         raise FixedIncomeAnalyticsError("scenario shifts must be finite")
