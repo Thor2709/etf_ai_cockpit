@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation, localcontext
 from enum import StrEnum
 import logging
+import re
 from typing import Any, Callable, Mapping, Sequence
 
 from etf_cockpit.portfolio.ledger_projection import LedgerReplay
@@ -24,6 +25,8 @@ from etf_cockpit.trading.order_lifecycle import OrderState
 
 
 _LOGGER = logging.getLogger(__name__)
+_CURRENCY_PATTERN = re.compile(r"[A-Z]{3}\Z")
+_UNCERTAIN_ORDER_STATES = frozenset({OrderState.UNKNOWN, OrderState.RECONCILIATION_REQUIRED})
 _OPEN_ORDER_STATES = frozenset(
     {
         OrderState.SUBMITTING,
@@ -101,7 +104,13 @@ def reconcile_broker_state(
     summed by instrument across canonical ledger accounts and lots, and cash is
     summed by currency from canonical book balances. Missing keys mean zero only
     in a complete, current section. Values compare exactly as Decimals. Orders
-    match by order ID, instrument, side, quantity, remaining quantity and status;
+    match by order ID, instrument, side, quantity, remaining quantity, status,
+    account, currency and limit price; matching UNKNOWN or RECONCILIATION_REQUIRED
+    orders and impossible quantities are never RECONCILED. Broker rows that carry
+    an account ID are compared per account; unscoped broker rows are accepted only
+    when the canonical ledger holds a single account. The local replay must match
+    ``as_of`` for both effective and knowledge time and have a balanced trial
+    balance, and cash additionally requires no timing-uncertain entries;
     local nonterminal broker-facing lifecycle states are supplied as a read
     projection. This function never edits broker evidence or grants authority.
     """
@@ -222,10 +231,11 @@ def _fresh_value(
     if observed != requested:
         breaks.append(_unknown_break(kind, section, "broker observation is not current at the requested instant"))
         return None
-    if read.value is None:
+    value = getattr(read, "value", None)
+    if value is None:
         breaks.append(_unknown_break(kind, section, "broker section value is unavailable"))
         return None
-    return read.value
+    return value
 
 
 def _unknown_section(
@@ -258,6 +268,13 @@ def _reconcile_positions(
             "canonical ledger replay is not current at the requested instant",
         ))
         return BrokerSectionStatus.UNKNOWN
+    if not local_replay.trial_balance_balanced:
+        breaks.append(_unknown_break(
+            BrokerBreakKind.POSITIONS_UNKNOWN,
+            BrokerSection.POSITIONS,
+            "canonical ledger trial balance is unbalanced",
+        ))
+        return BrokerSectionStatus.UNKNOWN
     if local_replay.missing_position_instrument_lines or local_replay.timing_uncertainty_entry_ids:
         breaks.append(_unknown_break(
             BrokerBreakKind.POSITIONS_UNKNOWN,
@@ -266,16 +283,26 @@ def _reconcile_positions(
         ))
         return BrokerSectionStatus.UNKNOWN
     try:
-        broker_positions = _unique_positions(value)
-        local_position_values: dict[str, list[Decimal]] = {}
+        broker_positions, scoped = _unique_positions(value)
+        local_position_values: dict[tuple[str | None, str], list[Decimal]] = {}
         for position in local_replay.positions:
-            local_position_values.setdefault(position.instrument_id, []).append(position.quantity)
+            scope = position.account_id if scoped else None
+            local_position_values.setdefault((scope, position.instrument_id), []).append(position.quantity)
         local_positions = {key: _sum_exact(values) for key, values in local_position_values.items()}
+        if not scoped and len({position.account_id for position in local_replay.positions}) > 1:
+            raise _AccountScopeError("broker positions carry no account scope")
+    except _AccountScopeError:
+        breaks.append(_unknown_break(
+            BrokerBreakKind.POSITIONS_UNKNOWN,
+            BrokerSection.POSITIONS,
+            "broker position snapshot has no account scope but the canonical ledger spans several accounts",
+        ))
+        return BrokerSectionStatus.UNKNOWN
     except (AttributeError, TypeError, ValueError, InvalidOperation):
         breaks.append(_unknown_break(BrokerBreakKind.POSITIONS_UNKNOWN, BrokerSection.POSITIONS, "position evidence is invalid"))
         return BrokerSectionStatus.UNKNOWN
     mismatch_count = 0
-    for key in sorted(local_positions.keys() | broker_positions.keys()):
+    for key in sorted(local_positions.keys() | broker_positions.keys(), key=_scoped_sort_key):
         local = local_positions.get(key, Decimal(0))
         broker = broker_positions.get(key, Decimal(0))
         if local != broker:
@@ -283,7 +310,7 @@ def _reconcile_positions(
             breaks.append(BrokerReconciliationBreak(
                 BrokerBreakKind.POSITION_MISMATCH,
                 BrokerSection.POSITIONS,
-                key,
+                _scoped_key_text(key),
                 str(local),
                 str(broker),
                 "canonical ledger quantity differs from broker quantity",
@@ -307,17 +334,41 @@ def _reconcile_cash(
             "canonical ledger replay is not current at the requested instant",
         ))
         return BrokerSectionStatus.UNKNOWN
+    if not local_replay.trial_balance_balanced:
+        breaks.append(_unknown_break(
+            BrokerBreakKind.CASH_UNKNOWN,
+            BrokerSection.CASH,
+            "canonical ledger trial balance is unbalanced",
+        ))
+        return BrokerSectionStatus.UNKNOWN
+    if local_replay.timing_uncertainty_entry_ids:
+        breaks.append(_unknown_break(
+            BrokerBreakKind.CASH_UNKNOWN,
+            BrokerSection.CASH,
+            "canonical ledger replay contains timing-unknown entries that may omit cash",
+        ))
+        return BrokerSectionStatus.UNKNOWN
     try:
-        broker_cash = _unique_cash(value)
-        local_cash_values: dict[str, list[Decimal]] = {}
+        broker_cash, scoped = _unique_cash(value)
+        local_cash_values: dict[tuple[str | None, str], list[Decimal]] = {}
         for balance in local_replay.cash:
-            local_cash_values.setdefault(balance.currency, []).append(balance.book_balance)
+            scope = balance.account_id if scoped else None
+            local_cash_values.setdefault((scope, balance.currency), []).append(balance.book_balance)
         local_cash = {key: _sum_exact(values) for key, values in local_cash_values.items()}
+        if not scoped and len({b.account_id for b in local_replay.cash if b.book_balance}) > 1:
+            raise _AccountScopeError("broker cash carries no account scope")
+    except _AccountScopeError:
+        breaks.append(_unknown_break(
+            BrokerBreakKind.CASH_UNKNOWN,
+            BrokerSection.CASH,
+            "broker cash snapshot has no account scope but the canonical ledger spans several accounts",
+        ))
+        return BrokerSectionStatus.UNKNOWN
     except (AttributeError, TypeError, ValueError, InvalidOperation):
         breaks.append(_unknown_break(BrokerBreakKind.CASH_UNKNOWN, BrokerSection.CASH, "cash evidence is invalid"))
         return BrokerSectionStatus.UNKNOWN
     mismatch_count = 0
-    for key in sorted(local_cash.keys() | broker_cash.keys()):
+    for key in sorted(local_cash.keys() | broker_cash.keys(), key=_scoped_sort_key):
         local = local_cash.get(key, Decimal(0))
         broker = broker_cash.get(key, Decimal(0))
         if local != broker:
@@ -325,7 +376,7 @@ def _reconcile_cash(
             breaks.append(BrokerReconciliationBreak(
                 BrokerBreakKind.CASH_MISMATCH,
                 BrokerSection.CASH,
-                key,
+                _scoped_key_text(key),
                 str(local),
                 str(broker),
                 "canonical ledger book balance differs from broker cash balance",
@@ -351,16 +402,29 @@ def _reconcile_orders(
         }
         if len(local_orders) != sum(_is_open_status(order.status) for order in local_open_orders):
             raise ValueError("duplicate local order identity")
-    except (AttributeError, TypeError, ValueError):
+        for local_order in local_orders.values():
+            _check_order_terms(local_order)
+    except (AttributeError, TypeError, ValueError, InvalidOperation):
         breaks.append(_unknown_break(BrokerBreakKind.ORDERS_UNKNOWN, BrokerSection.ORDERS, "open order evidence is invalid"))
         return BrokerSectionStatus.UNKNOWN
     mismatch_count = 0
+    uncertain_count = 0
     for key in sorted(local_orders.keys() | broker_orders.keys()):
         local = local_orders.get(key)
         broker = broker_orders.get(key)
         local_value = _local_order_value(local)
         broker_value = _broker_order_value(broker)
-        if local_value != broker_value:
+        if local_value == broker_value and (_is_uncertain_status(local) or _is_uncertain_status(broker)):
+            uncertain_count += 1
+            breaks.append(BrokerReconciliationBreak(
+                BrokerBreakKind.ORDERS_UNKNOWN,
+                BrokerSection.ORDERS,
+                key,
+                _order_value_text(local),
+                _order_value_text(broker),
+                "matching order is UNKNOWN or RECONCILIATION_REQUIRED and cannot be reconciled",
+            ))
+        elif local_value != broker_value:
             mismatch_count += 1
             breaks.append(BrokerReconciliationBreak(
                 BrokerBreakKind.OPEN_ORDER_MISMATCH,
@@ -370,33 +434,68 @@ def _reconcile_orders(
                 _order_value_text(broker),
                 "local order lifecycle differs from broker open order state",
             ))
-    return BrokerSectionStatus.BREAK if mismatch_count else BrokerSectionStatus.RECONCILED
+    if mismatch_count:
+        return BrokerSectionStatus.BREAK
+    return BrokerSectionStatus.UNKNOWN if uncertain_count else BrokerSectionStatus.RECONCILED
 
 
-def _unique_positions(rows: object) -> dict[str, Decimal]:
+class _AccountScopeError(ValueError):
+    """Broker snapshot lacks the account scope needed to compare with several local accounts."""
+
+
+def _scoped_key_text(key: tuple[str | None, str]) -> str:
+    scope, name = key
+    return name if scope is None else f"{scope}|{name}"
+
+
+def _scoped_sort_key(key: tuple[str | None, str]) -> tuple[str, str]:
+    return (key[0] or "", key[1])
+
+
+def _unique_positions(rows: object) -> tuple[dict[tuple[str | None, str], Decimal], bool]:
     if not isinstance(rows, (tuple, list)):
         raise TypeError("positions must be a sequence")
-    result: dict[str, Decimal] = {}
+    scoped = _rows_scoped(rows)
+    result: dict[tuple[str | None, str], Decimal] = {}
     for row in rows:
         if not isinstance(row, BrokerPosition) or not row.instrument_id.strip():
             raise ValueError("position row is invalid")
-        if row.instrument_id in result or not row.quantity.is_finite():
+        key = (row.account_id, row.instrument_id)
+        if key in result or not row.quantity.is_finite():
             raise ValueError("position identity or quantity is invalid")
-        result[row.instrument_id] = row.quantity
-    return result
+        result[key] = row.quantity
+    return result, scoped
 
 
-def _unique_cash(rows: object) -> dict[str, Decimal]:
+def _unique_cash(rows: object) -> tuple[dict[tuple[str | None, str], Decimal], bool]:
     if not isinstance(rows, (tuple, list)):
         raise TypeError("cash must be a sequence")
-    result: dict[str, Decimal] = {}
+    scoped = _rows_scoped(rows)
+    result: dict[tuple[str | None, str], Decimal] = {}
     for row in rows:
-        if not isinstance(row, BrokerCash) or len(row.currency) != 3 or not row.currency.isupper():
+        if not isinstance(row, BrokerCash) or not _is_currency(row.currency):
             raise ValueError("cash row is invalid")
-        if row.currency in result or not row.balance.is_finite():
+        key = (row.account_id, row.currency)
+        if key in result or not row.balance.is_finite():
             raise ValueError("cash identity or balance is invalid")
-        result[row.currency] = row.balance
-    return result
+        result[key] = row.balance
+    return result, scoped
+
+
+def _rows_scoped(rows: Sequence[object]) -> bool:
+    """True when every row names an account; mixed or blank scoping is invalid evidence."""
+
+    scopes = [getattr(row, "account_id", None) for row in rows]
+    flags = {scope is not None for scope in scopes}
+    if len(flags) > 1:
+        raise ValueError("broker rows mix scoped and unscoped accounts")
+    if flags == {True} and any(not isinstance(scope, str) or not scope.strip() for scope in scopes):
+        raise ValueError("broker account scope is invalid")
+    return flags == {True}
+
+
+def _is_currency(value: object) -> bool:
+    return isinstance(value, str) and _CURRENCY_PATTERN.fullmatch(value) is not None
 
 
 def _unique_orders(rows: object) -> dict[str, BrokerOpenOrder]:
@@ -406,13 +505,43 @@ def _unique_orders(rows: object) -> dict[str, BrokerOpenOrder]:
     for row in rows:
         if not isinstance(row, BrokerOpenOrder) or not row.order_id.strip():
             raise ValueError("order row is invalid")
-        if row.order_id in result or not row.quantity.is_finite() or not row.remaining_quantity.is_finite():
-            raise ValueError("order identity or quantity is invalid")
+        if row.order_id in result:
+            raise ValueError("order identity is duplicated")
+        _check_order_terms(row)
         result[row.order_id] = row
     return result
 
 
-def _local_order_value(order: LocalOpenOrder | None) -> tuple[str, str, Decimal, Decimal, str] | None:
+def _check_order_terms(order: LocalOpenOrder | BrokerOpenOrder) -> None:
+    """Reject impossible quantities and malformed economic terms."""
+
+    quantity = order.quantity
+    remaining = order.remaining_quantity
+    if not quantity.is_finite() or not remaining.is_finite():
+        raise ValueError("order quantity is invalid")
+    if quantity < 0 or remaining < 0 or remaining > quantity:
+        raise ValueError("order quantity is impossible")
+    if order.limit_price is not None and (not order.limit_price.is_finite() or order.limit_price <= 0):
+        raise ValueError("order limit price is invalid")
+    if order.currency is not None and not _is_currency(order.currency):
+        raise ValueError("order currency is invalid")
+    if order.account_id is not None and (not isinstance(order.account_id, str) or not order.account_id.strip()):
+        raise ValueError("order account is invalid")
+
+
+def _is_uncertain_status(order: LocalOpenOrder | BrokerOpenOrder | None) -> bool:
+    if order is None:
+        return False
+    try:
+        return OrderState(order.status) in _UNCERTAIN_ORDER_STATES
+    except (TypeError, ValueError):
+        return False
+
+
+_OrderValue = tuple[str, str, Decimal, Decimal, str, str | None, str | None, Decimal | None]
+
+
+def _local_order_value(order: LocalOpenOrder | None) -> _OrderValue | None:
     if order is None:
         return None
     return (
@@ -421,10 +550,13 @@ def _local_order_value(order: LocalOpenOrder | None) -> tuple[str, str, Decimal,
         order.quantity,
         order.remaining_quantity,
         order.status,
+        order.account_id,
+        order.currency,
+        order.limit_price,
     )
 
 
-def _broker_order_value(order: BrokerOpenOrder | None) -> tuple[str, str, Decimal, Decimal, str] | None:
+def _broker_order_value(order: BrokerOpenOrder | None) -> _OrderValue | None:
     if order is None:
         return None
     return (
@@ -433,6 +565,9 @@ def _broker_order_value(order: BrokerOpenOrder | None) -> tuple[str, str, Decima
         order.quantity,
         order.remaining_quantity,
         order.status,
+        order.account_id,
+        order.currency,
+        order.limit_price,
     )
 
 
@@ -445,6 +580,9 @@ def _order_value_text(order: LocalOpenOrder | BrokerOpenOrder | None) -> str | N
         str(order.quantity),
         str(order.remaining_quantity),
         order.status,
+        str(order.account_id),
+        str(order.currency),
+        str(order.limit_price),
     ))
 
 
@@ -466,7 +604,7 @@ def _instant(value: str) -> datetime:
 
 def _local_replay_is_stale(local_replay: LedgerReplay, requested: datetime) -> bool:
     try:
-        return _instant(local_replay.as_of) != requested
+        return _instant(local_replay.as_of) != requested or _instant(local_replay.known_at) != requested
     except (AttributeError, TypeError, ValueError):
         return True
 
