@@ -474,8 +474,13 @@ def import_esef_package(
     *,
     instrument_id: str | None = None,
     publish_guard: PublicationScopeFactory | None = None,
+    known_at: str | None = None,
 ) -> str:
-    """Import a local ESEF report package into the shared facts/inventory stores."""
+    """Import a local ESEF report package into the shared facts/inventory stores.
+
+    ``known_at`` is the filing's own knowledge time (the filings.xbrl.org ``date_added``) for a point-in-time backfill;
+    without it the facts are known from the acquisition time, as before. A value in the future is refused.
+    """
 
     try:
         package_path = Path(path)
@@ -496,12 +501,20 @@ def import_esef_package(
             raise ValueError("ESEF import requires a non-empty instrument ID when supplied")
         provider_id, source_url = _esef_source_provenance(package_path)
         acquired_at = datetime.now(timezone.utc)
+        fact_known_at = acquired_at
+        if known_at is not None:
+            fact_known_at = datetime.fromisoformat(str(known_at).strip().replace("Z", "+00:00"))
+            if fact_known_at.tzinfo is None:
+                fact_known_at = fact_known_at.replace(tzinfo=timezone.utc)
+            fact_known_at = fact_known_at.astimezone(timezone.utc)
+            if fact_known_at > acquired_at:
+                raise ValueError("ESEF filing known_at cannot be in the future")
         records = statement_facts_from_esef(
             parsed.records,
             instrument_id=resolved_instrument_id,
             source_sha256=parsed.source_sha256,
             source_provider=provider_id,
-            known_at=acquired_at.isoformat(),
+            known_at=fact_known_at.isoformat(timespec="microseconds"),  # fixed width: a column may not mix shapes
         )
         source = RawDocument(raw_path, source_url, acquired_at, parsed.source_sha256, provider_id, "esef_report_package", "application/octet-stream", 200)
         with publication_scope(publish_guard):

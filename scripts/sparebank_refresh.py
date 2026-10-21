@@ -201,6 +201,90 @@ def _latest_filing(filings: tuple[dict[str, object], ...], lei: str) -> dict[str
     )
 
 
+def _registry_instant(value: object) -> str:
+    """One fixed-width UTC ISO instant for a registry ``date_added``.
+
+    The registry omits the fractional seconds when they are zero; a column that mixes both shapes cannot be parsed in
+    one vectorised call (the unparsed rows become NaT and silently lose their knowledge time), so every stamp is
+    written with microseconds.
+    """
+
+    import pandas as pd
+
+    stamp = pd.Timestamp(str(value).strip())
+    stamp = stamp.tz_localize("UTC") if stamp.tzinfo is None else stamp.tz_convert("UTC")
+    return stamp.isoformat(timespec="microseconds")
+
+
+def _history_filings(filings: tuple[dict[str, object], ...], lei: str) -> tuple[dict[str, object], ...]:
+    """Every importable filing of the issuer, oldest knowledge first.
+
+    ``date_added`` (the filings.xbrl.org registry date) is the only knowledge time: a filing without one, a period
+    end, a package URL or the requested entity is skipped, never dated by the import time. Order is
+    (date_added, period_end, id) so the newest filing is imported last and its top-level facts are the latest.
+    """
+
+    eligible = [
+        row for row in filings
+        if str(row.get("entity_lei") or "").strip().upper() == lei
+        and str(row.get("period_end") or "").strip()
+        and str(row.get("package_url") or "").strip()
+        and str(row.get("date_added") or "").strip()
+    ]
+    return tuple(sorted(
+        eligible,
+        key=lambda row: (str(row.get("date_added") or ""), str(row.get("period_end") or ""), str(row.get("id") or "")),
+    ))
+
+
+def _import_history(
+    official: object,
+    importer: Callable,
+    record: UniverseRecord,
+    lei: str,
+    filings: tuple[dict[str, object], ...],
+    root: Path,
+    source_root: Path,
+) -> list[dict[str, object]]:
+    """Import every filing into ONE evidence directory (the bank readers take the first directory that holds facts).
+
+    A filing that fails is recorded with its reason and the others still import; nothing is retried here.
+    """
+
+    output = root / "evidence" / "norway" / f"{record.instrument_id}-history"
+    outcomes: list[dict[str, object]] = []
+    for filing in _history_filings(filings, lei):
+        outcome: dict[str, object] = {
+            "filing_id": str(filing.get("id") or ""),
+            "period_end": str(filing.get("period_end") or ""),
+            "date_added": str(filing.get("date_added") or ""),
+        }
+        try:
+            package = getattr(official, "download")(filing)
+            atomic_write_json(Path(package.path).with_suffix(".json"), {
+                "data": [{"id": str(filing.get("id") or ""), "attributes": {**dict(filing), "date_added": _registry_instant(filing["date_added"])}}],
+                "source_url": package.source_url,
+            })
+            imported = importer(
+                package.path,
+                jurisdiction="NO",
+                instrument_id=record.instrument_id,
+                source_url=package.source_url,
+                expected_period=str(filing.get("period_end") or ""),
+                lei=lei,
+                ticker=record.ticker,
+                published_at=_registry_instant(filing["date_added"]),
+                expected_sha256=package.sha256,
+                output_dir=output,
+                universe_root=source_root,
+            )
+            outcome.update(status="imported", known_at=str(imported.get("known_at") or ""), facts=imported.get("facts"))
+        except Exception as exc:
+            outcome.update(status="failed", reason=f"{type(exc).__name__}: {exc}")
+        outcomes.append(outcome)
+    return outcomes
+
+
 def _rescore(record: UniverseRecord, data_root: Path, universe_root: Path, decision_time: str) -> tuple[float | None, float | None, str]:
     from etf_cockpit.application.financial_institution_views import load_financial_institution_projection
 
@@ -240,17 +324,25 @@ def refresh_sparebanks(
     importer: Callable = import_official_filing,
     rescorer: Callable = _rescore,
     fetch: bool = True,
+    history: bool = False,
+    only_ids: set[str] | None = None,
 ) -> tuple[dict[str, object], ...]:
     """Refresh each enabled configured certificate independently and write a summary.
 
     With ``fetch=False`` no network request is made: the retained evidence is only rescored.
+    With ``history=True`` every filing of the issuer is imported (point-in-time backfill, known_at = the registry
+    ``date_added`` of each filing) into one ``<id>-history`` evidence directory instead of only the latest; no
+    rescoring happens because a rescore would append a score run dated by the backfill time.
     """
+
+    if history and not fetch:
+        raise ValueError("history needs fetch=True")
 
     root = Path(data_root).resolve()
     source_root = Path(universe_root or ROOT).resolve()
     now = decision_time or _utc_now()
     official = client or OfficialFilingClient(root / "data" / "raw" / "esef")
-    records = load_sparebank_records(source_root)
+    records = tuple(item for item in load_sparebank_records(source_root) if not only_ids or item.instrument_id in only_ids)
     summaries: list[dict[str, object]] = []
     for record in records:
         bank_evidence = root / "evidence" / "norway" / record.instrument_id
@@ -258,15 +350,25 @@ def refresh_sparebanks(
         lei = ""
         filing_date = ""
         reason = ""
+        history_rows: list[dict[str, object]] = []
         try:
-            if not fetch:
+            if history:
+                lei = _resolve_lei(record, bank_evidence, official, now=now)
+                filings = tuple(official.filings_for_lei(lei))
+                history_rows = _import_history(official, importer, record, lei, filings, root, source_root)
+                if not history_rows:
+                    reason = "no_filing_found"
+                elif all(row["status"] != "imported" for row in history_rows):
+                    reason = "history_import_failed"
+                filing_date = max((str(row.get("known_at") or "") for row in history_rows if row["status"] == "imported"), default="")
+            elif not fetch:
                 lei = record.lei or ""
                 filing = None
                 reason = "not_fetched"
             else:
                 lei = _resolve_lei(record, bank_evidence, official, now=now)
                 filing = _latest_filing(tuple(official.filings_for_lei(lei)), lei)
-            if not fetch:
+            if history or not fetch:
                 pass
             elif filing is None:
                 reason = "no_filing_found"
@@ -297,6 +399,17 @@ def refresh_sparebanks(
             if not reason:
                 reason = f"refresh_failed: {type(exc).__name__}: {exc}"
 
+        if history:
+            summaries.append({
+                "id": record.instrument_id,
+                "lei": lei or record.lei or "",
+                "filing_date": filing_date,
+                "composite": None,
+                "coverage": None,
+                "reason": reason,
+                "history": history_rows,
+            })
+            continue
         try:
             if decision_time is None:
                 from etf_cockpit.application.identity_views import load_classification_projection
@@ -326,7 +439,15 @@ def refresh_sparebanks(
             "reason": reason,
         })
 
-    report = {"generated_at": now, "banks": summaries, "execution_allowed": False}
+    banks: list[dict[str, object]] = list(summaries)
+    summary_path = root / "evidence" / "norway" / "sparebank_refresh_summary.json"
+    if only_ids and summary_path.is_file():  # a partial run replaces its own banks and keeps the others' record
+        try:
+            previous = json.loads(summary_path.read_text(encoding="utf-8")).get("banks", [])
+        except (OSError, ValueError):
+            previous = []
+        banks = [item for item in previous if isinstance(item, dict) and item.get("id") not in only_ids] + banks
+    report = {"generated_at": now, "banks": banks, "execution_allowed": False}
     atomic_write_json(root / "evidence" / "norway" / "sparebank_refresh_summary.json", report)
     return tuple(summaries)
 
@@ -336,12 +457,20 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--root", type=Path, default=ROOT, help="data root to update")
     parser.add_argument("--universe-root", type=Path, default=ROOT, help="root containing the universe store or configs")
     parser.add_argument("--rescore-only", action="store_true", help="make no network request; rescore the retained evidence")
+    parser.add_argument("--ids", default="", help="comma separated certificate ids to refresh (default: all enabled)")
+    parser.add_argument(
+        "--history",
+        action="store_true",
+        help="import every filing per issuer (known_at = registry date_added) into <id>-history; no rescore",
+    )
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    rows = refresh_sparebanks(args.root, universe_root=args.universe_root, fetch=not args.rescore_only)
+    rows = refresh_sparebanks(args.root, universe_root=args.universe_root, fetch=not args.rescore_only, history=args.history,
+        only_ids={item.strip() for item in args.ids.split(",") if item.strip()} or None,
+    )
     print("id\tLEI\tfiling date\tcomposite\tcoverage\treason")
     for row in rows:
         print("\t".join(str(row.get(key) if row.get(key) is not None else "") for key in ("id", "lei", "filing_date", "composite", "coverage", "reason")))

@@ -16,6 +16,12 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", default=os.environ.get("ETF_COCKPIT_ROOT"), help="data root (defaults to ETF_COCKPIT_ROOT)")
     parser.add_argument("--ids", default="", help="comma separated instrument ids (default: all normal stocks)")
+    parser.add_argument(
+        "--sources",
+        default="",
+        help="comma separated subset of the configured source chain, e.g. sec_edgar (default: the whole chain). "
+        "A point-in-time history backfill uses sec_edgar only: yfinance statements are restated and dated at fetch time.",
+    )
     args = parser.parse_args()
     if args.root:
         os.environ["ETF_COCKPIT_ROOT"] = str(Path(args.root).resolve())
@@ -25,7 +31,8 @@ def main() -> int:
 
     config = load_config()
     only = {item.strip() for item in args.ids.split(",") if item.strip()} or None
-    report = refresh_universe_stock_fundamentals(config, only_ids=only, progress=print)
+    chain = [item.strip() for item in args.sources.split(",") if item.strip()] or None
+    report = refresh_universe_stock_fundamentals(config, only_ids=only, progress=print, chain=chain)
     print(f"rows added: {report.rows_added}; instruments without data: {len(report.failures)}")
     for key, reason in report.failures.items():
         print(f"  {key}: {reason}")
