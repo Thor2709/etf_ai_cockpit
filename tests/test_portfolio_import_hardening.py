@@ -369,7 +369,6 @@ def test_stage_and_raw_source_survive_process_restart(tmp_path: Path) -> None:
     preview = PortfolioImportStore(tmp_path).preview(
         _write(tmp_path / "restart.csv", [_trade("t1")]), source_format="broker_csv"
     )
-    portfolio_import_module._PREVIEWS.clear()
     result = PortfolioImportStore(tmp_path).commit(preview.preview_id)
     assert result.status == "committed"
     stages = PortfolioImportStore(tmp_path).stages()

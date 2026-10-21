@@ -27,6 +27,8 @@ set ETF_COCKPIT_ROOT=%PORTABLE%
 if not defined ETF_COCKPIT_PORT set ETF_COCKPIT_PORT=8550
 
 if exist "%RUNNER%" goto run_runner
+rem A build without PyInstaller ships the portable source launcher only (no native EXE).
+if not exist "%NATIVE_EXE%" if exist "%PORTABLE%\ETF_AI_Cockpit.bat" goto run_source
 if not exist "%HELPER%" goto not_found
 if not exist "%NATIVE_EXE%" goto not_found
 if not exist "%PORTABLE%\.venv\Scripts\python.exe" goto try_py
@@ -38,6 +40,9 @@ if errorlevel 1 goto not_found
 py -3.13 -c "import sys" >nul 2>nul
 if errorlevel 1 goto not_found
 py -3.13 "%HELPER%" launch --mode portable-native --root "%PORTABLE%" --preferred-port "%ETF_COCKPIT_PORT%" --open-browser 1 --timeout 60 --exe "%NATIVE_EXE%"
+goto launched
+:run_source
+call "%PORTABLE%\ETF_AI_Cockpit.bat"
 goto launched
 :run_runner
 call "%RUNNER%"

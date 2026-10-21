@@ -210,7 +210,14 @@ def calculate_fixed_income_return_decomposition(
     baseline_parts = (carry, roll, rate, spread)
     baseline = sum(baseline_parts, Decimal("0")) if all(x is not None for x in baseline_parts) else None
     net_parts = (*baseline_parts, default, fx, costs)
-    net = sum((x for x in net_parts if x is not None), Decimal("0")) if all(x is not None for x in net_parts) else None
+    if all(x is not None for x in net_parts):
+        # Local-currency components add; the FX return compounds on top:
+        # (1 + local) x (1 + fx) - 1, never local + fx.
+        local_parts = (*baseline_parts, default, costs)
+        local_net = sum((x for x in local_parts if x is not None), Decimal("0"))
+        net = (Decimal("1") + local_net) * (Decimal("1") + fx) - Decimal("1")
+    else:
+        net = None
     reasons = tuple(
         f"{name}_unavailable"
         for name, value in (
