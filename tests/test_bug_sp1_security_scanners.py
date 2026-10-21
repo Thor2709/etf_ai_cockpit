@@ -108,7 +108,8 @@ def test_empty_root_fails_the_architecture_scan(tmp_path: Path) -> None:  # E024
     assert report["errors"]
 
 
-def test_unparseable_module_is_a_clean_failure(tmp_path: Path) -> None:  # E024-N004
+def test_unparseable_module_is_a_clean_failure(tmp_path: Path) -> None:
+    # Separate source-parsing guard; E024-N004 names an unidentified policy inventory.
     _write(tmp_path, "pages/ok.py", "import os\n")
     _write(tmp_path, "pages/broken.py", "def (:\n")
     _write(tmp_path, "pages/binary.py", "x = 1\x00\n")

@@ -32,10 +32,23 @@ def _is_negated(lowered: str, start: int, end: int) -> bool:
     before = lowered[max(0, start - 40) : start]
     clause = _CLAUSE_BREAK_RE.split(before)[-1]
     words = [word.replace("'", "") for word in _WORD_RE.findall(clause)]
-    if any(word in _NEGATIONS for word in words[-3:]):
+    # Only adjacent negation, or negation of an explicit recommendation verb,
+    # scopes over the action. "not hesitate to" is an affirmative instruction.
+    if words and words[-1] in _NEGATIONS:
         return True
-    after = _WORD_RE.findall(lowered[end : end + 16])
-    return bool(after) and after[0].replace("'", "") in _NEGATIONS
+    if len(words) >= 2 and words[-2] in _NEGATIONS and words[-1] in {"recommend", "allow", "permit"}:
+        return True
+    phrase = lowered[start:end]
+    after_clause = _CLAUSE_BREAK_RE.split(lowered[end : end + 40])[0]
+    after = [word.replace("'", "") for word in _WORD_RE.findall(after_clause)]
+    # Following negation must directly govern an action verb. Intervening words
+    # such as "hesitate to" or "only" do not establish anti-execution commentary.
+    return (
+        phrase == "broker should"
+        and len(after) >= 2
+        and after[0] in {"not", "never"}
+        and after[1] in {"act", "buy", "sell", "trade", "execute", "place", "submit"}
+    )
 
 
 def _recommends_execution(lowered: str) -> str | None:

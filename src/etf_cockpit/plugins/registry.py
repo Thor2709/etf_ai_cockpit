@@ -13,6 +13,7 @@ import socket
 import threading
 from typing import Iterable, Iterator, Mapping, Protocol
 
+from etf_cockpit.core.session_log import redact_text
 from etf_cockpit.plugins.contracts import (
     PLUGIN_CONFORMANCE_SCHEMA_VERSION,
     PluginContext,
@@ -113,7 +114,6 @@ class PluginRegistry:
         context = PluginContext(request_id=f"health:{plugin_id}")
         try:
             result = plugin.health(context)
-            self._collect_audit(plugin_id, "health", context)
             if not isinstance(result, PluginHealth):
                 return PluginHealth(status=PluginStatus.INVALID, message="Plugin health response was not a PluginHealth contract.")
             return result
@@ -123,6 +123,9 @@ class PluginRegistry:
                 message=f"Plugin health failed: {type(exc).__name__}.",
                 error_fingerprint=_fingerprint(exc),
             )
+
+        finally:
+            self._collect_audit(plugin_id, "health", context)
 
     def invoke(self, plugin_id: str, operation: str, payload: Mapping[str, object] | None = None) -> PluginResult:
         plugin = self._require(plugin_id)
@@ -241,7 +244,7 @@ class PluginRegistry:
 
     def _collect_audit(self, plugin_id: str, operation: str, context: PluginContext) -> None:
         for event in context.audit_events:
-            self._audit_log.append({"plugin_id": plugin_id, "operation": operation, **event})
+            self._audit_log.append({"plugin_id": plugin_id, "operation": operation, **{key: redact_text(value) for key, value in event.items()}})
 
     @staticmethod
     def _key(plugin_id: str) -> str:
@@ -271,9 +274,12 @@ def _network_probe() -> Iterator[list[str]]:
     targets = (
         (socket.socket, "connect"),
         (socket.socket, "connect_ex"),
+        (socket.socket, "sendto"),
         (socket, "getaddrinfo"),
         (socket, "create_connection"),
     )
+    if hasattr(socket.socket, "sendmsg"):
+        targets += ((socket.socket, "sendmsg"),)
     with _PROBE_LOCK:
         originals = [(owner, attr, getattr(owner, attr)) for owner, attr in targets]
         try:

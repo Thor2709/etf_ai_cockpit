@@ -2,10 +2,16 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
+import socket
+from types import SimpleNamespace
 
 import pytest
 
+from etf_cockpit.chatgpt_bridge.validation import validate_audit_text
+from etf_cockpit.core.exceptions import AuditImportError
+from etf_cockpit.security.policy import build_security_report
 from etf_cockpit.plugins.builtins import default_plugin_registry
 from etf_cockpit.plugins.contracts import PluginContext, PluginHealth, PluginManifest, PluginResult, PluginStatus
 from etf_cockpit.plugins.registry import PluginRegistrationError, PluginRegistry
@@ -82,3 +88,102 @@ def test_c5_n001_audit_events_are_exposed_by_the_registry() -> None:  # E.C5.S16
     assert registry.audit_events() == (
         {"plugin_id": "fixture.plugin", "operation": "fetch", "event": "fetch", "detail": "called"},
     )
+
+
+@pytest.mark.parametrize("method", ["sendto"] + (["sendmsg"] if hasattr(socket.socket, "sendmsg") else []))
+def test_conformance_blocks_and_counts_connectionless_send(method: str, monkeypatch) -> None:
+    native_calls = []
+    original = getattr(socket.socket, method)
+
+    def unexpected_send(*args, **kwargs):
+        native_calls.append(method)
+        raise AssertionError("connectionless send escaped the probe")
+
+    monkeypatch.setattr(socket.socket, method, unexpected_send)
+
+    class DatagramPlugin(_Plugin):
+        def health(self, context):
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+                with pytest.raises(OSError, match="network access is blocked"):
+                    if method == "sendto":
+                        sock.sendto(b"probe", ("127.0.0.1", 9))
+                    else:
+                        sock.sendmsg([b"probe"], [], 0, ("127.0.0.1", 9))
+            return PluginHealth(status=PluginStatus.AVAILABLE, message="ok")
+
+    registry = PluginRegistry()
+    registry.register(DatagramPlugin())
+    report = registry.conformance_report()
+    assert report["failures"] == ["fixture.plugin"]
+    assert report["checks"][0]["network_calls"] is True
+    assert report["checks"][0]["network_call_count"] == 1
+    assert report["checks"][0]["status"] == "available"
+    assert native_calls == []
+    assert getattr(socket.socket, method) is unexpected_send
+    assert original is not unexpected_send
+
+
+@pytest.mark.parametrize("text", [
+    "Do not hesitate to place the order.",
+    "automatic execution not only improves speed",
+    "The broker should not hesitate to buy shares.",
+])
+def test_indirect_negation_does_not_admit_execution(text: str) -> None:
+    audit = {
+        "schema_version": "1.0", "review_date": "2026-10-05", "overall_view": "neutral",
+        "portfolio_actions": [],
+        "model_audit": {"toto_usefulness": "n/a", "timesfm_usefulness": "n/a",
+                        "baseline_comparison": text, "overfitting_concerns": []},
+    }
+    with pytest.raises(AuditImportError, match="automatic trading"):
+        validate_audit_text(json.dumps(audit), set())
+
+
+@pytest.mark.parametrize("status", ["pending-triage", None, "", "missing"])
+def test_unknown_status_blocks_low_severity_independently(status) -> None:
+    finding = {"id": "fixture", "severity": "low"}
+    if status != "missing":
+        finding["status"] = status
+    assert build_security_report(findings=[finding])["status"] == "failed"
+    for status in ("open", "active", "in_progress", "reopened", "new", "unresolved"):
+        finding["status"] = status
+        assert build_security_report(findings=[finding])["status"] == "passed"
+
+
+def test_plugin_context_rejects_unsupported_mutable_input() -> None:
+    source = {"row": SimpleNamespace(value=1)}
+    with pytest.raises(TypeError, match="unsupported plugin input type: SimpleNamespace"):
+        PluginContext(request_id="fixture", inputs=source)
+    assert source["row"].value == 1
+
+
+@pytest.mark.parametrize("key", [
+    "refreshToken", "refresh_token", "refresh-token", "privateKey", "private_key", "private-key",
+    "signingKey", "signing_key", "signing-key", "apiKey", "accessToken", "clientSecret", "credential",
+])
+def test_plugin_audit_redacts_secrets_before_retention(key: str) -> None:
+    class SecretPlugin(_Plugin):
+        def fetch(self, payload, context):
+            context.record_audit(f"{key}=abc123supersecret", f'{key}="abc123supersecret"')
+            return PluginResult(status="ok", message="done")
+
+    registry = PluginRegistry()
+    registry.register(SecretPlugin())
+    assert registry.invoke("fixture.plugin", "fetch").status == "ok"
+    event = registry.audit_events()[0]
+    assert "abc123supersecret" not in json.dumps(event)
+    assert "***redacted***" in event["event"] and "***redacted***" in event["detail"]
+    assert "abc123supersecret" not in repr(registry._audit_log)
+
+
+def test_health_failure_retains_recorded_audit() -> None:
+    class FailingHealthPlugin(_Plugin):
+        def health(self, context):
+            context.record_audit("health-started", "probe attempted")
+            raise RuntimeError("failure")
+
+    registry = PluginRegistry()
+    registry.register(FailingHealthPlugin())
+    assert registry.health("fixture.plugin").status is PluginStatus.UNAVAILABLE
+    assert registry.audit_events() == ({"plugin_id": "fixture.plugin", "operation": "health",
+                                        "event": "health-started", "detail": "probe attempted"},)

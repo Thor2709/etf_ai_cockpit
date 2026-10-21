@@ -21,8 +21,9 @@ from etf_cockpit.core.session_log import SECRET_KEY_RE, redact_text
 POLICY_SCHEMA_VERSION = "security-policy.v1"
 POLICY_PATH = CONFIG_DIR / "security_policy.yaml"
 _REDACTED = "***redacted***"
-# Only an explicit terminal status releases a finding; any other (unknown, missing, non-string) status blocks.
+# Unknown, missing and non-string statuses block; recognized active statuses use severity.
 _CLOSED_FINDING_STATUSES = frozenset({"closed", "fixed", "false_positive", "mitigated", "not_applicable", "resolved"})
+_ACTIVE_FINDING_STATUSES = frozenset({"open", "active", "in_progress", "reopened", "new", "unresolved"})
 # Severities that can never be configured away; unknown severities are treated as blocking too.
 _MANDATORY_BLOCKING_SEVERITIES = ("critical", "high")
 _KNOWN_NON_BLOCKING_SEVERITIES = frozenset({"info", "informational", "low", "medium", "moderate"})
@@ -249,7 +250,7 @@ def build_security_report(root: Path = ROOT, *, findings: list[Mapping[str, Any]
         failures.append("plugin registry could not be inspected")
     for finding in findings if findings is not None else _load_findings(root / "artifacts" / "security" / "findings.json"):
         severity = str(finding.get("severity", "")).strip().lower()
-        status = str(finding.get("status", "open")).strip().lower()
+        status = str(finding.get("status", "")).strip().lower()
         if _finding_blocks(severity, status, policy.blocking_severities):
             label = severity if severity in policy.blocking_severities else "unclassified"
             failures.append(
@@ -279,6 +280,8 @@ def _finding_blocks(severity: str, status: str, blocking_severities: tuple[str, 
 
     if status in _CLOSED_FINDING_STATUSES:
         return False
+    if status not in _ACTIVE_FINDING_STATUSES:
+        return True
     if severity in blocking_severities:
         return True
     return severity not in _KNOWN_NON_BLOCKING_SEVERITIES

@@ -117,14 +117,16 @@ def _deep_freeze(value: object) -> object:
     """Recursively replace mutable containers so nested caller input cannot be mutated through the context."""
 
     if isinstance(value, Mapping):
-        return MappingProxyType({key: _deep_freeze(item) for key, item in value.items()})
+        return MappingProxyType({_deep_freeze(key): _deep_freeze(item) for key, item in value.items()})
     if isinstance(value, (list, tuple)):
         return tuple(_deep_freeze(item) for item in value)
     if isinstance(value, (set, frozenset)):
         return frozenset(_deep_freeze(item) for item in value)
     if isinstance(value, bytearray):
         return bytes(value)
-    return value
+    if type(value) in (str, bytes, int, float, complex, bool, type(None)):
+        return value
+    raise TypeError(f"unsupported plugin input type: {type(value).__name__}")
 
 
 @dataclass(frozen=True)
