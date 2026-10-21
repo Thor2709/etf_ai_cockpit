@@ -8,7 +8,9 @@ import re
 import shutil
 import sys
 from collections import deque
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -558,6 +560,36 @@ class EurRateBook:
 
     def _cross_rate(self, quote_day: date, currency: str) -> tuple[float | None, str | None]:
         dated = self._by_date[quote_day]
+        # The outcome is a pure function of the day's quotes, so inside a ``fx_cross_rate_memo`` scope identical content
+        # is validated once instead of once per EurRateBook (a backtest builds several books over the same days).
+        memo = _CROSS_RATE_MEMO.get()
+        if memo is None:
+            return self._compute_cross_rate(dated, quote_day, currency)
+        content = (
+            quote_day,
+            currency,
+            tuple(
+                zip(
+                    dated["as_of_date"].tolist(),
+                    dated["pair"].tolist(),
+                    dated["base_currency"].tolist(),
+                    dated["quote_currency"].tolist(),
+                    dated["rate"].tolist(),
+                    dated["source"].tolist(),
+                    strict=True,
+                )
+            ),
+        )
+        known = memo.get(content)
+        if known is None:
+            known = self._compute_cross_rate(dated, quote_day, currency)
+            if len(memo) >= _CROSS_RATE_MEMO_LIMIT:
+                memo.clear()
+            memo[content] = known
+        return known
+
+    @staticmethod
+    def _compute_cross_rate(dated: pd.DataFrame, quote_day: date, currency: str) -> tuple[float | None, str | None]:
         if dated.duplicated(["as_of_date", "pair"]).any():
             return None, "FX rates contain duplicate date/pair rows"
         errors = _fx_rate_consistency_errors(dated)
@@ -580,6 +612,29 @@ class EurRateBook:
         if cross is None or not _usable_rate(cross.rate):
             return None, f"no unambiguous {currency}/EUR rate"
         return float(cross.rate), None
+
+
+_CROSS_RATE_MEMO: ContextVar[dict[tuple[object, ...], tuple[float | None, str | None]] | None] = ContextVar(
+    "fx_cross_rate_memo", default=None
+)
+_CROSS_RATE_MEMO_LIMIT = 100_000
+
+
+@contextmanager
+def fx_cross_rate_memo() -> Iterator[None]:
+    """Validate each distinct day of FX quotes once inside the scope; nothing survives the scope (also on error).
+
+    Nested scopes share the outermost memo.  Outside a scope every cross-rate is computed directly.
+    """
+
+    if _CROSS_RATE_MEMO.get() is not None:
+        yield
+        return
+    token = _CROSS_RATE_MEMO.set({})
+    try:
+        yield
+    finally:
+        _CROSS_RATE_MEMO.reset(token)
 
 
 SAMPLE_PRICE_SOURCE = "synthetic_sample"
