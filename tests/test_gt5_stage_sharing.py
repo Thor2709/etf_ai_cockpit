@@ -66,8 +66,7 @@ def _fx_frame(rate: float) -> pd.DataFrame:
     )
 
 
-def test_fx_cross_rate_is_validated_once_per_distinct_day_content(monkeypatch) -> None:
-    fx_data._CROSS_RATE_MEMO.clear()
+def test_fx_cross_rate_is_validated_once_per_distinct_day_content_inside_the_scope(monkeypatch) -> None:
     computed: list[float] = []
     original = EurRateBook._compute_cross_rate
 
@@ -78,13 +77,64 @@ def test_fx_cross_rate_is_validated_once_per_distinct_day_content(monkeypatch) -
     monkeypatch.setattr(EurRateBook, "_compute_cross_rate", staticmethod(counting))
     sessions = [date(2026, 1, 2)]
 
-    first = EurRateBook(_fx_frame(0.9), known_by="2026-01-10").series("USD", sessions).rates.iloc[0]
-    second = EurRateBook(_fx_frame(0.9), known_by="2026-01-10").series("USD", sessions).rates.iloc[0]
-    revised = EurRateBook(_fx_frame(0.8), known_by="2026-01-10").series("USD", sessions).rates.iloc[0]
+    with fx_data.fx_cross_rate_memo():
+        first = EurRateBook(_fx_frame(0.9), known_by="2026-01-10").series("USD", sessions).rates.iloc[0]
+        second = EurRateBook(_fx_frame(0.9), known_by="2026-01-10").series("USD", sessions).rates.iloc[0]
+        revised = EurRateBook(_fx_frame(0.8), known_by="2026-01-10").series("USD", sessions).rates.iloc[0]
 
     assert first == second == pytest.approx(0.9)
     assert revised == pytest.approx(0.8)  # a revised quote is different content and is never served from the memo
     assert computed == [0.9, 0.8]
+
+
+def test_fx_cross_rate_memo_exists_only_inside_the_scope_and_is_gone_after_exit_or_error(monkeypatch) -> None:
+    computed: list[float] = []
+    original = EurRateBook._compute_cross_rate
+
+    def counting(dated, quote_day, currency):
+        computed.append(float(dated["rate"].iloc[0]))
+        return original(dated, quote_day, currency)
+
+    monkeypatch.setattr(EurRateBook, "_compute_cross_rate", staticmethod(counting))
+    sessions = [date(2026, 1, 2)]
+
+    def read() -> float:
+        return float(EurRateBook(_fx_frame(0.9), known_by="2026-01-10").series("USD", sessions).rates.iloc[0])
+
+    assert fx_data._CROSS_RATE_MEMO.get() is None
+    read()
+    read()
+    assert computed == [0.9, 0.9]  # outside a scope nothing is remembered
+
+    with fx_data.fx_cross_rate_memo():
+        assert fx_data._CROSS_RATE_MEMO.get() == {}
+        read()
+        assert len(fx_data._CROSS_RATE_MEMO.get()) == 1
+    assert fx_data._CROSS_RATE_MEMO.get() is None
+
+    with pytest.raises(RuntimeError, match="boom"), fx_data.fx_cross_rate_memo():
+        read()
+        raise RuntimeError("boom")
+    assert fx_data._CROSS_RATE_MEMO.get() is None
+    computed.clear()
+    read()
+    assert computed == [0.9]  # the earlier scope left nothing behind
+
+
+def test_backtest_scope_installs_and_removes_every_memo(config, prices, monkeypatch) -> None:
+    seen: dict[str, object] = {}
+    original = engine.generate_signals
+
+    def spying(*args, **kwargs):
+        seen.setdefault("fx", fx_data._CROSS_RATE_MEMO.get() is not None)
+        seen.setdefault("classification", classification._STATE_MEMO.get() is not None)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(engine, "generate_signals", spying)
+    run_backtest(config, prices, rebalance_frequency_days=84)
+    assert seen == {"fx": True, "classification": True}
+    assert fx_data._CROSS_RATE_MEMO.get() is None and classification._STATE_MEMO.get() is None
+    assert engine._STAGE_SHARE.get() is None
 
 
 def test_classification_state_is_read_once_per_instrument_only_inside_the_memo_scope(monkeypatch, tmp_path: Path) -> None:

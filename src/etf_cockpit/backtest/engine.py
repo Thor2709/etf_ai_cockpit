@@ -47,7 +47,7 @@ from etf_cockpit.data.market_calendar import (
 )
 from etf_cockpit.data.etf_structure import structure_cap_scope, structure_confidence_caps, structure_input_checksum
 from etf_cockpit.data.classification import classification_state_memo
-from etf_cockpit.data.fx_data import EurRateBook, fx_rates_for_prices, major_currency
+from etf_cockpit.data.fx_data import EurRateBook, fx_cross_rate_memo, fx_rates_for_prices, major_currency
 from etf_cockpit.features.feature_pipeline import (
     attach_eur_basis,
     compute_features,
@@ -1483,7 +1483,7 @@ def _shared_backtest_scope() -> Iterator[_StageShare]:
     share = _StageShare()
     token = _STAGE_SHARE.set(share)
     try:
-        with classification_state_memo():
+        with classification_state_memo(), fx_cross_rate_memo():
             yield share
     finally:
         _STAGE_SHARE.reset(token)
