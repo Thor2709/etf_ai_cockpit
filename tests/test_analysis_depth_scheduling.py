@@ -650,7 +650,9 @@ def test_mandatory_hashes_match_across_worker_and_low_resource_plans(monkeypatch
         def numerical_runner(instrument_id, analysis_input, stage, resource_plan):
             plan_observations.append(resource_plan)
             result = 0
-            values_to_process = analysis_input["values"]
+            # The durable scheduler bounds persisted job inputs to 100 items and appends an explicit
+            # {"__truncated__": ...} marker dict (JB1); only the numeric items take part in the sum.
+            values_to_process = [value for value in analysis_input["values"] if not isinstance(value, dict)]
             for first in range(0, len(values_to_process), resource_plan.shard_size):
                 shard = values_to_process[first:first + resource_plan.shard_size]
                 if resource_plan.cpu_fallback:
