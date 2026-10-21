@@ -248,7 +248,10 @@ def build_security_report(root: Path = ROOT, *, findings: list[Mapping[str, Any]
                 failures.append("every plugin must declare network_access=false")
     except (OSError, yaml.YAMLError, AttributeError):
         failures.append("plugin registry could not be inspected")
-    for finding in findings if findings is not None else _load_findings(root / "artifacts" / "security" / "findings.json"):
+    inventory = findings if findings is not None else _load_findings(root / "artifacts" / "security" / "findings.json")
+    if inventory is None:
+        failures.append("evidence_unavailable")
+    for finding in inventory if inventory is not None else ():
         severity = str(finding.get("severity", "")).strip().lower()
         status = str(finding.get("status", "")).strip().lower()
         if _finding_blocks(severity, status, policy.blocking_severities):
@@ -301,22 +304,16 @@ def create_ephemeral_token() -> str:
     return secrets.token_urlsafe(32)
 
 
-def _load_findings(path: Path) -> list[Mapping[str, Any]]:
-    if not path.is_file():
-        return []
+def _load_findings(path: Path) -> list[Mapping[str, Any]] | None:
+    """Return None for unavailable or invalid evidence; only a valid inventory may be empty."""
+
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return [{"id": "security-findings-file", "severity": "high", "status": "open"}]
-    if not isinstance(payload, list):
-        return [{"id": "security-findings-file", "severity": "high", "status": "open"}]
-    findings: list[Mapping[str, Any]] = []
-    for item in payload:
-        if not isinstance(item, Mapping):
-            findings.append({"id": "security-findings-file", "severity": "high", "status": "open"})
-        else:
-            findings.append(item)
-    return findings
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, list) or not all(isinstance(item, Mapping) for item in payload):
+        return None
+    return payload
 
 
 def _keyring() -> Any:

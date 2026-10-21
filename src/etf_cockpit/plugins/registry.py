@@ -278,6 +278,9 @@ def _network_probe() -> Iterator[list[str]]:
         (socket.socket, "sendall"),
         (socket.socket, "sendto"),
         (socket, "getaddrinfo"),
+        (socket, "gethostbyname"),
+        (socket, "gethostbyname_ex"),
+        (socket, "gethostbyaddr"),
         (socket, "create_connection"),
     )
     if hasattr(socket.socket, "sendmsg"):

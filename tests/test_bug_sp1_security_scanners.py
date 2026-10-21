@@ -36,6 +36,43 @@ def _security_root(tmp_path: Path, blocking: list[str] | None = None) -> Path:
 # --- E017 -----------------------------------------------------------------------------------------
 
 
+def test_findings_evidence_unavailable_fails_closed(tmp_path: Path, monkeypatch) -> None:
+    root = _security_root(tmp_path)
+    path = root / "artifacts" / "security" / "findings.json"
+    path.parent.mkdir(parents=True)
+    original = Path.read_text
+
+    def unreadable(self, *args, **kwargs):
+        if self == path:
+            raise PermissionError("private evidence location")
+        return original(self, *args, **kwargs)
+
+    for evidence in ("missing", "unreadable", "invalid_json", "invalid_encoding", "invalid_schema"):
+        if evidence != "missing":
+            path.write_bytes({"invalid_json": b"[", "invalid_encoding": b"\xff", "invalid_schema": b"[null]"}.get(evidence, b"[]"))
+        with monkeypatch.context() as patch:
+            if evidence == "unreadable":
+                patch.setattr(Path, "read_text", unreadable)
+
+            report = build_security_report(root)
+
+        assert report["status"] == "failed", evidence
+        assert "evidence_unavailable" in report["failures"], evidence
+        assert "private evidence location" not in json.dumps(report)
+
+
+def test_existing_valid_empty_findings_inventory_may_pass(tmp_path: Path) -> None:
+    root = _security_root(tmp_path)
+    path = root / "artifacts" / "security" / "findings.json"
+    path.parent.mkdir(parents=True)
+    path.write_text("[]", encoding="utf-8")
+
+    report = build_security_report(root)
+
+    assert report["status"] == "passed"
+    assert report["failures"] == []
+
+
 def test_critical_finding_cannot_be_filtered_out(tmp_path: Path) -> None:  # E017-N001
     root = _security_root(tmp_path, blocking=["low"])
 
@@ -316,3 +353,28 @@ def test_negated_anti_execution_commentary_is_not_a_banned_phrase(text: str) -> 
 def test_affirmative_execution_commentary_is_still_rejected(text: str) -> None:
     with pytest.raises(AuditImportError, match="automatic trading"):
         validate_audit_text(json.dumps({"overall_view": text}), set())
+
+
+def test_execution_commentary_requires_a_whole_clause_prohibition() -> None:
+    audit = {
+        "schema_version": "1.0", "review_date": "2026-10-05", "overall_view": "neutral",
+        "portfolio_actions": [],
+        "model_audit": {"toto_usefulness": "n/a", "timesfm_usefulness": "n/a",
+                        "baseline_comparison": "", "overfitting_concerns": []},
+    }
+    for text in ("Do not place any orders.", "Never execute trades automatically."):
+        audit["model_audit"]["baseline_comparison"] = text
+        assert validate_audit_text(json.dumps(audit), set()).review_date == "2026-10-05"
+    for text in (
+        "You must not proceed without automatic execution.",
+        "Do not allow delays before automatic execution.",
+        "No automatic execution unless the broker should buy shares.",
+        "Automatic execution is not permitted but execute automatically anyway.",
+        'The rule "no automatic execution" does not apply.',
+        "Except as noted: automatic execution is not permitted.",
+    ):
+        audit["model_audit"]["baseline_comparison"] = text
+        with pytest.raises(AuditImportError, match="automatic trading"):
+            validate_audit_text(json.dumps(audit), set())
+        with pytest.raises(AuditImportError, match="automatic trading"):
+            validate_audit_text(json.dumps(audit).replace("automatic execution", r"automatic\u0020execution"), set())

@@ -159,6 +159,30 @@ def test_conformance_blocks_and_counts_connected_send(method: str, monkeypatch) 
     assert getattr(ConnectedSocket, method) is native_send
 
 
+def test_conformance_blocks_native_resolvers_without_lookup(monkeypatch) -> None:
+    for method in ("gethostbyname", "gethostbyname_ex", "gethostbyaddr"):
+        native_lookup = Mock(side_effect=AssertionError("native DNS lookup escaped the probe"))
+        monkeypatch.setattr(socket, method, native_lookup)
+
+        class ResolvingPlugin(_Plugin):
+            def health(self, context):
+                with pytest.raises(OSError, match="network access is blocked"):
+                    getattr(socket, method)("example.com")
+                return super().health(context)
+
+        registry = PluginRegistry()
+        registry.register(ResolvingPlugin())
+        report = registry.conformance_report()
+
+        assert report["failures"] == ["fixture.plugin"]
+        assert report["checks"][0]["network_calls"] is True
+        assert report["checks"][0]["network_call_count"] == 1
+        assert report["checks"][0]["status"] == "available"
+        assert report["checks"][0]["passed"] is False
+        native_lookup.assert_not_called()
+        assert getattr(socket, method) is native_lookup
+
+
 @pytest.mark.parametrize("text", [
     "Do not hesitate to place the order.",
     "automatic execution not only improves speed",
