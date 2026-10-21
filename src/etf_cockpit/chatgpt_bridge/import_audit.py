@@ -6,7 +6,7 @@ from pathlib import Path
 
 from etf_cockpit.chatgpt_bridge.audit_packet import _contains_unredacted_secret, validate_audit_archive
 from etf_cockpit.chatgpt_bridge.schemas import ChatGPTAudit, ChatGPTAuditV2
-from etf_cockpit.chatgpt_bridge.validation import validate_audit_file
+from etf_cockpit.chatgpt_bridge.validation import validate_audit_text
 from etf_cockpit.core.config import AppConfig
 from etf_cockpit.core.exceptions import AuditImportError
 from etf_cockpit.core.logging import append_jsonl
@@ -26,7 +26,8 @@ def import_audit_json(path: Path, config: AppConfig) -> ChatGPTAudit | ChatGPTAu
         raise AuditImportError(f"Audit JSON could not be read: {type(exc).__name__}") from exc
     if _contains_unredacted_secret(raw_text):
         raise AuditImportError("Audit JSON contains unredacted secret material")
-    audit = validate_audit_file(path, set(config.universe.enabled_ids))
+    # The text scanned for secrets is the exact text validated and imported: one read, no TOCTOU window.
+    audit = validate_audit_text(raw_text, set(config.universe.enabled_ids))
     try:
         review_date = datetime.strptime(audit.review_date, "%Y-%m-%d").date().isoformat()
     except ValueError as exc:

@@ -7,6 +7,9 @@ from dataclasses import asdict, dataclass
 from functools import lru_cache
 from importlib.util import resolve_name
 from pathlib import Path
+import re
+
+from etf_cockpit.core.session_log import redact_text
 
 
 PRESENTATION_DIRS = (Path("src/etf_cockpit/app/pages"), Path("src/etf_cockpit/app/components"), Path("src/etf_cockpit/app/selectors"))
@@ -32,6 +35,17 @@ class BoundaryViolation:
     imported_name: str
 
 
+_CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
+_DIAGNOSTIC_MAX_CHARS = 200
+
+
+def _safe_text(value: object) -> str:
+    """Redact secret-shaped values and control characters before text enters a diagnostic."""
+
+    text = _CONTROL_RE.sub("?", redact_text(str(value)))
+    return text[:_DIAGNOSTIC_MAX_CHARS]
+
+
 def _imports(path: Path) -> list[tuple[int, str, str]]:
     return list(_imports_of_source(path.read_text(encoding="utf-8"), str(path)))
 
@@ -55,31 +69,58 @@ def _imports_of_source(source: str, filename: str) -> tuple[tuple[int, str, str]
     return tuple(result)
 
 
-def find_violations(root: Path) -> tuple[BoundaryViolation, ...]:
-    violations: list[BoundaryViolation] = []
+def _presentation_files(root: Path) -> tuple[Path, ...]:
+    """Every Python module below the presentation directories, including nested packages."""
+
+    files: list[Path] = []
     for relative_dir in PRESENTATION_DIRS:
         directory = root / relative_dir
-        for path in sorted(directory.glob("*.py")):
-            for line, module, imported_name in _imports(path):
-                if module.startswith("."):
-                    package_parts = path.relative_to(root).with_suffix("").parts[:-1]
-                    try:
-                        package_start = package_parts.index("etf_cockpit")
-                        package = ".".join(package_parts[package_start:])
-                        module = resolve_name(module, package)
-                    except (ValueError, ImportError):
-                        module = ""
-                if module == "etf_cockpit" and imported_name != "*":
-                    module = f"{module}.{imported_name}"
-                if module in ALLOWED_IMPLEMENTATION_MODULES:
-                    continue
-                if any(module == prefix or module.startswith(f"{prefix}.") for prefix in FORBIDDEN_PREFIXES):
-                    violations.append(BoundaryViolation(str(path.relative_to(root)), line, module, imported_name))
-    return tuple(violations)
+        if directory.is_dir():
+            files.extend(path for path in directory.rglob("*.py") if path.is_file())
+    return tuple(sorted(files))
+
+
+def _scan(root: Path) -> tuple[tuple[BoundaryViolation, ...], tuple[str, ...], int]:
+    """Return (violations, scan errors, scanned file count); errors and an empty scan fail closed."""
+
+    violations: list[BoundaryViolation] = []
+    errors: list[str] = []
+    files = _presentation_files(root)
+    if not files:
+        errors.append("no presentation modules found under the configured presentation directories")
+    for path in files:
+        relative = path.relative_to(root)
+        try:
+            imports = _imports(path)
+        except (SyntaxError, ValueError, UnicodeError, OSError) as exc:
+            errors.append(f"{_safe_text(relative)}: could not be analysed ({type(exc).__name__})")
+            continue
+        for line, module, imported_name in imports:
+            if module.startswith("."):
+                package_parts = path.relative_to(root).with_suffix("").parts[:-1]
+                try:
+                    package_start = package_parts.index("etf_cockpit")
+                    package = ".".join(package_parts[package_start:])
+                    module = resolve_name(module, package)
+                except (ValueError, ImportError):
+                    module = ""
+            if module == "etf_cockpit" and imported_name != "*":
+                module = f"{module}.{imported_name}"
+            if module in ALLOWED_IMPLEMENTATION_MODULES:
+                continue
+            if any(module == prefix or module.startswith(f"{prefix}.") for prefix in FORBIDDEN_PREFIXES):
+                violations.append(
+                    BoundaryViolation(_safe_text(relative), line, _safe_text(module), _safe_text(imported_name))
+                )
+    return tuple(violations), tuple(errors), len(files)
+
+
+def find_violations(root: Path) -> tuple[BoundaryViolation, ...]:
+    return _scan(root)[0]
 
 
 def build_report(root: Path) -> dict[str, object]:
-    violations = find_violations(root)
+    violations, errors, scanned = _scan(root)
     return {
         "schema_version": "1.0",
         "boundary": "presentation-to-application",
@@ -87,5 +128,7 @@ def build_report(root: Path) -> dict[str, object]:
         "allowed_implementation_modules": sorted(ALLOWED_IMPLEMENTATION_MODULES),
         "violation_count": len(violations),
         "violations": [asdict(item) for item in violations],
-        "status": "passed" if not violations else "failed",
+        "scanned_file_count": scanned,
+        "errors": list(errors),
+        "status": "passed" if not violations and not errors else "failed",
     }

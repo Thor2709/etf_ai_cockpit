@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import re
 
 from pydantic import ValidationError
 
@@ -19,11 +20,38 @@ BANNED_EXECUTION_PHRASES = (
 )
 
 
-def validate_audit_text(raw_text: str, known_etf_ids: set[str]) -> ChatGPTAudit | ChatGPTAuditV2:
-    lowered = raw_text.lower()
+_NEGATIONS = frozenset({"no", "not", "never", "without", "cannot", "cant", "dont", "doesnt", "isnt", "wont", "nor", "non"})
+_WORD_RE = re.compile(r"[a-z']+")
+_CLAUSE_BREAK_RE = re.compile(r"[.;:!?\n\"{}\[\],]")
+
+
+def _is_negated(lowered: str, start: int, end: int) -> bool:
+    """True when a phrase is plainly negated ("no automatic execution", "broker should not ..."), so
+    anti-execution commentary is not mistaken for an instruction to trade."""
+
+    before = lowered[max(0, start - 40) : start]
+    clause = _CLAUSE_BREAK_RE.split(before)[-1]
+    words = [word.replace("'", "") for word in _WORD_RE.findall(clause)]
+    if any(word in _NEGATIONS for word in words[-3:]):
+        return True
+    after = _WORD_RE.findall(lowered[end : end + 16])
+    return bool(after) and after[0].replace("'", "") in _NEGATIONS
+
+
+def _recommends_execution(lowered: str) -> str | None:
     for phrase in BANNED_EXECUTION_PHRASES:
-        if phrase in lowered:
-            raise AuditImportError(f"Audit rejected because it recommends automatic trading: {phrase}")
+        index = lowered.find(phrase)
+        while index != -1:
+            if not _is_negated(lowered, index, index + len(phrase)):
+                return phrase
+            index = lowered.find(phrase, index + 1)
+    return None
+
+
+def validate_audit_text(raw_text: str, known_etf_ids: set[str]) -> ChatGPTAudit | ChatGPTAuditV2:
+    phrase = _recommends_execution(raw_text.lower())
+    if phrase is not None:
+        raise AuditImportError(f"Audit rejected because it recommends automatic trading: {phrase}")
     try:
         payload = json.loads(raw_text)
     except json.JSONDecodeError as exc:
