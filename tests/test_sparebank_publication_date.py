@@ -6,6 +6,7 @@ import shutil
 
 import pytest
 
+from etf_cockpit.parsers import esef_ixbrl
 from scripts.import_official_filing import _resolve_published_at, import_official_filing
 
 
@@ -14,7 +15,10 @@ MING_LEI = "7V6Z97IO7R1SEAO84Q32"
 MING_URL = "https://filings.xbrl.org/7V6Z97IO7R1SEAO84Q32/2025-12-31/ESEF/NO/0/synthetic-ming-2025.xbri"
 
 
-def test_publication_date_uses_adjacent_api_metadata_not_import_time(tmp_path: Path) -> None:
+def test_publication_date_uses_adjacent_api_metadata_not_import_time(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Publication-date provenance is under test, not Arelle; the spawned
+    # validator child can exceed its 8 s bound on loaded CI runners.
+    monkeypatch.setattr(esef_ixbrl, "_arelle_available", lambda: False)
     source = tmp_path / "synthetic-ming-2025.xbri"
     shutil.copyfile(FIXTURE, source)
     (tmp_path / "filing-api-record.json").write_text(
