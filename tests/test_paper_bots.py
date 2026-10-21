@@ -279,7 +279,7 @@ def test_publication_uses_one_immutable_scoreboard_buffer(monkeypatch, tmp_path:
     ("gate_policy_checksum", None),
     ("gate_policy_checksum", "g" * 64),
 ])
-def test_every_history_row_requires_valid_lineage(monkeypatch, tmp_path: Path, field: str, invalid) -> None:
+def test_history_row_without_valid_lineage_is_excluded(monkeypatch, tmp_path: Path, field: str, invalid) -> None:
     now = _NOW
     known_at = now - timedelta(minutes=5)
     rows = _rows(known_at)
@@ -289,10 +289,11 @@ def test_every_history_row_requires_valid_lineage(monkeypatch, tmp_path: Path, f
 
     result = _run_fixture(monkeypatch, tmp_path, rows, board, now)
 
-    assert result.status == "unavailable"
+    assert result.status == "available"
     assert result.records
-    assert all(record["status"] == "unavailable" and not record["targets"] for record in result.records)
-    assert all("lineage" in str(record["reason"]) for record in result.records)
+    for record in result.records:
+        assert record["status"] == "available" and "AAA" not in record["targets"]
+        assert {"instrument_id": "AAA", "reason": "no_canonical_score"} in record["skipped_instruments"]
 
 
 @pytest.mark.parametrize("duplicate_rank", [1, 9])
