@@ -172,6 +172,8 @@ def build_rebalance_report(
         raise ValueError("current holding weights exceed 100%; cash cannot be derived")
     if sum(values.values()) > value * (1.0 + REBALANCE_TOLERANCE) + REBALANCE_TOLERANCE:
         raise ValueError("holdings market value exceeds the portfolio notional; cash cannot be derived")
+    # D002-N001 (DEFERRED): weights are authoritative for cash; a per-holding weight versus value/notional
+    # check would reject every what-if whose analysis notional differs from the held value.
     current_cash = max(0.0, 1.0 - invested_weight)
     full = _alternative(
         "full",

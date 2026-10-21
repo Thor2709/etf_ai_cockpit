@@ -162,6 +162,17 @@ def test_cash_and_notional_are_consistent() -> None:
     # Holdings values larger than the supplied notional are inconsistent with the weights.
     with pytest.raises(ValueError, match="notional"):
         build_rebalance_report(_config(), _holdings(), {"VWCE": 0.5, "LYP6": 0.5}, portfolio_value_eur=30_000.0)
+    # D002-N001 DEFERRED (documented): weights are authoritative for cash. Values of only 30% of the
+    # notional with weights summing to 0.6 are NOT rejected: a weight/value-over-notional check would
+    # reject every what-if whose analysis notional differs from the held value (owner/Opus decision).
+    mixed = pd.DataFrame(
+        [
+            {"etf_id": "VWCE", "current_weight": 0.40, "market_value_eur": 20_000.0},
+            {"etf_id": "LYP6", "current_weight": 0.20, "market_value_eur": 10_000.0},
+        ]
+    )
+    report = build_rebalance_report(_config(), mixed, {"VWCE": 0.5, "LYP6": 0.5}, portfolio_value_eur=100_000.0)
+    assert report.trades
 
 
 # --- D102-N002 --------------------------------------------------------------
@@ -330,3 +341,22 @@ def test_conflicting_duplicate_price_series_are_excluded_not_collapsed() -> None
         snapshot.prices = frame
         scoped = module._bound_service_prices(snapshot, analysis, None)
         assert scoped.empty or set(scoped["etf_id"]) == {"LYP6"}
+        assert scoped.attrs["price_conflict_ids"] == ("VWCE",)
+
+
+def test_price_conflict_check_sees_only_vintages_visible_at_the_cutoff() -> None:
+    from etf_cockpit.application import portfolio_sandbox as module
+
+    snapshot = _snapshot()
+    days = pd.date_range("2026-06-01", periods=4, freq="D")
+    rows = []
+    for index, day in enumerate(days):
+        rows.append({"date": day, "etf_id": "VWCE", "known_at": "2026-06-01", "adjusted_close": 100.0 + index})
+        # A later restatement of the same date, known only after the cutoff, must not exclude VWCE.
+        rows.append({"date": day, "etf_id": "VWCE", "known_at": "2099-01-01", "adjusted_close": 90.0 + index})
+        rows.append({"date": day, "etf_id": "LYP6", "known_at": "2026-06-01", "adjusted_close": 50.0 + index})
+    snapshot.prices = pd.DataFrame(rows)
+    scoped = module._bound_service_prices(snapshot, _analysis_for(snapshot), None)
+    assert set(scoped["etf_id"]) == {"VWCE", "LYP6"}
+    assert "price_conflict_ids" not in scoped.attrs
+    assert scoped.loc[scoped["etf_id"] == "VWCE", "adjusted_close"].tolist() == [100.0, 101.0, 102.0, 103.0]

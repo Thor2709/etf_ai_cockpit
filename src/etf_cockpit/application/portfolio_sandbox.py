@@ -1282,6 +1282,14 @@ def _service_evidence(
     except (ArithmeticError, KeyError, TypeError, ValueError):
         evidence["attribution"] = _unavailable_service("portfolio attribution service evidence unavailable")
 
+    conflicted_prices = tuple(sorted(set(prices.attrs.get("price_conflict_ids", ())) | set(benchmark_prices.attrs.get("price_conflict_ids", ()))))
+    if conflicted_prices:
+        for service in ("optimiser", "optimiser_comparison", "factor_risk", "risk", "attribution", "correlation"):
+            projection = dict(evidence[service])
+            projection["warnings"] = list(dict.fromkeys([*projection.get("warnings", ()), "conflicting_adjusted_price_series_excluded:" + ",".join(conflicted_prices)]))
+            if projection.get("status") == "available":
+                projection["status"] = "partial"
+            evidence[service] = projection
     for service, names in (("rebalancing", ("tax_lots",)), ("attribution", ("costs", "cashflows", "decisions"))):
         warnings = [f"{name}: {bound_optional[name].attrs['sandbox_binding_warning']}" for name in names
                     if bound_optional[name] is not None and bound_optional[name].attrs.get("sandbox_binding_warning")]
@@ -1381,7 +1389,6 @@ def _bound_service_prices(
     if analysis.snapshot_binding is not None:
         # Optional identity columns select the bound account/portfolio; absent columns inherit the snapshot.
         result = _filter_financial_scope(result, analysis.snapshot_binding.account_id, analysis.snapshot_binding.portfolio_id)
-    result = _drop_conflicting_price_series(result)
     declaration = None if reference_context is None else reference_context.resolution
     if declaration is not None:
         window = declaration.declaration
@@ -1403,11 +1410,17 @@ def _bound_service_prices(
     universe = set(_service_allocation(snapshot, analysis).get("etf_id", pd.Series(dtype=str)).astype(str))
     if investable_only and "etf_id" in result.columns:
         result = result.loc[result["etf_id"].astype(str).isin(universe)].copy()
-    return _filter_knowledge_columns(result, _reference_cutoff(reference_context, analysis.snapshot_binding))
+    result = _filter_knowledge_columns(result, _reference_cutoff(reference_context, analysis.snapshot_binding))
+    # Last: only rows that are visible at the cutoff and inside the window can conflict.
+    return _drop_conflicting_price_series(result)
 
 
 def _drop_conflicting_price_series(prices: pd.DataFrame) -> pd.DataFrame:
-    """Two different quotes for one instrument and date are a conflict, not a last-row choice."""
+    """Two different visible quotes for one instrument and date are a conflict, not a last-row choice.
+
+    The excluded identifiers are recorded in ``attrs["price_conflict_ids"]`` and surfaced by the
+    composition step in ``service_evidence``.
+    """
 
     required = {"date", "etf_id", "adjusted_close"}
     if prices.empty or not required.issubset(prices.columns):
@@ -1419,7 +1432,7 @@ def _drop_conflicting_price_series(prices: pd.DataFrame) -> pd.DataFrame:
     if not conflicted:
         return prices
     result = prices.loc[~prices["etf_id"].astype(str).isin(conflicted)].copy()
-    result.attrs["sandbox_binding_warning"] = "conflicting duplicate price series excluded: " + ",".join(sorted(conflicted))
+    result.attrs["price_conflict_ids"] = tuple(sorted(conflicted))
     return result
 
 
