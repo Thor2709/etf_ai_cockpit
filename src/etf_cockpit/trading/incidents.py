@@ -12,6 +12,9 @@ import tempfile
 import threading
 from typing import Iterator, Mapping
 
+from etf_cockpit.core.session_log import redact_text
+from etf_cockpit.security.policy import redact_secrets
+
 
 INCIDENT_JOURNAL_SCHEMA = "operational_incident_journal.v1"
 INCIDENT_JOURNAL_HEAD_SCHEMA = "operational_incident_journal_head.v1"
@@ -50,20 +53,22 @@ class IncidentJournal:
         occurred_at: datetime | None = None,
     ) -> dict[str, object]:
         code_value = _bounded_text(code, "code", 80)
-        message_value = _bounded_text(message, "message", 500)
+        message_value = redact_text(_bounded_text(message, "message", 500))
         related_value = None if related_id is None else _clean_id(related_id, "related_id")
         at = _timestamp(occurred_at)
+        identity = {
+            "account_id": self.account_id,
+            "code": code_value,
+            "message": message_value,
+            "related_id": related_value,
+            "occurred_at": at,
+        }
+        # requires_freeze is part of the identity: a freeze escalation of an otherwise identical incident
+        # is a different incident. The pre-fix ID (without it) is kept only to recognise old journal rows.
+        legacy_incident_id = "incident_" + _digest(identity)[:20]
         payload = {
             "account_id": self.account_id,
-            "incident_id": "incident_" + _digest(
-                {
-                    "account_id": self.account_id,
-                    "code": code_value,
-                    "message": message_value,
-                    "related_id": related_value,
-                    "occurred_at": at,
-                }
-            )[:20],
+            "incident_id": "incident_" + _digest({**identity, "requires_freeze": bool(requires_freeze)})[:20],
             "code": code_value,
             "message": message_value,
             "related_id": related_value,
@@ -73,10 +78,15 @@ class IncidentJournal:
         with self._lock, self._file_lock():
             events = self._read_events()
             for event in events:
-                if event["event_type"] == "incident_recorded" and event["payload"].get("incident_id") == payload["incident_id"]:
-                    if event["payload"] != payload:
+                if event["event_type"] != "incident_recorded":
+                    continue
+                stored = event["payload"]
+                if stored.get("incident_id") == payload["incident_id"]:
+                    if stored != payload:
                         raise IncidentJournalIntegrityError("An incident ID was reused with different content.")
                     return dict(payload)
+                if stored.get("incident_id") == legacy_incident_id and stored == {**payload, "incident_id": legacy_incident_id}:
+                    return dict(stored)
             self._append(events, "incident_recorded", payload, at)
         return dict(payload)
 
@@ -89,10 +99,11 @@ class IncidentJournal:
         occurred_at: datetime | None = None,
     ) -> dict[str, object]:
         incident_key = _clean_id(incident_id, "incident_id")
-        summary_value = _bounded_text(summary, "summary", 2_000)
+        summary_value = redact_text(_bounded_text(summary, "summary", 2_000))
         evidence_value = _json_copy(evidence)
         if not isinstance(evidence_value, dict):
             raise IncidentJournalError("Post-mortem evidence must be an object.")
+        evidence_value = redact_secrets(evidence_value)
         payload = {
             "account_id": self.account_id,
             "incident_id": incident_key,
@@ -138,8 +149,9 @@ class IncidentJournal:
             events = self._read_events()
             active = self._active_incidents(events)
             if not active:
+                # Nothing to clear, but a divergent state must never be reported as ready.
                 return {
-                    "status": "ready",
+                    "status": "ready" if observed == expected else "mismatch",
                     "frozen": False,
                     "active_incidents": (),
                     "execution_allowed": False,
@@ -163,7 +175,7 @@ class IncidentJournal:
 
     def events(self) -> tuple[dict[str, object], ...]:
         with self._lock, self._file_lock():
-            return tuple(_json_copy(event) for event in self._read_events())
+            return tuple(_json_copy(event, allow_nan=True) for event in self._read_events())
 
     def snapshot(self) -> dict[str, object]:
         """Return one consistent, verified journal and freeze projection."""
@@ -171,7 +183,7 @@ class IncidentJournal:
         with self._lock, self._file_lock():
             events = self._read_events()
             return {
-                "events": tuple(_json_copy(event) for event in events),
+                "events": tuple(_json_copy(event, allow_nan=True) for event in events),
                 "frozen": bool(self._active_incidents(events)),
             }
 
@@ -526,11 +538,14 @@ def _timestamp(value: datetime | None) -> str:
     return aware.astimezone(timezone.utc).isoformat(timespec="microseconds")
 
 
-def _json_copy(value: object) -> object:
+def _json_copy(value: object, *, allow_nan: bool = False) -> object:
+    """Round-trip through JSON; new input must be finite (NaN/Infinity cannot be compared or trusted)."""
     try:
-        return json.loads(json.dumps(value, sort_keys=True, separators=(",", ":"), default=str))
+        return json.loads(
+            json.dumps(value, sort_keys=True, separators=(",", ":"), default=str, allow_nan=allow_nan)
+        )
     except (TypeError, ValueError) as exc:
-        raise IncidentJournalError("Incident evidence must be JSON serialisable.") from exc
+        raise IncidentJournalError("Incident evidence must be finite, JSON serialisable data.") from exc
 
 
 def _digest(value: object) -> str:
