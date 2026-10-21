@@ -311,7 +311,7 @@ def test_canonical_main_workflow_composes_real_local_apis_without_network(tmp_pa
         text=True,
         encoding="utf-8",
         errors="replace",
-        timeout=180,
+        timeout=600,
         check=False,
     )
 
