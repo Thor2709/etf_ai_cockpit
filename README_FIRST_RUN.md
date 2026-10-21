@@ -3,7 +3,7 @@
 1. Preferred launcher: double-click `ETF_AI_Cockpit.bat`.
 2. `ETF_AI_Cockpit.bat` starts the Python launcher from `.venv` first so live local TimesFM/Toto packages and external model folders are available.
 3. Direct exe launcher: double-click `Run_ETF_AI_Cockpit_EXE.bat`, or run `build\flet_dist\ETF_AI_Cockpit\ETF_AI_Cockpit.exe`.
-4. If the Python launcher cannot start and the packaged exe exists, `ETF_AI_Cockpit.bat` falls back to the packaged executable.
+4. If dependency installation or the Python launcher fails and the packaged exe exists, `ETF_AI_Cockpit.bat` (repository root and portable package) falls back to the packaged executable. `Run_ETF_AI_Cockpit_EXE.bat` also starts the exe without Python 3.13. A build without PyInstaller produces a portable package with the source launcher only and says so (`build_info.json`: `native_exe` absent); it never claims a native exe.
 5. The Python launcher creates or repairs a local `.venv` if needed and installs project dependencies.
 6. First launch creates sample data and opens the local dashboard in your browser at `http://127.0.0.1:8550`.
 7. Toto and TimesFM are optional. If their model folders or runtime packages
