@@ -32,6 +32,12 @@ FX_CLEAN_PATH = CLEAN_DIR / "fx.parquet"
 DATE_COLUMNS = ("as_of_date", "date", "rate_date")
 RATE_COLUMNS = ("rate", "fx_rate", "exchange_rate", "mid")
 FX_RATE_CONSISTENCY_TOLERANCE = 1e-6
+# Optional per-row availability: the UTC time a quote could first have been known.  Rows without it are legacy
+# rows and stay gated by ``ingested_at``.  A backfill of an unrevised daily close is available at its own close,
+# not when it was fetched; a live row is available when it was ingested.
+MARKET_CLOSE_UNREVISED = "market_close_unrevised"
+LIVE_INGESTION = "live_ingestion"
+FX_AVAILABILITY_BASES = frozenset({MARKET_CLOSE_UNREVISED, LIVE_INGESTION})
 
 # Stored prices are already in major units (the provider scales pence once), so a minor-unit label
 # only names the major currency and must never trigger a second /100.
@@ -165,6 +171,17 @@ def validate_fx_rates(
     normalised["source"] = _column_or_default(frame, "source", "manual_import")
     if parsed_ingested_at is not None:
         normalised["ingested_at"] = parsed_ingested_at
+        if "available_at" in frame.columns or "availability_basis" in frame.columns:
+            _, availability_error = _effective_availability(frame, parsed_ingested_at)
+            if availability_error:
+                errors.append(availability_error)
+            else:
+                if "available_at" in frame.columns:
+                    normalised["available_at"] = pd.to_datetime(frame["available_at"], errors="coerce", utc=True)
+                if "availability_basis" in frame.columns:
+                    normalised["availability_basis"] = frame["availability_basis"]
+    elif "available_at" in frame.columns or "availability_basis" in frame.columns:
+        errors.append("FX availability needs ingested_at.")
     duplicates = normalised.duplicated(["as_of_date", "pair"])
     if duplicates.any():
         errors.append("FX rates contain duplicate date/pair rows.")
@@ -192,6 +209,60 @@ def validate_fx_rates(
         notes="FX rates are explicit and dated; OK <= 3 business days, warning 4-10, block > 10.",
     )
     return FxValidation(normalised, errors, warnings, metadata)
+
+
+def stamp_fx_availability(frame: pd.DataFrame, *, ingested_at: datetime, basis: str = MARKET_CLOSE_UNREVISED) -> pd.DataFrame:
+    """Add ``ingested_at`` (the real fetch time), ``available_at`` and ``availability_basis`` to unrevised daily closes.
+
+    A daily market-close quote is available at ``as_of_date`` 23:59:59 UTC.  A quote whose close is not yet over at
+    ingestion (today's partial day) is live: it is available only when it was ingested.
+    """
+
+    stamped = frame.copy()
+    fetched = pd.Timestamp(ingested_at)
+    fetched = fetched.tz_localize("UTC") if fetched.tzinfo is None else fetched.tz_convert("UTC")
+    close = pd.to_datetime(stamped["as_of_date"], errors="raise").dt.tz_localize("UTC") + pd.Timedelta(hours=23, minutes=59, seconds=59)
+    live = close.gt(fetched)
+    stamped["ingested_at"] = fetched
+    stamped["available_at"] = close.where(~live, fetched)
+    stamped["availability_basis"] = pd.Series(basis, index=stamped.index).where(~live, LIVE_INGESTION)
+    return stamped
+
+
+def _effective_availability(frame: pd.DataFrame, ingested: pd.Series) -> tuple[pd.Series, str | None]:
+    """Per-row UTC time a quote became known: ``available_at`` when stated, else ``ingested_at`` (legacy rows).
+
+    Fails closed (reason returned) for a stated ``available_at`` that is unparseable, lacks a known
+    ``availability_basis`` or is later than the row's own ingestion; a basis without a time is also rejected.
+    """
+
+    if "available_at" not in frame.columns and "availability_basis" not in frame.columns:
+        return ingested, None
+    raw = frame["available_at"] if "available_at" in frame.columns else pd.Series(None, index=frame.index, dtype=object)
+    basis = frame["availability_basis"] if "availability_basis" in frame.columns else pd.Series(None, index=frame.index, dtype=object)
+    stated = raw.notna() & raw.astype(str).str.strip().ne("")
+    basis_text = basis.where(basis.notna(), "").astype(str).str.strip()
+    if (~stated & basis_text.ne("")).any():
+        return ingested, "FX rates state an availability_basis without available_at."
+    parsed = pd.to_datetime(raw.where(stated), errors="coerce", utc=True)
+    if (stated & parsed.isna()).any():
+        return ingested, "FX rates contain an unparseable available_at timestamp."
+    if (stated & ~basis_text.isin(FX_AVAILABILITY_BASES)).any():
+        return ingested, "FX rates with available_at need a known availability_basis."
+    if (stated & parsed.gt(ingested)).any():
+        return ingested, "FX rates contain available_at later than ingested_at."
+    date_column = _first_present(frame, DATE_COLUMNS)
+    market_close = stated & basis_text.eq(MARKET_CLOSE_UNREVISED)
+    if date_column is None and market_close.any():
+        return ingested, "FX rates with a market_close_unrevised basis need a quote date."
+    if date_column is not None:
+        # An unrevised daily close cannot be known before its own session closes.
+        close = pd.to_datetime(frame[date_column], errors="coerce", utc=False).dt.tz_localize(None).dt.tz_localize("UTC") + pd.Timedelta(
+            hours=23, minutes=59, seconds=59
+        )
+        if (market_close & (close.isna() | parsed.lt(close))).any():
+            return ingested, "FX rates with a market_close_unrevised basis have available_at before the quote date close (or no quote date)."
+    return parsed.where(stated, ingested), None
 
 
 def commit_fx_import(
@@ -290,8 +361,11 @@ def build_fx_rate_snapshot(
     if ingested.isna().any():
         return FxRateSnapshot(decision_date, None, (), None, None, "unknown", False, "FX rates contain a missing or invalid ingested_at timestamp.")
 
+    available, availability_error = _effective_availability(frame, ingested)
+    if availability_error:
+        return FxRateSnapshot(decision_date, None, (), None, None, "unknown", False, availability_error)
     quote_days = quote_dates.dt.date
-    known_by_decision = ingested.dt.date.lt(known_date) if date_only else ingested.le(cutoff)
+    known_by_decision = available.dt.date.lt(known_date) if date_only else available.le(cutoff)
     eligible = quote_days.le(decision_date) & known_by_decision
     if not bool(eligible.any()):
         return FxRateSnapshot(
@@ -486,7 +560,11 @@ class EurRateBook:
         if pairs.errors:
             self.unavailable_reason = "; ".join(pairs.errors)
             return
-        known = ingested.dt.date.lt(known_date) if date_only else ingested.le(cutoff)
+        available, availability_error = _effective_availability(fx, ingested)
+        if availability_error:
+            self.unavailable_reason = availability_error
+            return
+        known = available.dt.date.lt(known_date) if date_only else available.le(cutoff)
         rows = pd.DataFrame(
             {
                 "as_of_date": quote_dates.dt.date,
@@ -497,6 +575,8 @@ class EurRateBook:
                 "ingested_at": ingested,
             }
         )
+        if "available_at" in fx.columns:
+            rows["available_at"] = available
         rows = rows.loc[known & rows["as_of_date"].le(known_date)].copy()
         if rows.empty:
             self.unavailable_reason = "No FX snapshot was known by the analysis decision time."
@@ -517,6 +597,8 @@ class EurRateBook:
         frame = window[["as_of_date", "pair", "rate", "source", "ingested_at"]].copy()
         frame["rate"] = frame["rate"].map(repr)
         frame["ingested_at"] = frame["ingested_at"].map(lambda value: pd.Timestamp(value).isoformat())
+        if "available_at" in window.columns:
+            frame["available_at"] = window["available_at"].map(lambda value: pd.Timestamp(value).isoformat())
         return sha256_dataframe(frame.reset_index(drop=True))
 
     def series(self, currency: str, sessions: Iterable[date]) -> EurRateSeries:

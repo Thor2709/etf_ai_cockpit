@@ -290,7 +290,7 @@
     "not_enough_data_policy": "str",
     "operational_evidence_input_binding": "str",
     "operational_evidence_rows": {
-     "list_length": 5996,
+     "list_length": 1094,
      "item": {
       "arrival_price_assumption": "str",
       "auction_state": "null",
@@ -589,7 +589,7 @@
   },
   "data/backtests/trade_log.csv": {
    "kind": "csv",
-   "rows": 128,
+   "rows": 71,
    "columns": ["date", "signal_date", "execution_date", "strategy", "turnover", "cost_eur", "estimated_cost_bps", "cost_model_id", "cost_data_quality", "cost_estimated", "capacity_eur", "capacity_enforced", "unfilled_eur", "capacity_fill_status", "max_days_to_fill", "capacity_fx_unavailable", "remainder_policy", "decision_price", "next_open_reference_price", "next_period_reference_price", "decision_price_basis", "next_open_reference_basis", "next_period_reference_basis", "price_provenance", "close_to_next_open_gap", "open_gap_warning", "open_gap_warning_threshold", "arrival_price_assumption", "spread_proxy", "observed_range_spread_proxy", "cost_spread_assumption_bps", "cost_spread_assumption_source", "estimated_cost_bps_source", "execution_delay_sessions", "same_bar_execution_avoided", "signal_timestamp", "execution_timestamp", "fill_source", "session_state", "auction_state", "expiry_state", "order_lifecycle", "execution_allowed"]
   },
   "data/backtests/trade_log.csv.meta.json": {
