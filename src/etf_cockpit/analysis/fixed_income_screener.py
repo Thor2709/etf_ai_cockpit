@@ -288,10 +288,17 @@ def build_fixed_income_screener(
         for current in provisional
     )
     peer_by_id = {item.instrument_id: item for item in peer_securities}
+    # Only scorable bonds may support a peer cohort: an unscorable peer has no
+    # score to compare against, so counting it would overstate peer support.
+    scorable_peers = tuple(
+        peer_by_id[current["security"].instrument_id]
+        for current in provisional
+        if current["score"] is not None and current["net"] is not None
+    )
     cohorts: dict[str, FixedIncomePeerCohort] = {}
     for current in provisional:
         item = peer_by_id[current["security"].instrument_id]
-        cohort = _peer_cohort(item, peer_securities, config)
+        cohort = _peer_cohort(item, scorable_peers, config)
         current["cohort"] = cohort
         cohorts[cohort.cohort_id] = cohort
         if cohort.status != "supported":
