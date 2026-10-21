@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import hashlib
-from functools import lru_cache
 import math
 from pathlib import Path
 from typing import Mapping
@@ -44,18 +43,8 @@ def load_sparebank_scorecard_policy(path: Path = SCORECARD_CONFIG_PATH) -> Spare
 
     try:
         normalized = path.read_bytes().replace(b"\r\n", b"\n")
-    except OSError as exc:
-        raise SparebankScorecardError(f"could not load Sparebank scorecard policy: {type(exc).__name__}") from exc
-    return _parse_scorecard_policy(normalized)
-
-
-@lru_cache(maxsize=8)
-def _parse_scorecard_policy(normalized: bytes) -> SparebankScorecardPolicy:
-    """Parse and validate LF-normalised policy bytes; keyed on content so edits are never served stale."""
-
-    try:
         payload = yaml.safe_load(normalized.decode("utf-8")) or {}
-    except (UnicodeDecodeError, yaml.YAMLError) as exc:
+    except (OSError, UnicodeDecodeError, yaml.YAMLError) as exc:
         raise SparebankScorecardError(f"could not load Sparebank scorecard policy: {type(exc).__name__}") from exc
     judgement = payload.get("judgement")
     scorecard = payload.get("scorecard", {})

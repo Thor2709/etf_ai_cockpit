@@ -75,13 +75,6 @@ def _live_optional_models_from_config(config: AppConfig) -> bool:
     )
 
 
-class _SharedRows(dict):
-    """Row frames kept in ``DataFrame.attrs``; pandas deep-copies attrs on every derived Series/frame."""
-
-    def __deepcopy__(self, memo: dict) -> "_SharedRows":
-        return self
-
-
 class ForecastService:
     def __init__(self, config: AppConfig, *, reference_context: CanonicalReferenceContext | None = None):
         self.config = config
@@ -139,10 +132,10 @@ class ForecastService:
             raise ValueError("forecast cache request identity does not match the calculation request")
         pivot = price_frame.pivot(index="date", columns="etf_id", values="adjusted_close").sort_index()
         # Preserve row presence separately from the union pivot's holiday NaNs.
-        pivot.attrs["timesfm_price_rows"] = _SharedRows(
-            (etf_id, group.sort_values("date"))
+        pivot.attrs["timesfm_price_rows"] = {
+            etf_id: group.sort_values("date")
             for etf_id, group in price_frame.groupby("etf_id", sort=False)
-        )
+        }
         benchmark_id = context.benchmark_data_id if context is not None else None
         benchmark_returns = daily_log_returns(pivot[benchmark_id]).dropna() if benchmark_id in pivot else None
         forecasts: list[ForecastResult] = []

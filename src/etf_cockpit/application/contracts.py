@@ -7,11 +7,13 @@ frontend can consume the same query and command shapes.
 
 from __future__ import annotations
 
+import base64
+from collections.abc import Mapping
 from datetime import datetime
 from enum import StrEnum
 from typing import Annotated, Generic, Literal, NoReturn, TypeVar
 
-from pydantic import AfterValidator, BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
 
 from etf_cockpit.core.event_policy import EventBlockPolicy
 
@@ -85,7 +87,7 @@ def freeze_contract_value(value: object) -> object:
 
     if isinstance(value, (FrozenDict, FrozenList)):
         return value
-    if isinstance(value, dict) or (hasattr(value, "items") and hasattr(value, "keys")):
+    if isinstance(value, Mapping):
         return FrozenDict({key: freeze_contract_value(item) for key, item in value.items()})  # type: ignore[attr-defined]
     if isinstance(value, list):
         return FrozenList(freeze_contract_value(item) for item in value)
@@ -493,6 +495,18 @@ class DashboardActionCommand(CommandModel):
     selected_path: str | None = Field(default=None, min_length=1, max_length=4096)
     file_name: str | None = Field(default=None, min_length=1, max_length=512)
     content: bytes | None = None
+
+    @field_validator("content", mode="before")
+    @classmethod
+    def decode_dumped_content(cls, value: object, info: ValidationInfo) -> object:
+        """Python-mode input of a ``model_dump(mode="json")`` dict carries URL-safe base64 text; decode it strictly (fail closed)."""
+
+        if isinstance(value, str) and info.mode == "python":
+            try:
+                return base64.b64decode(value.replace("-", "+").replace("_", "/"), validate=True)  # pydantic emits URL-safe base64
+            except ValueError as exc:  # binascii.Error is a ValueError
+                raise ValueError("content must be bytes or strict base64 text") from exc
+        return value
 
     @model_validator(mode="after")
     def validate_import_arguments(self):

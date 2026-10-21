@@ -109,6 +109,18 @@ def test_e001_n02_dashboard_action_command_serialises_non_utf8_bytes_and_round_t
     assert json.loads(text)["content"] != ""
 
 
+def test_e001_n02_dashboard_action_command_json_dict_round_trip_is_lossless():
+    command = _upload(_BINARY)
+    dumped = command.model_dump(mode="json")
+    assert isinstance(dumped["content"], str)
+    assert DashboardActionCommand.model_validate(dumped).content == _BINARY
+    assert DashboardActionCommand.model_validate(command.model_dump()).content == _BINARY
+    assert DashboardActionCommand.model_validate_json(command.model_dump_json()).content == _BINARY
+    bad = {**dumped, "content": "not base64!"}
+    with pytest.raises(ValueError):
+        DashboardActionCommand.model_validate(bad)
+
+
 def test_e001_unserialisable_command_is_refused_not_raised():
     class Broken:
         idempotency_key = _KEY
