@@ -887,6 +887,13 @@ jobs:
             echo "Focused selection collected no tests" >&2
             exit 1
           fi
+          # Return codes cannot prove execution: every collected test must appear exactly once in the JUnit reports.
+          python -m pytest "${files[@]}" --collect-only --verbosity=-1 > artifacts/focused/collected.txt
+          reports=()
+          for report in artifacts/focused/junit-focused.xml artifacts/focused/junit-focused-serial.xml; do
+            if [[ -f "$report" ]]; then reports+=("$report"); fi
+          done
+          python scripts/check_focused_junit.py --collected artifacts/focused/collected.txt --junit "${reports[@]}"
 
       - name: Upload focused test evidence
         if: always()
