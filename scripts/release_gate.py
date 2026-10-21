@@ -218,25 +218,30 @@ def load_policy(root: Path) -> dict[str, object]:
     return value
 
 
-def _lock_requirements(root: Path, relative: str) -> list[tuple[str, str]]:
+def _lock_entries(root: Path, relative: str) -> list[tuple[str, tuple[str, ...], str]]:
     path = root / relative
     if not path.exists():
         raise FileNotFoundError(f"dependency lock is missing: {path}")
-    rows: list[tuple[str, str]] = []
+    rows: list[tuple[str, tuple[str, ...], str]] = []
     for raw in path.read_text(encoding="utf-8").splitlines():
         line = raw.split("#", 1)[0].strip()
         if not line or line.startswith("-"):
             continue
         match = re.fullmatch(
-            r"([A-Za-z0-9_.-]+)(?:\[[A-Za-z0-9_,.-]+\])?==([A-Za-z0-9][A-Za-z0-9_.+-]*)",
+            r"([A-Za-z0-9_.-]+)(?:\[([A-Za-z0-9_,.-]+)\])?==([A-Za-z0-9][A-Za-z0-9_.+-]*)",
             line,
         )
         if not match:
             raise ValueError(f"dependency lock contains a non-exact entry: {raw!r}")
-        rows.append((match.group(1), match.group(2)))
+        extras = tuple(sorted(item for item in (match.group(2) or "").split(",") if item))
+        rows.append((match.group(1), extras, match.group(3)))
     if not rows:
         raise ValueError(f"dependency lock is empty: {path}")
     return rows
+
+
+def _lock_requirements(root: Path, relative: str) -> list[tuple[str, str]]:
+    return [(name, version) for name, _extras, version in _lock_entries(root, relative)]
 
 
 def dependency_snapshot(root: Path, policy: dict[str, object]) -> dict[str, object]:
@@ -945,6 +950,34 @@ def _safe_extract_archive(artifact: Path, destination: Path) -> None:
         archive.extractall(destination, members=tar_members, filter="data")
 
 
+def _archive_identity(path: Path) -> tuple[str, str] | None:
+    """Return the canonical (project, version) encoded in an sdist or wheel file name."""
+
+    sdist = re.fullmatch(r"(?P<name>.+)-(?P<version>[^-]+)\.tar\.gz", path.name)
+    wheel = re.match(r"(?P<name>[^-]+)-(?P<version>[^-]+)-", path.name) if path.suffix == ".whl" else None
+    match = sdist or wheel
+    return (_canonical_name(match.group("name")), match.group("version")) if match else None
+
+
+def _select_archive(root: Path, archives: list[Path]) -> Path | None:
+    """Pick the one archive that matches this build's identity; ambiguity fails closed."""
+
+    if not archives:
+        return None
+    version = _project_version(root)
+    if version != "unknown":
+        archives = [path for path in archives if _archive_identity(path) == ("etf-ai-cockpit", version)]
+        if not archives:
+            raise ValueError(f"no package artifact matches build identity etf-ai-cockpit {version}")
+    for suffix_ok in (lambda path: path.name.endswith(".tar.gz"), lambda path: path.suffix == ".whl"):
+        matching = [path for path in archives if suffix_ok(path)]
+        if len(matching) > 1:
+            raise ValueError("ambiguous package artifacts: " + ", ".join(path.name for path in matching))
+        if matching:
+            return matching[0]
+    return None
+
+
 def prepare_package_artifact(
     root: Path,
     policy: dict[str, object],
@@ -964,8 +997,7 @@ def prepare_package_artifact(
         path for path in _artifact_paths(root, policy)
         if path.name.endswith(".tar.gz") or path.suffix == ".whl"
     ]
-    sdists = [path for path in archives if path.name.endswith(".tar.gz")]
-    selected = sdists[-1] if sdists else archives[-1] if archives else None
+    selected = _select_archive(root, archives)
     if selected is None:
         return None
     destination = extraction_root / "package"
@@ -987,6 +1019,15 @@ def _parity_mappings(package: PreparedPackage) -> tuple[tuple[Path, Path], ...]:
     if package.layout == "wheel":
         return ((Path("src/etf_cockpit"), Path("etf_cockpit")), (Path("configs"), Path("configs")))
     return ()
+
+
+def _generated_package_path(relative: Path) -> bool:
+    """Build by-products that legitimately appear in an artifact but not in the source tree."""
+
+    return (
+        any(part in EXCLUDED_PARTS or part.endswith(".egg-info") for part in relative.parts)
+        or relative.suffix in {".pyc", ".pyo"}
+    )
 
 
 def source_package_parity(root: Path, package: PreparedPackage | None) -> CheckResult:
@@ -1016,6 +1057,13 @@ def source_package_parity(root: Path, package: PreparedPackage | None) -> CheckR
             compared += 1
             if not packaged_path.is_file() or normalised_file_bytes(source_path) != normalised_file_bytes(packaged_path):
                 mismatches.append((source_relative / child).as_posix())
+        if source.is_dir():
+            expected = {path.relative_to(source) for path in source_paths}
+            for packaged_path in sorted(path for path in packaged.rglob("*") if path.is_file()):
+                child = packaged_path.relative_to(packaged)
+                if child in expected or _generated_package_path(child):
+                    continue
+                mismatches.append(f"unexpected packaged file: {(source_relative / child).as_posix()}")
     return CheckResult(
         "source_package_parity",
         "passed" if not mismatches else "failed",
@@ -1024,6 +1072,89 @@ def source_package_parity(root: Path, package: PreparedPackage | None) -> CheckR
         output=f"compared {compared} deterministic files in {package.layout}",
         failure="mismatched or missing: " + ", ".join(mismatches[:20]) if mismatches else "",
     )
+
+
+def _canonical_name(name: str) -> str:
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
+_REQUIREMENT_NAME = re.compile(r"\s*([A-Za-z0-9][A-Za-z0-9._-]*)\s*(?:\[([^\]]*)\])?")
+
+
+def _requirement_applies(marker: str, extras: tuple[str, ...]) -> bool:
+    """Whether an installed distribution's requirement applies to this environment.
+
+    Unevaluable markers are included (fail closed towards a larger inventory).
+    """
+
+    if not marker:
+        return True
+    try:
+        from packaging.markers import Marker  # type: ignore[import-not-found]
+    except ImportError:
+        return "extra" not in marker or any(f"'{extra}'" in marker or f'"{extra}"' in marker for extra in extras)
+    candidates = extras or ("",)
+    try:
+        parsed = Marker(marker)
+        return any(parsed.evaluate({"extra": extra}) for extra in candidates)
+    except Exception:  # noqa: BLE001 - an unparseable marker must not hide a dependency
+        return True
+
+
+def _transitive_components(
+    roots: list[tuple[str, tuple[str, ...], str]],
+    direct: set[str],
+) -> tuple[list[dict[str, object]], dict[str, set[str]], set[str]]:
+    """Walk installed distribution metadata and inventory every non-direct dependency."""
+
+    components: dict[str, dict[str, object]] = {}
+    edges: dict[str, set[str]] = {}
+    unresolved: set[str] = set()
+    seen: set[tuple[str, tuple[str, ...]]] = set()
+    queue: list[tuple[str, tuple[str, ...], str]] = list(roots)
+    while queue:
+        name, extras, parent_ref = queue.pop(0)
+        key = (_canonical_name(name), extras)
+        if key in seen:
+            continue
+        seen.add(key)
+        try:
+            requirements = importlib.metadata.requires(name) or []
+        except importlib.metadata.PackageNotFoundError:
+            continue
+        for requirement in requirements:
+            body, _, marker = requirement.partition(";")
+            match = _REQUIREMENT_NAME.match(body)
+            if match is None or not _requirement_applies(marker.strip(), extras):
+                continue
+            child, child_extras = match.group(1), tuple(sorted(item.strip() for item in (match.group(2) or "").split(",") if item.strip()))
+            canonical = _canonical_name(child)
+            try:
+                version = importlib.metadata.version(child)
+            except importlib.metadata.PackageNotFoundError:
+                unresolved.add(canonical)
+                continue
+            if canonical in direct:
+                child_ref = next(
+                    (ref for ref_name, _e, ref in roots if _canonical_name(ref_name) == canonical), None
+                )
+            else:
+                child_ref = f"pkg:pypi/{canonical}@{version}"
+                components.setdefault(
+                    child_ref,
+                    {
+                        "type": "library",
+                        "name": child,
+                        "version": version,
+                        "bom-ref": child_ref,
+                        "scope": "required",
+                        "properties": [{"name": "release-lock", "value": "transitive"}],
+                    },
+                )
+            if child_ref is not None:
+                edges.setdefault(parent_ref, set()).add(child_ref)
+            queue.append((child, child_extras, child_ref or f"pkg:pypi/{canonical}@{version}"))
+    return sorted(components.values(), key=lambda item: str(item["bom-ref"])), edges, unresolved
 
 
 def build_sbom(
@@ -1060,28 +1191,41 @@ def build_sbom(
     parser_lock = policy.get("parser_dependency_lock")
     if parser_lock:
         lock_paths.append(str(parser_lock))
+    direct_refs: dict[str, str] = {}
+    direct_roots: list[tuple[str, tuple[str, ...], str]] = []
     for lock_path in lock_paths:
         try:
-            required = _lock_requirements(root, lock_path)
+            required = _lock_entries(root, lock_path)
         except (FileNotFoundError, ValueError):
             required = []
-        for name, expected in required:
+        for name, extras, expected in required:
             try:
                 installed = importlib.metadata.version(name)
             except importlib.metadata.PackageNotFoundError:
                 installed = None
             properties: list[dict[str, str]] = [{"name": "release-lock", "value": lock_path}]
+            bom_ref = f"pkg:pypi/{_canonical_name(name)}@{installed or expected}"
             component: dict[str, object] = {
                 "type": "library",
                 "name": name,
                 "version": installed or expected,
-                "bom-ref": f"pkg:pypi/{name.lower().replace('_', '-') }@{installed or expected}",
+                "bom-ref": bom_ref,
                 "scope": "required",
                 "properties": properties,
             }
             if installed != expected:
                 properties.append({"name": "release-gate-status", "value": "missing-or-mismatched"})
             components.append(component)
+            direct_refs[_canonical_name(name)] = bom_ref
+            if installed is not None:
+                direct_roots.append((name, extras, bom_ref))
+    transitive, edges, unresolved = _transitive_components(direct_roots, set(direct_refs))
+    components.extend(transitive)
+    if unresolved:
+        application_properties.append({"name": "transitive-unresolved", "value": ",".join(sorted(unresolved))})
+    dependency_graph = [
+        {"ref": ref, "dependsOn": sorted(targets)} for ref, targets in sorted(edges.items()) if targets
+    ]
     bom = {
         "$schema": "https://cyclonedx.org/schema/bom-1.5.schema.json",
         "bomFormat": "CycloneDX",
@@ -1092,6 +1236,7 @@ def build_sbom(
         "version": 1,
         "metadata": {"component": {"type": "application", "name": "etf-ai-cockpit", "version": _project_version(root)}},
         "components": sorted(components, key=lambda item: str(item["bom-ref"])),
+        "dependencies": dependency_graph,
     }
     bom["bom_sha256"] = sha256_bytes(canonical_json(bom))
     return bom
@@ -1157,6 +1302,31 @@ def _report_markdown(manifest: dict[str, object], state: GateState, signature: d
     lines.extend(f"- {failure}" for failure in state.failures) if state.failures else lines.append("- None")
     lines.append("")
     return "\n".join(lines)
+
+
+def _enforce_mandatory_checks(state: GateState, policy: dict[str, object], waived: frozenset[str]) -> None:
+    """Every check the policy calls mandatory must exist and pass; absent never means optional.
+
+    A name is waived only by an explicit diagnostic CLI flag (recorded in the manifest).
+    """
+
+    mandatory = policy.get("mandatory")
+    if mandatory is None:
+        return
+    if not isinstance(mandatory, list) or not all(isinstance(item, str) and item for item in mandatory):
+        state.add(CheckResult("mandatory_checks", "failed", True, failure="policy 'mandatory' must be a list of check names"))
+        return
+    problems: list[str] = []
+    for name in mandatory:
+        results = [check for check in state.checks if check.name == name]
+        if not results:
+            problems.append(f"{name}: mandatory check is absent")
+        elif name not in waived and results[-1].status != "passed":
+            problems.append(f"{name}: mandatory check is {results[-1].status}, not passed")
+    if problems:
+        state.add(CheckResult("mandatory_checks", "failed", True, failure="; ".join(problems)))
+    else:
+        state.add(CheckResult("mandatory_checks", "passed", True, f"{len(mandatory)} mandatory checks present"))
 
 
 def run_gate(
@@ -1381,7 +1551,14 @@ def run_gate(
     signature_path = output / "release-manifest.sig.json"
     signature: dict[str, object]
     signing_key = signing_key_text.encode("utf-8")
-    if signing_key_text and len(signing_key) >= 16:
+    can_sign = False
+    git_identity = str(manifest["git"].get("head", "")).strip() if isinstance(manifest["git"], dict) else ""  # type: ignore[union-attr]
+    if signing_key_text and len(signing_key) >= 16 and not git_identity:
+        reason = "git identity (HEAD commit) is unavailable; refusing to sign a manifest that is not bound to a commit"
+        signature = {"schema_version": SCHEMA_VERSION, "algorithm": "HMAC-SHA256", "status": "blocked", "reason": reason}
+        state.add(CheckResult("signature", "failed", True, failure=reason))
+    elif signing_key_text and len(signing_key) >= 16:
+        can_sign = True
         state.add(CheckResult("signature", "passed", True, "HMAC-SHA256 detached release-manifest signature"))
     elif signing_key_text:
         signature = {
@@ -1398,10 +1575,22 @@ def run_gate(
         signature = {"schema_version": SCHEMA_VERSION, "algorithm": "HMAC-SHA256", "status": "missing"}
         state.add(CheckResult("signature", "failed", True, failure=f"{SIGNING_KEY_ENV} is not set"))
 
+    waived = frozenset(
+        name
+        for name, active in (
+            ("full_tests", skip_tests),
+            ("package_build", skip_package),
+            ("package_smoke", skip_smoke),
+            ("signature", allow_unsigned),
+        )
+        if active
+    )
+    _enforce_mandatory_checks(state, policy, waived)
+    manifest["waived_mandatory_checks"] = sorted(waived)
     manifest["checks"] = [asdict(check) for check in state.checks]
     manifest["failures"] = list(state.failures)
     _write_json(manifest_path, manifest)
-    if signing_key_text and len(signing_key) >= 16:
+    if can_sign:
         signature = sign_manifest(manifest_path.read_bytes(), signing_key, key_id=key_id)
         signature["status"] = "signed"
     _write_json(signature_path, signature)

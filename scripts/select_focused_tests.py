@@ -10,7 +10,9 @@ Selection rules (union, printed one repository-relative POSIX path per line):
 * test files that import a changed ``src/etf_cockpit`` module (``import a.b.c``,
   ``from a.b import c`` and ``from a.b.c import x`` forms, plus string constants that
   name the module such as ``importlib.import_module`` or ``monkeypatch.setattr``
-  targets) or a changed non-test helper module under ``tests/``;
+  targets) or a changed non-test helper module under ``tests/``; the changed set is first
+  closed over the product import graph, so a test that reaches the change only through
+  other ``src/etf_cockpit`` modules is selected too;
 * the UI contract sweep when anything under ``src/etf_cockpit/app/`` changed.
 
 An empty selection (documentation or configuration only) prints nothing and exits 0.
@@ -165,11 +167,63 @@ def _tests_naming(root: Path, needle: str) -> set[str]:
     return found
 
 
+def _module_name(relative: PurePosixPath) -> str:
+    parts = relative.with_suffix("").parts
+    return _dotted(parts[:-1] if parts[-1] == "__init__" else parts)
+
+
+def _src_imports(source: str, module: str, is_package: bool) -> set[str]:
+    """Dotted names one product module imports (relative imports resolved) or names as strings."""
+
+    tree = ast.parse(source)
+    package = module if is_package else module.rpartition(".")[0]
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            names.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            base = node.module or ""
+            if node.level:
+                anchor = package.split(".") if package else []
+                anchor = anchor[: len(anchor) - (node.level - 1)] if node.level > 1 else anchor
+                base = ".".join([*anchor, *([node.module] if node.module else [])])
+            if base:
+                names.add(base)
+                names.update(f"{base}.{alias.name}" for alias in node.names if alias.name != "*")
+        elif isinstance(node, ast.Constant) and isinstance(node.value, str) and node.value.startswith(PACKAGE + "."):
+            names.add(node.value)
+    return names
+
+
+def close_over_product_imports(root: Path, changed: set[str]) -> set[str]:
+    """Add every ``src/etf_cockpit`` module that (transitively) imports a changed product module."""
+
+    product = {name for name in changed if name == PACKAGE or name.startswith(PACKAGE + ".")}
+    if not product:
+        return changed
+    graph: dict[str, set[str]] = {}
+    package_root = root / SRC_PREFIX / PACKAGE
+    for path in sorted(package_root.rglob("*.py")):
+        relative = PurePosixPath(path.relative_to(root / SRC_PREFIX).as_posix())
+        module = _module_name(relative)
+        try:
+            graph[module] = _src_imports(path.read_text(encoding="utf-8"), module, relative.name == "__init__.py")
+        except (OSError, UnicodeDecodeError, SyntaxError) as exc:
+            raise SelectionError(f"unavailable: cannot resolve product imports of {path.relative_to(root).as_posix()}: {exc}") from exc
+    affected = set(product)
+    frontier = set(product)
+    while frontier:
+        found = {module for module, imported in graph.items() if module not in affected and _matches(imported, frontier)}
+        affected |= found
+        frontier = found
+    return changed | affected
+
+
 def select_tests(root: Path, paths: list[str]) -> list[str]:
     """Return the sorted focused test selection for the changed ``paths``."""
 
     selected = {path for path in paths if _is_test_file(path) and (root / path).is_file()}
-    modules = changed_module_names(paths)
+    modules = close_over_product_imports(root, changed_module_names(paths))
     if modules:
         for test_path in _all_test_files(root):
             if test_path in selected:

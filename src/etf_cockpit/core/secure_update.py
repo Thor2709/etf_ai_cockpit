@@ -6,6 +6,7 @@ import hashlib
 import hmac
 import json
 import shutil
+import tempfile
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -46,14 +47,26 @@ def _manifest_digest(manifest: dict[str, object]) -> str:
     return sha256_bytes(canonical_json(unsigned))
 
 
+_WINDOWS_RESERVED_NAMES = frozenset(
+    {"con", "prn", "aux", "nul", *(f"com{digit}" for digit in range(1, 10)), *(f"lpt{digit}" for digit in range(1, 10))}
+)
+_WINDOWS_FORBIDDEN_CHARACTERS = frozenset('<>:"|?*')
+
+
 def _safe_member(name: str) -> str:
+    """Reject names that escape the root or that Windows would reinterpret (streams, devices, trailing dots/spaces)."""
+
     if not name or "\x00" in name or "\\" in name:
         raise ValueError(f"unsafe update member name: {name!r}")
     path = PurePosixPath(name)
     if not path.parts:
         raise ValueError(f"unsafe update member name: {name!r}")
-    if path.is_absolute() or ":" in path.parts[0] or any(part in {"", ".", ".."} for part in path.parts):
+    if path.is_absolute() or any(part in {"", ".", ".."} for part in path.parts):
         raise ValueError(f"unsafe update member name: {name!r}")
+    for part in path.parts:
+        reserved = part.split(".", 1)[0].rstrip(" ").casefold() in _WINDOWS_RESERVED_NAMES
+        if reserved or part[-1] in {".", " "} or _WINDOWS_FORBIDDEN_CHARACTERS & set(part) or any(ord(char) < 32 for char in part):
+            raise ValueError(f"update member name is not valid on Windows: {name!r}")
     return path.as_posix()
 
 
@@ -76,14 +89,15 @@ def _file_infos(archive: zipfile.ZipFile) -> list[tuple[str, zipfile.ZipInfo]]:
         if info.is_dir():
             continue
         name = _safe_member(info.filename)
-        if name in seen:
+        # Windows (and default macOS) filesystems treat names differing only by case as the same file.
+        if name.casefold() in seen:
             raise ValueError(f"duplicate update member: {name}")
         if info.file_size > MAX_MEMBER_BYTES:
             raise ValueError(f"update member exceeds size limit: {name}")
         mode = (info.external_attr >> 16) & 0o170000
         if mode == 0o120000:
             raise ValueError(f"symbolic links are not allowed in updates: {name}")
-        seen.add(name)
+        seen.add(name.casefold())
         rows.append((name, info))
     if not rows:
         raise ValueError("update archive contains no files")
@@ -131,6 +145,13 @@ def detached_signature_errors(payload: bytes, signature: dict[str, object] | Non
         value = signature.get(field)
         if not isinstance(value, str) or len(value) != 64 or any(character not in "0123456789abcdefABCDEF" for character in value):
             errors.append(f"detached signature {field} must be a 64-character hexadecimal ASCII digest")
+    if signature.get("algorithm") != "HMAC-SHA256":
+        errors.append("detached signature algorithm must be HMAC-SHA256")
+    key_id = signature.get("key_id")
+    if not isinstance(key_id, str) or not key_id.strip():
+        errors.append("detached signature key_id must be a non-empty string")
+    if signature.get("schema_version") != SCHEMA_VERSION:
+        errors.append(f"detached signature schema_version must be {SCHEMA_VERSION}")
     if errors:
         return errors
     if str(signature.get("payload_sha256", "")) != sha256_bytes(payload):
@@ -150,6 +171,10 @@ def verify_update_bundle(
     errors: list[str] = []
     try:
         expected_archive = str(manifest["archive_sha256"])
+        if manifest.get("schema_version") != SCHEMA_VERSION:
+            errors.append(f"manifest schema_version must be {SCHEMA_VERSION}")
+        if manifest.get("offline_only") is not True:
+            errors.append("manifest offline_only must be true: online updates are not supported")
         if archive.stat().st_size > MAX_ARCHIVE_BYTES:
             raise ValueError("update archive exceeds size limit")
         archive_sha = sha256_file(archive)
@@ -192,10 +217,9 @@ def extract_verified_update(
     if not verification.ok:
         raise ValueError("; ".join(verification.errors))
     target = Path(destination).resolve()
-    staging = target.parent / f".{target.name}.staging"
-    if staging.exists():
-        shutil.rmtree(staging)
-    staging.mkdir(parents=True, exist_ok=False)
+    # A unique directory: a pre-existing path of any name is never deleted or reused.
+    target.parent.mkdir(parents=True, exist_ok=True)
+    staging = Path(tempfile.mkdtemp(prefix=f".{target.name}.staging-", dir=target.parent)).resolve()
     expected_by_path = {str(row["path"]): row for row in manifest["entries"]}  # type: ignore[union-attr,index]
     try:
         # Everything below reads from this one handle: the file verified above may have been swapped.
@@ -232,6 +256,12 @@ def _hash_handle(handle) -> str:
 
 
 def describe_release_evidence(root: str | Path) -> dict[str, str]:
+    """Describe the local release evidence without claiming more than was verified.
+
+    The app holds no signing key, so a signature is reported as present (and its payload digest compared)
+    but never as verified; a manifest that records gate failures is reported as failed.
+    """
+
     root = Path(root)
     release_dir = root / "artifacts" / "release" / "latest"
     manifest_path = release_dir / "release-manifest.json"
@@ -242,13 +272,27 @@ def describe_release_evidence(root: str | Path) -> dict[str, str]:
         version = "unavailable"
     else:
         try:
-            manifest: dict[str, Any] = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest_bytes = manifest_path.read_bytes()
+            manifest: dict[str, Any] = json.loads(manifest_bytes.decode("utf-8"))
             signature: dict[str, Any] = json.loads(signature_path.read_text(encoding="utf-8")) if signature_path.is_file() else {}
-            verification = str(signature.get("status", "unsigned"))
+            failures = manifest["failures"]
+            if not isinstance(failures, list) or not isinstance(signature, dict):
+                raise TypeError("release evidence has an unexpected shape")
+            signature_status = str(signature.get("status", "unsigned"))
             policy = manifest.get("policy", {})
             policy_version = policy.get("version") if isinstance(policy, dict) else None
             version = str(manifest.get("project_version", policy_version or "unknown"))
-        except (OSError, json.JSONDecodeError, AttributeError):
+            if failures:
+                verification = f"failed ({len(failures)} gate failure{'s' if len(failures) != 1 else ''}; signature {signature_status})"
+            elif signature_status != "signed":
+                verification = signature_status
+            elif not signature.get("payload_sha256"):
+                verification = "signature present, not verified (no payload digest recorded)"
+            elif str(signature["payload_sha256"]) != sha256_bytes(manifest_bytes):
+                verification = "invalid (signature payload digest does not match the release manifest)"
+            else:
+                verification = "signature present, not verified (payload digest matches; the HMAC key is not available here)"
+        except (OSError, UnicodeError, json.JSONDecodeError, AttributeError, KeyError, TypeError):
             verification = "invalid local release evidence"
             version = "unavailable"
     return {

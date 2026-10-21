@@ -385,7 +385,7 @@ def test_chat_p08_n008() -> None:
 def test_p08_n003(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     release = tmp_path / "artifacts" / "release" / "issue-0152"
     release.mkdir(parents=True)
-    manifest_bytes = json.dumps({"git": {"head": "abc123"}}).encode()
+    manifest_bytes = json.dumps({"git": {"head": "abc123"}, "failures": [], "checks": [{"name": "sbom", "status": "passed", "required": True}]}).encode()
     (release / "release-manifest.json").write_bytes(manifest_bytes)
     (release / "release-manifest.sig.json").write_text(json.dumps({"status": "signed"}), encoding="utf-8")
 
@@ -399,6 +399,9 @@ def test_p08_n003(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 
     signature = {
         "status": "signed",
+        "schema_version": "1.0",
+        "algorithm": "HMAC-SHA256",
+        "key_id": "test-key",
         "payload_sha256": hashlib.sha256(manifest_bytes).hexdigest(),
         "signature": hmac.new(KEY, manifest_bytes, hashlib.sha256).hexdigest(),
     }
