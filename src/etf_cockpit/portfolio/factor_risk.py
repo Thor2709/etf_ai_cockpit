@@ -20,6 +20,7 @@ FACTOR_MODEL_VERSION = "factor_risk.v1"
 ANNUALISATION_FACTOR = 252.0
 NUMERIC_FACTORS = ("size", "value", "momentum", "quality", "investment", "low_volatility")
 LOOKTHROUGH_DIMENSIONS = ("industry", "country", "currency")
+EXPOSURE_BASIS = "current_exposure_replay"
 _EXPOSURE_COLUMNS = (
     "instrument_id",
     "factor",
@@ -55,6 +56,7 @@ def build_factor_exposures(
         feature_frame = feature_frame.rename(columns={"etf_id": "instrument_id"})
         allocation_frame = allocation_frame.merge(feature_frame, left_on="etf_id", right_on="instrument_id", how="left", suffixes=("", "_feature"))
     lookthrough = _lookthrough_map(holdings)
+    national_ids = _national_country_ids(holdings)
     rows: list[dict[str, object]] = []
     for _, item in allocation_frame.iterrows():
         instrument_id = str(item.get("etf_id") or "").strip()
@@ -72,15 +74,21 @@ def build_factor_exposures(
         for factor, value in numeric_values.items():
             rows.append(_exposure_row(instrument_id, factor, value, _descriptor_name(factor), _numeric_source(item, factor), float(pd.notna(value))))
 
-        for dimension, allocation_column in (("industry", "sector"), ("country", "region"), ("currency", "currency")):
+        for dimension, allocation_column in (("industry", "sector"), ("country", "country"), ("currency", "currency")):
             mapped = lookthrough.get(instrument_id, {}).get(dimension, {})
             if mapped:
+                # A country exposure comes from the national source; a regional label stands in only
+                # when no national label exists and is then labelled as a proxy, never as a country.
+                descriptor = "region_proxy" if dimension == "country" and instrument_id not in national_ids else dimension
                 for label, weight in mapped.items():
-                    rows.append(_exposure_row(instrument_id, f"{dimension}:{label}", weight, dimension, "holdings_lookthrough", min(1.0, sum(mapped.values()))))
+                    rows.append(_exposure_row(instrument_id, f"{dimension}:{label}", weight, descriptor, "holdings_lookthrough", min(1.0, sum(mapped.values()))))
                 continue
             label = _clean_label(item.get(allocation_column))
+            descriptor = allocation_column
+            if not label and dimension == "country":
+                label, descriptor = _clean_label(item.get("region")), "region_proxy"
             if label:
-                rows.append(_exposure_row(instrument_id, f"{dimension}:{label}", 1.0, allocation_column, "allocation_metadata", 1.0))
+                rows.append(_exposure_row(instrument_id, f"{dimension}:{label}", 1.0, descriptor, "allocation_metadata", 1.0))
 
     frame = pd.DataFrame(rows, columns=columns)
     if frame.empty:
@@ -199,6 +207,9 @@ def build_factor_risk_report(
     public_validation = validate_public_factor_series(factor_returns, public_factors)
     warnings = _warnings(coverage, excluded, specific, public_validation, covariance_diagnostics)
     status = "available" if not warnings else "partial"
+    # Cross-sectional fits apply the CURRENT descriptor matrix to every historical date, so the
+    # factor returns are a replay of today's exposures, not point-in-time exposures.  Label it.
+    warnings = [*warnings, EXPOSURE_BASIS]
     diagnostics = {
         "model_version": FACTOR_MODEL_VERSION,
         "method": "iteratively reweighted cross-sectional least squares",
@@ -212,6 +223,7 @@ def build_factor_risk_report(
         "public_factor_validation": public_validation,
         "baseline_beta": baseline_beta,
         "warnings": warnings,
+        "exposure_basis": EXPOSURE_BASIS,
     }
     return {
         "status": status,
@@ -229,6 +241,7 @@ def build_factor_risk_report(
         "coverage": coverage,
         "diagnostics": diagnostics,
         "warnings": warnings,
+        "exposure_basis": EXPOSURE_BASIS,
     }
 
 
@@ -295,7 +308,7 @@ def _lookthrough_map(holdings: pd.DataFrame | None) -> dict[str, dict[str, dict[
         if math.fsum(float(value) for value in group["weight"]) > 1.01 + 1e-9:
             continue
         dimensions: dict[str, dict[str, float]] = {}
-        for dimension, column in (("industry", "sector"), ("country", "region"), ("currency", "currency")):
+        for dimension, column in (("industry", "sector"), ("country", _geo_column(group)), ("currency", "currency")):
             if column not in group.columns:
                 continue
             labels = group[column].map(_clean_label)
@@ -308,6 +321,24 @@ def _lookthrough_map(holdings: pd.DataFrame | None) -> dict[str, dict[str, dict[
         if dimensions:
             result[str(instrument_id)] = dimensions
     return result
+
+
+def _geo_column(group: pd.DataFrame) -> str:
+    """National ``country`` column when it carries labels, else the regional ``region`` proxy."""
+
+    if "country" in group.columns and group["country"].map(_clean_label).ne("").any():
+        return "country"
+    return "region"
+
+
+def _national_country_ids(holdings: pd.DataFrame | None) -> set[str]:
+    if holdings is None or holdings.empty or "country" not in holdings.columns:
+        return set()
+    id_column = "instrument_id" if "instrument_id" in holdings.columns else "etf_id" if "etf_id" in holdings.columns else None
+    if id_column is None:
+        return set()
+    labelled = holdings["country"].map(_clean_label).ne("")
+    return {str(item) for item in holdings.loc[labelled, id_column].dropna()}
 
 
 def _safe_holding_weight(value: object) -> float | None:
@@ -753,6 +784,7 @@ def _condition_number(matrix: np.ndarray) -> float | None:
 
 __all__ = [
     "ANNUALISATION_FACTOR",
+    "EXPOSURE_BASIS",
     "FACTOR_MODEL_VERSION",
     "LOOKTHROUGH_DIMENSIONS",
     "NUMERIC_FACTORS",
