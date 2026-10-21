@@ -697,6 +697,9 @@ def fetch_edgar(
 # ---------------------------------------------------------------------------------------------
 
 ESEF_SOURCE = "esef"
+# The only concept net_income_parent may come from. It is parent-only by definition, which is what justifies the explicit
+# ``observed`` state below; total ProfitLoss (parent + non-controlling) must never fill it, whatever the configuration says.
+ESEF_PARENT_INCOME_CONCEPTS = frozenset({"ProfitLossAttributableToOwnersOfParent"})
 _CURRENCY_UNIT = re.compile(r"^[A-Z]{3}$")
 _MEMBER_SPEC = re.compile(r"^([A-Za-z0-9_]+)\[([A-Za-z0-9_]+)\]$")
 
@@ -737,6 +740,8 @@ def parse_esef_statement_facts(facts: pd.DataFrame, config: Mapping[str, Any], *
     """
 
     concepts: dict[str, list[str]] = {name: list(items or []) for name, items in (config.get("esef_concepts", {}) or {}).items()}
+    if "net_income_parent" in concepts:
+        concepts["net_income_parent"] = [spec for spec in concepts["net_income_parent"] if spec in ESEF_PARENT_INCOME_CONCEPTS]
     rules = config.get("esef_rules", {}) or {}
     tolerance = float(rules.get("share_count_agreement", 0.01))
     absolute_fields = set(rules.get("absolute_value_fields", []) or [])

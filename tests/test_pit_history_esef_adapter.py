@@ -194,3 +194,15 @@ def test_isin_overrides_fill_only_unverified_isins_and_must_match_the_gleif_lei(
     leis = {"CBUK": {"lei": "5493000000000000000X", "source": "GLEIF"}}
     backfill.check_override_leis(leis, overrides, merged)
     assert leis["CBUK"]["lei"] == "" and "differs" in leis["CBUK"]["reason"]
+
+
+def test_parent_income_never_comes_from_total_profit_loss() -> None:
+    facts = pd.concat([_facts(), pd.DataFrame([_fact("ProfitLoss", 14.0, FIRST)])], ignore_index=True)
+    # even a configuration that lists total ProfitLoss (parent + non-controlling) cannot make it the parent income
+    config = {**CONFIG, "esef_concepts": {**CONFIG["esef_concepts"], "net_income_parent": ["ProfitLoss", "ProfitLossAttributableToOwnersOfParent"]}}
+
+    assert src.parse_esef_statement_facts(facts, config, source_ref="t")[0]["net_income_parent"] == 10.0
+
+    only_total = facts[facts["concept"] != "ProfitLossAttributableToOwnersOfParent"]
+    row = src.parse_esef_statement_facts(only_total, config, source_ref="t")[0]
+    assert "net_income_parent" not in row and "net_income_parent" not in json.loads(row.get("value_status", "{}"))
