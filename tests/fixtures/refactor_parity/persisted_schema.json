@@ -290,7 +290,7 @@
     "not_enough_data_policy": "str",
     "operational_evidence_input_binding": "str",
     "operational_evidence_rows": {
-     "list_length": 1109,
+     "list_length": 1094,
      "item": {
       "arrival_price_assumption": "str",
       "auction_state": "null",

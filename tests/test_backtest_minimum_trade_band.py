@@ -69,3 +69,14 @@ def test_run_backtest_skips_dust_rebalances_and_rejects_a_negative_minimum() -> 
     assert cost(banded) < cost(unbanded)
     with pytest.raises(ValueError, match="min_trade_value_eur"):
         run_backtest(config, prices, min_trade_value_eur=-1.0, **kwargs)
+
+
+def test_buys_scaled_down_to_fund_skipped_sells_are_re_checked_against_the_minimum() -> None:
+    current = _weights(A=0.5099, B=0.4901, C=0.0, D=0.0)
+    target = _weights(A=0.50, B=0.48, C=0.01, D=0.01)
+    # A's 99 EUR sell is dust and stays held, which scales the two 100 EUR buys to ~50 EUR each: they are skipped too.
+    executed = _apply_minimum_trade_band(current, target, notional_eur=10_000.0, min_trade_eur=100.0)
+    orders = ((executed - current).abs() * 10_000.0)[lambda series: series > 1e-9]
+    assert (orders >= 100.0 - 1e-9).all()
+    assert executed["C"] == 0.0 and executed["D"] == 0.0 and executed["B"] == pytest.approx(0.48)
+    assert float(executed.sum()) <= 1.0 + 1e-12

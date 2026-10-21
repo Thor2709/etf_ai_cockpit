@@ -454,18 +454,27 @@ def _apply_minimum_trade_band(
     if min_trade_eur <= 0.0 or notional_eur <= 0.0:
         return target
     delta = target - current
-    order_eur = delta.abs() * notional_eur
-    skipped = (delta.abs() > 1e-12) & (order_eur < min_trade_eur) & ~((target.abs() <= 1e-12) & (current.abs() > 1e-12))
+    full_exit = (target.abs() <= 1e-12) & (current.abs() > 1e-12)
+    skipped = (delta.abs() > 1e-12) & (delta.abs() * notional_eur < min_trade_eur) & ~full_exit
     if not bool(skipped.any()):
         return target
-    executed = target.where(~skipped, current)
-    surplus = float(executed.sum() - target.sum())
-    if surplus > 1e-12:
-        buys = (executed - current).clip(lower=0.0)
-        total_buy = float(buys.sum())
-        if total_buy > 0.0:
-            keep = max(0.0, total_buy - surplus) / total_buy
-            executed = executed - buys * (1.0 - keep)
+    executed = target
+    # Scaling the buys down to fund skipped sells can push a buy below the minimum: skip it too and rescale the
+    # rest until no order changes.  Every pass skips at least one more order, so the loop is bounded by the size.
+    for _ in range(len(target) + 1):
+        executed = target.where(~skipped, current)
+        surplus = float(executed.sum() - target.sum())
+        if surplus > 1e-12:
+            buys = (executed - current).clip(lower=0.0)
+            total_buy = float(buys.sum())
+            if total_buy > 0.0:
+                keep = max(0.0, total_buy - surplus) / total_buy
+                executed = executed - buys * (1.0 - keep)
+        executed_delta = (executed - current).abs()
+        too_small = (executed_delta > 1e-12) & (executed_delta * notional_eur < min_trade_eur) & ~full_exit & ~skipped
+        if not bool(too_small.any()):
+            break
+        skipped = skipped | too_small
     return executed
 
 

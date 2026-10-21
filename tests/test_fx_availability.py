@@ -80,3 +80,12 @@ def test_available_at_later_than_ingestion_fails_closed_and_a_partial_day_is_liv
     live = stamp_fx_availability(today, ingested_at=FETCHED)
     assert list(live["availability_basis"]) == ["market_close_unrevised", "live_ingestion"]
     assert live["available_at"].iloc[1] == pd.Timestamp(FETCHED)
+
+
+def test_market_close_basis_rejects_an_available_at_before_the_quote_date_close() -> None:
+    stamped = stamp_fx_availability(_quotes(), ingested_at=FETCHED)
+    early = stamped.assign(available_at=pd.Timestamp("2026-01-08T00:00:00Z"))
+    assert not validate_fx_rates(early).ok
+    book = EurRateBook(early, known_by=datetime(2026, 1, 8, 12, 0, tzinfo=timezone.utc))
+    assert pd.isna(book.series("NOK", [SESSION]).rates.iloc[0])
+    assert book.unavailable_reason is not None and "before the quote date close" in book.unavailable_reason

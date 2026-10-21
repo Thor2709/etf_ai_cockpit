@@ -251,6 +251,14 @@ def _effective_availability(frame: pd.DataFrame, ingested: pd.Series) -> tuple[p
         return ingested, "FX rates with available_at need a known availability_basis."
     if (stated & parsed.gt(ingested)).any():
         return ingested, "FX rates contain available_at later than ingested_at."
+    date_column = _first_present(frame, DATE_COLUMNS)
+    if date_column is not None:
+        # An unrevised daily close cannot be known before its own session closes.
+        close = pd.to_datetime(frame[date_column], errors="coerce", utc=False).dt.tz_localize(None).dt.tz_localize("UTC") + pd.Timedelta(
+            hours=23, minutes=59, seconds=59
+        )
+        if (stated & basis_text.eq(MARKET_CLOSE_UNREVISED) & parsed.lt(close)).any():
+            return ingested, "FX rates with a market_close_unrevised basis have available_at before the quote date close."
     return parsed.where(stated, ingested), None
 
 
