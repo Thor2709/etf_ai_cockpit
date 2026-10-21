@@ -18,27 +18,28 @@ if not exist "%EXE%" (
   exit /b 1
 )
 
-if exist ".venv\Scripts\python.exe" (
-  ".venv\Scripts\python.exe" scripts\launcher_core.py launch --mode native --root "%CD%" --preferred-port "%ETF_COCKPIT_PORT%" --open-browser 1 --timeout 60 --exe "%EXE%"
-  if errorlevel 1 pause
-  exit /b %ERRORLEVEL%
-)
-
+if not exist ".venv\Scripts\python.exe" goto try_py
+".venv\Scripts\python.exe" scripts\launcher_core.py launch --mode native --root "%CD%" --preferred-port "%ETF_COCKPIT_PORT%" --open-browser 1 --timeout 60 --exe "%EXE%"
+goto launched
+:try_py
 where py >nul 2>nul
-if not errorlevel 1 (
-  py -3.13 scripts\launcher_core.py launch --mode native --root "%CD%" --preferred-port "%ETF_COCKPIT_PORT%" --open-browser 1 --timeout 60 --exe "%EXE%"
-  if errorlevel 1 pause
-  exit /b %ERRORLEVEL%
-)
-
+if errorlevel 1 goto batch_fallback
+py -3.13 -c "import sys" >nul 2>nul
+if errorlevel 1 goto batch_fallback
+py -3.13 scripts\launcher_core.py launch --mode native --root "%CD%" --preferred-port "%ETF_COCKPIT_PORT%" --open-browser 1 --timeout 60 --exe "%EXE%"
+:launched
+set RC=%ERRORLEVEL%
+if not "%RC%"=="0" pause
+exit /b %RC%
+:batch_fallback
 echo Python helper was unavailable; using controlled batch fallback.
 set URL=http://127.0.0.1:%ETF_COCKPIT_PORT%/
 curl.exe --max-time 2 -fsS -o NUL "%URL%" >nul 2>nul
-if not errorlevel 1 (
-  echo ETF AI Cockpit is already running at %URL%.
-  start "" "%URL%"
-  exit /b 0
-)
+if errorlevel 1 goto start_exe
+echo Port %ETF_COCKPIT_PORT% already answers and the instance cannot be verified without the Python helper. Set ETF_COCKPIT_PORT to a free port.
+pause
+exit /b 1
+:start_exe
 start "" "%EXE%"
 echo Waiting for %URL% ...
 for /l %%i in (1,1,60) do (
