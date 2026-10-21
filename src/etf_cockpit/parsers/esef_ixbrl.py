@@ -576,8 +576,31 @@ def _run_arelle_validation(path: Path, timeout_seconds: float = 8.0) -> tuple[di
     )
 
 
+# ESEF permits PNG, JPEG, GIF and SVG images only (SVG is not decoded by Pillow).
+_ESEF_IMAGE_FORMATS = frozenset({"PNG", "JPEG", "MPO", "GIF"})
+
+
+def _restrict_image_decoders() -> None:
+    """Drop every Pillow decoder ESEF does not permit, in the validation child only.
+
+    Arelle opens images embedded in untrusted report packages; this keeps them away from the TIFF, EPS,
+    PPM and other parsers (Pillow 12.3 advisories of 2026-10).
+    """
+
+    try:
+        from PIL import Image
+    except ImportError:
+        return
+    Image.init()
+    for name in tuple(Image.OPEN):
+        if name not in _ESEF_IMAGE_FORMATS:
+            Image.OPEN.pop(name, None)
+    Image.ID[:] = [name for name in Image.ID if name in _ESEF_IMAGE_FORMATS]
+
+
 def _arelle_worker(path: str, messages: multiprocessing.Queue[dict[str, object]]) -> None:
     try:
+        _restrict_image_decoders()
         from arelle import Cntlr
 
         controller = Cntlr.Cntlr(logFileName="logToPrint")
