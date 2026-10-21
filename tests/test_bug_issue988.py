@@ -247,3 +247,17 @@ def test_health_failure_retains_recorded_audit() -> None:
     assert registry.health("fixture.plugin").status is PluginStatus.UNAVAILABLE
     assert registry.audit_events() == ({"plugin_id": "fixture.plugin", "operation": "health",
                                         "event": "health-started", "detail": "probe attempted"},)
+
+def test_conformance_fails_closed_when_enabled_plugin_health_is_unavailable() -> None:
+    class _Broken(_Plugin):
+        def health(self, context: PluginContext) -> PluginHealth:
+            raise RuntimeError("health backend down")
+
+    registry = PluginRegistry(allowlist={"fixture.plugin"})
+    registry.register(_Broken())
+
+    report = registry.conformance_report()
+
+    assert report["failures"] == ["fixture.plugin"]
+    assert report["checks"][0]["passed"] is False
+    assert report["checks"][0]["status"] == PluginStatus.UNAVAILABLE.value

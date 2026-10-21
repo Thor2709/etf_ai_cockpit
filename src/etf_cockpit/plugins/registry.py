@@ -198,6 +198,8 @@ class PluginRegistry:
             # Disabled plugins are never invoked, so unimplemented capabilities only fail enabled ones.
             failed = (
                 health.status is PluginStatus.INVALID
+                # Enabled plugins need health evidence: an unavailable health check fails closed.
+                or (health.status is PluginStatus.UNAVAILABLE and self.is_enabled(plugin_id))
                 or manifest.executable_authority
                 or manifest.writes_canonical_stores
                 or bool(network_calls)
