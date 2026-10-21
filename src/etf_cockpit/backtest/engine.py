@@ -436,6 +436,39 @@ def _apply_capacity_limits(
     }
 
 
+def _apply_minimum_trade_band(
+    current: pd.Series,
+    target: pd.Series,
+    *,
+    notional_eur: float,
+    min_trade_eur: float,
+) -> pd.Series:
+    """Drop rebalance orders worth less than the configured minimum trade (a no-trade band).
+
+    The same ``risks.portfolio_limits.min_trade_value_eur`` the signal pipeline and the portfolio sandbox
+    enforce.  A position leaving the target set (target 0) is always sold in full, as the paper bots do.  A
+    skipped order keeps the held weight; skipped sells never fund buys (the remaining buys are scaled down so
+    the executed book cannot exceed the intended one), so the book can never exceed 100 percent.
+    """
+
+    if min_trade_eur <= 0.0 or notional_eur <= 0.0:
+        return target
+    delta = target - current
+    order_eur = delta.abs() * notional_eur
+    skipped = (delta.abs() > 1e-12) & (order_eur < min_trade_eur) & ~((target.abs() <= 1e-12) & (current.abs() > 1e-12))
+    if not bool(skipped.any()):
+        return target
+    executed = target.where(~skipped, current)
+    surplus = float(executed.sum() - target.sum())
+    if surplus > 1e-12:
+        buys = (executed - current).clip(lower=0.0)
+        total_buy = float(buys.sum())
+        if total_buy > 0.0:
+            keep = max(0.0, total_buy - surplus) / total_buy
+            executed = executed - buys * (1.0 - keep)
+    return executed
+
+
 def _drift_to_execution(signal_weights: pd.Series, execution_returns: pd.Series) -> tuple[pd.Series, float]:
     """Value-weighted holdings after the execution session's returns, and that session's portfolio return.
 
@@ -1520,6 +1553,7 @@ def run_backtest(
     enforce_capacity: bool = False,
     fx_rates: pd.DataFrame | None = None,
     point_in_time_membership_evidence: Mapping[str, object] | None = None,
+    min_trade_value_eur: float | None = None,
 ) -> BacktestReport:
     if isinstance(rebalance_frequency_days, bool) or not isinstance(rebalance_frequency_days, int) or rebalance_frequency_days < 1:
         raise ValueError("rebalance_frequency_days must be an integer of at least 1")
@@ -1532,6 +1566,11 @@ def run_backtest(
     stress_multiplier = finite_float_or_none(cost_stress_multiplier)
     if stress_multiplier is None or stress_multiplier < 1.0:
         raise ValueError("cost_stress_multiplier must be finite and at least 1")
+    # Opt-in no-trade band: None or 0 keeps every rebalance order (the historical behaviour, pinned by the golden).
+    # Pass ``config.risks.portfolio_limits.min_trade_value_eur`` to apply the product's configured minimum trade.
+    minimum_trade = 0.0 if min_trade_value_eur is None else finite_float_or_none(min_trade_value_eur)
+    if minimum_trade is None or minimum_trade < 0:
+        raise ValueError("min_trade_value_eur must be finite and non-negative")
     validate_execution_disabled(benchmark_reference or unavailable_reference_projection())
     validate_execution_disabled(reference_identity or {})
     share = _STAGE_SHARE.get()
@@ -2270,6 +2309,14 @@ def run_backtest(
                     current_weight_row.copy() if name == "buy_and_hold" else new_weight.reindex(columns).fillna(0)
                 )
                 capacity_info: dict[str, object] | None = None
+                if name != "buy_and_hold":
+                    # A skipped order is never placed, so it is neither costed nor counted as unfilled.
+                    target_weight_row = _apply_minimum_trade_band(
+                        current_weight_row,
+                        target_weight_row,
+                        notional_eur=trade_notional,
+                        min_trade_eur=minimum_trade,
+                    )
                 if capacity_active:
                     target_weight_row, capacity_info = capacity_limits(
                         current_weight_row, target_weight_row, trade_notional, execution_dt, adv_by_instrument
