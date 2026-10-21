@@ -213,11 +213,13 @@ def _signal_rows(signals: Iterable[SignalResult], config: AppConfig) -> list[dic
                 "formula_checksum": canonical.formula_checksum if canonical else "unavailable",
                 "source_vintage_hash": canonical.source_vintage_hash if canonical else "unavailable",
                 "reason_full": signal.supporting_metrics.get("reason_full", signal.reason_long),
-                "score_1w": signal.components.momentum,
-                "score_1m": signal.components.trend,
-                "score_3m": signal.total_score,
-                "score_6m": _mean_of_available_pair(signal.components.momentum, signal.components.trend),
-                "score_9m": signal.components.baseline_ml,
+                # No horizon-specific score exists upstream; a horizon label must never carry a
+                # non-horizon component value, so these stay unavailable (empty) instead of proxies.
+                "score_1w": None,
+                "score_1m": None,
+                "score_3m": None,
+                "score_6m": None,
+                "score_9m": None,
                 "blocked_by": "|".join(signal.blocked_by),
                 "reason_short": signal.reason_short,
                 "expected_edge_bps": signal.supporting_metrics.get("expected_edge_bps"),
@@ -357,6 +359,17 @@ def export_review_pack(
     return zip_path
 
 
+def _features_known_by(features: pd.DataFrame, as_of_date: date) -> pd.DataFrame:
+    """Rows dated on or before ``as_of_date`` only; later rows must not leak into the packet."""
+
+    if "date" not in features.columns:
+        return features
+    dates = pd.to_datetime(features["date"], errors="coerce")
+    if getattr(dates.dt, "tz", None) is not None:
+        dates = dates.dt.tz_localize(None)
+    return features[dates.notna() & (dates <= pd.Timestamp(as_of_date))]
+
+
 def _stage_review_pack(
     export_dir: Path,
     config: AppConfig,
@@ -387,7 +400,7 @@ def _stage_review_pack(
     publish(lambda: (export_dir / "01_portfolio_summary.json").write_text(json.dumps(portfolio_summary, indent=2, default=str), encoding="utf-8"))
     signal_table = pd.DataFrame(_signal_rows(signals, config), columns=SIGNAL_TABLE_COLUMNS)
     publish(lambda: signal_table.to_csv(export_dir / "02_signal_table.csv", index=False))
-    latest_features = features.sort_values("date").groupby("etf_id").tail(1)
+    latest_features = _features_known_by(features, as_of_date).sort_values("date").groupby("etf_id").tail(1)
     metric_columns = [
         "etf_id",
         "date",
@@ -1187,7 +1200,18 @@ def _copy_evidence_tree(source_root: Path, destination_root: Path, manifest: dic
         marker = destination_root.parent / f"{destination_root.name}_unavailable.txt"
         _write_unavailable_marker(marker, source_root, manifest)
         return
+    resolved_root = source_root.resolve()
     for source in sorted(path for path in source_root.rglob("*") if path.is_file()):
+        try:
+            source.resolve().relative_to(resolved_root)
+            contained = not source.is_symlink()
+        except (OSError, ValueError):
+            contained = False
+        if not contained:
+            # Symlinks and junction targets may point outside the evidence root: never read through them.
+            marker = destination_root.parent / f"{destination_root.name}_{hashlib.sha256(str(source).encode('utf-8')).hexdigest()[:10]}_unsafe_link.txt"
+            _write_unavailable_marker(marker, source, manifest, reason="symlink_outside_evidence_root")
+            continue
         relative = source.relative_to(source_root)
         target = destination_root / relative
         target.parent.mkdir(parents=True, exist_ok=True)

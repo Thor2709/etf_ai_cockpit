@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from etf_cockpit.core.atomic_io import atomic_write_bytes
+from etf_cockpit.core.session_log import redact_text
 
 
 class PrivacyDeletionError(ValueError):
@@ -59,6 +60,9 @@ def redact_private_fields(value: Any, *, include_private: bool = False) -> Any:
         return result
     if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
         return [redact_private_fields(item, include_private=include_private) for item in value]
+    if isinstance(value, str) and not include_private:
+        # Scalar text can carry credential assignments such as "api_key=..." or "Authorization: Bearer ...".
+        return redact_text(value)
     return value
 
 

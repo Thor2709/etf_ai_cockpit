@@ -60,6 +60,7 @@ from etf_cockpit.portfolio.optimiser import returns_from_adjusted_prices
 from etf_cockpit.portfolio.rebalancing import RebalanceConstraints, build_rebalance_report
 from etf_cockpit.portfolio.risk_analytics import return_correlation_matrix
 from etf_cockpit.portfolio.robust_risk import build_robust_risk_report
+from etf_cockpit.application.stress_lab import adjusted_price_returns
 from etf_cockpit.portfolio.stress_testing import StressScenario, StressScenarioError, run_stress_scenario
 from etf_cockpit.governance.capability_scope import InstrumentDescriptor, resolve_instrument_capability
 from etf_cockpit.governance.product_scope import load_strategy_scope
@@ -1017,7 +1018,21 @@ def _service_evidence(
     joint_observations = len(usable_returns.dropna(how="any")) if not usable_returns.empty else 0
     joint_reason = (f"insufficient_joint_adjusted_returns: at least 2 complete observations required; observed={joint_observations}"
                     if joint_observations < 2 else "")
-    complete_target_returns = has_target_exposure and not missing_target_ids and not joint_reason
+    # Target-only services (factor risk, robust risk, correlation) need joint history of the
+    # invested TARGET instruments only: an exiting instrument whose history is disjoint must
+    # not block them.  The optimiser keeps the full-universe check (turnover needs current).
+    target_return_ids = sorted(identifier for identifier, weight in target_weights.items() if weight > 0 and identifier in usable_ids)
+    target_joint_observations = len(usable_returns[target_return_ids].dropna(how="any")) if target_return_ids else 0
+    if not has_target_exposure or missing_target_ids:
+        target_joint_reason = joint_reason if has_target_exposure else ""
+    else:
+        target_joint_reason = (f"insufficient_joint_adjusted_returns: at least 2 complete observations required; observed={target_joint_observations}"
+                               if target_joint_observations < 2 else "")
+    if "etf_id" in prices.columns:
+        prices_target = prices.loc[prices["etf_id"].astype(str).isin(target_return_ids)].copy()
+    else:
+        prices_target = prices
+    complete_target_returns = has_target_exposure and not missing_target_ids and not target_joint_reason
     limits = getattr(getattr(snapshot, "config"), "risks").portfolio_limits
     constraints = OptimiserConstraints(
         cash_weight=analysis.candidate.cash_weight,
@@ -1048,10 +1063,10 @@ def _service_evidence(
     # of the price universe.
     factor_report: dict[str, object] | None = None
     try:
-        if joint_reason:
-            raise ValueError(joint_reason)
+        if target_joint_reason:
+            raise ValueError(target_joint_reason)
         factor_report = build_factor_risk_report(
-            prices if complete_target_returns else pd.DataFrame(),
+            prices_target if complete_target_returns else pd.DataFrame(),
             target,
             _bound_service_features(snapshot, analysis, reference_context),
             _bound_holdings(snapshot, analysis),
@@ -1060,7 +1075,7 @@ def _service_evidence(
             _report_projection(factor_report, coverage_keys=("coverage",)), missing_target_ids
         )
     except (ArithmeticError, KeyError, TypeError, ValueError):
-        evidence["factor_risk"] = _add_missing_price_evidence(_unavailable_service(joint_reason or "factor risk service evidence unavailable"), missing_target_ids)
+        evidence["factor_risk"] = _add_missing_price_evidence(_unavailable_service(target_joint_reason or "factor risk service evidence unavailable"), missing_target_ids)
 
     try:
         if not has_target_exposure:
@@ -1152,10 +1167,10 @@ def _service_evidence(
         )
 
     try:
-        if joint_reason:
-            raise ValueError(joint_reason)
+        if target_joint_reason:
+            raise ValueError(target_joint_reason)
         risk = build_robust_risk_report(
-            prices if complete_target_returns else pd.DataFrame(),
+            prices_target if complete_target_returns else pd.DataFrame(),
             target,
             factor_report=factor_report,
             bootstrap_reps=0,
@@ -1164,15 +1179,15 @@ def _service_evidence(
             _report_projection(risk, coverage_keys=("diagnostics", "coverage")), missing_target_ids
         )
     except (ArithmeticError, KeyError, TypeError, ValueError):
-        evidence["risk"] = _add_missing_price_evidence(_unavailable_service(joint_reason or "robust risk service evidence unavailable"), missing_target_ids)
+        evidence["risk"] = _add_missing_price_evidence(_unavailable_service(target_joint_reason or "robust risk service evidence unavailable"), missing_target_ids)
 
     # Same canonical correlation service and window as the Risk page, applied
     # to the bound point-in-time target universe.  An incomplete matrix is
     # unavailable evidence, never a displayed zero correlation.
     correlation_ids = sorted(identifier for identifier, weight in target_weights.items() if weight > 0 and identifier in usable_ids)
     try:
-        if joint_reason:
-            raise ValueError(joint_reason)
+        if target_joint_reason:
+            raise ValueError(target_joint_reason)
         if len(correlation_ids) < 2:
             raise ValueError("at least two invested target instruments with usable adjusted returns are required")
         matrix = return_correlation_matrix(prices, correlation_ids, window=CORRELATION_WINDOW)
@@ -1260,6 +1275,7 @@ def _service_evidence(
         _target_allocation(_service_allocation(snapshot, analysis, include_unsupported=True)),
         factor_report,
         analysis,
+        prices,
     )
     evidence["execution_allowed"] = False
     return evidence
@@ -1736,6 +1752,7 @@ def _scenario_evidence(
     allocation: pd.DataFrame,
     factor_report: Mapping[str, object] | None,
     analysis: PortfolioAnalysis,
+    prices: pd.DataFrame | None = None,
 ) -> dict[str, object]:
     raw = next(
         (
@@ -1783,6 +1800,7 @@ def _scenario_evidence(
                 scenario,
                 scenario_allocation,
                 factor_exposures=exposures,
+                historical_returns=adjusted_price_returns(prices) if scenario.historical_date else None,
                 notional=analysis.candidate.analysis_notional_eur,
             )
             payload = result.to_payload()
@@ -1800,8 +1818,15 @@ def _scenario_evidence(
             results.append({"scenario_id": scenario.scenario_id, "status": "unavailable", "reason": "scenario service evidence unavailable", "execution_allowed": False})
     if not results:
         return _unavailable_service("no valid scenario is bound to this snapshot")
+    # The aggregate is the worst component status: one unavailable or partial scenario (or
+    # unsupported candidate exposure) must not be reported as an available evidence set.
+    severity = {"available": 0, "partial": 1, "unavailable": 2}
+    statuses = [str(item.get("status")) for item in results]
+    worst = max((severity.get(status, 2) for status in statuses), default=2)
+    if missing_exposure:
+        worst = max(worst, 1)
     return {
-        "status": "partial" if missing_exposure else "available" if any(item.get("status") == "available" for item in results) else "partial",
+        "status": ("available", "partial", "unavailable")[worst],
         "results": results,
         "source_snapshot": analysis.snapshot_binding.snapshot_id if analysis.snapshot_binding else None,
         "execution_allowed": False,
