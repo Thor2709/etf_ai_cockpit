@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
+from contextvars import ContextVar
 from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta, timezone
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
+import functools
 import hashlib
 import json
 import math
@@ -43,6 +46,7 @@ from etf_cockpit.data.market_calendar import (
     MarketClockError,
 )
 from etf_cockpit.data.etf_structure import structure_cap_scope, structure_confidence_caps, structure_input_checksum
+from etf_cockpit.data.classification import classification_state_memo
 from etf_cockpit.data.fx_data import EurRateBook, fx_rates_for_prices, major_currency
 from etf_cockpit.features.feature_pipeline import (
     attach_eur_basis,
@@ -1443,6 +1447,58 @@ def _holdings_from_weights(weights: pd.Series, price_row: pd.Series, portfolio_v
     return pd.DataFrame(rows)
 
 
+class _StageShare:
+    """Results of cost-independent stages, shared by the runs of one cost-regime comparison.
+
+    The three cost regimes differ only in the cost model, so everything derived from the same prices,
+    configuration and evidence objects (FX, EUR-basis features, per-cutoff data-quality and quality-momentum
+    evidence, price-source identities, ADV) is identical across them and is computed once.  A key names every input
+    object by identity and the objects are pinned for the lifetime of the share, so an identity can never be reused
+    by a different object.  Nothing here depends on cost parameters, and every cutoff keeps its own entry
+    (point-in-time exactness is unchanged).
+    """
+
+    def __init__(self) -> None:
+        self._values: dict[object, object] = {}
+        self._pins: list[object] = []
+
+    def memo(self, key: object, compute: Callable[[], object], *pins: object) -> object:
+        if key not in self._values:
+            self._values[key] = compute()
+            self._pins.extend(pins)
+        return self._values[key]
+
+
+_STAGE_SHARE: ContextVar[_StageShare | None] = ContextVar("backtest_stage_share", default=None)
+
+
+@contextmanager
+def _shared_backtest_scope() -> Iterator[_StageShare]:
+    """Share cost-independent stages (and per-instrument classification state) across the runs inside the scope."""
+
+    share = _STAGE_SHARE.get()
+    if share is not None:
+        yield share
+        return
+    share = _StageShare()
+    token = _STAGE_SHARE.set(share)
+    try:
+        with classification_state_memo():
+            yield share
+    finally:
+        _STAGE_SHARE.reset(token)
+
+
+def _in_shared_backtest_scope(function: Callable[..., object]) -> Callable[..., object]:
+    @functools.wraps(function)
+    def wrapper(*args: object, **kwargs: object) -> object:
+        with _shared_backtest_scope():
+            return function(*args, **kwargs)
+
+    return wrapper
+
+
+@_in_shared_backtest_scope
 def run_backtest(
     config: AppConfig,
     prices: pd.DataFrame,
@@ -1478,6 +1534,10 @@ def run_backtest(
         raise ValueError("cost_stress_multiplier must be finite and at least 1")
     validate_execution_disabled(benchmark_reference or unavailable_reference_projection())
     validate_execution_disabled(reference_identity or {})
+    share = _STAGE_SHARE.get()
+    assert share is not None  # run_backtest always executes inside _shared_backtest_scope
+    # ``prices`` is re-bound to a clipped copy below; stage keys name the caller's object plus the clip window.
+    source_prices = prices
     calculation_window = _declared_calculation_window(reference_identity)
     if calculation_window is not None:
         if not isinstance(reference_identity, Mapping):
@@ -1635,12 +1695,24 @@ def run_backtest(
     fx_frame = fx_rates if fx_rates is not None else pd.DataFrame()
     if fx_rates is None and needs_fx:
         try:
-            fx_frame = fx_rates_for_prices(prices)
+            fx_frame = share.memo(("fx_frame", id(source_prices), id(reference_identity), repr(calculation_window)), lambda: fx_rates_for_prices(prices), source_prices, reference_identity)  # type: ignore[assignment]
         except Exception:  # an unreadable FX store leaves every non-EUR session fx_unavailable
             fx_frame = pd.DataFrame()
     # Canonical FX by session: non-EUR listings fill whenever a point-in-time rate exists for the
     # session; only a missing rate (fx_unavailable) blocks, never a local-currency figure read as EUR.
-    fx_pivot = _fx_rate_pivot(pivot.index, columns, instrument_currency, fx_frame, fx_known_by) if enforce_capacity else None
+    pivot_index_digest = hashlib.sha256(pivot.index.asi8.tobytes()).hexdigest()
+    fx_pivot = (
+        share.memo(
+            ("fx_pivot", id(config), id(source_prices), id(reference_identity), id(fx_frame), tuple(columns), pivot_index_digest),
+            lambda: _fx_rate_pivot(pivot.index, columns, instrument_currency, fx_frame, fx_known_by),
+            config,
+            source_prices,
+            reference_identity,
+            fx_frame,
+        )
+        if enforce_capacity
+        else None
+    )
     raw_close_eur_pivot = raw_close_pivot * fx_pivot if capacity_active and fx_pivot is not None else None
     fx_never_available_ids = (
         {column for column in columns if not bool(fx_pivot[column].notna().any())} if fx_pivot is not None else set()
@@ -1722,31 +1794,55 @@ def run_backtest(
             or (feature_dates == feature_dates.dt.normalize()).all()
         )
         if daily_feature_rows:
-            # Signal features use the same EUR basis as the live score (canonical FX path); a
-            # session without a usable rate gives no feature (fx_unavailable), never a local price.
-            eur_feature_prices = eur_basis_prices(
-                feature_prices,
+
+            def build_reusable_features() -> tuple[pd.DataFrame, pd.DataFrame | None, pd.Timestamp | None]:
+                # Signal features use the same EUR basis as the live score (canonical FX path); a
+                # session without a usable rate gives no feature (fx_unavailable), never a local price.
+                eur_feature_prices = eur_basis_prices(
+                    feature_prices,
+                    fx_frame,
+                    configured_currency=configured_currency,
+                    known_by=fx_known_by,
+                )
+                default_features = compute_features(
+                    eur_feature_prices.frame,
+                    benchmark_etf_id=None,
+                )
+                attach_eur_basis(default_features, eur_feature_prices)
+                if canonical_benchmark_id is None:
+                    default_features.loc[:, ["relative_strength_60d", "relative_strength_120d"]] = np.nan
+                benchmark_features: pd.DataFrame | None = None
+                benchmark_first_date: pd.Timestamp | None = None
+                if canonical_benchmark_id is not None:
+                    benchmark_mask = feature_prices["etf_id"] == canonical_benchmark_id
+                    benchmark_dates = feature_dates.loc[benchmark_mask]
+                    if not benchmark_dates.empty:
+                        benchmark_features = compute_features(
+                            eur_feature_prices.frame,
+                            benchmark_etf_id=canonical_benchmark_id,
+                        )
+                        attach_eur_basis(benchmark_features, eur_feature_prices)
+                        benchmark_first_date = benchmark_dates.min()
+                return default_features, benchmark_features, benchmark_first_date
+
+            # Cost-independent: the other cost regimes of the same comparison reuse the result (read-only below).
+            reusable_default_features, reusable_benchmark_features, reusable_benchmark_first_date = share.memo(  # type: ignore[misc]
+                (
+                    "reusable_features",
+                    id(config),
+                    id(source_prices),
+                    id(reference_identity),
+                    id(fx_frame),
+                    repr(calculation_window),
+                    last_rebalance_cutoff,
+                    canonical_benchmark_id,
+                ),
+                build_reusable_features,
+                config,
+                source_prices,
+                reference_identity,
                 fx_frame,
-                configured_currency=configured_currency,
-                known_by=fx_known_by,
             )
-            reusable_default_features = compute_features(
-                eur_feature_prices.frame,
-                benchmark_etf_id=None,
-            )
-            attach_eur_basis(reusable_default_features, eur_feature_prices)
-            if canonical_benchmark_id is None:
-                reusable_default_features.loc[:, ["relative_strength_60d", "relative_strength_120d"]] = np.nan
-            if canonical_benchmark_id is not None:
-                benchmark_mask = feature_prices["etf_id"] == canonical_benchmark_id
-                benchmark_dates = feature_dates.loc[benchmark_mask]
-                if not benchmark_dates.empty:
-                    reusable_benchmark_features = compute_features(
-                        eur_feature_prices.frame,
-                        benchmark_etf_id=canonical_benchmark_id,
-                    )
-                    attach_eur_basis(reusable_benchmark_features, eur_feature_prices)
-                    reusable_benchmark_first_date = benchmark_dates.min()
     strategies = [
         "buy_and_hold",
         "equal_weight",
@@ -1867,17 +1963,26 @@ def run_backtest(
     operational_evidence_rows: list[dict[str, object]] = []
     signal_rows: list[dict[str, object]] = []
     quality_evidence_rows: list[dict[str, object]] = []
-    price_source_identity_cache: dict[tuple[object, pd.Timestamp], str | None] = {}
-    # Partition once so each exact-row lookup scans one instrument and one
-    # day, not the whole price history; other rows can never match.
-    prices_by_instrument: dict[object, tuple[pd.DataFrame, pd.Series]] = {}
-    if isinstance(prices, pd.DataFrame) and {"etf_id", "date"}.issubset(prices.columns):
-        for key, frame in prices.groupby("etf_id", sort=False):
-            prices_by_instrument[key] = (
-                frame,
-                pd.to_datetime(frame["date"], errors="coerce").dt.normalize(),
-            )
-    calendar_identity_cache: dict[object, Mapping[str, object] | None] = {}
+    # Prices are fixed for the whole comparison, so these price-derived lookups are shared by its cost regimes.
+    def build_price_lookups() -> tuple[
+        dict[tuple[object, pd.Timestamp], str | None],
+        dict[object, tuple[pd.DataFrame, pd.Series]],
+        dict[object, Mapping[str, object] | None],
+    ]:
+        # Partition once so each exact-row lookup scans one instrument and one
+        # day, not the whole price history; other rows can never match.
+        partitions: dict[object, tuple[pd.DataFrame, pd.Series]] = {}
+        if isinstance(prices, pd.DataFrame) and {"etf_id", "date"}.issubset(prices.columns):
+            for key, frame in prices.groupby("etf_id", sort=False):
+                partitions[key] = (
+                    frame,
+                    pd.to_datetime(frame["date"], errors="coerce").dt.normalize(),
+                )
+        return {}, partitions, {}
+
+    price_source_identity_cache, prices_by_instrument, calendar_identity_cache = share.memo(  # type: ignore[misc]
+        ("price_lookups", id(source_prices), id(reference_identity), repr(calculation_window)), build_price_lookups, source_prices, reference_identity
+    )
 
     def cached_calendar_identity(instrument_id: object) -> Mapping[str, object] | None:
         # Prices are fixed for the whole run, so the persisted identity of one
@@ -1953,20 +2058,40 @@ def run_backtest(
                 "quality_momentum": pd.Series(0.0, index=columns, dtype=float),
                 "signal_strategy": weights["signal_strategy"],
             }
-            quality_prices = history.rename_axis("date").reset_index().melt(
-                id_vars=["date"], var_name="etf_id", value_name="adjusted_close"
-            )
-            sector_map = {
-                item.id: str(item.sector or "")
-                for item in config.universe.etfs
-                if item.id in columns and item.sector
-            }
-            quality_evidence = build_quality_momentum_frame(
-                quality_prices,
-                fundamentals if fundamentals is not None else pd.DataFrame(),
-                as_of_date=dt.date(),
-                sector_by_instrument=sector_map,
-            )
+            def build_quality_evidence() -> pd.DataFrame:
+                quality_prices = history.rename_axis("date").reset_index().melt(
+                    id_vars=["date"], var_name="etf_id", value_name="adjusted_close"
+                )
+                sector_map = {
+                    item.id: str(item.sector or "")
+                    for item in config.universe.etfs
+                    if item.id in columns and item.sector
+                }
+                return build_quality_momentum_frame(
+                    quality_prices,
+                    fundamentals if fundamentals is not None else pd.DataFrame(),
+                    as_of_date=dt.date(),
+                    sector_by_instrument=sector_map,
+                )
+
+            # Point-in-time per cutoff and independent of costs: computed once per cutoff for all cost regimes.
+            quality_evidence = share.memo(  # type: ignore[attr-defined]
+                (
+                    "quality_evidence",
+                    id(config),
+                    id(source_prices),
+                    id(fundamentals),
+                    id(reference_identity),
+                    repr(calculation_window),
+                    tuple(columns),
+                    dt,
+                ),
+                build_quality_evidence,
+                config,
+                source_prices,
+                fundamentals,
+                reference_identity,
+            ).copy()
             quality_evidence_rows.extend(quality_evidence.to_dict("records"))
             new_weights["quality_only"] = quality_momentum_weights(quality_evidence, columns, mode="quality")
             new_weights["quality_momentum"] = quality_momentum_weights(quality_evidence, columns, mode="quality_momentum")
@@ -1976,6 +2101,17 @@ def run_backtest(
                 metadata["quality_momentum_evidence"] = "unavailable"
             # The signal strategy uses the same live signal pipeline, then tilts around targets.
             assert price_dates is not None
+            def prices_known_at_cutoff() -> pd.DataFrame:
+                known = prices[price_dates <= dt].copy()
+                if calculation_window is not None:
+                    known_dates = pd.to_datetime(known["date"])
+                    known = known.loc[
+                        (known_dates >= calculation_window[0])
+                        & (known_dates <= calculation_window[1])
+                    ].copy()
+                return known
+
+            truncated_prices: pd.DataFrame | None = None
             if reusable_default_features is not None:
                 features = reusable_default_features
                 if (
@@ -1984,21 +2120,8 @@ def run_backtest(
                     and dt >= reusable_benchmark_first_date
                 ):
                     features = reusable_benchmark_features
-                truncated_prices = prices[price_dates <= dt].copy()
-                if calculation_window is not None:
-                    truncated_dates = pd.to_datetime(truncated_prices["date"])
-                    truncated_prices = truncated_prices.loc[
-                        (truncated_dates >= calculation_window[0])
-                        & (truncated_dates <= calculation_window[1])
-                    ].copy()
             else:
-                truncated_prices = prices[price_dates <= dt].copy()
-                if calculation_window is not None:
-                    truncated_dates = pd.to_datetime(truncated_prices["date"])
-                    truncated_prices = truncated_prices.loc[
-                        (truncated_dates >= calculation_window[0])
-                        & (truncated_dates <= calculation_window[1])
-                    ].copy()
+                truncated_prices = prices_known_at_cutoff()
                 eur_truncated = eur_basis_prices(
                     truncated_prices,
                     fx_frame,
@@ -2022,9 +2145,28 @@ def run_backtest(
                 equity["signal_strategy"][-1],
                 dt.date(),
             )
-            report = validate_prices(truncated_prices, as_of_date=dt.date(), min_history_days=180)
-            if report.status == "Blocked":
-                report = DataQualityReport(as_of_date=dt.date(), issues=[issue for issue in report.issues if issue.code != "insufficient_history"])
+            def validated_report() -> DataQualityReport:
+                checked = validate_prices(
+                    truncated_prices if truncated_prices is not None else prices_known_at_cutoff(),
+                    as_of_date=dt.date(),
+                    min_history_days=180,
+                )
+                if checked.status == "Blocked":
+                    checked = DataQualityReport(
+                        as_of_date=dt.date(),
+                        issues=[issue for issue in checked.issues if issue.code != "insufficient_history"],
+                    )
+                return checked
+
+            # The data-quality verdict at a cutoff depends only on the prices known then, never on costs.
+            report = deepcopy(
+                share.memo(
+                    ("data_quality", id(source_prices), id(reference_identity), repr(calculation_window), dt),
+                    validated_report,
+                    source_prices,
+                    reference_identity,
+                )
+            )
             decision_timestamp = pd.Timestamp(dt)
             decision_timestamp = (
                 decision_timestamp.tz_localize(timezone.utc)
@@ -2092,7 +2234,28 @@ def run_backtest(
             pending_costs = {}
             pending_traded = set()
             adv_by_instrument = (
-                _adv_by_instrument(volume_pivot, raw_close_eur_pivot, set(columns), i) if capacity_active else {}
+                dict(
+                    share.memo(
+                        (
+                            "adv",
+                            id(config),
+                            id(source_prices),
+                            id(reference_identity),
+                            id(fx_frame),
+                            repr(calculation_window),
+                            tuple(columns),
+                            pivot_index_digest,
+                            i,
+                        ),
+                        lambda: _adv_by_instrument(volume_pivot, raw_close_eur_pivot, set(columns), i),
+                        config,
+                        source_prices,
+                        reference_identity,
+                        fx_frame,
+                    )
+                )
+                if capacity_active
+                else {}
             )
             execution_returns = simple_returns.loc[execution_dt, columns]
             for name, new_weight in new_weights.items():
@@ -2468,6 +2631,7 @@ def run_backtest(
 _REGIME_COMPARISON_COLUMNS = ("strategy_name", "final_value_eur", "cagr", "sharpe", "max_drawdown", "turnover", "cost_drag")
 
 
+@_in_shared_backtest_scope
 def run_backtest_cost_regimes(
     config: AppConfig,
     prices: pd.DataFrame,
