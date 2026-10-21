@@ -52,9 +52,15 @@ from etf_cockpit.application.data_service import DataService
 class SignalService:
     def __init__(self, config: AppConfig):
         self.config = config
+        self.last_unavailable_reason: str | None = None
 
     def generate_signals(self, as_of_date: date | None = None, features: pd.DataFrame | None = None) -> list[SignalResult]:
+        self.last_unavailable_reason = None
         prices = load_prices(config=self.config)
+        if prices.empty or "date" not in prices:
+            # No price evidence: no signals (as build_snapshot does), with the reason kept for the caller.
+            self.last_unavailable_reason = str(prices.attrs.get("reason") or "no price data")
+            return []
         prices["date"] = pd.to_datetime(prices["date"]).dt.date
         effective_date = as_of_date or max(prices["date"])
         holdings = load_holdings(config=self.config)

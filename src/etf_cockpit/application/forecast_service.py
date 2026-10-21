@@ -100,6 +100,9 @@ class ForecastService:
         promotions: Mapping[str, ModelPromotion] | None = None,
         promotion_prices: pd.DataFrame | None = None,
     ) -> list[ForecastResult]:
+        if as_of_date is None or pd.isna(as_of_date):
+            # No dated price observation to forecast from (e.g. max() of an empty price frame): fail closed.
+            raise ValueError("forecast_as_of_date_unavailable: no dated price observation to forecast from")
         settings_identity = current_settings_identity()
         price_frame = prices if prices is not None else load_prices(config=self.config)
         price_frame = price_frame.copy()

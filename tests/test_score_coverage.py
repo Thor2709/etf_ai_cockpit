@@ -78,11 +78,16 @@ def test_etf_with_prices_and_missing_holdings_gets_partial_score(monkeypatch) ->
     row = simple_scoreboard_frame([score]).iloc[0]
 
     assert score.final_score_10 is not None
-    assert 0.0 < score.score_coverage < 1.0
-    assert "etf_exposure" in score.missing_components
+    # FPQ: etf_exposure is a risk term (0 headline weight in score-engine v3.3.0), so missing holdings no longer lower
+    # HEADLINE coverage; the gap must stay explicit through the risk-term-unavailable flag and its reason instead.
+    assert score.score_coverage == 1.0
+    assert "etf_exposure" not in score.missing_components
+    assert score.unavailable_risk_terms == ("etf_exposure",)
+    assert "holdings are unavailable" in score.unavailable_risk_terms_reason
     assert row["final_combined_score_10"] == score.final_score_10
     assert row["coverage"] == score.score_coverage
-    assert "etf_exposure" in row["missing_components"].split("|")
+    assert row["risk_terms_unavailable"] == "etf_exposure"
+    assert "holdings are unavailable" in row["risk_terms_unavailable_reason"]
 
 
 def test_stock_with_prices_only_gets_partial_score(monkeypatch) -> None:
