@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 import socket
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 
@@ -121,6 +122,41 @@ def test_conformance_blocks_and_counts_connectionless_send(method: str, monkeypa
     assert native_calls == []
     assert getattr(socket.socket, method) is unexpected_send
     assert original is not unexpected_send
+
+
+@pytest.mark.parametrize("method", ["send", "sendall"])
+def test_conformance_blocks_and_counts_connected_send(method: str, monkeypatch) -> None:
+    class ConnectedSocket:
+        connected = True
+        connect = Mock()
+        connect_ex = Mock()
+        sendto = Mock()
+        send = Mock(return_value=5)
+        sendall = Mock(return_value=None)
+
+    # Simulate a socket connected before health runs, without opening any network socket.
+    sock = ConnectedSocket()
+    native_send = getattr(ConnectedSocket, method)
+    monkeypatch.setattr(socket, "socket", ConnectedSocket)
+
+    class ConnectedPlugin(_Plugin):
+        def health(self, context):
+            assert sock.connected
+            with pytest.raises(OSError, match="network access is blocked"):
+                getattr(sock, method)(b"probe")
+            return super().health(context)
+
+    registry = PluginRegistry()
+    registry.register(ConnectedPlugin())
+    report = registry.conformance_report()
+
+    assert report["failures"] == ["fixture.plugin"]
+    assert report["checks"][0]["network_calls"] is True
+    assert report["checks"][0]["network_call_count"] == 1
+    assert report["checks"][0]["status"] == "available"
+    assert report["checks"][0]["passed"] is False
+    native_send.assert_not_called()
+    assert getattr(ConnectedSocket, method) is native_send
 
 
 @pytest.mark.parametrize("text", [

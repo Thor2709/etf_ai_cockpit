@@ -102,8 +102,11 @@ def _scan(root: Path) -> tuple[tuple[BoundaryViolation, ...], tuple[str, ...], i
                     package_start = package_parts.index("etf_cockpit")
                     package = ".".join(package_parts[package_start:])
                     module = resolve_name(module, package)
-                except (ValueError, ImportError):
-                    module = ""
+                except (ValueError, ImportError) as exc:
+                    errors.append(
+                        f"{_safe_text(relative)}:{line}: could not resolve relative import ({type(exc).__name__})"
+                    )
+                    continue
             if module == "etf_cockpit" and imported_name != "*":
                 module = f"{module}.{imported_name}"
             if module in ALLOWED_IMPLEMENTATION_MODULES:

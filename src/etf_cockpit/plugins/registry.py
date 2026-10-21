@@ -274,6 +274,8 @@ def _network_probe() -> Iterator[list[str]]:
     targets = (
         (socket.socket, "connect"),
         (socket.socket, "connect_ex"),
+        (socket.socket, "send"),
+        (socket.socket, "sendall"),
         (socket.socket, "sendto"),
         (socket, "getaddrinfo"),
         (socket, "create_connection"),

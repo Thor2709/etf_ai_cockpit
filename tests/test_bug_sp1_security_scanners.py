@@ -130,6 +130,19 @@ def test_boundary_diagnostics_are_redacted(tmp_path: Path) -> None:  # E024-N001
     assert "hunter2value" not in json.dumps(report)
 
 
+def test_unresolved_relative_import_is_a_sanitised_scan_failure(tmp_path: Path) -> None:
+    _write(tmp_path, "pages/password=hunter2value.py", "from ........data import store\n")
+
+    report = build_report(tmp_path)
+
+    assert report["status"] == "failed"
+    assert report["scanned_file_count"] == 1
+    assert report["violation_count"] == 0
+    assert len(report["errors"]) == 1
+    assert ":1: could not resolve relative import (ImportError)" in report["errors"][0]
+    assert "hunter2value" not in json.dumps(report)
+
+
 # --- E016 -----------------------------------------------------------------------------------------
 
 
@@ -275,6 +288,12 @@ def test_audit_import_reads_the_file_once(tmp_path: Path, monkeypatch: pytest.Mo
         "This note does not recommend automatic execution.",
         "There is no auto trade, and the broker should not act on it.",
         "Never place the order without review.",
+        "Automatic execution is not permitted.",
+        "To execute automatically is not allowed.",
+        "The instruction to place the order is prohibited.",
+        "The instruction to submit order is forbidden.",
+        "Auto trade is never authorised.",
+        "Autotrade must not be enabled.",
     ],
 )
 def test_negated_anti_execution_commentary_is_not_a_banned_phrase(text: str) -> None:  # E016-N006
@@ -288,7 +307,12 @@ def test_negated_anti_execution_commentary_is_not_a_banned_phrase(text: str) -> 
     assert validate_audit_text(json.dumps(audit), set()).review_date == "2026-10-05"
 
 
-@pytest.mark.parametrize("text", ["Please place the order now.", "The broker should buy VWCE.", "Enable automatic execution."])
+@pytest.mark.parametrize("text", [
+    "Please place the order now.", "The broker should buy VWCE.", "Enable automatic execution.",
+    "Automatic execution is not only permitted but encouraged.",
+    "Automatic execution is not prohibited.",
+    "Autotrade must not be disabled.",
+])
 def test_affirmative_execution_commentary_is_still_rejected(text: str) -> None:
     with pytest.raises(AuditImportError, match="automatic trading"):
         validate_audit_text(json.dumps({"overall_view": text}), set())

@@ -23,6 +23,12 @@ BANNED_EXECUTION_PHRASES = (
 _NEGATIONS = frozenset({"no", "not", "never", "without", "cannot", "cant", "dont", "doesnt", "isnt", "wont", "nor", "non"})
 _WORD_RE = re.compile(r"[a-z']+")
 _CLAUSE_BREAK_RE = re.compile(r"[.;:!?\n\"{}\[\],]")
+_PROHIBITIVE_SUFFIX_RE = re.compile(
+    r"^(?:(?:is|are|was|were)\s+(?:(?:not|never)\s+"
+    r"(?:allowed|permitted|recommended|authori[sz]ed|enabled)|prohibited|forbidden|disallowed|banned)"
+    r"|(?:must|shall|should)\s+(?:not|never)\s+be\s+"
+    r"(?:allowed|permitted|recommended|authori[sz]ed|enabled))\b"
+)
 
 
 def _is_negated(lowered: str, start: int, end: int) -> bool:
@@ -41,6 +47,10 @@ def _is_negated(lowered: str, start: int, end: int) -> bool:
     phrase = lowered[start:end]
     after_clause = _CLAUSE_BREAK_RE.split(lowered[end : end + 40])[0]
     after = [word.replace("'", "") for word in _WORD_RE.findall(after_clause)]
+    # Other phrases may be the subject of an explicit prohibition. Do not treat
+    # arbitrary following negation ("not only", "not prohibited") as a denial.
+    if phrase != "broker should" and _PROHIBITIVE_SUFFIX_RE.match(" ".join(after)):
+        return True
     # Following negation must directly govern an action verb. Intervening words
     # such as "hesitate to" or "only" do not establish anti-execution commentary.
     return (
