@@ -169,9 +169,19 @@ def _adjusted_returns(prices: object) -> pd.DataFrame | None:
     frame = prices[[identifier, date_column, price_column]].copy().rename(columns={identifier: "instrument_id", date_column: "date", price_column: "adjusted_close"})
     frame["date"] = pd.to_datetime(frame["date"], errors="coerce")
     frame["adjusted_close"] = pd.to_numeric(frame["adjusted_close"], errors="coerce")
-    frame = frame.dropna(subset=["date", "adjusted_close"]).sort_values(["instrument_id", "date"])
-    frame["adjusted_return"] = frame.groupby("instrument_id", sort=False)["adjusted_close"].pct_change()
+    frame = frame.dropna(subset=["date"]).sort_values(["instrument_id", "date"])
+    # Returns are computed BEFORE unusable prices are dropped: a missing price makes the
+    # next return unavailable (NaN) instead of bridging the gap into a multi-day return.
+    frame.loc[~frame["adjusted_close"].gt(0), "adjusted_close"] = float("nan")
+    frame["adjusted_return"] = frame.groupby("instrument_id", sort=False)["adjusted_close"].pct_change(fill_method=None)
+    frame.loc[frame["adjusted_close"].isna(), "adjusted_return"] = float("nan")
     return frame[["instrument_id", "date", "adjusted_return"]]
+
+
+def adjusted_price_returns(prices: object) -> pd.DataFrame | None:
+    """Per-instrument simple adjusted-price returns without bridging missing prices."""
+
+    return _adjusted_returns(prices)
 
 
 def _scenario_payload(scenario: StressScenario) -> dict[str, object]:
@@ -238,5 +248,6 @@ __all__ = [
     "STRESS_SCENARIO_ENTITY",
     "StressLabFacade",
     "StressLabPersistenceError",
+    "adjusted_price_returns",
     "build_stress_scenario",
 ]
