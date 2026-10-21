@@ -22,7 +22,7 @@ BANNED_EXECUTION_PHRASES = (
 )
 
 
-_CLAUSE_BREAK_RE = re.compile(r"[.;!?\n]")
+_CLAUSE_BREAK_RE = re.compile(r"[.;!?]")
 _EXECUTION_ACTION = (
     r"(?:automatic execution|execute (?:trades )?automatically|place (?:the order|any orders)"
     r"|submit order|auto trade|autotrade)"
@@ -47,8 +47,10 @@ _EXPLICIT_PROHIBITION_RE = re.compile(
 def _recommends_execution(lowered: str) -> str | None:
     # Only complete, explicit prohibition clauses are safe. Unknown qualifiers,
     # indirect negation and mixed instructions fail closed rather than guessing scope.
+    # Line breaks are whitespace within phrases and prohibitions, not clause boundaries.
+    lowered = " ".join(lowered.split())
     for clause in _CLAUSE_BREAK_RE.split(lowered):
-        clause = " ".join(clause.split())
+        clause = clause.strip()
         for phrase in BANNED_EXECUTION_PHRASES:
             if phrase in clause and not _EXPLICIT_PROHIBITION_RE.fullmatch(clause):
                 return phrase

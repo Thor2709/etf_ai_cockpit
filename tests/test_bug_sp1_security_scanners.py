@@ -355,6 +355,28 @@ def test_affirmative_execution_commentary_is_still_rejected(text: str) -> None:
         validate_audit_text(json.dumps({"overall_view": text}), set())
 
 
+@pytest.mark.parametrize(("text", "rejected"), [
+    ("Please place the\norder.", True),
+    ("Automatic\nexecution is recommended.", True),
+    ("Please\tplace \r\n the\torder.", True),
+    ("Automatic execution is not permitted\nbut execute automatically anyway.", True),
+    ("Automatic\nexecution is not permitted.", False),
+    ("Do not\nplace any orders.", False),
+])
+def test_execution_commentary_normalizes_whitespace_before_clause_checks(text: str, rejected: bool) -> None:
+    audit = {
+        "schema_version": "1.0", "review_date": "2026-10-05", "overall_view": "neutral",
+        "portfolio_actions": [],
+        "model_audit": {"toto_usefulness": "n/a", "timesfm_usefulness": "n/a",
+                        "baseline_comparison": text, "overfitting_concerns": []},
+    }
+    if rejected:
+        with pytest.raises(AuditImportError, match="automatic trading"):
+            validate_audit_text(json.dumps(audit), set())
+    else:
+        assert validate_audit_text(json.dumps(audit), set()).review_date == "2026-10-05"
+
+
 def test_execution_commentary_requires_a_whole_clause_prohibition() -> None:
     audit = {
         "schema_version": "1.0", "review_date": "2026-10-05", "overall_view": "neutral",
