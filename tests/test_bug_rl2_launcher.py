@@ -72,7 +72,7 @@ def test_generated_runners_and_launchers_never_expand_errorlevel_inside_blocks()
     assert {name: _errorlevel_inside_blocks(text) for name, text in texts.items()} == {name: [] for name in texts}
 
 
-@pytest.mark.skipif(os.name != "nt", reason="runs the generated cmd runner")
+@pytest.mark.skipif(os.name != "nt", reason="requires Windows: runs the generated cmd runner")
 @pytest.mark.parametrize("code", [7, 0])
 def test_generated_native_runner_propagates_app_exit_code(tmp_path: Path, code: int) -> None:
     runner = _generated("write_native_launcher")
@@ -96,13 +96,23 @@ def test_generated_native_runner_propagates_app_exit_code(tmp_path: Path, code: 
 # E019-N002: build without PyInstaller is not a native success --------------------------------------
 
 
-def test_build_without_native_pack_fails_before_assembling_the_portable_folder() -> None:
+def test_build_without_native_pack_routes_to_the_source_launcher_and_never_claims_a_native_exe() -> None:
+    # RL2 contract: a build without PyInstaller fails OR routes to the source launcher; never reports native success.
+    # GT4 chose the source-launcher route (PyInstaller is not an authorised dependency), so the guard announces it
+    # and the native artefacts are only written when the pack is ready.
     script = _read("scripts/build_windows.bat").replace("\r\n", "\n")
-    guard = re.search(r'if not "!NATIVE_PACK_READY!"=="1" \(\n(?:.*\n)*?\s+exit /b 1\n\)', script)
+    guard = re.search(r'if not "!NATIVE_PACK_READY!"=="1" \(\n(?:.*\n)*?\)\n', script)
     assert guard is not None
+    assert "native EXE not built ^(PyInstaller absent^); portable source launcher only" in guard.group(0)
+    assert "exit /b" not in guard.group(0)
     assert guard.start() < script.index("OUTDIR_FINAL%.staging")
     assert guard.start() < script.index("Portable folder created")
     assert "skipping Flet native pack" not in script
+    assert "requirements-release.txt^)" not in script  # PyInstaller is in no requirements file
+    # The native runner and the build record are conditional on the pack being ready.
+    assert 'if "%NATIVE_PACK_READY%"=="1" (\n  call :write_native_launcher' in script
+    assert '"native_exe": "absent"' in script and '"native_exe": "present"' in script
+    assert script.index('"native_exe": "absent"') > script.index("call :write_source_launcher")
 
 
 # E019-N001: a foreign HTTP 200 is not reused -----------------------------------------------------
