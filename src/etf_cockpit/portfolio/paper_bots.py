@@ -572,7 +572,7 @@ def _published_groups(
     grouped: dict[str, list[dict[str, Any]]] = {}
     unidentified = 0
     history_rows = history.to_dict(orient="records")
-    snapshot_run_ids = _snapshot_run_identities(history_rows)
+    snapshot_run_ids = _snapshot_run_identities(history_rows, cutoff)
     for raw in history_rows:
         run_id = _real_text(raw.get("run_id"))
         if run_id is None:
@@ -600,11 +600,18 @@ def _published_groups(
     return tuple(output), None, tuple(warnings)
 
 
-def _snapshot_run_identities(rows: list[dict[str, Any]]) -> dict[str, set[str | None]]:
-    """Retain cross-run snapshot bindings before callers partition the history."""
+def _snapshot_run_identities(rows: list[dict[str, Any]], cutoff: datetime) -> dict[str, set[str | None]]:
+    """Retain cross-run snapshot bindings from rows verifiably known by the cutoff.
+
+    Rows later than the cutoff or with an unverifiable known_at are not
+    evidence at the decision time, so future history cannot alter an earlier run.
+    """
 
     owners: dict[str, set[str | None]] = {}
     for row in rows:
+        known_at = _parse_timestamp(row.get("run_completed_at"))
+        if known_at is None or known_at > cutoff:
+            continue
         snapshot_hash = _real_text(row.get("snapshot_hash"))
         if snapshot_hash is not None:
             owners.setdefault(snapshot_hash, set()).add(_real_text(row.get("run_id")))

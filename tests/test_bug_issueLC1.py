@@ -133,3 +133,38 @@ def test_noncanonical_benchmark_only_blocks_fixed_benchmark_allocations(monkeypa
         if item["bot_family"] in {"B0", "B2"}:
             assert item["status"] == "unavailable" and not item["targets"]
             assert "no_canonical_score" in item["reason"]
+
+
+@pytest.mark.parametrize("lane", ["live", "replay"])
+def test_future_history_cannot_invalidate_an_earlier_valid_run(monkeypatch, tmp_path, lane):
+    rows = _rows(_NOW - timedelta(minutes=5))
+    future = _rows(_NOW + timedelta(hours=1), run_id="future-run")  # Same snapshot hash, known after the cutoff.
+    later_unverifiable = _rows(_NOW - timedelta(minutes=1), run_id="unverifiable-run")
+    for row in later_unverifiable:
+        row["run_completed_at"] = None
+    history = [*rows, *future, *later_unverifiable]
+    assert bots._snapshot_run_identities(history, _NOW) == {"a" * 64: {"score-run"}}
+    group, error = bots._validate_run(
+        "score-run", rows, _NOW, snapshot_run_ids=bots._snapshot_run_identities(history, _NOW),
+    )
+    assert error is None and group is not None
+    if lane == "live":
+        board = _scoreboard(rows, _NOW)
+        board["instrument_id"] = board["instrument_id"].str.strip()
+        board["research_promotion_allowed"] = board["instrument_id"].isin({"AAA", "BBB"})
+        result = _run_fixture(monkeypatch, tmp_path, history, board, _NOW, binding_rows=rows)
+        decisions = list(result.records)
+    else:
+        track = execution.replay_track(tmp_path, _exec_config())
+        _allow(tmp_path, track)
+        result = run_historical_replay(
+            _NOW, root=tmp_path, history=pd.DataFrame(_history_with_columns(history)),
+            price_book=_book(known_at=_NOW), now=_NOW,
+        )
+        with TransactionalStore(track.store_root, read_only=True) as store:
+            decisions = [dict(item.payload) for item in store.list(track.decision_type)]
+    assert result.status in {"available", "partial"}, (result.reason, result.warnings)
+    assert decisions and all(item["status"] == "available" for item in decisions)
+    # A conflicting owner that is already known by the cutoff still fails closed.
+    prior = _rows(_NOW - timedelta(minutes=2), run_id="prior-run")
+    assert bots._snapshot_run_identities([*rows, *prior], _NOW)["a" * 64] == {"score-run", "prior-run"}

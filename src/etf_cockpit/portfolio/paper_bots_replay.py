@@ -70,7 +70,7 @@ def _write_replay_decisions(
         return
     grouped: dict[str, list[dict[str, Any]]] = {}
     history_rows = history.to_dict(orient="records")
-    snapshot_run_ids = bots._snapshot_run_identities(history_rows)
+    snapshot_run_ids = bots._snapshot_run_identities(history_rows, cutoff)
     for row in history_rows:
         run_id = bots._real_text(row.get("run_id"))
         if run_id is not None:
