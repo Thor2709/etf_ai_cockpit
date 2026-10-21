@@ -520,7 +520,7 @@ def test_build_snapshot_wires_available_reference_evidence_through_restart_and_s
         monkeypatch.setattr(
             module,
             "load_holdings",
-            lambda: pd.DataFrame([
+            lambda **_kwargs: pd.DataFrame([
             {"etf_id": "VWCE", "current_weight": 0.4, "market_value_eur": 40_000.0, "as_of_date": "2026-07-18", "known_at": "2026-07-18T12:00:00Z"},
         ]),
         )
@@ -626,7 +626,7 @@ def test_build_snapshot_no_trade_rejects_excluded_holdings_in_source_frame(monke
         monkeypatch.setattr(
             module,
             "load_holdings",
-            lambda: pd.DataFrame([
+            lambda **_kwargs: pd.DataFrame([
             {"etf_id": "VWCE", "current_weight": 0.4, "market_value_eur": 40_000.0, "as_of_date": "2026-07-18", "known_at": "2026-07-18T12:00:00Z"},
             {"etf_id": "OUTSIDE", "current_weight": 0.3, "market_value_eur": 30_000.0, "as_of_date": "2026-07-18", "known_at": "2026-07-18T12:00:00Z"},
         ]),

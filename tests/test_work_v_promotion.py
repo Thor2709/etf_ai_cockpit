@@ -35,6 +35,7 @@ def _checkpoint_settings(tmp_path, model_name="timesfm3"):
     return {model_name: {"model_path": str(checkpoint)}}
 
 
+@pytest.mark.usefixtures("synthetic_sample_opt_in")
 @pytest.mark.parametrize("enabled", [False, True])
 @pytest.mark.parametrize("shadow", [False, True])
 def test_enabled_and_shadow_flags_fail_closed(tmp_path, monkeypatch, enabled, shadow):

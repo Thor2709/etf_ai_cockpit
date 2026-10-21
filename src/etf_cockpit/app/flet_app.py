@@ -338,9 +338,9 @@ def _sweep_decrypted_backup_temp() -> None:
     """Remove decrypted-backup temp directories a crashed earlier process left behind."""
 
     try:
-        from etf_cockpit.data.backup_restore import sweep_stale_plaintext_temp
+        from etf_cockpit.application.backup_maintenance import sweep_decrypted_backup_temp
 
-        removed = sweep_stale_plaintext_temp(max_age_seconds=_STARTUP_PLAINTEXT_SWEEP_AGE_SECONDS)
+        removed = sweep_decrypted_backup_temp(max_age_seconds=_STARTUP_PLAINTEXT_SWEEP_AGE_SECONDS)
         if removed:
             _startup_log(f"removed {removed} stale decrypted backup temp director{'y' if removed == 1 else 'ies'}")
     except Exception:

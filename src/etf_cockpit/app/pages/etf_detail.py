@@ -211,7 +211,7 @@ def _etf_score_panel(snapshot: object, instrument_id: str) -> ft.Control:
     score = next((row for row in snapshot_scores(snapshot) if row.display_id == instrument_id), None)
     if score is None or score.final_score_10 is None:
         reason = score.one_line_reason if score is not None else "Identity/routing: the instrument is absent from the canonical score list."
-        return unavailable_card("Evidence score", reason)
+        return unavailable_card("Evidence score", reason, key="instrument-detail.evidence-score")
     return metric_card(
         "Evidence score", f"{score.final_score_10:.1f}/10",
         f"Coverage {score.score_coverage:.1%}; missing: {', '.join(score.missing_components) or 'none'}",

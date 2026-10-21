@@ -130,6 +130,22 @@ def test_source_dashboard_refresh_analyse_score_and_export_journey(tmp_path: Pat
             return ProviderResult("yfinance", "etf_holdings", "unavailable", "No synthetic holdings fixture.")
 
     monkeypatch.setattr(data_service, "YFinanceProvider", OfflineYFinance)
+    # The refresh also runs the ETF source chain and the stock-fundamentals fetch; both reach the live network
+    # and write the worker's shared data/ (polluting later tests such as test_etf_completion). Keep it offline.
+    from etf_cockpit.data import etf_e1_fetch
+
+    offline_calls: list[str] = []
+
+    def offline_e1(*_args, **_kwargs):
+        offline_calls.append("etf_e1")
+        return [], []
+
+    def offline_stock_fundamentals(*_args, **_kwargs):
+        offline_calls.append("stock_fundamentals")
+        return "Stock fundamentals offline fixture."
+
+    monkeypatch.setattr(etf_e1_fetch, "fetch_etf_e1_reference_data", offline_e1)
+    monkeypatch.setattr(data_service, "_refresh_stock_fundamentals", offline_stock_fundamentals)
     monkeypatch.setattr(trade_candidate_analysis, "YFinanceProvider", OfflineYFinance)
     monkeypatch.setattr(DataService, "_reference_context", lambda _self: {
         "known_etfs": [], "isin_to_etf_id": {}, "ticker_to_etf_id": {}
@@ -208,6 +224,7 @@ def test_source_dashboard_refresh_analyse_score_and_export_journey(tmp_path: Pat
         time.sleep(0.01)
 
     assert events == ["refresh", "analyse", "score:/signals", "report/export"]
+    assert sorted(offline_calls) == ["etf_e1", "stock_fundamentals"]  # the patch targets are the ones the refresh really calls
     assert (tmp_path / "clean" / "prices.parquet").is_file()
     report_path = next((tmp_path / "reports").glob("yfinance_trade_candidate_analysis_*.csv"))
     scores = pd.read_csv(report_path)

@@ -617,6 +617,25 @@ class SimpleInstrumentScore:
         eligible_keys = {component.key for component in self.components if component.score_eligible}
         return tuple(key for key, weight in weights.items() if weight > 0 and key not in eligible_keys)
 
+    @property
+    def unavailable_risk_terms(self) -> tuple[str, ...]:
+        """Risk-role terms (e.g. FPQ etf_exposure) with no usable value.
+
+        They carry no headline weight, so they never lower headline coverage; this keeps the gap explicit.
+        """
+
+        return tuple(
+            component.key for component in self.components if component.score_role == "risk_friction" and not component.score_eligible
+        )
+
+    @property
+    def unavailable_risk_terms_reason(self) -> str:
+        return " | ".join(
+            f"{component.key}: {component.why}"
+            for component in self.components
+            if component.score_role == "risk_friction" and not component.score_eligible
+        )
+
 
 @dataclass(frozen=True)
 class SimpleScoreGroup:
@@ -1438,6 +1457,8 @@ def simple_scoreboard_frame(
             "final_combined_score_10": score.final_score_10,
             "coverage": score.score_coverage,
             "missing_components": "|".join(score.missing_components),
+            "risk_terms_unavailable": "|".join(score.unavailable_risk_terms),
+            "risk_terms_unavailable_reason": score.unavailable_risk_terms_reason,
             "identity_conflict_reason": score.identity_conflict_reason,
             "model_authority_label": score.model_authority_label,
             "model_readiness": score.model_readiness,
