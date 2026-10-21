@@ -213,13 +213,15 @@ def build_benchmark_attribution_lookup(
         return {}
     frame["date"] = pd.to_datetime(frame["date"], errors="coerce")
     frame["adjusted_close"] = pd.to_numeric(frame["adjusted_close"], errors="coerce")
-    pivot = frame.dropna(subset=["date", "adjusted_close"]).pivot(index="date", columns="etf_id", values="adjusted_close").sort_index()
+    clean_prices, conflicted_ids = _sanitise_price_rows(frame)
+    pivot = clean_prices.pivot(index="date", columns="etf_id", values="adjusted_close").sort_index()
+    attribution_ids = [*pivot.columns, *sorted(conflicted_ids - set(pivot.columns))]
     if pivot.shape[1] < 2:
         return {
             str(item): _unavailable_attribution(
-                str(item), window, "not enough clean instruments", reference
+                str(item), window, _conflict_or(item, conflicted_ids, "not enough clean instruments"), reference
             )
-            for item in pivot.columns
+            for item in attribution_ids
         }
     benchmark_id = validate_benchmark_reference(
         benchmark_reference, benchmark_id, registry=benchmark_registry
@@ -227,20 +229,39 @@ def build_benchmark_attribution_lookup(
     if benchmark_id is None or benchmark_id not in pivot.columns:
         return {
             str(item): _unavailable_attribution(
-                str(item), window, "canonical benchmark/cash resolution is unavailable", reference
+                str(item),
+                window,
+                _conflict_or(item, conflicted_ids, "canonical benchmark/cash resolution is unavailable"),
+                reference,
             )
-            for item in pivot.columns
+            for item in attribution_ids
         }
     returns = pivot.pct_change(fill_method=None).dropna(how="all")
     benchmark_returns = returns[benchmark_id].dropna()
     output: dict[str, dict[str, object]] = {}
     metadata = metadata or {}
-    for instrument_id in pivot.columns:
+    for instrument_id in attribution_ids:
         instrument = str(instrument_id)
+        if instrument in conflicted_ids:
+            output[instrument] = _unavailable_attribution(
+                instrument, window, _CONFLICT_REASON, reference
+            )
+            continue
         series = returns[instrument_id].dropna()
         joined = pd.concat([series, benchmark_returns], axis=1, join="inner").dropna()
         joined.columns = ["instrument", "benchmark"]
         sample = joined.tail(window)
+        coverage, coverage_observations = _source_return_coverage(series, benchmark_returns, window)
+        if coverage is not None and coverage < MIN_SOURCE_RETURN_COVERAGE:
+            output[instrument] = _unavailable_attribution(
+                instrument,
+                window,
+                f"source-return coverage {coverage:.0%} is below the {MIN_SOURCE_RETURN_COVERAGE:.0%} minimum",
+                reference,
+            )
+            output[instrument]["source_return_coverage"] = round(coverage, 4)
+            output[instrument]["source_return_observations"] = coverage_observations
+            continue
         if len(sample) < max(60, window // 2):
             output[instrument] = {
                 "status": "N/A",
@@ -311,12 +332,58 @@ def build_benchmark_attribution_lookup(
             "theme_attribution_status": theme_result.get("theme_attribution_status", "N/A"),
             "theme_sample_size": theme_result.get("theme_sample_size", 0),
             "sample_size": len(sample),
+            "source_return_coverage": None if coverage is None else round(coverage, 4),
+            "source_return_observations": coverage_observations,
             "as_of": sample.index.max().date().isoformat() if len(sample) else None,
             "source_dataset": "adjusted_price_returns",
             "benchmark_reference": reference,
             "execution_allowed": False,
         }
     return output
+
+
+# Conservative default: an instrument missing more than 20% of the benchmark sessions it should
+# cover (after its first clean return in the window) is not attributed.
+MIN_SOURCE_RETURN_COVERAGE = 0.8
+
+
+_CONFLICT_REASON = "conflicting duplicate price rows for the same date"
+
+
+def _conflict_or(item: object, conflicted_ids: set[str], reason: str) -> str:
+    return _CONFLICT_REASON if str(item) in conflicted_ids else reason
+
+
+def _sanitise_price_rows(frame: pd.DataFrame) -> tuple[pd.DataFrame, set[str]]:
+    """Drop invalid price rows and collapse duplicates; instruments with conflicting duplicates are returned.
+
+    Non-finite or non-positive adjusted closes are treated as missing (never as a price), so an invalid
+    row cannot reach the pivot or the return arithmetic. Identical duplicate (instrument, date) rows
+    collapse; differing ones make that instrument unavailable instead of picking a value.
+    """
+
+    valid = frame.dropna(subset=["date", "adjusted_close"])
+    valid = valid[np.isfinite(valid["adjusted_close"]) & (valid["adjusted_close"] > 0)]
+    keys = ["etf_id", "date"]
+    spread = valid.groupby(keys, sort=False)["adjusted_close"].nunique()
+    conflicted = {str(key[0]) for key in spread[spread > 1].index}
+    valid = valid[~valid["etf_id"].astype(str).isin(conflicted)]
+    return valid.drop_duplicates(subset=keys, keep="first"), conflicted
+
+
+def _source_return_coverage(
+    instrument_returns: pd.Series,
+    benchmark_returns: pd.Series,
+    window: int,
+) -> tuple[float | None, int]:
+    """Share of the window's benchmark sessions (from the instrument's first clean return) with an instrument return."""
+
+    window_dates = benchmark_returns.index[-window:]
+    present = instrument_returns.index.intersection(window_dates)
+    if len(present) == 0:
+        return None, 0
+    expected = window_dates[window_dates >= present.min()]
+    return len(present) / len(expected), int(len(expected))
 
 
 def write_market_regime(regime: dict[str, object], directory: Path = DERIVED_DIR) -> tuple[Path, Path]:
@@ -406,6 +473,8 @@ def _unavailable_attribution(
         "theme_attribution_status": "N/A",
         "theme_sample_size": 0,
         "sample_size": 0,
+        "source_return_coverage": None,
+        "source_return_observations": 0,
         "as_of": None,
         "source_dataset": "adjusted_price_returns",
         "benchmark_reference": dict(benchmark_reference or _unavailable_reference()),

@@ -27,6 +27,7 @@ from etf_cockpit.backtest.event_engine import (
 )
 from etf_cockpit.backtest.metrics import performance_metrics
 from etf_cockpit.core.config import load_config
+from etf_cockpit.core.types import ComponentScores, SignalResult
 from etf_cockpit.data.market_calendar import ListingCalendarEvidence
 
 UTC = timezone.utc
@@ -207,6 +208,36 @@ def test_c017_n002_signals_see_drifted_holdings_not_the_stale_target(monkeypatch
     held = seen[0].set_index("etf_id")["current_weight"]
     assert float(held[ids[1]]) == pytest.approx(float(drifted[1]), rel=1e-6)
     assert float(held[ids[1]]) != pytest.approx(float(target[1]), rel=1e-3)
+
+
+def test_c020_n001_real_sell_signal_exits_in_run_backtest_and_cash_is_kept(monkeypatch) -> None:
+    config = load_config()
+    ids = config.universe.enabled_ids[:2]
+    seen: list[pd.Series] = []
+    components = ComponentScores(*([0.0] * 12))
+
+    def fake_generate_signals(_config, _latest, holdings, *_args, **_kwargs):
+        seen.append(holdings.set_index("etf_id")["current_weight"].copy())
+        if len(seen) > 1:
+            return []
+        # advisory_action publishes a sell as trim_candidate with suggested_new_weight == 0.
+        return [
+            SignalResult(
+                run_id="r", signal_date=date(2024, 12, 1), etf_id=ids[1], action="trim_candidate",
+                confidence=0.5, total_score=1.0, components=components, blocked_by=[], warnings=[],
+                reason_short="", reason_long="", horizon_primary="1y", suggested_new_weight=0.0,
+            )
+        ]
+
+    monkeypatch.setattr(engine_module, "generate_signals", fake_generate_signals)
+    run_backtest(config, _two_asset_prices(ids, doubling_at=10_000), rebalance_frequency_days=10, transaction_cost_bps=0)
+
+    assert len(seen) >= 2
+    assert float(seen[0][ids[1]]) == pytest.approx(0.5)
+    after = seen[1]
+    assert float(after[ids[1]]) == pytest.approx(0.0)  # an exit, not a 2% trim
+    assert float(after[ids[0]]) == pytest.approx(0.5)  # no pro-rata re-spread: the freed 50% stays cash
+    assert float(after.sum()) == pytest.approx(0.5)
 
 
 def test_c017_n001_zero_target_fallback_is_recorded_not_silent() -> None:

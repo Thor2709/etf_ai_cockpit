@@ -8,6 +8,9 @@ import pandas as pd
 
 from etf_cockpit.features.cash_comparison import validate_cash_comparison_result
 
+# Conservative default: clean observations must cover at least 80% of the dates both sources report.
+MIN_SOURCE_RETURN_COVERAGE = 0.8
+
 
 @dataclass(frozen=True)
 class AttributionResult:
@@ -76,6 +79,7 @@ class AttributionResult:
     cash_decision_time: str | None = None
     cash_knowledge_cutoff: str | None = None
     inflation_context: object = None
+    source_return_coverage: float | None = None
 
     @property
     def broad_return(self) -> float | None:
@@ -122,6 +126,22 @@ def build_benchmark_attribution(
                     expected_instrument_id=instrument_id,
                 ),
             )
+    cash = _cash_fields(
+        cash_comparison,
+        expected_currency=instrument_currency,
+        expected_instrument_id=instrument_id,
+    )
+    for label, supplied in (
+        ("instrument", instrument_returns),
+        ("broad", broad_returns),
+        ("sector", sector_returns),
+        ("theme", theme_returns),
+    ):
+        if supplied is not None and _has_non_simple_returns(supplied):
+            return _unavailable(
+                f"The {label} series holds values that are not simple period returns (at or below -100%).",
+                cash_fields=cash,
+            )
     broad_frame = pd.concat(
         [
             _clean_series(instrument_returns, "instrument"),
@@ -130,11 +150,13 @@ def build_benchmark_attribution(
         axis=1,
         join="inner",
     ).dropna()
-    cash = _cash_fields(
-        cash_comparison,
-        expected_currency=instrument_currency,
-        expected_instrument_id=instrument_id,
-    )
+    coverage = _source_coverage(instrument_returns, broad_returns, len(broad_frame))
+    if coverage is not None and coverage < MIN_SOURCE_RETURN_COVERAGE:
+        return _unavailable(
+            f"Source-return coverage {coverage:.0%} is below the {MIN_SOURCE_RETURN_COVERAGE:.0%} minimum: "
+            "too many shared dates hold missing or non-finite returns.",
+            cash_fields=cash,
+        )
     if len(broad_frame) < 2:
         return _unavailable(
             "Fewer than two clean overlapping instrument/broad return observations are available.",
@@ -215,6 +237,7 @@ def build_benchmark_attribution(
         as_of=as_of,
         status="available",
         reason="Broad benchmark attribution computed from overlapping clean returns.",
+        source_return_coverage=coverage,
         **cash,
     )
 
@@ -235,6 +258,25 @@ def _has_conflicting_duplicates(series: object) -> bool:
     values = pd.to_numeric(series, errors="coerce")
     grouped = values.groupby(level=0, sort=False)
     return bool((grouped.nunique(dropna=False) > 1).any())
+
+
+def _has_non_simple_returns(series: object) -> bool:
+    """A finite value at or below -100% cannot be a simple period return (mixed metric, price or percent units)."""
+
+    if not isinstance(series, pd.Series):
+        return False
+    values = pd.to_numeric(series, errors="coerce")
+    finite = values[values.map(lambda value: isinstance(value, float) and isfinite(value))]
+    return bool((finite <= -1.0).any())
+
+
+def _source_coverage(instrument: object, broad: object, clean_overlap: int) -> float | None:
+    """Clean overlapping observations over the dates both sources report (None when they share none)."""
+
+    if not isinstance(instrument, pd.Series) or not isinstance(broad, pd.Series):
+        return None
+    shared = instrument.index.drop_duplicates().intersection(broad.index.drop_duplicates())
+    return None if len(shared) == 0 else min(1.0, clean_overlap / len(shared))
 
 
 def _compound(series: pd.Series) -> float | None:

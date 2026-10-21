@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timezone
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -19,6 +20,8 @@ from etf_cockpit.backtest.event_engine import (
 )
 from etf_cockpit.data.market_calendar import ListingCalendarEvidence
 from etf_cockpit.features.benchmark_attribution import build_benchmark_attribution
+from etf_cockpit.features.regime import build_benchmark_attribution_lookup
+from tests.test_evidence_derivatives import _available_reference, _available_registry
 
 UTC = timezone.utc
 
@@ -107,3 +110,87 @@ def test_c112_n004_duplicate_date_attribution_join_is_safe() -> None:
     result = build_benchmark_attribution(conflicting, broad)
     assert result.status == "unavailable"
     assert "duplicate dates" in result.reason
+
+
+def _lookup_prices(periods: int = 140, drop_alt: slice | None = None) -> pd.DataFrame:
+    rng = np.random.default_rng(7)
+    dates = pd.bdate_range("2025-01-01", periods=periods)
+    rows = []
+    for instrument_id in ("BENCH", "ALT"):
+        closes = 100.0 * np.cumprod(1 + rng.normal(0.0004, 0.01, periods))
+        rows.extend({"date": dt, "etf_id": instrument_id, "adjusted_close": float(px)} for dt, px in zip(dates, closes))
+    frame = pd.DataFrame(rows)
+    if drop_alt is not None:
+        alt = frame.index[frame["etf_id"] == "ALT"][drop_alt]
+        frame = frame.drop(alt)
+    return frame
+
+
+def _lookup(prices: pd.DataFrame) -> dict[str, dict[str, object]]:
+    return build_benchmark_attribution_lookup(
+        prices, window=120, benchmark_id="BENCH", benchmark_reference=_available_reference(),
+        benchmark_registry=_available_registry(),
+    )
+
+
+def test_c112_n001_non_simple_return_metrics_are_not_mixed() -> None:
+    index = pd.bdate_range("2026-01-01", periods=10)
+    broad = pd.Series(np.linspace(0.001, 0.01, 10), index=index)
+    simple = pd.Series(np.linspace(0.002, 0.02, 10), index=index)
+    assert build_benchmark_attribution(simple, broad).status == "available"
+
+    mixed = simple.copy()
+    mixed.iloc[4] = -1.5  # a log/percent/price-style value inside a simple-return series
+    result = build_benchmark_attribution(mixed, broad)
+    assert result.status == "unavailable"
+    assert result.instrument_return is None
+    assert "not simple period returns" in result.reason
+
+
+def test_c112_n002_source_return_coverage_counts_in_confidence() -> None:
+    index = pd.bdate_range("2026-01-01", periods=20)
+    broad = pd.Series(np.linspace(0.001, 0.02, 20), index=index)
+    full = pd.Series(np.linspace(0.002, 0.03, 20), index=index)
+    ok = build_benchmark_attribution(full, broad)
+    assert ok.status == "available" and ok.source_return_coverage == 1.0
+
+    holes = full.copy()
+    holes.iloc[[2, 4, 6, 8, 10, 12, 14, 16]] = np.nan  # 40% of shared dates carry no clean return
+    result = build_benchmark_attribution(holes, broad)
+    assert result.status == "unavailable" and "coverage" in result.reason
+
+    prices = _lookup_prices()
+    assert _lookup(prices)["ALT"]["source_return_coverage"] == 1.0
+    gappy = _lookup_prices(drop_alt=slice(60, 130, 2))
+    row = _lookup(gappy)["ALT"]
+    assert row["status"] == "N/A" and row["instrument_return"] is None
+    assert row["source_return_coverage"] is not None and row["source_return_coverage"] < 0.8
+    assert "coverage" in row["label"]
+
+
+def test_c112_n003_future_invalid_rows_do_not_break_as_of_replay() -> None:
+    prices = _lookup_prices()
+    cutoff = prices["date"].max() - pd.Timedelta(days=20)
+    known = prices[prices["date"] <= cutoff]
+    expected = _lookup(known)["ALT"]
+    assert expected["status"] == "available"
+
+    junk = pd.DataFrame(
+        [
+            {"date": cutoff + pd.Timedelta(days=3), "etf_id": "ALT", "adjusted_close": 0.0},
+            {"date": cutoff + pd.Timedelta(days=5), "etf_id": "ALT", "adjusted_close": -3.0},
+            {"date": cutoff + pd.Timedelta(days=6), "etf_id": "ALT", "adjusted_close": float("inf")},
+            {"date": "not-a-date", "etf_id": "ALT", "adjusted_close": 5.0},
+            {"date": cutoff + pd.Timedelta(days=4), "etf_id": "BENCH", "adjusted_close": float("nan")},
+        ]
+    )
+    noisy = pd.concat([known, junk], ignore_index=True)
+    assert _lookup(noisy)["ALT"] == expected
+
+    # An invalid row inside the replay window is treated as missing, never as a price or a crash.
+    inside = pd.concat(
+        [known, pd.DataFrame([{"date": known["date"].iloc[5], "etf_id": "ALT", "adjusted_close": 99.0}])],
+        ignore_index=True,
+    )
+    row = _lookup(inside)["ALT"]
+    assert row["status"] == "N/A" and "conflicting duplicate" in row["label"]
