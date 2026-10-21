@@ -18,13 +18,15 @@ UPGRADE_CONFIGS = (
 )
 
 
-def _bundled_configs() -> Path:
-    # Source and portable layouts keep configs beside src, or above app/src.
+def _bundled_default(name: str, owner_configs: Path) -> Path:
+    # Source and portable layouts keep pristine configs beside src, or in app/configs of a portable
+    # package. The owner's own configs folder is never its own source of defaults.
+    owner = owner_configs.resolve()
     for parent in Path(__file__).resolve().parents:
         candidate = parent / "configs"
-        if all((candidate / name).is_file() for name in UPGRADE_CONFIGS):
-            return candidate
-    raise FileNotFoundError("The application bundle lacks the required upgrade configs")
+        if candidate.resolve() != owner and (candidate / name).is_file():
+            return candidate / name
+    raise FileNotFoundError(f"The application bundle lacks the required upgrade config: {name}")
 
 
 def ensure_install_defaults(root: Path) -> tuple[Path, ...]:
@@ -33,7 +35,7 @@ def ensure_install_defaults(root: Path) -> tuple[Path, ...]:
                     if not (root / "configs" / name).exists())
     if not missing:
         return ()
-    bundled = _bundled_configs()
+    sources = {path: _bundled_default(path.name, root / "configs") for path in missing}
 
     def validate(path: Path) -> None:
         if not isinstance(yaml.safe_load(path.read_text(encoding="utf-8")), dict):
@@ -43,7 +45,7 @@ def ensure_install_defaults(root: Path) -> tuple[Path, ...]:
         if any(path.exists() for path in missing):
             raise FileExistsError("An upgrade config appeared during startup; retry without overwriting it")
 
-    requests = tuple(AtomicWriteRequest(path, (bundled / path.name).read_bytes(), validate)
+    requests = tuple(AtomicWriteRequest(path, sources[path].read_bytes(), validate)
                      for path in missing)
     atomic_write_group(requests, precondition=still_missing)
     return missing

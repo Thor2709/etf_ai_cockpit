@@ -7,16 +7,20 @@ heartbeats without losing the DAG or publishing a partial result.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from enum import StrEnum
 import hashlib
+from itertools import islice
 import json
 import math
 import os
 from pathlib import Path
+import re
 import socket
+import threading
 import uuid
 
 from etf_cockpit.core.resource_profiles import (
@@ -129,6 +133,16 @@ class JobContext:
     checkpoint: Callable[[Mapping[str, object]], None]
     heartbeat: Callable[[], None]
     is_cancel_requested: Callable[[], bool]
+    lease_generation: int = 0
+
+
+_MAX_CLAIM_CANDIDATES = 500
+_TRUNCATION_KEY = "__truncated__"
+_ITEM_LIMIT = 100
+_REDACTED = "***redacted***"
+_SENSITIVE_KEY_WORDS = frozenset(
+    {"password", "passwd", "passphrase", "secret", "token", "apikey", "credential", "credentials", "authorization", "cookie", "bearer"}
+)
 
 
 class DurableJobScheduler:
@@ -156,6 +170,7 @@ class DurableJobScheduler:
         self.worker_id = worker_id or f"{socket.gethostname()}:{os.getpid()}:{uuid.uuid4().hex[:8]}"
         self.lease_seconds = int(lease_seconds)
         self.event_logger = event_logger
+        self._local = threading.local()
         self.resource_policy = resource_policy or ResourcePolicy(self.root, requested_profile=resource_profile)
         concurrency_limit = min(
             self.resource_policy.profile.job_cpu_limit,
@@ -179,6 +194,7 @@ class DurableJobScheduler:
     ) -> WorkflowRecord:
         specs = _normalise_specs(jobs)
         workflow_type = _safe_name(workflow_type, "workflow_type")
+        declared_specs = specs  # machine-estimated default resources must not change workflow identity
         specs = _with_default_resources(
             specs,
             estimate_workflow_resources(
@@ -190,8 +206,9 @@ class DurableJobScheduler:
         label = _redact(str(label))
         encoded_inputs = _bounded_json(input_payload)
         input_hash = _hash_text(encoded_inputs)
+        spec_hash = _spec_hash(declared_specs)
         resolved_dedupe = _safe_name(
-            dedupe_key or _hash_text(json.dumps([workflow_type, input_hash], separators=(",", ":"))),
+            dedupe_key or _hash_text(json.dumps([workflow_type, spec_hash, input_hash], separators=(",", ":"))),
             "dedupe_key",
         )
         resolved_workflow_id = _safe_name(workflow_id or f"wf_{uuid.uuid4().hex}", "workflow_id")
@@ -199,13 +216,20 @@ class DurableJobScheduler:
         resources = _resource_summary(specs)
 
         with TransactionalStore(self.root) as store:
-            with store.transaction() as connection:
+            with self._transaction(store) as connection:
                 existing = connection.execute(
-                    "SELECT workflow_id FROM workflow_runs WHERE dedupe_key = ? ORDER BY created_at DESC LIMIT 1",
+                    "SELECT workflow_id, workflow_type, input_hash FROM workflow_runs WHERE dedupe_key = ? ORDER BY created_at DESC LIMIT 1",
                     (resolved_dedupe,),
                 ).fetchone()
                 if existing is not None:
+                    self._require_same_workflow(connection, existing, workflow_type, input_hash, spec_hash, resolved_dedupe)
                     return self.get_workflow(str(existing[0]))  # type: ignore[return-value]
+                new_job_ids = [f"{resolved_workflow_id}:{spec.key}" for spec in specs]
+                marks = ",".join("?" for _ in new_job_ids)
+                if connection.execute(
+                    f"SELECT 1 FROM durable_jobs WHERE job_id IN ({marks}) LIMIT 1", new_job_ids
+                ).fetchone() is not None:
+                    raise JobGraphError("Composite job identifiers would collide with an existing workflow's jobs")
                 connection.execute(
                     """
                     INSERT INTO workflow_runs
@@ -258,7 +282,12 @@ class DurableJobScheduler:
                     None,
                     "workflow_queued",
                     JobStatus.QUEUED,
-                    {"workflow_type": workflow_type, "job_count": len(specs), "dedupe_key": resolved_dedupe},
+                    {
+                        "workflow_type": workflow_type,
+                        "job_count": len(specs),
+                        "dedupe_key": resolved_dedupe,
+                        "spec_hash": spec_hash,
+                    },
                     created_at,
                 )
                 for spec in specs:
@@ -275,7 +304,7 @@ class DurableJobScheduler:
 
     def claim_next(self, workflow_id: str | None = None) -> JobRecord | None:
         with TransactionalStore(self.root) as store:
-            with store.transaction() as connection:
+            with self._transaction(store) as connection:
                 self._block_unrunnable(connection)
                 running = int(
                     connection.execute("SELECT COUNT(*) FROM durable_jobs WHERE status = 'running'").fetchone()[0]
@@ -284,90 +313,99 @@ class DurableJobScheduler:
                     return None
                 workflow_filter = "" if workflow_id is None else "AND job.workflow_id = ?"
                 workflow_parameters = () if workflow_id is None else (workflow_id,)
-                row = connection.execute(
-                    f"""
-                    SELECT job_id, workflow_id FROM durable_jobs AS job
-                    WHERE job.status = 'queued'
-                      {workflow_filter}
-                      AND NOT EXISTS (
-                          SELECT 1 FROM durable_job_dependencies AS dependency
-                          JOIN durable_jobs AS prerequisite ON prerequisite.job_id = dependency.dependency_job_id
-                          WHERE dependency.job_id = job.job_id AND prerequisite.status <> 'succeeded'
-                      )
-                    ORDER BY job.created_at, job.job_id
-                    LIMIT 1
-                    """,
-                    workflow_parameters,
-                ).fetchone()
-                if row is None:
-                    return None
-                resource_row = connection.execute("SELECT resource_json FROM durable_jobs WHERE job_id = ?", (str(row["job_id"]),)).fetchone()
-                try:
-                    resources = json.loads(str(resource_row[0])) if resource_row else {}
-                    if not isinstance(resources, dict):
-                        raise ValueError("resource declaration must be an object")
-                    resource_decision = self.resource_policy.evaluate(resources)
-                except (TypeError, ValueError):
-                    resources = {}
-                    resource_decision = ResourceDecision(
-                        "blocked",
-                        "unknown",
-                        ("resource declaration is corrupt or not an object",),
-                    )
-                if resource_decision.status == "blocked":
-                    now = _utc_now()
-                    message = "; ".join(resource_decision.reasons) or "Local resource policy blocked this job."
-                    fingerprint = _hash_text(message)[:16]
-                    connection.execute(
-                        "UPDATE durable_jobs SET status = 'blocked', finished_at = ?, error_message = ?, error_fingerprint = ? WHERE job_id = ? AND status = 'queued'",
-                        (now, message, fingerprint, str(row["job_id"])),
-                    )
-                    self._append_event(
-                        connection,
-                        str(row["workflow_id"]),
-                        str(row["job_id"]),
-                        "job_blocked_resource_limit",
-                        JobStatus.BLOCKED,
-                        {"resources": resources, "decision": resource_decision.to_dict()},
-                        now,
-                    )
-                    self._block_unrunnable(connection)
-                    self._refresh_workflow(connection, str(row["workflow_id"]), now)
-                    return None
-                try:
-                    aggregate_resources = _aggregate_resource_reservation(
-                        connection,
-                        resources,
-                        profile_id=self.resource_policy.profile_id,
-                    )
-                    aggregate_decision = self.resource_policy.evaluate(aggregate_resources)
-                except (TypeError, ValueError):
-                    # A running reservation can only become malformed through
-                    # external database corruption. Fail closed until lease
-                    # recovery or an operator repair makes the state readable.
-                    return None
-                if aggregate_decision.status == "blocked":
-                    now = _utc_now()
-                    already_recorded = connection.execute(
-                        "SELECT 1 FROM durable_job_events WHERE job_id = ? AND event_type = 'job_resource_wait' LIMIT 1",
-                        (str(row["job_id"]),),
+                # A job waiting for aggregate resources must not starve smaller queued jobs behind it.
+                skipped: list[str] = []
+                while True:
+                    if len(skipped) >= _MAX_CLAIM_CANDIDATES:
+                        return None
+                    exclusion = f"AND job.job_id NOT IN ({','.join('?' for _ in skipped)})" if skipped else ""
+                    row = connection.execute(
+                        f"""
+                        SELECT job_id, workflow_id FROM durable_jobs AS job
+                        WHERE job.status = 'queued'
+                          {workflow_filter}
+                          {exclusion}
+                          AND NOT EXISTS (
+                              SELECT 1 FROM durable_job_dependencies AS dependency
+                              JOIN durable_jobs AS prerequisite ON prerequisite.job_id = dependency.dependency_job_id
+                              WHERE dependency.job_id = job.job_id AND prerequisite.status <> 'succeeded'
+                          )
+                        ORDER BY job.created_at, job.job_id
+                        LIMIT 1
+                        """,
+                        (*workflow_parameters, *skipped),
                     ).fetchone()
-                    if already_recorded is None:
+                    if row is None:
+                        return None
+                    skipped.append(str(row["job_id"]))
+                    resource_row = connection.execute("SELECT resource_json FROM durable_jobs WHERE job_id = ?", (str(row["job_id"]),)).fetchone()
+                    try:
+                        resources = json.loads(str(resource_row[0])) if resource_row else {}
+                        if not isinstance(resources, dict):
+                            raise ValueError("resource declaration must be an object")
+                        resource_decision = self.resource_policy.evaluate(resources)
+                    except (TypeError, ValueError):
+                        resources = {}
+                        resource_decision = ResourceDecision(
+                            "blocked",
+                            "unknown",
+                            ("resource declaration is corrupt or not an object",),
+                        )
+                    if resource_decision.status == "blocked":
+                        now = _utc_now()
+                        message = "; ".join(resource_decision.reasons) or "Local resource policy blocked this job."
+                        fingerprint = _hash_text(message)[:16]
+                        connection.execute(
+                            "UPDATE durable_jobs SET status = 'blocked', finished_at = ?, error_message = ?, error_fingerprint = ? WHERE job_id = ? AND status = 'queued'",
+                            (now, message, fingerprint, str(row["job_id"])),
+                        )
                         self._append_event(
                             connection,
                             str(row["workflow_id"]),
                             str(row["job_id"]),
-                            "job_resource_wait",
-                            JobStatus.QUEUED,
-                            {
-                                "reason": "aggregate running-job reservation exceeds the safe profile limit",
-                                "resources": resources,
-                                "aggregate_resources": aggregate_resources,
-                                "decision": aggregate_decision.to_dict(),
-                            },
+                            "job_blocked_resource_limit",
+                            JobStatus.BLOCKED,
+                            {"resources": resources, "decision": resource_decision.to_dict()},
                             now,
                         )
-                    return None
+                        self._block_unrunnable(connection)
+                        self._refresh_workflow(connection, str(row["workflow_id"]), now)
+                        continue
+                    try:
+                        aggregate_resources = _aggregate_resource_reservation(
+                            connection,
+                            resources,
+                            profile_id=self.resource_policy.profile_id,
+                        )
+                        aggregate_decision = self.resource_policy.evaluate(aggregate_resources)
+                    except (TypeError, ValueError):
+                        # A running reservation can only become malformed through
+                        # external database corruption. Fail closed until lease
+                        # recovery or an operator repair makes the state readable.
+                        return None
+                    if aggregate_decision.status == "blocked":
+                        now = _utc_now()
+                        already_recorded = connection.execute(
+                            "SELECT 1 FROM durable_job_events WHERE job_id = ? AND event_type = 'job_resource_wait' LIMIT 1",
+                            (str(row["job_id"]),),
+                        ).fetchone()
+                        if already_recorded is None:
+                            self._append_event(
+                                connection,
+                                str(row["workflow_id"]),
+                                str(row["job_id"]),
+                                "job_resource_wait",
+                                JobStatus.QUEUED,
+                                {
+                                    "reason": "aggregate running-job reservation exceeds the safe profile limit",
+                                    "resources": resources,
+                                    "aggregate_resources": aggregate_resources,
+                                    "decision": aggregate_decision.to_dict(),
+                                },
+                                now,
+                            )
+                        continue
+                    break
                 now = _utc_now()
                 if resource_decision.status == "warning" or aggregate_decision.status == "warning":
                     self._append_event(
@@ -407,11 +445,11 @@ class DurableJobScheduler:
                 job_id = str(row[0])
             return self.get_job(job_id)
 
-    def heartbeat(self, job_id: str) -> JobRecord:
+    def heartbeat(self, job_id: str, *, lease_generation: int | None = None) -> JobRecord:
         now = _utc_now()
         with TransactionalStore(self.root) as store:
-            with store.transaction() as connection:
-                row = self._running_owned(connection, job_id)
+            with self._transaction(store) as connection:
+                row = self._running_owned(connection, job_id, lease_generation)
                 lease_expires = _utc_after(self.lease_seconds)
                 connection.execute(
                     "UPDATE durable_jobs SET heartbeat_at = ?, lease_expires_at = ? WHERE job_id = ?",
@@ -428,12 +466,12 @@ class DurableJobScheduler:
                 )
             return self.get_job(job_id)  # type: ignore[return-value]
 
-    def checkpoint(self, job_id: str, checkpoint: Mapping[str, object]) -> JobRecord:
+    def checkpoint(self, job_id: str, checkpoint: Mapping[str, object], *, lease_generation: int | None = None) -> JobRecord:
         payload = _bounded_json(checkpoint)
         now = _utc_now()
         with TransactionalStore(self.root) as store:
-            with store.transaction() as connection:
-                row = self._running_owned(connection, job_id)
+            with self._transaction(store) as connection:
+                row = self._running_owned(connection, job_id, lease_generation)
                 connection.execute("UPDATE durable_jobs SET checkpoint_json = ? WHERE job_id = ?", (payload, job_id))
                 self._append_event(
                     connection,
@@ -446,12 +484,12 @@ class DurableJobScheduler:
                 )
             return self.get_job(job_id)  # type: ignore[return-value]
 
-    def complete(self, job_id: str, outputs: object = None) -> JobRecord:
+    def complete(self, job_id: str, outputs: object = None, *, lease_generation: int | None = None) -> JobRecord:
         safe_outputs = _safe_outputs(outputs)
         now = _utc_now()
         with TransactionalStore(self.root) as store:
-            with store.transaction() as connection:
-                row = self._running_owned(connection, job_id)
+            with self._transaction(store) as connection:
+                row = self._running_owned(connection, job_id, lease_generation)
                 if int(row["cancel_requested"]):
                     raise JobStateError("cancelled jobs cannot publish outputs")
                 connection.execute(
@@ -477,13 +515,20 @@ class DurableJobScheduler:
                 self._refresh_workflow(connection, workflow_id, now)
             return self.get_job(job_id)  # type: ignore[return-value]
 
-    def fail(self, job_id: str, error: BaseException | str, *, retryable: bool = False) -> JobRecord:
+    def fail(
+        self,
+        job_id: str,
+        error: BaseException | str,
+        *,
+        retryable: bool = False,
+        lease_generation: int | None = None,
+    ) -> JobRecord:
         message = _redact(f"{type(error).__name__}: {error}" if isinstance(error, BaseException) else str(error))
         fingerprint = _hash_text(message)[:16]
         now = _utc_now()
         with TransactionalStore(self.root) as store:
-            with store.transaction() as connection:
-                row = self._running_owned(connection, job_id)
+            with self._transaction(store) as connection:
+                row = self._running_owned(connection, job_id, lease_generation)
                 workflow_id = str(row["workflow_id"])
                 next_retry = int(row["retry_count"]) + 1
                 should_retry = bool(retryable) and next_retry <= int(row["max_retries"])
@@ -515,7 +560,7 @@ class DurableJobScheduler:
         safe_message = _redact(message)
         now = _utc_now()
         with TransactionalStore(self.root) as store:
-            with store.transaction() as connection:
+            with self._transaction(store) as connection:
                 query = "SELECT * FROM durable_jobs WHERE workflow_id = ? AND status IN ('queued', 'running')"
                 params: tuple[object, ...] = (workflow_id,)
                 if job_id is not None:
@@ -550,7 +595,7 @@ class DurableJobScheduler:
         now = _utc_now()
         recovered: list[str] = []
         with TransactionalStore(self.root) as store:
-            with store.transaction() as connection:
+            with self._transaction(store) as connection:
                 rows = connection.execute(
                     "SELECT * FROM durable_jobs WHERE status = 'running' AND lease_expires_at IS NOT NULL AND lease_expires_at < ?",
                     (now,),
@@ -596,22 +641,43 @@ class DurableJobScheduler:
         job = self.claim_next() if workflow_id is None else self.claim_next(workflow_id=workflow_id)
         if job is None:
             return None
+        generation = job.retry_count
         context = JobContext(
             job_id=job.job_id,
             workflow_id=job.workflow_id,
-            checkpoint=lambda value: self.checkpoint(job.job_id, value),
-            heartbeat=lambda: self.heartbeat(job.job_id),
+            checkpoint=lambda value: self.checkpoint(job.job_id, value, lease_generation=generation),
+            heartbeat=lambda: self.heartbeat(job.job_id, lease_generation=generation),
             is_cancel_requested=lambda: bool(self.get_job(job.job_id) and self.get_job(job.job_id).cancel_requested),
+            lease_generation=generation,
         )
         try:
             self.resource_policy.require_allowed(dict(job.resources))
             output = handler(context)
-            if context.is_cancel_requested():
-                self.cancel(job.workflow_id, job_id=job.job_id)
-            else:
-                self.complete(job.job_id, output)
+            failure: BaseException | None = None
         except Exception as exc:
-            self.fail(job.job_id, exc, retryable=isinstance(exc, (TimeoutError, OSError, ConnectionError)))
+            output, failure = None, exc
+        # A cancel or lease recovery may commit while the handler runs.  The durable state is authoritative then:
+        # the handler's result is discarded instead of raising or overriding the newer transition.
+        try:
+            if failure is None:
+                try:
+                    if context.is_cancel_requested():
+                        self.cancel(job.workflow_id, job_id=job.job_id)
+                    else:
+                        self.complete(job.job_id, output, lease_generation=generation)
+                except JobStateError:
+                    raise
+                except Exception as exc:
+                    failure = exc
+            if failure is not None:
+                self.fail(
+                    job.job_id,
+                    failure,
+                    retryable=isinstance(failure, (TimeoutError, OSError, ConnectionError)),
+                    lease_generation=generation,
+                )
+        except JobStateError:
+            pass
         return self.get_job(job.job_id)
 
     def get_workflow(self, workflow_id: str) -> WorkflowRecord | None:
@@ -678,7 +744,7 @@ class DurableJobScheduler:
             previous = event.event_hash
         return True
 
-    def _running_owned(self, connection, job_id: str):
+    def _running_owned(self, connection, job_id: str, lease_generation: int | None = None):
         row = connection.execute("SELECT * FROM durable_jobs WHERE job_id = ?", (job_id,)).fetchone()
         if row is None:
             raise JobStateError(f"Unknown job: {job_id}")
@@ -686,7 +752,53 @@ class DurableJobScheduler:
             raise JobStateError(f"Job {job_id} is not running")
         if row["lease_owner"] != self.worker_id:
             raise JobStateError(f"Job {job_id} is leased by another worker")
+        # retry_count increases on every lease recovery or retry, so it fences a stale handler that
+        # still holds an older claim of the same job (even when the same worker id re-claimed it).
+        if lease_generation is not None and int(row["retry_count"]) != int(lease_generation):
+            raise JobStateError(f"Job {job_id} lease generation changed; the stale handler result is rejected")
         return row
+
+    @contextmanager
+    def _transaction(self, store: TransactionalStore) -> Iterator[object]:
+        """Run one transaction; external event callbacks fire only after it commits."""
+
+        previous = getattr(self._local, "pending", None)
+        pending: list[dict[str, object]] = []
+        self._local.pending = pending
+        try:
+            with store.transaction() as connection:
+                yield connection
+        finally:
+            self._local.pending = previous
+        if self.event_logger is not None:
+            for payload in pending:
+                try:
+                    self.event_logger(payload)
+                except Exception:
+                    pass
+
+    def _require_same_workflow(self, connection, existing, workflow_type: str, input_hash: str, spec_hash: str, dedupe_key: str) -> None:
+        """Fail closed when a reused dedupe key names a different workflow type, input or job specification."""
+
+        stored_spec = None
+        queued = connection.execute(
+            "SELECT payload_json FROM durable_job_events WHERE workflow_id = ? AND event_type = 'workflow_queued' ORDER BY event_id LIMIT 1",
+            (str(existing[0]),),
+        ).fetchone()
+        if queued is not None:
+            try:
+                stored_spec = json.loads(str(queued[0])).get("spec_hash")
+            except (TypeError, ValueError, AttributeError):
+                stored_spec = None
+        # Workflows queued before spec hashes were recorded keep the legacy type+input comparison.
+        if (
+            str(existing[1]) != workflow_type
+            or str(existing[2]) != input_hash
+            or (stored_spec is not None and stored_spec != spec_hash)
+        ):
+            raise JobSchedulerError(
+                f"dedupe_key {dedupe_key!r} is already used by a workflow with a different type, input or job specification"
+            )
 
     def _block_unrunnable(self, connection) -> None:
         changed = True
@@ -726,10 +838,11 @@ class DurableJobScheduler:
         if not rows:
             return
         statuses = [JobStatus(str(row["status"])) for row in rows]
-        if any(status is JobStatus.FAILED for status in statuses):
-            status = JobStatus.FAILED
-        elif any(status in {JobStatus.QUEUED, JobStatus.RUNNING} for status in statuses):
+        if any(status in {JobStatus.QUEUED, JobStatus.RUNNING} for status in statuses):
+            # Unfinished independent siblings keep the workflow active (and cancellable) even after a failure.
             status = JobStatus.RUNNING if any(item is JobStatus.RUNNING for item in statuses) else JobStatus.QUEUED
+        elif any(status is JobStatus.FAILED for status in statuses):
+            status = JobStatus.FAILED
         elif all(status is JobStatus.SUCCEEDED for status in statuses):
             status = JobStatus.SUCCEEDED
         elif all(status is JobStatus.CANCELLED for status in statuses):
@@ -782,10 +895,10 @@ class DurableJobScheduler:
             (workflow_id, job_id, event_type, status.value, occurred_at, _bounded_json(safe_payload), previous_hash, event_hash),
         )
         if self.event_logger is not None:
-            try:
-                self.event_logger({**unsigned, "event_hash": event_hash})
-            except Exception:
-                pass
+            pending = getattr(self._local, "pending", None)
+            if pending is None:
+                raise JobStateError("scheduler events must be appended inside a transaction")
+            pending.append({**unsigned, "event_hash": event_hash})
 
 
 def _normalise_specs(jobs: Iterable[JobSpec]) -> tuple[JobSpec, ...]:
@@ -979,11 +1092,19 @@ def _safe_outputs(outputs: object) -> object:
     if outputs is None:
         return []
     if isinstance(outputs, Mapping):
-        return {str(key): _redact_value(value) for key, value in list(outputs.items())[:100]}
+        return _redact_value(outputs)
     if isinstance(outputs, (str, Path)):
         return [_redact(str(outputs))[:512]]
     if isinstance(outputs, Iterable):
-        return [_redact(str(value))[:512] for value in list(outputs)[:100]]
+        # Never materialise more than one element past the cap: generators may be unbounded.
+        items = list(islice(iter(outputs), _ITEM_LIMIT + 1))
+        safe = [
+            _redact_value(value) if isinstance(value, (Mapping, list, tuple, set)) else _redact(str(value))[:512]
+            for value in items[:_ITEM_LIMIT]
+        ]
+        if len(items) > _ITEM_LIMIT:
+            safe.append({_TRUNCATION_KEY: {"limit": _ITEM_LIMIT, "total": "unknown", "sha256": "unavailable"}})
+        return safe
     return _redact_value(outputs)
 
 
@@ -994,11 +1115,68 @@ def _bounded_json(value: object, limit: int = 16_384) -> str:
     return encoded
 
 
+def _spec_hash(specs: Iterable[JobSpec]) -> str:
+    """Hash the job DAG (keys, dependencies, retries, declared resources and per-job inputs)."""
+
+    canonical = sorted(
+        (
+            spec.key,
+            sorted(spec.dependencies),
+            int(spec.max_retries),
+            _validate_resources(spec.resources),
+            _hash_text(_bounded_json(spec.input_payload)),
+        )
+        for spec in specs
+    )
+    return _hash_text(json.dumps(canonical, sort_keys=True, separators=(",", ":"), default=str))
+
+
+def _sensitive_key(key: object) -> bool:
+    spaced = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", str(key)).casefold()
+    words = [word for word in re.split(r"[^a-z0-9]+", spaced) if word]
+    if any(word in _SENSITIVE_KEY_WORDS for word in words):
+        return True
+    return any(pair in {("api", "key"), ("private", "key"), ("access", "key"), ("secret", "key")} for pair in zip(words, words[1:]))
+
+
+def _truncation_marker(total: int, digest_source: object) -> dict[str, object]:
+    encoded = json.dumps(digest_source, sort_keys=True, separators=(",", ":"), ensure_ascii=True, default=str)
+    return {"limit": _ITEM_LIMIT, "total": total, "sha256": _hash_text(encoded)}
+
+
+def _redact_entry(key: str, item: object) -> object:
+    if _sensitive_key(key) and item not in (None, "", [], {}):
+        return _REDACTED
+    return _redact_value(item)
+
+
 def _redact_value(value: object) -> object:
     if isinstance(value, Mapping):
-        return {str(key): _redact_value(item) for key, item in list(value.items())[:100]}
+        entries = [(str(key), item) for key, item in value.items()]
+        marker = None
+        for index, (key, item) in enumerate(entries):  # already bounded once (key order is not stable): keep the digest
+            if key == _TRUNCATION_KEY:
+                marker = item
+                del entries[index]
+                break
+        result = {key: _redact_entry(key, item) for key, item in entries[:_ITEM_LIMIT]}
+        if len(entries) > _ITEM_LIMIT:
+            full = {key: _redact_entry(key, item) for key, item in entries}
+            result[_TRUNCATION_KEY] = _truncation_marker(len(entries), full)
+        elif marker is not None:
+            result[_TRUNCATION_KEY] = marker
+        return result
     if isinstance(value, (list, tuple, set)):
-        return [_redact_value(item) for item in list(value)[:100]]
+        items = sorted(value, key=str) if isinstance(value, set) else list(value)
+        marker_item = None
+        if items and isinstance(items[-1], Mapping) and set(items[-1]) == {_TRUNCATION_KEY}:
+            marker_item = items.pop()
+        result_list = [_redact_value(item) for item in items[:_ITEM_LIMIT]]
+        if len(items) > _ITEM_LIMIT:
+            result_list.append({_TRUNCATION_KEY: _truncation_marker(len(items), [_redact_value(item) for item in items])})
+        elif marker_item is not None:
+            result_list.append(dict(marker_item))
+        return result_list
     if isinstance(value, str):
         return _redact(value)
     return value
