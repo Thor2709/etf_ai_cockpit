@@ -98,12 +98,20 @@ def run_stress_scenario(
     factor_exposures: pd.DataFrame | None = None,
     historical_returns: pd.DataFrame | None = None,
     notional: float = 100_000.0,
+    base_currency: str = "EUR",
 ) -> StressResult:
-    """Run a hypothetical or dated historical scenario with reconciliation."""
+    """Run a hypothetical or dated historical scenario with reconciliation.
+
+    ``base_currency`` is the reporting currency: an ``fx`` shock applies to exposure
+    denominated in any other currency unless the row is hedged (``currency_hedged`` /
+    ``hedge_ratio``).  A scenario with no applicable shock for a holding leaves that
+    holding uncovered (``partial``/``unavailable``), never a zero-PnL ``available``.
+    """
 
     if notional <= 0 or not math.isfinite(float(notional)):
         raise StressScenarioError("notional must be finite and greater than zero.")
     frame = _allocation(allocation)
+    base = str(base_currency or "").strip().upper()
     history_warnings: tuple[str, ...] = ()
     if scenario.historical_date:
         frame, history_warnings = _apply_historical_shock(frame, historical_returns, scenario.historical_date)
@@ -113,6 +121,7 @@ def run_stress_scenario(
     instrument_rows: list[dict[str, object]] = []
     factor_totals: dict[str, float] = {}
     missing: list[str] = []
+    assumed_unhedged = False
     for row in frame.to_dict("records"):
         instrument_id = str(row["instrument_id"])
         weight = float(row["weight"])
@@ -126,10 +135,13 @@ def run_stress_scenario(
             components = {}
             source = "historical_adjusted_return_unavailable"
         else:
-            common_components = _common_shock_components(scenario.shocks, row)
+            applicable = _applicable_shocks(scenario.shocks, row, base)
+            common_components = _common_shock_components(scenario.shocks, row, base)
             shock = math.fsum(common_components.values())
             components = dict(common_components)
             source = "hypothetical_explicit_shock"
+            assumed_unhedged = assumed_unhedged or ("fx" in applicable and _hedge_ratio(row) is None)
+        applied_factor = False
         for component, value in components.items():
             factor_totals[component] = factor_totals.get(component, 0.0) + weight * notional * value
         for factor, exposure in exposures.get(instrument_id, {}).items():
@@ -137,9 +149,14 @@ def run_stress_scenario(
             if shock_name is not None:
                 value = exposure * scenario.shocks[shock_name]
                 shock += value
-                components[shock_name] = value
+                components[shock_name] = components.get(shock_name, 0.0) + value
+                applied_factor = True
                 factor_totals[shock_name] = factor_totals.get(shock_name, 0.0) + weight * notional * value
-        if not components and (scenario.historical_date or not any(name in scenario.shocks for name in SHOCK_NAMES)):
+        if scenario.historical_date:
+            covered = bool(components)
+        else:
+            covered = bool(applicable) or applied_factor
+        if not covered:
             missing.append(instrument_id)
         residual_return = shock - math.fsum(components.values())
         residual_pnl = weight * notional * residual_return
@@ -155,9 +172,11 @@ def run_stress_scenario(
     limitations = ["Scenario PnL is not a probability forecast.", "Nonlinear derivatives, taxes and transaction impact beyond the explicit liquidity cost are not modelled."]
     if missing:
         limitations.append("Some instruments have no applicable shock or factor coverage.")
+    if assumed_unhedged:
+        limitations.append("Currency hedge status is not supplied for some foreign-currency exposure; it is stressed as unhedged.")
     limitations.extend(history_warnings)
-    coverage = {"status": "partial" if missing else "available", "instrument_count": len(instrument_rows), "covered_instruments": len(instrument_rows) - len(missing), "missing_instruments": sorted(missing), "factor_coverage": len(exposures)}
     status = "unavailable" if len(missing) == len(instrument_rows) else "partial" if missing else "available"
+    coverage = {"status": status, "instrument_count": len(instrument_rows), "covered_instruments": len(instrument_rows) - len(missing), "missing_instruments": sorted(missing), "factor_coverage": len(exposures)}
     return StressResult(scenario, status, total, tuple(instrument_rows), factor_rows, coverage, tuple(limitations))
 
 
@@ -170,6 +189,7 @@ def reverse_stress(
     notional: float = 100_000.0,
     upper_bound: float = 5.0,
     iterations: int = 48,
+    base_currency: str = "EUR",
 ) -> dict[str, object]:
     """Find the smallest shock magnitude that breaches a loss limit."""
 
@@ -182,8 +202,8 @@ def reverse_stress(
     baseline = StressScenario("reverse-stress", "Reverse stress", {shock_name: 0.0})
     shock_direction = 1.0 if shock_name == "liquidity" else -1.0
 
-    def breached(magnitude: float) -> bool:
-        result = run_stress_scenario(
+    def run(magnitude: float) -> StressResult:
+        return run_stress_scenario(
             StressScenario(
                 baseline.scenario_id,
                 baseline.name,
@@ -193,10 +213,18 @@ def reverse_stress(
             allocation,
             factor_exposures=factor_exposures,
             notional=notional,
+            base_currency=base_currency,
         )
+
+    def breached(magnitude: float) -> bool:
+        result = run(magnitude)
         return result.total_pnl is not None and result.total_pnl <= -loss_limit
 
-    if not breached(upper_bound):
+    probe = run(upper_bound)
+    if probe.total_pnl is None:
+        # No PnL at all (no applicable exposure / unavailable stress) is not "limit never reached".
+        return {"status": "unavailable", "reason": "stress_unavailable: no holding has an applicable exposure to this shock", "shock_name": shock_name, "threshold": None, "loss_limit": loss_limit, "binding_exposure": None, "execution_allowed": False}
+    if probe.total_pnl > -loss_limit:
         return {"status": "not_reached", "shock_name": shock_name, "threshold": None, "loss_limit": loss_limit, "binding_exposure": None, "execution_allowed": False}
     low, high = 0.0, upper_bound
     for _ in range(iterations):
@@ -205,7 +233,7 @@ def reverse_stress(
             high = midpoint
         else:
             low = midpoint
-    exposure = _binding_exposure(allocation, shock_name, factor_exposures)
+    exposure = _binding_exposure(allocation, shock_name, factor_exposures, base_currency)
     return {"status": "available", "shock_name": shock_name, "threshold": high, "loss_limit": loss_limit, "binding_exposure": exposure, "execution_allowed": False}
 
 
@@ -218,7 +246,7 @@ def _allocation(frame: pd.DataFrame | None) -> pd.DataFrame:
     if identifier is None or weight is None:
         return pd.DataFrame(columns=["instrument_id", "weight"])
     selected = ["instrument_id", "weight"]
-    for optional in ("asset_class", "currency"):
+    for optional in ("asset_class", "currency", "currency_hedged", "hedge_ratio"):
         if optional in result.columns:
             selected.append(optional)
     result = result.rename(columns={identifier: "instrument_id", weight: "weight"})[selected].copy()
@@ -301,19 +329,45 @@ def _apply_historical_shock(
     return result, tuple(f"conflicting_history:{instrument_id}" for instrument_id in sorted(conflicting))
 
 
-def _common_shock_components(shocks: Mapping[str, float], row: Mapping[str, object]) -> dict[str, float]:
+def _hedge_ratio(row: Mapping[str, object]) -> float | None:
+    """Fraction of foreign-currency exposure hedged back to base; None when not supplied."""
+
+    flag = row.get("currency_hedged")
+    if pd.api.types.is_bool(flag):
+        return 1.0 if flag else 0.0
+    ratio = _finite(row.get("hedge_ratio"))
+    return None if ratio is None else min(1.0, max(0.0, ratio))
+
+
+def _applicable_shocks(shocks: Mapping[str, float], row: Mapping[str, object], base_currency: str = "EUR") -> dict[str, float]:
+    """Scenario shocks that apply to this holding, scaled by hedge; zero-valued shocks stay applicable."""
+
     asset_class = str(row.get("asset_class", "equity")).casefold()
-    components: dict[str, float] = {}
-    if asset_class in {"equity", "stock", "etf"}:
-        components["equity"] = shocks.get("equity", 0.0)
+    applicable: dict[str, float] = {}
+    if asset_class in {"equity", "stock", "etf"} and "equity" in shocks:
+        applicable["equity"] = shocks["equity"]
     if asset_class in {"credit", "bond", "fixed_income"}:
-        components["rates"] = shocks.get("rates", 0.0)
-        components["credit"] = shocks.get("credit", 0.0)
-    if asset_class in {"fx", "currency"}:
-        components["fx"] = shocks.get("fx", 0.0)
-    if asset_class in {"commodity", "commodities"}:
-        components["commodity"] = shocks.get("commodity", 0.0)
-    return {name: value for name, value in components.items() if value}
+        for name in ("rates", "credit"):
+            if name in shocks:
+                applicable[name] = shocks[name]
+    if "fx" in shocks:
+        if asset_class in {"fx", "currency"}:
+            applicable["fx"] = shocks["fx"]
+        else:
+            currency = str(row.get("currency") or "").strip().upper()
+            unhedged = 1.0 - (_hedge_ratio(row) or 0.0)
+            if currency and base_currency and currency != base_currency and unhedged > 0:
+                applicable["fx"] = shocks["fx"] * unhedged
+    if asset_class in {"commodity", "commodities"} and "commodity" in shocks:
+        applicable["commodity"] = shocks["commodity"]
+    if "liquidity" in shocks:
+        applicable["liquidity"] = shocks["liquidity"]
+    return applicable
+
+
+def _common_shock_components(shocks: Mapping[str, float], row: Mapping[str, object], base_currency: str = "EUR") -> dict[str, float]:
+    # Liquidity is a cost applied separately, never a return component.
+    return {name: value for name, value in _applicable_shocks(shocks, row, base_currency).items() if value and name != "liquidity"}
 
 
 def _scenario_factor_name(factor: object, shocks: Mapping[str, float]) -> str | None:
@@ -322,7 +376,7 @@ def _scenario_factor_name(factor: object, shocks: Mapping[str, float]) -> str | 
     return next((candidate for candidate in candidates if candidate in shocks), None)
 
 
-def _binding_exposure(allocation: pd.DataFrame, shock_name: str, exposures: pd.DataFrame | None) -> dict[str, object] | None:
+def _binding_exposure(allocation: pd.DataFrame, shock_name: str, exposures: pd.DataFrame | None, base_currency: str = "EUR") -> dict[str, object] | None:
     frame = _allocation(allocation)
     if frame.empty:
         return None
@@ -339,7 +393,7 @@ def _binding_exposure(allocation: pd.DataFrame, shock_name: str, exposures: pd.D
                 continue
             exposure = float(row["weight"]) * float(value)
         else:
-            exposure = float(row["weight"]) if _common_shock_components({shock_name: 1.0}, row) else 0.0
+            exposure = float(row["weight"]) if _common_shock_components({shock_name: 1.0}, row, base_currency) else 0.0
         if exposure:
             candidates.append({"instrument_id": instrument_id, "exposure": exposure, "absolute_exposure": abs(exposure)})
     if not candidates:
