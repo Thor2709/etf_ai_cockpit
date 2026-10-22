@@ -15,7 +15,8 @@ REPO = Path(__file__).resolve().parents[2]
 FIXTURE_DIR = REPO / "tests" / "fixtures" / "refactor_parity"
 REFRESH_ENV = "ETF_REFRESH_REFACTOR_GOLDENS"
 CAPTURE_SCRIPT = Path(__file__).with_name("_capture.py")
-CAPTURE_TIMEOUT_SECONDS = 600
+# The integrated sample backtest alone takes 5-9 minutes unloaded; leave headroom for parallel workers.
+CAPTURE_TIMEOUT_SECONDS = 2400
 
 _PRIVATE_DIRECTORIES = ("configs", "data", "artifacts", "logs", "exports", "backups")
 # Never linked into the capture root: weights (availability must not depend on the developer machine),

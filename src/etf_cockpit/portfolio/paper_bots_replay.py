@@ -69,14 +69,16 @@ def _write_replay_decisions(
         warnings.append("Stored score history lacks the snapshot lineage fields; nothing can be replayed.")
         return
     grouped: dict[str, list[dict[str, Any]]] = {}
-    for row in history.to_dict(orient="records"):
+    history_rows = history.to_dict(orient="records")
+    snapshot_run_ids = bots._snapshot_run_identities(history_rows, cutoff)
+    for row in history_rows:
         run_id = bots._real_text(row.get("run_id"))
         if run_id is not None:
             grouped.setdefault(run_id, []).append(row)
     groups: list[bots._PublishedGroup] = []
     skipped = 0
     for run_id, rows in grouped.items():
-        group, error = bots._validate_run(run_id, rows, cutoff)
+        group, error = bots._validate_run(run_id, rows, cutoff, snapshot_run_ids=snapshot_run_ids)
         if group is None:
             skipped += 1 if error else 0
             continue

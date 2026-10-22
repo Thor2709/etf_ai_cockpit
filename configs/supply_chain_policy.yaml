@@ -2,6 +2,7 @@ schema_version: "1.0"
 policy_version: "2026-07-17"
 vulnerability_tool: pip-audit
 dependency_lock: requirements-release.txt
+parser_dependency_lock: requirements-release-parsers.txt
 critical_vulnerabilities: block
 unclassified_vulnerabilities: block
 missing_license_metadata: block
@@ -9,7 +10,58 @@ secret_scan: tracked-source
 signature_algorithm: HMAC-SHA256
 signing_key_env: ETF_COCKPIT_RELEASE_SIGNING_KEY
 update_mode: offline-only
-approved_mitigations: []
+# Each mitigation must name id, package, version and an ISO expires_on date; anything less never exempts.
+# 2026-10-21: Pillow 12.3.0 advisories fixed only in Pillow 13.0.0, which needs arelle-release 2.47.0
+# (released 2026-10-21, inside dependency_cooldown_days). Compensating control: the Arelle validation child
+# decodes only ESEF image formats (parsers/esef_ixbrl._restrict_image_decoders). Upgrade arelle-release
+# and pillow after the cooldown and remove these entries; they expire on their own on 2026-10-30.
+approved_mitigations:
+  - id: CVE-2026-112895
+    package: pillow
+    version: "12.3.0"
+    expires_on: "2026-10-30"
+    reason: "PDF append parser recursion: the application never appends to PDFs"
+  - id: CVE-2026-112400
+    package: pillow
+    version: "12.3.0"
+    expires_on: "2026-10-30"
+    reason: "GIF seek DoS: only reachable in the bounded (8 s) spawned Arelle child"
+  - id: CVE-2026-112397
+    package: pillow
+    version: "12.3.0"
+    expires_on: "2026-10-30"
+    reason: "PPM/PGM zero width: PPM decoder removed in the Arelle child"
+  - id: CVE-2026-112896
+    package: pillow
+    version: "12.3.0"
+    expires_on: "2026-10-30"
+    reason: "TIFF save OOB read: TIFF decoder removed in the Arelle child; no TIFF save"
+  - id: CVE-2026-112897
+    package: pillow
+    version: "12.3.0"
+    expires_on: "2026-10-30"
+    reason: "TIFF JPEG strips: TIFF decoder removed in the Arelle child"
+  - id: CVE-2026-112395
+    package: pillow
+    version: "12.3.0"
+    expires_on: "2026-10-30"
+    reason: "TIFF tile decode: TIFF decoder removed in the Arelle child"
+  - id: CVE-2026-112404
+    package: pillow
+    version: "12.3.0"
+    expires_on: "2026-10-30"
+    reason: "TIFF tile/RGBA OOB read: TIFF decoder removed in the Arelle child"
+  - id: CVE-2026-112899
+    package: pillow
+    version: "12.3.0"
+    expires_on: "2026-10-30"
+    reason: "EPS Ghostscript bomb: EPS decoder removed in the Arelle child"
+# Intake failures that are advisory while owner approval of the registry is pending; every other intake
+# failure blocks the scan. Remove an entry once the corresponding approval exists.
+advisory_intake_exceptions:
+  - supply-chain registry review status is not approved
+  - one or more supply-chain components are not approved
+  - detached intake signature status is missing
 dependency_cooldown_days: 7
 emergency_patch_window_hours: 24
 end_of_life_policy: block

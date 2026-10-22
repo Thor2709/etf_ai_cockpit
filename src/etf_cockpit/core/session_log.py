@@ -35,7 +35,7 @@ SECRET_KEY_RE = re.compile(
 )
 _SECRET_VALUE_RE = re.compile(
     r"(?ix)"
-    r"(?P<key>api[_-]?key|access[_-]?token|client[_-]?secret|token|secret|password|passwd|authorization|bearer)"
+    r"(?P<key>api[_-]?key|private[_-]?key|signing[_-]?key|refresh[_-]?token|access[_-]?token|client[_-]?secret|credential|token|secret|password|passwd|authorization|bearer)"
     r"(?P<separator>\s*['\"]?\s*[=:]\s*)(?P<quote>['\"]?)(?P<scheme>bearer\s+)?"
     r"(?P<value>[^'\"\s,;}\]]+)"
 )
@@ -204,15 +204,17 @@ def log_exception(
 
 def read_session_events(limit: int = 100) -> list[dict[str, Any]]:
     try:
-        if not SESSION_LOG_PATH.exists():
+        if limit <= 0 or not SESSION_LOG_PATH.exists():  # lines[-0:] would return the whole log
             return []
         lines = SESSION_LOG_PATH.read_text(encoding="utf-8", errors="replace").splitlines()
         events: list[dict[str, Any]] = []
         for line in lines[-limit:]:
             try:
-                events.append(json.loads(line))
+                row = json.loads(line)
             except Exception:
                 continue
+            if isinstance(row, dict):
+                events.append(row)
         return events
     except Exception:
         return []

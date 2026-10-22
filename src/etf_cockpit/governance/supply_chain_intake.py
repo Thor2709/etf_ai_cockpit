@@ -165,6 +165,21 @@ def sign_supply_chain_registry(registry_sha256: str, key: bytes, *, key_id: str)
     }
 
 
+def _copied_bytes_digest(root: Path, copied_file: str) -> str:
+    """SHA-256 over the relative names and bytes of a declared copied file or directory tree."""
+
+    target = root / copied_file
+    if not target.exists():
+        return "missing"
+    digest = hashlib.sha256()
+    members = [target] if target.is_file() else sorted(path for path in target.rglob("*") if path.is_file())
+    for member in members:
+        digest.update(member.relative_to(target).as_posix().encode("utf-8") if target.is_dir() else b"")
+        digest.update(b"\0")
+        digest.update(hashlib.sha256(member.read_bytes()).digest())
+    return digest.hexdigest()
+
+
 def supply_chain_intake_report(root: Path, path: Path | None = None) -> dict[str, Any]:
     """Return local intake evidence without network access or package mutation."""
 
@@ -211,11 +226,19 @@ def supply_chain_intake_report(root: Path, path: Path | None = None) -> dict[str
         hardening.append("copied source archives remain subject to approved provenance and upstream-diff review: " + ", ".join(copied_components))
     if missing_metadata:
         hardening.append("locked dependencies require licence, repository or maintainer metadata review: " + ", ".join(sorted(missing_metadata)))
+    signature_config = registry.get("signature")
     canonical_payload = {
         "schema_version": registry["schema_version"],
         "registry_version": registry.get("registry_version"),
+        "review_status": review_status,
         "policy": registry["policy"],
         "components": components,
+        "copied_file_digests": {
+            str(copied_file): _copied_bytes_digest(root, str(copied_file))
+            for row in components
+            for copied_file in row.get("copied_files", []) or []
+        },
+        "signature_config": signature_config if isinstance(signature_config, dict) else None,
         "dependency_lock": str(registry.get("dependency_lock")),
         "third_party_notices": str(registry.get("third_party_notices")),
     }

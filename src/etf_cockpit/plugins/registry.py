@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
+from collections import deque
+from contextlib import contextmanager
+import copy
 from datetime import datetime, timezone
 import hashlib
 from importlib import metadata
 import inspect
-from typing import Iterable, Mapping, Protocol
+import socket
+import threading
+from typing import Iterable, Iterator, Mapping, Protocol
 
+from etf_cockpit.core.session_log import redact_text
 from etf_cockpit.plugins.contracts import (
     PLUGIN_CONFORMANCE_SCHEMA_VERSION,
     PluginContext,
@@ -20,6 +26,10 @@ from etf_cockpit.plugins.contracts import (
 
 # `import` is a Python keyword, so the capability maps to a differently named method.
 _HANDLER = {"import": "import_data"}
+
+
+_AUDIT_LOG_LIMIT = 1000
+_PROBE_LOCK = threading.Lock()
 
 
 class PluginRegistrationError(ValueError):
@@ -47,6 +57,7 @@ class PluginRegistry:
         }
         self._plugins: dict[str, PluginImplementation] = {}
         self._enabled: dict[str, bool] = {}
+        self._audit_log: deque[dict[str, str]] = deque(maxlen=_AUDIT_LOG_LIMIT)
 
     @property
     def plugin_ids(self) -> tuple[str, ...]:
@@ -66,20 +77,39 @@ class PluginRegistry:
             raise PluginRegistrationError(f"plugin {plugin_id!r} must expose health(context)")
         if manifest.writes_canonical_stores or manifest.executable_authority:
             raise PluginRegistrationError(f"plugin {plugin_id!r} requests forbidden authority")
+        if manifest.network_access:
+            raise PluginRegistrationError(f"plugin {plugin_id!r} requests network access, which is not permitted")
+        if plugin_id in self._plugins:
+            raise PluginRegistrationError(f"plugin {plugin_id!r} is already registered")
         self._plugins[plugin_id] = plugin
-        self._enabled[plugin_id] = bool(enabled)
+        # A manifest that declares authority="disabled" can never be switched on.
+        self._enabled[plugin_id] = bool(enabled) and manifest.authority != "disabled"
 
     def disable(self, plugin_id: str) -> None:
-        self._require(plugin_id)
-        self._enabled[plugin_id] = False
+        key = self._key(plugin_id)
+        self._require(key)
+        self._enabled[key] = False
 
     def enable(self, plugin_id: str) -> None:
-        self._require(plugin_id)
-        self._enabled[plugin_id] = True
+        key = self._key(plugin_id)
+        plugin = self._require(key)
+        if plugin.manifest.authority == "disabled":
+            raise PluginRegistrationError(f"plugin {key!r} declares authority 'disabled' and cannot be enabled")
+        self._enabled[key] = True
+
+    def is_enabled(self, plugin_id: str) -> bool:
+        key = self._key(plugin_id)
+        plugin = self._require(key)
+        return self._enabled[key] and plugin.manifest.authority != "disabled"
+
+    def audit_events(self) -> tuple[dict[str, str], ...]:
+        """Audit events recorded by plugins during health/invoke (bounded, most recent last)."""
+
+        return tuple(dict(item) for item in self._audit_log)
 
     def health(self, plugin_id: str) -> PluginHealth:
         plugin = self._require(plugin_id)
-        if not self._enabled[plugin_id]:
+        if not self.is_enabled(plugin_id):
             return PluginHealth(status=PluginStatus.DISABLED, message="Plugin disabled by local allow-list policy.")
         context = PluginContext(request_id=f"health:{plugin_id}")
         try:
@@ -94,22 +124,31 @@ class PluginRegistry:
                 error_fingerprint=_fingerprint(exc),
             )
 
+        finally:
+            self._collect_audit(plugin_id, "health", context)
+
     def invoke(self, plugin_id: str, operation: str, payload: Mapping[str, object] | None = None) -> PluginResult:
         plugin = self._require(plugin_id)
-        if not self._enabled[plugin_id]:
+        if not self.is_enabled(plugin_id):
             return PluginResult(status="unavailable", message="Plugin disabled by local allow-list policy.")
         name = str(operation).strip()
         method = getattr(plugin, _HANDLER.get(name, name), None) if name in plugin.manifest.capabilities else None
         if not callable(method):
             return PluginResult(status="unsupported", message=f"Plugin does not support operation {operation!r}.")
-        context = PluginContext(request_id=f"{operation}:{plugin_id}", inputs=payload or {})
+        context: PluginContext | None = None
         try:
-            result = method(dict(payload or {}), context)
+            # Plugins get their own deep copy so nested caller input cannot be mutated.
+            call_payload = copy.deepcopy(dict(payload or {}))
+            context = PluginContext(request_id=f"{operation}:{plugin_id}", inputs=call_payload)
+            result = method(copy.deepcopy(call_payload), context)
             if not isinstance(result, PluginResult):
                 return PluginResult(status="failed", message="Plugin returned a malformed result contract.")
             return result
         except Exception as exc:  # no plugin exception crosses the app boundary
             return PluginResult(status="failed", message=f"Plugin operation failed: {type(exc).__name__}.")
+        finally:
+            if context is not None:
+                self._collect_audit(plugin_id, str(operation), context)
 
     def status_rows(self) -> tuple[dict[str, object], ...]:
         rows: list[dict[str, object]] = []
@@ -117,7 +156,7 @@ class PluginRegistry:
             plugin = self._plugins[plugin_id]
             manifest = plugin.manifest
             health = self.health(plugin_id)
-            enabled = self._enabled[plugin_id]
+            enabled = self.is_enabled(plugin_id)
             rows.append(
                 {
                     "provider_id": f"plugin:{plugin_id}",
@@ -147,9 +186,25 @@ class PluginRegistry:
         checks: list[dict[str, object]] = []
         failures: list[str] = []
         for plugin_id in self.plugin_ids:
-            manifest = self._plugins[plugin_id].manifest
-            health = self.health(plugin_id)
-            failed = health.status is PluginStatus.INVALID or manifest.executable_authority or manifest.writes_canonical_stores
+            plugin = self._plugins[plugin_id]
+            manifest = plugin.manifest
+            with _network_probe() as network_calls:
+                health = self.health(plugin_id)
+            missing = tuple(
+                capability
+                for capability in manifest.capabilities
+                if not callable(getattr(plugin, _HANDLER.get(capability, capability), None))
+            )
+            # Disabled plugins are never invoked, so unimplemented capabilities only fail enabled ones.
+            failed = (
+                health.status is PluginStatus.INVALID
+                # Enabled plugins need health evidence: an unavailable health check fails closed.
+                or (health.status is PluginStatus.UNAVAILABLE and self.is_enabled(plugin_id))
+                or manifest.executable_authority
+                or manifest.writes_canonical_stores
+                or bool(network_calls)
+                or (bool(missing) and self.is_enabled(plugin_id))
+            )
             if failed:
                 failures.append(plugin_id)
             checks.append(
@@ -157,10 +212,12 @@ class PluginRegistry:
                     "plugin_id": plugin_id,
                     "kind": manifest.kind.value,
                     "status": health.status.value,
-                    "network_calls": False,
+                    "network_calls": bool(network_calls),
+                    "network_call_count": len(network_calls),
                     "secrets_required": bool(manifest.credential_requirements),
                     "canonical_store_write": False,
                     "executable_authority": False,
+                    "missing_capabilities": list(missing),
                     "passed": not failed,
                 }
             )
@@ -187,12 +244,58 @@ class PluginRegistry:
             discovered.append(plugin_id)
         return tuple(sorted(discovered))
 
+    def _collect_audit(self, plugin_id: str, operation: str, context: PluginContext) -> None:
+        for event in context.audit_events:
+            self._audit_log.append({"plugin_id": plugin_id, "operation": operation, **{key: redact_text(value) for key, value in event.items()}})
+
+    @staticmethod
+    def _key(plugin_id: str) -> str:
+        return str(plugin_id).strip().lower()
+
     def _require(self, plugin_id: str) -> PluginImplementation:
-        key = str(plugin_id).strip().lower()
+        key = self._key(plugin_id)
         try:
             return self._plugins[key]
         except KeyError as exc:
             raise KeyError(f"unknown plugin: {plugin_id}") from exc
+
+
+@contextmanager
+def _network_probe() -> Iterator[list[str]]:
+    """Count (and block) socket connection attempts made while the block runs."""
+
+    calls: list[str] = []
+
+    def blocked(name: str):
+        def guard(*_args, **_kwargs):
+            calls.append(name)
+            raise OSError("network access is blocked during plugin conformance")
+
+        return guard
+
+    targets = (
+        (socket.socket, "connect"),
+        (socket.socket, "connect_ex"),
+        (socket.socket, "send"),
+        (socket.socket, "sendall"),
+        (socket.socket, "sendto"),
+        (socket, "getaddrinfo"),
+        (socket, "gethostbyname"),
+        (socket, "gethostbyname_ex"),
+        (socket, "gethostbyaddr"),
+        (socket, "create_connection"),
+    )
+    if hasattr(socket.socket, "sendmsg"):
+        targets += ((socket.socket, "sendmsg"),)
+    with _PROBE_LOCK:
+        originals = [(owner, attr, getattr(owner, attr)) for owner, attr in targets]
+        try:
+            for owner, attr in targets:
+                setattr(owner, attr, blocked(attr))
+            yield calls
+        finally:
+            for owner, attr, original in originals:
+                setattr(owner, attr, original)
 
 
 def _fingerprint(exc: Exception) -> str:

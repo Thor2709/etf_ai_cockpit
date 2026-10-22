@@ -38,11 +38,17 @@ def test_vulnerability_scan_blocks_unapproved_findings(monkeypatch, tmp_path: Pa
 
 
 def test_vulnerability_scan_allows_only_explicit_mitigation(monkeypatch, tmp_path: Path) -> None:
-    policy = {"dependency_lock": "requirements-release.txt", "approved_mitigations": [{"id": "CVE-TEST-0001", "reason": "temporary vendor hold"}]}
+    (tmp_path / "requirements-release.txt").write_text("pytest==9.1.1\n", encoding="utf-8")
+    policy = {
+        "dependency_lock": "requirements-release.txt",
+        "approved_mitigations": [
+            {"id": "CVE-TEST-0001", "package": "pytest", "version": "9.1.1", "expires_on": "2999-01-01", "reason": "temporary vendor hold"}
+        ],
+    }
     completed = subprocess.CompletedProcess(
         args=["pip-audit"],
         returncode=1,
-        stdout=json.dumps([{"id": "CVE-TEST-0001"}]),
+        stdout=json.dumps({"dependencies": [{"name": "pytest", "version": "9.1.1", "vulns": [{"id": "CVE-TEST-0001"}]}]}),
         stderr="",
     )
     monkeypatch.setattr(supply_chain_scan.subprocess, "run", lambda *args, **kwargs: completed)
@@ -51,10 +57,11 @@ def test_vulnerability_scan_allows_only_explicit_mitigation(monkeypatch, tmp_pat
 
     assert result["status"] == "passed"
     assert result["blocking_vulnerabilities"] == []
-    assert result["approved_mitigations"] == [{"id": "CVE-TEST-0001"}]
+    assert result["approved_mitigations"] == [{"package": "pytest", "version": "9.1.1", "id": "CVE-TEST-0001"}]
 
 
 def test_vulnerability_scan_does_not_treat_clean_dependency_rows_as_findings(monkeypatch, tmp_path: Path) -> None:
+    (tmp_path / "requirements-release.txt").write_text("pytest==9.1.1\n", encoding="utf-8")
     policy = {"dependency_lock": "requirements-release.txt", "approved_mitigations": []}
     completed = subprocess.CompletedProcess(
         args=["pip-audit"],
