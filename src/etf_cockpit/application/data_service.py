@@ -284,6 +284,15 @@ class DataService:
                     )
                 )
         messages.append(_refresh_stock_fundamentals(self.config, publish_guard))
+        from etf_cockpit.data.holdings_registry import collect_daily
+
+        try:
+            for status in collect_daily(ROOT, publish_guard=publish_guard):
+                messages.append("iShares holdings: " + ", ".join(f"{key}={value}" for key, value in status.items()))
+        except WorkflowTransitionError:
+            raise
+        except Exception as exc:
+            messages.append(f"iShares holdings unavailable ({type(exc).__name__}).")
         self.last_operation_succeeded = True
         return "\n".join(messages)
 
