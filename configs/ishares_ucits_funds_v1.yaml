@@ -1,10 +1,577 @@
 # Forward collection only; the orchestrator fills this list from verified sources.
 # No latest endpoint supports as-of history. Historical files must be imported
 # with a timezone-aware source known_at and licence_ref/manual provenance.
+# Verified live 2026-10-22 against UK iShares product pages (ticker+ISIN+route) and latest-holdings.csv.
+# funds: ONLY funds already in the instrument master (configs/universe_store.json, isin_status=verified);
+#   calendar evidence = master ticker suffix -> MIC (.DE XETR, .AS XAMS), source_checksum = SHA-256 of that
+#   universe_store.json, known_at = its owner-repo mtime (2026-10-11T05:31:13Z). Forward-only: earlier as-of dates fail closed.
+# unmapped_verified_funds: route/ISIN/CSV verified but NOT in the instrument master. Ignored by load_funds()
+#   (instrument_id is mandatory there and is never generated). Promote an entry into funds: only after the master
+#   gains that fund, with its instrument_id and calendar evidence.
+# Dropped at verification:
+#   CBUX IE000CK5G8J7: CSV asset class outside the verified set (e.g. Other)
+#   EUDF IE0002Y8CX98: master ISIN absent from the UK iShares product screener (no product page route)
+#   EXUS IE0006WW1TQ4: master ISIN absent from the UK iShares product screener (no product page route)
+#   EUNK (master): isin_status needs_verification, no verified ISIN, not attempted
+# expected_columns (explicit 13-column variant, extra raw 'Type' column) is set only where the live CSV header showed it.
 schema_version: 1
 execution_allowed: false
 user_agent: Mozilla/5.0
-funds: []
+funds:
+- ticker: CNDX
+  ISIN: IE00B53SZB19
+  product_page_url: https://www.ishares.com/uk/individual/en/products/253741/ishares-nasdaq-100-ucits-etf
+  slug: ishares-nasdaq-100-ucits-etf
+  name: iShares NASDAQ 100 UCITS ETF
+  expected_columns:
+  - Ticker
+  - Name
+  - Type
+  - Sector
+  - Asset Class
+  - Market Value
+  - Weight (%)
+  - Notional Value
+  - Shares
+  - Price
+  - Location
+  - Exchange
+  - Market Currency
+  instrument_id: SXRV_NASDAQ100
+  calendar:
+    listing_id: SXRV_NASDAQ100:XETR
+    instrument_id: SXRV_NASDAQ100
+    mic: XETR
+    calendar_id: XETR
+    timezone: Europe/Berlin
+    source_id: universe_store.json:SXRV.DE
+    source_checksum: 0e6a9f16434cdd451d3c3baf19d87892a1fe9b9142551b837a3bd1d04ffcc76a
+    valid_from: '2026-10-11'
+    known_at: '2026-10-11T05:31:13+00:00'
+    source_version: 4086a89442e8
+    conflict_ids: []
+- ticker: SMEA
+  ISIN: IE00B4K48X80
+  product_page_url: https://www.ishares.com/uk/individual/en/products/251861/ishares-msci-europe-ucits-etf-acc-fund
+  slug: ishares-msci-europe-ucits-etf-acc-fund
+  name: iShares Core MSCI Europe UCITS ETF EUR (Acc)
+  instrument_id: IMAE.AS
+  calendar:
+    listing_id: IMAE.AS:XAMS
+    instrument_id: IMAE.AS
+    mic: XAMS
+    calendar_id: XAMS
+    timezone: Europe/Amsterdam
+    source_id: universe_store.json:IMAE.AS
+    source_checksum: 0e6a9f16434cdd451d3c3baf19d87892a1fe9b9142551b837a3bd1d04ffcc76a
+    valid_from: '2026-10-11'
+    known_at: '2026-10-11T05:31:13+00:00'
+    source_version: 4086a89442e8
+    conflict_ids: []
+- ticker: SEMI
+  ISIN: IE000I8KRLL9
+  product_page_url: https://www.ishares.com/uk/individual/en/products/319084/ishares-msci-global-semiconductors-ucits-etf
+  slug: ishares-msci-global-semiconductors-ucits-etf
+  name: iShares MSCI Global Semiconductors UCITS ETF
+  instrument_id: SEC0.DE
+  calendar:
+    listing_id: SEC0.DE:XETR
+    instrument_id: SEC0.DE
+    mic: XETR
+    calendar_id: XETR
+    timezone: Europe/Berlin
+    source_id: universe_store.json:SEC0.DE
+    source_checksum: 0e6a9f16434cdd451d3c3baf19d87892a1fe9b9142551b837a3bd1d04ffcc76a
+    valid_from: '2026-10-11'
+    known_at: '2026-10-11T05:31:13+00:00'
+    source_version: 4086a89442e8
+    conflict_ids: []
+- ticker: EXX1
+  ISIN: DE0006289309
+  product_page_url: https://www.ishares.com/uk/individual/en/products/251784/ishares-euro-stoxx-banks-de-fund
+  slug: ishares-euro-stoxx-banks-de-fund
+  name: iShares EURO STOXX Banks 30-15 UCITS ETF (DE)
+  instrument_id: EXX1
+  calendar:
+    listing_id: EXX1:XETR
+    instrument_id: EXX1
+    mic: XETR
+    calendar_id: XETR
+    timezone: Europe/Berlin
+    source_id: universe_store.json:EXX1.DE
+    source_checksum: 0e6a9f16434cdd451d3c3baf19d87892a1fe9b9142551b837a3bd1d04ffcc76a
+    valid_from: '2026-10-11'
+    known_at: '2026-10-11T05:31:13+00:00'
+    source_version: 4086a89442e8
+    conflict_ids: []
+- ticker: CTCE
+  ISIN: IE000NFR7C63
+  product_page_url: https://www.ishares.com/uk/individual/en/products/320429/ishares-msci-china-tech-ucits-etf
+  slug: ishares-msci-china-tech-ucits-etf
+  name: iShares MSCI China Tech UCITS ETF
+  instrument_id: CTEC.AS
+  calendar:
+    listing_id: CTEC.AS:XAMS
+    instrument_id: CTEC.AS
+    mic: XAMS
+    calendar_id: XAMS
+    timezone: Europe/Amsterdam
+    source_id: universe_store.json:CTEC.AS
+    source_checksum: 0e6a9f16434cdd451d3c3baf19d87892a1fe9b9142551b837a3bd1d04ffcc76a
+    valid_from: '2026-10-11'
+    known_at: '2026-10-11T05:31:13+00:00'
+    source_version: 4086a89442e8
+    conflict_ids: []
+- ticker: CES1
+  ISIN: IE00B3VWMM18
+  product_page_url: https://www.ishares.com/uk/individual/en/products/253496/ishares-msci-emu-small-cap-ucits-etf
+  slug: ishares-msci-emu-small-cap-ucits-etf
+  name: iShares MSCI EMU Small Cap UCITS ETF
+  instrument_id: SXRJ_EMU_SMALL
+  calendar:
+    listing_id: SXRJ_EMU_SMALL:XETR
+    instrument_id: SXRJ_EMU_SMALL
+    mic: XETR
+    calendar_id: XETR
+    timezone: Europe/Berlin
+    source_id: universe_store.json:SXRJ.DE
+    source_checksum: 0e6a9f16434cdd451d3c3baf19d87892a1fe9b9142551b837a3bd1d04ffcc76a
+    valid_from: '2026-10-11'
+    known_at: '2026-10-11T05:31:13+00:00'
+    source_version: 4086a89442e8
+    conflict_ids: []
+unmapped_verified_funds:
+- ticker: CSPX
+  ISIN: IE00B5BMR087
+  product_page_url: https://www.ishares.com/uk/individual/en/products/253743/ishares-sp-500-b-ucits-etf-acc-fund
+  slug: ishares-sp-500-b-ucits-etf-acc-fund
+  name: iShares Core S&P 500 UCITS ETF
+- ticker: SWDA
+  ISIN: IE00B4L5Y983
+  product_page_url: https://www.ishares.com/uk/individual/en/products/251882/ishares-msci-world-ucits-etf-acc-fund
+  slug: ishares-msci-world-ucits-etf-acc-fund
+  name: iShares Core MSCI World UCITS ETF
+- ticker: CNKY
+  ISIN: IE00B52MJD48
+  product_page_url: https://www.ishares.com/uk/individual/en/products/253742/ishares-nikkei-225-ucits-etf
+  slug: ishares-nikkei-225-ucits-etf
+  name: iShares Nikkei 225 UCITS ETF
+- ticker: EIMI
+  ISIN: IE00BKM4GZ66
+  product_page_url: https://www.ishares.com/uk/individual/en/products/264659/ishares-msci-emerging-markets-imi-ucits-etf
+  slug: ishares-msci-emerging-markets-imi-ucits-etf
+  name: iShares Core MSCI EM IMI UCITS ETF
+- ticker: SSAC
+  ISIN: IE00B6R52259
+  product_page_url: https://www.ishares.com/uk/individual/en/products/251850/ishares-msci-acwi-ucits-etf
+  slug: ishares-msci-acwi-ucits-etf
+  name: iShares MSCI All Country World UCITS ETF
+- ticker: IUIT
+  ISIN: IE00B3WJKG14
+  product_page_url: https://www.ishares.com/uk/individual/en/products/280510/ishares-sp-500-information-technology-sector-ucits-etf
+  slug: ishares-sp-500-information-technology-sector-ucits-etf
+  name: iShares S&P 500 Information Technology Sector UCITS ETF
+- ticker: ISFD
+  ISIN: IE00BYZ28W67
+  product_page_url: https://www.ishares.com/uk/individual/en/products/291401/ishares-core-ftse-100-ucits-etf
+  slug: ishares-core-ftse-100-ucits-etf
+  name: iShares Core FTSE 100 UCITS ETF
+  expected_columns:
+  - Ticker
+  - Name
+  - Type
+  - Sector
+  - Asset Class
+  - Market Value
+  - Weight (%)
+  - Notional Value
+  - Shares
+  - Price
+  - Location
+  - Exchange
+  - Market Currency
+- ticker: IMEAX
+  ISIN: IE00BL4KKW48
+  product_page_url: https://www.ishares.com/uk/individual/en/products/311870/ishares-core-msci-europe-ucits-etf
+  slug: ishares-core-msci-europe-ucits-etf
+  name: iShares Core MSCI Europe UCITS ETF
+- ticker: SEMA
+  ISIN: IE00B4L5YC18
+  product_page_url: https://www.ishares.com/uk/individual/en/products/251858/ishares-msci-emerging-markets-ucits-etf-acc-fund
+  slug: ishares-msci-emerging-markets-ucits-etf-acc-fund
+  name: iShares MSCI EM UCITS ETF USD (Acc)
+- ticker: IWRD
+  ISIN: IE00B0M62Q58
+  product_page_url: https://www.ishares.com/uk/individual/en/products/251881/ishares-msci-world-ucits-etf-inc-fund
+  slug: ishares-msci-world-ucits-etf-inc-fund
+  name: iShares MSCI World UCITS ETF
+- ticker: WSML
+  ISIN: IE00BF4RFH31
+  product_page_url: https://www.ishares.com/uk/individual/en/products/296576/ishares-msci-world-small-cap-ucits-etf
+  slug: ishares-msci-world-small-cap-ucits-etf
+  name: iShares MSCI World Small Cap UCITS ETF
+- ticker: SJPA
+  ISIN: IE00B4L5YX21
+  product_page_url: https://www.ishares.com/uk/individual/en/products/251867/ishares-msci-japan-ucits-etf-acc-fund
+  slug: ishares-msci-japan-ucits-etf-acc-fund
+  name: iShares Core MSCI Japan IMI UCITS ETF
+- ticker: DAXEX
+  ISIN: DE0005933931
+  product_page_url: https://www.ishares.com/uk/individual/en/products/251464/ishares-dax-ucits-etf-de-fund
+  slug: ishares-dax-ucits-etf-de-fund
+  name: "iShares Core DAX\xAE UCITS ETF (DE)"
+- ticker: CEMA
+  ISIN: IE00B5L8K969
+  product_page_url: https://www.ishares.com/uk/individual/en/products/253723/ishares-msci-em-asia-ucits-etf
+  slug: ishares-msci-em-asia-ucits-etf
+  name: iShares MSCI EM Asia UCITS ETF
+- ticker: CEU1
+  ISIN: IE00B53QG562
+  product_page_url: https://www.ishares.com/uk/individual/en/products/253729/ishares-msci-emu-ucits-etf
+  slug: ishares-msci-emu-ucits-etf
+  name: iShares Core MSCI EMU UCITS ETF
+- ticker: IWVL
+  ISIN: IE00BP3QZB59
+  product_page_url: https://www.ishares.com/uk/individual/en/products/270048/ishares-msci-world-value-factor-ucits-etf
+  slug: ishares-msci-world-value-factor-ucits-etf
+  name: iShares Edge MSCI World Value Factor UCITS ETF
+- ticker: CSX5
+  ISIN: IE00B53L3W79
+  product_page_url: https://www.ishares.com/uk/individual/en/products/253712/ishares-euro-stoxx-50-b-ucits-etf-acc-fund
+  slug: ishares-euro-stoxx-50-b-ucits-etf-acc-fund
+  name: iShares Core EURO STOXX 50 UCITS ETF
+- ticker: IWQU
+  ISIN: IE00BP3QZ601
+  product_page_url: https://www.ishares.com/uk/individual/en/products/270054/ishares-msci-world-quality-factor-ucits-etf
+  slug: ishares-msci-world-quality-factor-ucits-etf
+  name: iShares Edge MSCI World Quality Factor UCITS ETF
+- ticker: EXCS
+  ISIN: IE00BMG6Z448
+  product_page_url: https://www.ishares.com/uk/individual/en/products/315592/ishares-msci-em-ex-china-ucits-etf
+  slug: ishares-msci-em-ex-china-ucits-etf
+  name: iShares MSCI EM ex-China UCITS ETF
+- ticker: IWMO
+  ISIN: IE00BP3QZ825
+  product_page_url: https://www.ishares.com/uk/individual/en/products/270051/ishares-msci-world-momentum-factor-ucits-etf
+  slug: ishares-msci-world-momentum-factor-ucits-etf
+  name: iShares Edge MSCI World Momentum Factor UCITS ETF
+- ticker: RBOT
+  ISIN: IE00BYZK4552
+  product_page_url: https://www.ishares.com/uk/individual/en/products/284219/ishares-automation-robotics-ucits-etf
+  slug: ishares-automation-robotics-ucits-etf
+  name: iShares Automation & Robotics UCITS ETF
+- ticker: 4BRZ
+  ISIN: DE000A0Q4R85
+  product_page_url: https://www.ishares.com/uk/individual/en/products/304304/ishares-msci-brazil-ucits-etf-de
+  slug: ishares-msci-brazil-ucits-etf-de
+  name: iShares MSCI Brazil UCITS ETF (DE)
+- ticker: CSUS
+  ISIN: IE00B52SFT06
+  product_page_url: https://www.ishares.com/uk/individual/en/products/253740/ishares-msci-usa-b-ucits-etf
+  slug: ishares-msci-usa-b-ucits-etf
+  name: iShares MSCI USA UCITS ETF
+- ticker: NDIA
+  ISIN: IE00BZCQB185
+  product_page_url: https://www.ishares.com/uk/individual/en/products/297617/ishares-msci-india-ucits-etf
+  slug: ishares-msci-india-ucits-etf
+  name: iShares MSCI India UCITS ETF
+- ticker: SPGP
+  ISIN: IE00B6R52036
+  product_page_url: https://www.ishares.com/uk/individual/en/products/251908/ishares-gold-producers-ucits-etf
+  slug: ishares-gold-producers-ucits-etf
+  name: iShares Gold Producers UCITS ETF USD (Acc)
+- ticker: CPXJ
+  ISIN: IE00B52MJY50
+  product_page_url: https://www.ishares.com/uk/individual/en/products/253735/ishares-msci-pacific-ex-japan-ucits-etf-acc-fund
+  slug: ishares-msci-pacific-ex-japan-ucits-etf-acc-fund
+  name: iShares Core MSCI Pacific ex-Japan UCITS ETF
+- ticker: IUHC
+  ISIN: IE00B43HR379
+  product_page_url: https://www.ishares.com/uk/individual/en/products/280507/ishares-sp-500-health-care-sector-ucits-etf
+  slug: ishares-sp-500-health-care-sector-ucits-etf
+  name: iShares S&P 500 Health Care Sector UCITS ETF
+- ticker: INRA
+  ISIN: IE000U58J0M1
+  product_page_url: https://www.ishares.com/uk/individual/en/products/326325/ishares-global-clean-energy-transition-ucits-etf
+  slug: ishares-global-clean-energy-transition-ucits-etf
+  name: iShares Global Clean Energy Transition UCITS ETF
+  expected_columns:
+  - Ticker
+  - Name
+  - Type
+  - Sector
+  - Asset Class
+  - Market Value
+  - Weight (%)
+  - Notional Value
+  - Shares
+  - Price
+  - Location
+  - Exchange
+  - Market Currency
+- ticker: MVOL
+  ISIN: IE00B8FHGS14
+  product_page_url: https://www.ishares.com/uk/individual/en/products/251382/ishares-msci-world-minimum-volatility-ucits-etf
+  slug: ishares-msci-world-minimum-volatility-ucits-etf
+  name: iShares Edge MSCI World Minimum Volatility UCITS ETF
+- ticker: T05B
+  ISIN: DE000A2QP4K7
+  product_page_url: https://www.ishares.com/uk/individual/en/products/354015/ishares-stoxx-europe-600-banks-ucits-etf-de
+  slug: ishares-stoxx-europe-600-banks-ucits-etf-de
+  name: iShares STOXX Europe 600 Banks UCITS ETF (DE)
+- ticker: IEVL
+  ISIN: IE00BQN1K901
+  product_page_url: https://www.ishares.com/uk/individual/en/products/272058/ishares-msci-europe-value-factor-ucits-etf
+  slug: ishares-msci-europe-value-factor-ucits-etf
+  name: iShares Edge MSCI Europe Value Factor UCITS ETF
+- ticker: LOCK
+  ISIN: IE00BG0J4C88
+  product_page_url: https://www.ishares.com/uk/individual/en/products/297843/ishares-digital-security-ucits-etf
+  slug: ishares-digital-security-ucits-etf
+  name: iShares Digital Security UCITS ETF
+- ticker: ISP6
+  ISIN: IE00B2QWCY14
+  product_page_url: https://www.ishares.com/uk/individual/en/products/251920/ishares-sp-smallcap-600-ucits-etf
+  slug: ishares-sp-smallcap-600-ucits-etf
+  name: iShares S&P SmallCap 600 UCITS ETF
+  expected_columns:
+  - Ticker
+  - Name
+  - Type
+  - Sector
+  - Asset Class
+  - Market Value
+  - Weight (%)
+  - Notional Value
+  - Shares
+  - Price
+  - Location
+  - Exchange
+  - Market Currency
+- ticker: ICHN
+  ISIN: IE00BJ5JPG56
+  product_page_url: https://www.ishares.com/uk/individual/en/products/308751/ishares-msci-china-ucits-etf
+  slug: ishares-msci-china-ucits-etf
+  name: iShares MSCI China UCITS ETF
+- ticker: CCAU
+  ISIN: IE00B52SF786
+  product_page_url: https://www.ishares.com/uk/individual/en/products/253721/ishares-msci-canada-b-ucits-etf
+  slug: ishares-msci-canada-b-ucits-etf
+  name: iShares MSCI Canada UCITS ETF
+- ticker: IUFS
+  ISIN: IE00B4JNQZ49
+  product_page_url: https://www.ishares.com/uk/individual/en/products/280523/ishares-sp-500-financials-sector-ucits-etf
+  slug: ishares-sp-500-financials-sector-ucits-etf
+  name: iShares S&P 500 Financials Sector UCITS ETF
+- ticker: LAMT
+  ISIN: IE000QZF7EX2
+  product_page_url: https://www.ishares.com/uk/individual/en/products/351289/ishares-msci-em-latin-america-ucits-etf
+  slug: ishares-msci-em-latin-america-ucits-etf
+  name: iShares MSCI EM Latin America UCITS ETF
+- ticker: IH20x
+  ISIN: IE000CFH1JX2
+  product_page_url: https://www.ishares.com/uk/individual/en/products/320493/ishares-global-water-ucits-etf
+  slug: ishares-global-water-ucits-etf
+  name: iShares Global Water UCITS ETF
+- ticker: CNYA
+  ISIN: IE00BQT3WG13
+  product_page_url: https://www.ishares.com/uk/individual/en/products/273192/ishares-msci-china-a-ucits-etf
+  slug: ishares-msci-china-a-ucits-etf
+  name: iShares MSCI China A UCITS ETF
+- ticker: IUES
+  ISIN: IE00B42NKQ00
+  product_page_url: https://www.ishares.com/uk/individual/en/products/280503/ishares-sp-500-energy-sector-ucits-etf
+  slug: ishares-sp-500-energy-sector-ucits-etf
+  name: iShares S&P 500 Energy Sector UCITS ETF
+- ticker: CIND
+  ISIN: IE00B53L4350
+  product_page_url: https://www.ishares.com/uk/individual/en/products/253713/ishares-dow-jones-industrial-average-ucits-etf
+  slug: ishares-dow-jones-industrial-average-ucits-etf
+  name: iShares Dow Jones Industrial Average UCITS ETF
+- ticker: IFFI
+  ISIN: IE00BKPX3K41
+  product_page_url: https://www.ishares.com/uk/individual/en/products/313316/ishares-msci-ac-far-east-ex-japan-ucits-etf
+  slug: ishares-msci-ac-far-east-ex-japan-ucits-etf
+  name: iShares MSCI AC Far East ex-Japan UCITS ETF
+- ticker: ITWAX
+  ISIN: IE000AJFZ9E4
+  product_page_url: https://www.ishares.com/uk/individual/en/products/319356/ishares-msci-taiwan-ucits-etf
+  slug: ishares-msci-taiwan-ucits-etf
+  name: iShares MSCI Taiwan UCITS ETF
+- ticker: EMVL
+  ISIN: IE00BG0SKF03
+  product_page_url: https://www.ishares.com/uk/individual/en/products/297452/ishares-edge-msci-em-value-factor-ucits-etf
+  slug: ishares-edge-msci-em-value-factor-ucits-etf
+  name: iShares Edge MSCI EM Value Factor UCITS ETF
+- ticker: DFND
+  ISIN: IE000U9ODG19
+  product_page_url: https://www.ishares.com/uk/individual/en/products/334464/ishares-global-aerospace-defence-ucits-etf
+  slug: ishares-global-aerospace-defence-ucits-etf
+  name: iShares Global Aerospace & Defence UCITS ETF
+  expected_columns:
+  - Ticker
+  - Name
+  - Type
+  - Sector
+  - Asset Class
+  - Market Value
+  - Weight (%)
+  - Notional Value
+  - Shares
+  - Price
+  - Location
+  - Exchange
+  - Market Currency
+- ticker: WENS
+  ISIN: IE00BJ5JP105
+  product_page_url: https://www.ishares.com/uk/individual/en/products/308904/ishares-msci-world-energy-sector-ucits-etf
+  slug: ishares-msci-world-energy-sector-ucits-etf
+  name: iShares MSCI World Energy Sector UCITS ETF
+- ticker: HEAL
+  ISIN: IE00BYZK4776
+  product_page_url: https://www.ishares.com/uk/individual/en/products/284216/ishares-healthcare-innovation-ucits-etf-usd-acc
+  slug: ishares-healthcare-innovation-ucits-etf-usd-acc
+  name: iShares Healthcare Innovation UCITS ETF USD (Acc)
+- ticker: EXS3
+  ISIN: DE0005933923
+  product_page_url: https://www.ishares.com/uk/individual/en/products/251845/ishares-mdax-ucits-etf-de-fund
+  slug: ishares-mdax-ucits-etf-de-fund
+  name: "iShares MDAX\xAE UCITS ETF (DE)"
+- ticker: IUUS
+  ISIN: IE00B4KBBD01
+  product_page_url: https://www.ishares.com/uk/individual/en/products/287115/ishares-s-p-500-utilities-sector-ucits-etf
+  slug: ishares-s-p-500-utilities-sector-ucits-etf
+  name: iShares S&P 500 Utilities Sector UCITS ETF
+- ticker: WHCA
+  ISIN: IE0009QS7W62
+  product_page_url: https://www.ishares.com/uk/individual/en/products/321342/ishares-msci-world-health-care-sector-advanced-ucits-etf
+  slug: ishares-msci-world-health-care-sector-advanced-ucits-etf
+  name: iShares MSCI World Health Care Sector Advanced UCITS ETF
+- ticker: IEUX
+  ISIN: IE00B14X4N27
+  product_page_url: https://www.ishares.com/uk/individual/en/products/251863/ishares-msci-europe-exuk-ucits-etf
+  slug: ishares-msci-europe-exuk-ucits-etf
+  name: iShares MSCI Europe ex-UK UCITS ETF
+- ticker: R1GR
+  ISIN: IE000NITTFF2
+  product_page_url: https://www.ishares.com/uk/individual/en/products/331965/ishares-russell-1000-growth-ucits-etf
+  slug: ishares-russell-1000-growth-ucits-etf
+  name: iShares Russell 1000 Growth UCITS ETF
+- ticker: WSTI
+  ISIN: IE000LO4MAC0
+  product_page_url: https://www.ishares.com/uk/individual/en/products/352450/ishares-msci-world-information-technology-sector-advanced-ucits-etf
+  slug: ishares-msci-world-information-technology-sector-advanced-ucits-etf
+  name: iShares MSCI World Information Technology Sector Advanced UCITS ETF
+- ticker: R1VL
+  ISIN: IE0002EKOXU6
+  product_page_url: https://www.ishares.com/uk/individual/en/products/331963/ishares-russell-1000-value-ucits-etf
+  slug: ishares-russell-1000-value-ucits-etf
+  name: iShares Russell 1000 Value UCITS ETF
+- ticker: IUCM
+  ISIN: IE00BDDRF478
+  product_page_url: https://www.ishares.com/uk/individual/en/products/304659/ishares-s-p-500-communication-sector-ucits-etf
+  slug: ishares-s-p-500-communication-sector-ucits-etf
+  name: iShares S&P 500 Communication Sector UCITS ETF
+- ticker: ESIN
+  ISIN: IE00BMW42520
+  product_page_url: https://www.ishares.com/uk/individual/en/products/315822/ishares-msci-europe-industrials-sector-ucits-etf
+  slug: ishares-msci-europe-industrials-sector-ucits-etf
+  name: iShares MSCI Europe Industrials Sector UCITS ETF
+- ticker: ESIH
+  ISIN: IE00BMW42181
+  product_page_url: https://www.ishares.com/uk/individual/en/products/315806/ishares-msci-europe-health-care-sector-ucits-etf
+  slug: ishares-msci-europe-health-care-sector-ucits-etf
+  name: iShares MSCI Europe Health Care Sector UCITS ETF
+- ticker: IAEA
+  ISIN: IE00BMTX2B82
+  product_page_url: https://www.ishares.com/uk/individual/en/products/314962/ishares-aex-ucits-etf
+  slug: ishares-aex-ucits-etf
+  name: iShares AEX UCITS ETF
+- ticker: EXH9
+  ISIN: DE000A0Q4R02
+  product_page_url: https://www.ishares.com/uk/individual/en/products/251967/ishares-stoxx-europe-600-utilities-ucits-etf-de-fund
+  slug: ishares-stoxx-europe-600-utilities-ucits-etf-de-fund
+  name: iShares STOXX Europe 600 Utilities UCITS ETF (DE)
+- ticker: DGIT
+  ISIN: IE00BYZK4883
+  product_page_url: https://www.ishares.com/uk/individual/en/products/284217/ishares-digitalisation-ucits-etf-usd-acc
+  slug: ishares-digitalisation-ucits-etf-usd-acc
+  name: iShares Digitalisation UCITS ETF USD (Acc)
+- ticker: IUCD
+  ISIN: IE00B4MCHD36
+  product_page_url: https://www.ishares.com/uk/individual/en/products/280526/ishares-sp-500-consumer-discretionary-sector-ucits-etf
+  slug: ishares-sp-500-consumer-discretionary-sector-ucits-etf
+  name: iShares S&P 500 Consumer Discretionary Sector UCITS ETF USD (Acc)
+- ticker: MINE
+  ISIN: IE00063FT9K6
+  product_page_url: https://www.ishares.com/uk/individual/en/products/331968/ishares-copper-miners-ucits-etf
+  slug: ishares-copper-miners-ucits-etf
+  name: iShares Copper Miners UCITS ETF
+- ticker: CSKR
+  ISIN: IE00B5W4TY14
+  product_page_url: https://www.ishares.com/uk/individual/en/products/253733/ishares-msci-korea-ucits-etf-acc-fund
+  slug: ishares-msci-korea-ucits-etf-acc-fund
+  name: iShares MSCI Korea UCITS ETF USD (Acc)
+- ticker: EXV4
+  ISIN: DE000A0Q4R36
+  product_page_url: https://www.ishares.com/uk/individual/en/products/251946/ishares-stoxx-europe-600-health-care-ucits-etf-de-fund
+  slug: ishares-stoxx-europe-600-health-care-ucits-etf-de-fund
+  name: iShares STOXX Europe 600 Health Care UCITS ETF (DE)
+- ticker: IUIS
+  ISIN: IE00B4LN9N13
+  product_page_url: https://www.ishares.com/uk/individual/en/products/287109/ishares-s-p-500-industrials-sector-ucits-etf
+  slug: ishares-s-p-500-industrials-sector-ucits-etf
+  name: iShares S&P 500 Industrials Sector UCITS ETF
+- ticker: EXH1
+  ISIN: DE000A0H08M3
+  product_page_url: https://www.ishares.com/uk/individual/en/products/251954/ishares-stoxx-europe-600-oil-gas-ucits-etf-de-fund
+  slug: ishares-stoxx-europe-600-oil-gas-ucits-etf-de-fund
+  name: iShares STOXX Europe 600 Oil & Gas UCITS ETF (DE)
+- ticker: ESIF
+  ISIN: IE00BMW42306
+  product_page_url: https://www.ishares.com/uk/individual/en/products/315815/ishares-msci-europe-financials-sector-ucits-etf
+  slug: ishares-msci-europe-financials-sector-ucits-etf
+  name: iShares MSCI Europe Financials Sector UCITS ETF
+- ticker: EXH5
+  ISIN: DE000A0H08K7
+  product_page_url: https://www.ishares.com/uk/individual/en/products/251950/ishares-stoxx-europe-600-insurance-ucits-etf-de-fund
+  slug: ishares-stoxx-europe-600-insurance-ucits-etf-de-fund
+  name: iShares STOXX Europe 600 Insurance UCITS ETF (DE)
+- ticker: IUCS
+  ISIN: IE00B40B8R38
+  product_page_url: https://www.ishares.com/uk/individual/en/products/287102/ishares-s-p-500-consumer-staples-sector-ucits-etf
+  slug: ishares-s-p-500-consumer-staples-sector-ucits-etf
+  name: iShares S&P 500 Consumer Staples Sector UCITS ETF
+- ticker: EUN
+  ISIN: IE0008470928
+  product_page_url: https://www.ishares.com/uk/individual/en/products/251929/ishares-stoxx-europe-50-ucits-etf
+  slug: ishares-stoxx-europe-50-ucits-etf
+  name: iShares STOXX Europe 50 UCITS ETF
+- ticker: ECAR
+  ISIN: IE00BGL86Z12
+  product_page_url: https://www.ishares.com/uk/individual/en/products/307130/ishares-electric-vehicles-and-driving-technology-ucits-etf
+  slug: ishares-electric-vehicles-and-driving-technology-ucits-etf
+  name: iShares Electric Vehicles and Driving Technology UCITS ETF
+- ticker: IKSA
+  ISIN: IE00BYYR0489
+  product_page_url: https://www.ishares.com/uk/individual/en/products/279996/ishares-msci-saudi-arabia-capped-imi-ucits-etf
+  slug: ishares-msci-saudi-arabia-capped-imi-ucits-etf
+  name: iShares MSCI Saudi Arabia Capped UCITS ETF
+- ticker: IEMS
+  ISIN: IE00B3F81G20
+  product_page_url: https://www.ishares.com/uk/individual/en/products/251859/ishares-msci-emerging-markets-smallcap-ucits-etf
+  slug: ishares-msci-emerging-markets-smallcap-ucits-etf
+  name: iShares MSCI EM Small Cap UCITS ETF
+- ticker: STEC
+  ISIN: DE000A2QP398
+  product_page_url: https://www.ishares.com/uk/individual/en/products/326632/ishares-stoxx-europe-600-technology-ucits-etf-de
+  slug: ishares-stoxx-europe-600-technology-ucits-etf-de
+  name: iShares STOXX Europe 600 Technology UCITS ETF (DE)
+- ticker: IUMS
+  ISIN: IE00B4MKCJ84
+  product_page_url: https://www.ishares.com/uk/individual/en/products/287104/ishares-s-p-500-materials-sector-ucits-etf
+  slug: ishares-s-p-500-materials-sector-ucits-etf
+  name: iShares S&P 500 Materials Sector UCITS ETF
 # Fund schema (required unless stated optional):
 # ticker: verified listing ticker
 # ISIN: verified share-class ISIN

@@ -1,7 +1,9 @@
 """Offline UNIV1 contract tests; all holdings are explicitly synthetic."""
 from concurrent.futures import ThreadPoolExecutor
+import csv
 from datetime import date, datetime, timezone
 import hashlib
+import io
 from pathlib import Path
 import threading
 
@@ -237,3 +239,40 @@ def test_politeness_spaces_starts_and_transport_shape(monkeypatch):
     fetch_csv(URL, "Mozilla/5.0")
     fetch_csv(URL, "Mozilla/5.0")
     assert starts == [10.0, 11.0]
+
+def test_repository_config_lists_verified_master_funds_only():
+    root = Path(__file__).resolve().parents[1]
+    config = load_funds(root)
+    funds = config["funds"]
+    assert len(funds) >= 6
+    assert {f["ticker"] for f in funds} >= {"CNDX", "SMEA", "SEMI", "EXX1", "CTCE", "CES1"}
+    assert len({f["ISIN"] for f in funds}) == len(funds)
+    for fund in funds:
+        assert fund["_download_url"].endswith("/latest-holdings.csv")
+        assert fund["_listing"].instrument_id == fund["instrument_id"]
+        assert fund["_listing"].known_at <= datetime(2026, 10, 12, tzinfo=timezone.utc)
+    # Unmapped funds stay outside the loaded list; no identifier is generated for them.
+    raw = yaml.safe_load((root / "configs" / "ishares_ucits_funds_v1.yaml").read_text(encoding="utf-8"))
+    unmapped = raw["unmapped_verified_funds"]
+    assert len(unmapped) >= 50
+    assert all("instrument_id" not in f and "calendar" not in f for f in unmapped)
+    assert {f["ISIN"] for f in unmapped}.isdisjoint({f["ISIN"] for f in funds})
+    assert {f["slug"] for f in unmapped}.isdisjoint({f["slug"] for f in funds})
+
+
+def test_live_type_column_variant_needs_explicit_columns(listing):
+    lines = FIXTURE.read_bytes().decode("utf-8").splitlines()
+    shaped = []
+    for index, line in enumerate(lines):
+        cells = next(csv.reader([line])) if line.strip() else []
+        if index >= 2 and cells:
+            cells.insert(2, "Type" if index == 2 else "EQUITY")
+        out = io.StringIO()
+        csv.writer(out, quoting=csv.QUOTE_ALL, lineterminator="").writerow(cells)
+        shaped.append(out.getvalue())
+    payload = "\n".join(shaped).encode("utf-8")
+    columns = (*COLUMNS[:2], "Type", *COLUMNS[2:])
+    with pytest.raises(ValueError, match="unverified holdings CSV schema"):
+        parse_ishares_csv(payload, **options(listing))
+    parsed = parse_ishares_csv(payload, **options(listing), expected_columns=columns)
+    assert len(parsed["holdings"]) == 1 and parsed["holdings"][0]["asset_class"] == "Equity"
