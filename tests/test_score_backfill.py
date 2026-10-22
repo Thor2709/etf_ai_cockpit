@@ -59,6 +59,30 @@ def _run(config, prices: pd.DataFrame, as_of: date = AS_OF):
     return score_backfill.score_as_of(config, prices, as_of, fx_rates=pd.DataFrame())
 
 
+def test_backfill_quality_gate_resolves_configured_exchange_without_identity_column(monkeypatch) -> None:
+    import exchange_calendars as xcals
+
+    config = _config()
+    next(item for item in config.universe.etfs if item.id == "VWCE").exchange = "XETRA"
+    prices = _prices(config)
+    sessions = xcals.get_calendar("XETR").sessions_in_range("2021-01-04", "2022-12-30")
+    prices = prices.loc[~prices["etf_id"].eq("VWCE") | pd.to_datetime(prices["date"]).isin(sessions)]
+    assert "calendar_identity" not in prices
+    original = score_backfill.validate_prices
+    reports = []
+
+    def validate(frame, **kwargs):
+        assert kwargs["config"] is config
+        report = original(frame, **kwargs)
+        reports.append(report)
+        return report
+
+    monkeypatch.setattr(score_backfill, "validate_prices", validate)
+    run, _ = _run(config, prices)
+    assert run is not None and len(reports) == 1
+    assert not [issue for issue in reports[0].issues if issue.etf_id == "VWCE" and issue.code == "missing_trading_days"]
+
+
 def test_backfill_reads_nothing_after_the_as_of_date() -> None:
     config = _config()
     prices = _prices(config)

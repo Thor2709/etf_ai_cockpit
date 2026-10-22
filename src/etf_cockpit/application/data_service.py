@@ -128,7 +128,7 @@ class DataService:
         as_of_date: date | None = None,
         holdings: pd.DataFrame | None = None,
     ) -> DataQualityReport:
-        report = validate_prices(prices if prices is not None else self.load_prices(), as_of_date=as_of_date)
+        report = validate_prices(prices if prices is not None else self.load_prices(), as_of_date=as_of_date, config=self.config)
         holdings_report = (
             validate_holdings(self.config, holdings, as_of_date=report.as_of_date, fx_rates=load_fx_rates())
             if holdings is not None

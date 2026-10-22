@@ -327,7 +327,7 @@ def score_as_of(
         as_of, known, publish=False
     )
     latest = latest_features(features, as_of)
-    report = validate_prices(known, as_of_date=as_of, min_history_days=MIN_HISTORY_ROWS, block_stale_business_days=MAX_STALE_BUSINESS_DAYS)
+    report = validate_prices(known, as_of_date=as_of, min_history_days=MIN_HISTORY_ROWS, block_stale_business_days=MAX_STALE_BUSINESS_DAYS, config=config)
     signals = (
         []
         if latest.empty

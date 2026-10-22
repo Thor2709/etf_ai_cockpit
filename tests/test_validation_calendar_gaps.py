@@ -7,7 +7,7 @@ import json
 import exchange_calendars as xcals
 import pandas as pd
 
-from etf_cockpit.data.market_calendar import CalendarCorrection, MarketCalendarService
+from etf_cockpit.data.market_calendar import CalendarCorrection, MarketCalendarService, MarketClockError
 from etf_cockpit.data.validation import validate_prices
 
 
@@ -125,3 +125,96 @@ def test_known_exceptional_closure_is_not_a_gap(monkeypatch) -> None:
     )])
     monkeypatch.setattr(MarketCalendarService, "from_correction_ledger", lambda path: service)
     assert _gaps(prices.drop(index=range(10, 16))) == []
+
+
+def test_resolver_supplies_calendar_when_identity_column_is_absent() -> None:
+    prices = _prices().drop(columns="calendar_identity")
+    seen = []
+
+    def resolve(instrument_id):
+        seen.append(instrument_id)
+        return "XNYS"
+
+    for removed, expected in ((0, []), (5, []), (6, ["6 expected days missing. Exchange calendar XNYS."])):
+        report = validate_prices(
+            prices.drop(index=range(10, 10 + removed)), min_history_days=1, calendar_resolver=resolve,
+        )
+        gaps = [issue for issue in report.issues if issue.code == "missing_trading_days"]
+        assert [issue.message for issue in gaps] == expected
+        assert all(issue.severity == "warning" for issue in gaps)
+    assert seen == ["ETF-A"] * 3
+
+
+def test_default_universe_resolves_calendar_for_plain_production_frame() -> None:
+    prices = _prices("XETR", "Europe/Berlin").drop(columns="calendar_identity")
+    prices["etf_id"] = "VWCE"
+    assert _gaps(prices) == []
+    gaps = _gaps(prices.drop(index=range(10, 16)))
+    assert len(gaps) == 1
+    assert gaps[0].message == "6 expected days missing. Exchange calendar XETR."
+
+
+def test_ledger_is_loaded_once_and_weekends_never_reach_business_day(monkeypatch) -> None:
+    prices = _prices()
+    other = prices.copy(deep=True)
+    other["etf_id"] = "ETF-B"
+    other["calendar_identity"] = [{**_identity(), "instrument_id": "ETF-B"} for _ in other.index]
+    loads = []
+    checked = []
+    service = MarketCalendarService()
+    original = service.is_business_day
+
+    def load(path):
+        loads.append(path)
+        return service
+
+    def business_day(listing, day, **kwargs):
+        assert day.weekday() < 5
+        checked.append(day)
+        return original(listing, day, **kwargs)
+
+    monkeypatch.setattr(MarketCalendarService, "from_correction_ledger", load)
+    monkeypatch.setattr(service, "is_business_day", business_day)
+    assert _gaps(pd.concat([prices, other], ignore_index=True)) == []
+    assert len(loads) == 1 and checked
+
+
+def test_unavailable_ledger_falls_back_for_explicit_and_resolved_calendars(monkeypatch) -> None:
+    loads = []
+
+    def unavailable(path):
+        loads.append(path)
+        raise MarketClockError("unreadable ledger")
+
+    monkeypatch.setattr(MarketCalendarService, "from_correction_ledger", unavailable)
+    for prices in (_prices(), _prices().drop(columns="calendar_identity")):
+        report = validate_prices(prices, min_history_days=1, calendar_resolver=lambda _: "XNYS")
+        gaps = [issue for issue in report.issues if issue.code == "missing_trading_days"]
+        assert len(gaps) == 1 and "weekday fallback" in gaps[0].message
+    assert len(loads) == 2
+
+
+def test_unresolved_calendar_does_not_suppress_weekday_gaps() -> None:
+    prices = _prices().drop(columns="calendar_identity")
+    for calendar_id in (None, "ZZZZ"):
+        report = validate_prices(prices, min_history_days=1, calendar_resolver=lambda _: calendar_id)
+        gaps = [issue for issue in report.issues if issue.code == "missing_trading_days"]
+        assert len(gaps) == 1 and "weekday fallback" in gaps[0].message
+
+
+def test_resolved_calendar_applies_only_known_exceptional_closures(monkeypatch) -> None:
+    prices = _prices().drop(columns="calendar_identity")
+    missing = prices["date"].iloc[10].date()
+    for known_at, expected_warnings in ((datetime(2020, 1, 2, tzinfo=timezone.utc), 0),
+                                        (datetime(2025, 1, 1, tzinfo=timezone.utc), 1)):
+        service = MarketCalendarService(corrections=[CalendarCorrection.exceptional_closure(
+            correction_id="test-closure", mic="XNYS", session_date=missing, revision=1,
+            reason="Test closure", source_id="test-source", source_checksum="a" * 64,
+            timezone="America/New_York", valid_from=date(2020, 1, 1), known_at=known_at,
+        )])
+        monkeypatch.setattr(MarketCalendarService, "from_correction_ledger", lambda _: service)
+        report = validate_prices(
+            prices.drop(index=range(10, 16)), min_history_days=1, calendar_resolver=lambda _: "XNYS",
+        )
+        gaps = [issue for issue in report.issues if issue.code == "missing_trading_days"]
+        assert len(gaps) == expected_warnings
