@@ -14,6 +14,7 @@ Source order comes from ``configs/stock_fundamentals_v1.yaml``: filings first, t
 from __future__ import annotations
 
 import json
+import math
 import os
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -29,6 +30,7 @@ from etf_cockpit.core.atomic_io import atomic_write_bytes, parquet_payload, vali
 from etf_cockpit.core.paths import ROOT
 from etf_cockpit.data import stock_sources as src
 from etf_cockpit.data.esef_provider import fetch_stock_fundamentals as fetch_esef_fundamentals
+from etf_cockpit.data.fx_data import load_fx_rates
 from etf_cockpit.data.sec_edgar_provider import fetch_stock_fundamentals as fetch_sec_fundamentals
 
 CONFIG_NAME = "stock_fundamentals_v1.yaml"
@@ -131,8 +133,27 @@ def read_snapshots(root: Path | None = None) -> pd.DataFrame:
     return _read(store_paths(root)["snapshots"], SNAPSHOT_COLUMNS)
 
 
-def read_fx(root: Path | None = None) -> pd.DataFrame:
-    return _read(store_paths(root)["fx"], FX_COLUMNS)
+def read_fx(root: Path | None = None, *, include_canonical: bool = True) -> pd.DataFrame:
+    """Read snapshot closes plus direct canonical quotes for PIT fallback, without persisting them."""
+
+    snapshot = _read(store_paths(root)["fx"], FX_COLUMNS)
+    if not include_canonical:
+        return snapshot
+    try:
+        canonical = load_fx_rates(Path(root or ROOT) / "data" / "clean" / "fx.parquet")
+    except Exception:  # unreadable fallback is unavailable, just like the snapshot store
+        return snapshot
+    if canonical.empty or not {"pair", "as_of_date", "rate", "available_at"}.issubset(canonical.columns):
+        return snapshot
+    fallback = canonical.loc[:, ["pair", "as_of_date", "rate", "available_at"]].rename(
+        columns={"as_of_date": "date", "available_at": "known_at"}
+    )
+    fallback["pair"] = fallback["pair"].astype(str).str.replace("/", "", regex=False)
+    snapshot = snapshot.assign(_canonical_fx=False)
+    fallback["_canonical_fx"] = True
+    if snapshot.empty:
+        return fallback.reset_index(drop=True)
+    return pd.concat([snapshot, fallback], ignore_index=True)
 
 
 def _concat(frames: Sequence[pd.DataFrame], columns: Sequence[str]) -> pd.DataFrame:
@@ -511,23 +532,37 @@ def fx_rate(
     decision_time: datetime | None = None,
     max_age_days: int = 7,
 ) -> tuple[float | None, str | None]:
-    """Latest stored close known by ``decision_time`` and dated on or before ``on_date``."""
+    """Latest eligible snapshot close, then canonical close; direct pairs only.
+
+    Canonical ``available_at`` is carried as ``known_at`` by ``read_fx``. It needs
+    an explicit decision time and obeys the same seven-day freshness limit.
+    """
 
     rows = fx[fx["pair"].astype(str) == pair]
-    best: tuple[date, datetime, float] | None = None
+    best: tuple[bool, date, datetime, float] | None = None
     for _, row in rows.iterrows():
+        canonical = bool(row.get("_canonical_fx", False))
+        if canonical and decision_time is None:
+            continue
         when = as_utc(row.get("date"))
-        if when is None or when.date() > on_date:
+        if when is None or pd.isna(when) or not 0 <= (on_date - when.date()).days <= max_age_days:
             continue
         known = as_utc(row.get("known_at"))
-        if decision_time is not None and (known is None or known > decision_time):
+        if decision_time is not None and (known is None or pd.isna(known) or known > decision_time):
+            continue
+        try:
+            rate = float(row["rate"])
+        except (TypeError, ValueError):
+            continue
+        if not math.isfinite(rate) or rate <= 0:
             continue
         observed = known or datetime.min.replace(tzinfo=timezone.utc)
-        if best is None or (when.date(), observed) >= (best[0], best[1]):
-            best = (when.date(), observed, float(row["rate"]))
-    if best is None or (on_date - best[0]).days > max_age_days:
+        candidate = (not canonical, when.date(), observed, rate)
+        if best is None or candidate[:3] >= best[:3]:
+            best = candidate
+    if best is None:
         return None, None
-    return best[2], best[0].isoformat()
+    return best[3], best[1].isoformat()
 
 
 # ---------------------------------------------------------------------------------------------
@@ -579,7 +614,7 @@ def refresh_stock_fundamentals(
             **analyst,
         }
         periods, _migrated = append_period_rows(periods, str(legacy.get("instrument_id") or ""), [migrated])
-    fx = read_fx(root)
+    fx = read_fx(root, include_canonical=False)
     report = RefreshReport()
     snapshot_rows: list[dict[str, Any]] = []
     fx_rows: list[dict[str, Any]] = []
