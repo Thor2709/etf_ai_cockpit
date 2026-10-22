@@ -75,6 +75,7 @@ _IFRS_MAPPING = {
     "OtherReserves": "other_reserves",
     "RetainedEarnings": "retained_earnings",
     "NumberOfSharesOutstanding": "shares_outstanding",
+    "WeightedAverageShares": "weighted_average_shares",
     "WeightedAverageNumberOfOrdinarySharesOutstandingBasic": "weighted_average_shares",
     "TreasuryShares": "treasury_shares",
 }
@@ -303,9 +304,9 @@ def _decode_numeric_fact(text: str, attributes: dict[str, str]) -> tuple[str, st
         if kind == "zero":
             cleaned = "0"
         elif kind == "dot":
-            cleaned = cleaned.replace(",", "").replace(" ", "")
+            cleaned = cleaned.translate(str.maketrans("", "", ", \u00a0\u202f\u2009"))
         else:
-            cleaned = cleaned.replace(".", "").replace(" ", "").replace(",", ".")
+            cleaned = cleaned.translate(str.maketrans("", "", ". \u00a0\u202f\u2009")).replace(",", ".")
     if _NUMERIC_SHAPE.fullmatch(cleaned) is None:
         return text, "value is not a plain decimal number"
     try:
