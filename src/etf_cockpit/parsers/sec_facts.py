@@ -78,6 +78,7 @@ def statement_facts_from_esef(
     known_at: str | None = None,
     extension_namespace: str | None = None,
     extension_mappings: Mapping[str, str] | None = None,
+    filed: str | None = None,
 ) -> tuple[StatementFact, ...]:
     """Adapt parsed ESEF facts to the versioned statement-facts contract.
 
@@ -86,6 +87,9 @@ def statement_facts_from_esef(
     import).  Without it the facts stay unavailable for point-in-time views.
     Facts reported in a dimensional context (segment, member, ...) keep their
     dimensional identity and are never mapped to a canonical total metric.
+
+    ``filed`` is the publication date and is passed only when it is proven (the filings.xbrl.org registry ``date_added``
+    of a point-in-time import); a local import leaves it None, so its facts never qualify as reported share counts.
     """
 
     from etf_cockpit.parsers.esef_ixbrl import is_ifrs_full_namespace, map_ifrs_fact
@@ -121,7 +125,7 @@ def statement_facts_from_esef(
                 start=period_start,
                 end=period_end,
                 instant=period_end if period_start is None else None,
-                filed=None,
+                filed=filed,
                 form="ESEF",
                 accession=None,
                 fiscal_year=int(period_end[:4]) if period_end and period_end[:4].isdigit() else None,

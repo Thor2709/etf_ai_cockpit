@@ -11,7 +11,7 @@ from etf_cockpit.core.config import AppConfig, _load_universe_config
 from etf_cockpit.core.exceptions import ConfigError
 from etf_cockpit.core.paths import CONFIG_DIR
 from etf_cockpit.core.types import DataQualityIssue, DataQualityReport
-from etf_cockpit.data.etf_economics import resolve_session_calendar
+from etf_cockpit.data.etf_economics import resolve_listing_calendar
 from etf_cockpit.data.market_calendar import MarketCalendarService, MarketClockError
 from etf_cockpit.data.provenance import calendar_staleness_status, metadata_from_frame, price_staleness_status
 
@@ -212,7 +212,7 @@ def validate_prices(
     if "calendar_identity" not in known and calendar_resolver is None:
         try:
             universe = config.universe if config is not None else _load_universe_config(CONFIG_DIR)
-            calendars = {item.id: resolve_session_calendar(item.exchange) for item in universe.etfs}
+            calendars = {item.id: resolve_listing_calendar(item.exchange, item.ticker, item.currency) for item in universe.etfs}
         except (ConfigError, OSError, TypeError, ValueError):
             calendars = {}
         calendar_resolver = calendars.get

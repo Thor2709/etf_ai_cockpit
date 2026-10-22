@@ -1387,9 +1387,35 @@ _EXCHANGE_CALENDAR_ALIASES = {
     "SIX": "XSWX",
     "SIX SWISS EXCHANGE": "XSWX",
     "OSLO BORS": "XOSL",
+    "OSE": "XOSL",
+    "BORSA ITALIANA": "XMIL",
     "NASDAQ": "XNAS",
     "NYSE": "XNYS",
 }
+
+
+# Yahoo-style ticker suffix -> exchange_calendars code; used only when the configured exchange label is not itself certified.
+_TICKER_SUFFIX_CALENDARS = {
+    ".OL": "XOSL", ".AS": "XAMS", ".DE": "XETR", ".PA": "XPAR", ".MI": "XMIL", ".MC": "XMAD", ".L": "XLON", ".ST": "XSTO", ".BR": "XBRU",
+}
+
+
+def resolve_listing_calendar(exchange: object, ticker: object, currency: object = None) -> str | None:
+    """Certified calendar for a listing: the configured exchange first, else the ticker's exchange suffix.
+
+    A suffix-less USD ticker maps to XNYS (NYSE and Nasdaq share one session calendar). Anything else stays uncertified (None).
+    """
+
+    certified = resolve_session_calendar(exchange)
+    if certified is not None:
+        return certified
+    text = str(ticker or "").strip().upper()
+    for suffix, code in _TICKER_SUFFIX_CALENDARS.items():
+        if text.endswith(suffix):
+            return resolve_session_calendar(code)
+    if text and "." not in text and str(currency or "").strip().upper() == "USD":
+        return resolve_session_calendar("XNYS")
+    return None
 
 
 def resolve_session_calendar(exchange: object) -> str | None:

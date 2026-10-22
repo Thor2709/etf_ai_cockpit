@@ -174,6 +174,7 @@ def backfill_score_history(
     force: bool = False,
     excluded: Mapping[str, str] | None = None,
     progress: Callable[[str], None] | None = None,
+    workers: int = 1,
 ) -> BackfillResult:
     """Compute and store the canonical score for each selected historical session; resumable.
 
@@ -184,6 +185,9 @@ def backfill_score_history(
     ``excluded`` maps instrument ids to the reason they are removed from the replay universe (identity or data defects): they
     are dropped before scoring, logged as ineligible with that reason and influence no peer, correlation or rank.
     FX follows the canonical availability rule only (rows carry ``available_at``; ``EurRateBook`` and the FX snapshot gate on it).
+
+    ``workers`` > 1 scores the sessions in parallel processes. Every session is independent (it reads only prices known at its
+    own close) and results are consumed in session order, so the stored output equals the serial run.
     """
 
     root = Path(root)
@@ -270,18 +274,14 @@ def backfill_score_history(
             unavailable_dates=unavailable, eligibility=eligibility_log,
         )
 
-    for index, session in enumerate(sessions, start=1):
-        if session.isoformat() in done:
+    todo = [(index, session) for index, session in enumerate(sessions, start=1) if session.isoformat() not in done]
+    for index, session, outcome in _score_sessions(config, frame, todo, fx, registry_signature, excluded, workers):
+        say(f"[{index}/{len(sessions)}] scored as of {session}")
+        if isinstance(outcome, str):  # fail closed per session: one broken date never writes a partial or guessed run
+            unavailable[session.isoformat()] = outcome
+            say(f"  unavailable: {outcome}")
             continue
-        say(f"[{index}/{len(sessions)}] scoring as of {session}")
-        try:
-            run, eligibility = score_as_of(
-                config, frame, session, fx_rates=fx, version_registry_signature=registry_signature, excluded=excluded
-            )
-        except Exception as exc:  # fail closed per session: one broken date never writes a partial or guessed run
-            unavailable[session.isoformat()] = f"{type(exc).__name__}: {str(exc)[:200]}"
-            say(f"  unavailable: {unavailable[session.isoformat()]}")
-            continue
+        run, eligibility = outcome
         eligibility["config_fingerprint"] = fingerprint
         new_eligibility.append(eligibility)
         if run is None:
@@ -299,6 +299,49 @@ def backfill_score_history(
             eligibility=existing_eligibility,
         )
     return persist()
+
+
+_WORKER_STATE: dict[str, Any] = {}
+
+
+def _worker_init(config: AppConfig, prices: pd.DataFrame, fx_rates: pd.DataFrame | None, registry_signature: str, excluded: Mapping[str, str] | None) -> None:
+    import os
+
+    os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
+    _WORKER_STATE.update(config=config, prices=prices, fx=fx_rates, registry=registry_signature, excluded=excluded)
+
+
+def _score_one(config: AppConfig, prices: pd.DataFrame, session: date, fx_rates: pd.DataFrame | None, registry_signature: str, excluded: Mapping[str, str] | None):
+    try:
+        return score_as_of(config, prices, session, fx_rates=fx_rates, version_registry_signature=registry_signature, excluded=excluded)
+    except Exception as exc:  # reported as the session's unavailable reason
+        return f"{type(exc).__name__}: {str(exc)[:200]}"
+
+
+def _worker_score(session: date):
+    state = _WORKER_STATE
+    return _score_one(state["config"], state["prices"], session, state["fx"], state["registry"], state["excluded"])
+
+
+def _score_sessions(config, frame, todo, fx, registry_signature, excluded, workers):
+    """Yield ``(index, session, outcome)`` in session order; outcome is ``(run, eligibility)`` or an error string."""
+
+    if workers <= 1 or len(todo) <= 1:
+        for index, session in todo:
+            yield index, session, _score_one(config, frame, session, fx, registry_signature, excluded)
+        return
+    import multiprocessing
+    from concurrent.futures import ProcessPoolExecutor
+
+    with ProcessPoolExecutor(
+        max_workers=min(workers, len(todo)),
+        mp_context=multiprocessing.get_context("spawn"),
+        initializer=_worker_init,
+        initargs=(config, frame, fx, registry_signature, excluded),
+    ) as pool:
+        futures = [(index, session, pool.submit(_worker_score, session)) for index, session in todo]
+        for index, session, future in futures:
+            yield index, session, future.result()
 
 
 def score_as_of(

@@ -502,6 +502,7 @@ def import_esef_package(
         provider_id, source_url = _esef_source_provenance(package_path)
         acquired_at = datetime.now(timezone.utc)
         fact_known_at = acquired_at
+        published_on: str | None = None
         if known_at is not None:
             fact_known_at = datetime.fromisoformat(str(known_at).strip().replace("Z", "+00:00"))
             if fact_known_at.tzinfo is None:
@@ -509,12 +510,14 @@ def import_esef_package(
             fact_known_at = fact_known_at.astimezone(timezone.utc)
             if fact_known_at > acquired_at:
                 raise ValueError("ESEF filing known_at cannot be in the future")
+            published_on = fact_known_at.date().isoformat()  # explicit known_at is the registry date_added: the proven publication date
         records = statement_facts_from_esef(
             parsed.records,
             instrument_id=resolved_instrument_id,
             source_sha256=parsed.source_sha256,
             source_provider=provider_id,
             known_at=fact_known_at.isoformat(timespec="microseconds"),  # fixed width: a column may not mix shapes
+            filed=published_on,
         )
         source = RawDocument(raw_path, source_url, acquired_at, parsed.source_sha256, provider_id, "esef_report_package", "application/octet-stream", 200)
         with publication_scope(publish_guard):

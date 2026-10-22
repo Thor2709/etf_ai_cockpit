@@ -321,3 +321,22 @@ def test_an_unmarked_position_is_never_valued_as_zero() -> None:
     assert missing == ["STALE"] and values["STALE"] is None and invested is None and total is None  # no partial total, no weights
     values, invested, total, missing = module.value_positions(Decimal(100), held, fx, lambda key: 50.0 if key == "VWCE" else 20.0)
     assert missing == [] and invested == 600.0 and total == 700.0
+
+
+def test_parallel_backfill_equals_serial_backfill(tmp_path: Path) -> None:
+    config = _config()
+    prices = _prices(config)
+    window = (date(2022, 5, 2), date(2022, 6, 30))
+    serial_root, parallel_root = tmp_path / "serial", tmp_path / "parallel"
+    serial = score_backfill.backfill_score_history(serial_root, *window, every=5, config=config, prices=prices, fx_rates=pd.DataFrame())
+    parallel = score_backfill.backfill_score_history(
+        parallel_root, *window, every=5, config=config, prices=prices, fx_rates=pd.DataFrame(), workers=3
+    )
+    assert serial.status == parallel.status == "available" and serial.runs_written == parallel.runs_written >= 2
+    assert serial.unavailable_dates == parallel.unavailable_dates
+    left = store.load_backfill_score_history(serial_root)
+    right = store.load_backfill_score_history(parallel_root)
+    pd.testing.assert_frame_equal(left.reset_index(drop=True), right.reset_index(drop=True))
+    pd.testing.assert_frame_equal(
+        store.load_backfill_eligibility(serial_root).reset_index(drop=True), store.load_backfill_eligibility(parallel_root).reset_index(drop=True)
+    )
