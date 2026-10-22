@@ -97,7 +97,8 @@ def ingest_issuer(job):
     try:
         provider = FilingsXbrlOrgProvider(
             cache_dir=cache, transport=_LocalTransport(fixture) if fixture else None,
-            request_interval=settings["request_interval"], request_gate=settings.get("request_gate"))
+            request_interval=settings["request_interval"], request_gate=settings.get("request_gate"),
+            retries=settings.get("http_retries", 0))
         discovered = provider.list_issuer_filings(lei, error_limit=settings["error_limit"],
             page_size=settings["page_size"], history=True, entity_type=settings.get("entity_type", "entity"),
             date_added_timezone=settings.get("date_added_timezone"))
@@ -125,7 +126,8 @@ def ingest_issuer(job):
                         raise ValueError("registry/package checksum mismatch")
                     parsed = settings.get("parse_package", _parse_shares_package)(package.path)
                     if not parsed.success:
-                        raise ValueError("ESEF parser rejected report package")
+                        raise ValueError("ESEF parser rejected report package: " +
+                                         (",".join(sorted({w.code for w in parsed.warnings})) or "no_warning"))
                     filing["package_sha256"] = package.sha256
                     evidence = extract_issuer_shares(parsed.records, lei=lei, filing=filing,
                         share_class_members=settings.get("share_class_members", {}).get(lei, {}))
@@ -136,10 +138,14 @@ def ingest_issuer(job):
                                            lambda p: json.loads(p.read_text()))
                 if evidence is not None:
                     # Mapping provenance cannot make an older filing usable earlier.
-                    evidence["known_at"] = max(evidence["known_at"], settings["mapping_known_at"])
+                    mapping_known, mapping_store = settings["mapping_known_at"], settings.get("mapping_store")
+                    if isinstance(mapping_known, dict):  # per-LEI first-seen evidence (live acquisition)
+                        mapping_known = mapping_known[lei]
+                    if isinstance(mapping_store, dict):
+                        mapping_store = mapping_store[lei]
+                    evidence["known_at"] = max(evidence["known_at"], mapping_known)
                     reference = json.loads(evidence["source_ref"])
-                    reference.update(mapping_store=settings.get("mapping_store"),
-                                     mapping_known_at=settings["mapping_known_at"])
+                    reference.update(mapping_store=mapping_store, mapping_known_at=mapping_known)
                     evidence["source_ref"] = json.dumps(reference, sort_keys=True)
                     result["rows"].append(evidence)
                     outcome["status"] = "shares"
