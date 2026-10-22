@@ -6,7 +6,7 @@ from decimal import Decimal
 import pandas as pd
 
 from etf_cockpit.application import score_backfill
-from etf_cockpit.application.replay_membership import (
+from etf_cockpit.data.replay_membership import (
     ListingHistory, MEMBERSHIP_POLICY, MembershipPriceBook, unverified_instruments,
 )
 from etf_cockpit.data.universe_membership import import_licensed_history

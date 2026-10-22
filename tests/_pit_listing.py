@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from etf_cockpit.application.replay_membership import ListingHistory
+from etf_cockpit.data.replay_membership import ListingHistory
 from etf_cockpit.core.config import load_config
 
 SYNTHETIC_IDS = ("AAA", "BBB", "BAD", "VWCE")

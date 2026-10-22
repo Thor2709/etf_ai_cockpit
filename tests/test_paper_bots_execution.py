@@ -10,7 +10,7 @@ import pandas as pd
 import pytest
 import yaml
 
-from etf_cockpit.application.replay_membership import MEMBERSHIP_POLICY
+from etf_cockpit.data.replay_membership import MEMBERSHIP_POLICY
 from etf_cockpit.data.local_storage import StorageSchemaError, TransactionalStore
 from etf_cockpit.portfolio import paper_bots, paper_bots_execution as execution
 from etf_cockpit.portfolio.paper_trading import PaperLedger, PaperLedgerError

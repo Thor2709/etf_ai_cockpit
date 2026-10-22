@@ -11,7 +11,7 @@ import pandas as pd
 import pytest
 
 from etf_cockpit.application import score_backfill
-from etf_cockpit.application.replay_membership import MEMBERSHIP_POLICY, ListingHistory
+from etf_cockpit.data.replay_membership import MEMBERSHIP_POLICY, ListingHistory
 from etf_cockpit.core.config import load_config
 from etf_cockpit.data import score_history_backfill as store
 from etf_cockpit.portfolio import paper_bots, paper_bots_execution as execution
