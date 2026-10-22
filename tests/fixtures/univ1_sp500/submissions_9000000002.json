@@ -1,0 +1,10 @@
+{
+  "cik":"9000000002","name":"Synthetic Renamed Issuer","tickers":["ZZC"],
+  "formerNames":[{"name":"Synthetic Former Issuer","from":"2010-01-01","to":"2020-06-30"}],
+  "filings":{
+    "recent":{
+      "accessionNumber":["synthetic-original-b"],"filingDate":["2021-02-19"],
+      "acceptanceDateTime":["2021-02-19T15:00:00Z"]
+    },"files":[]
+  }
+}
