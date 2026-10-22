@@ -197,3 +197,18 @@ def test_finding_6_lost_record_recovers_cost_without_reference_bar(monkeypatch, 
     fill = next(item for item in state["fills"] if item["fill_id"] == original["fill_id"])
     unknown = execution._fill_evidence_fields(fill, None)
     assert unknown["reference_open"] is None and unknown["spread_slippage_cost"] is None
+
+
+def test_an_exchange_session_missing_from_the_price_book_still_gets_a_daily_snapshot(monkeypatch, tmp_path):
+    assert _decisions(monkeypatch, tmp_path, eur=True).status == "available"
+    _allow(tmp_path)
+    _write_fx(tmp_path)
+    book = _book()
+    _execute(tmp_path, book)
+    record = next(item for item in _records(tmp_path) if item["bot_family"] == "B1" and item["status"] == "filled")
+    ledger = PaperLedger(execution.forward_track(tmp_path).ledger_root, account_id=execution.account_id_for(record["bot_id"]))
+    # 2026-10-16 (Friday) is an XETR session that the book calendar lacks: it is valued with the carried mark, not skipped.
+    snapshots = report._ledger_snapshots(ledger, book, _exec_config(), RUN_AT, [date(2026, 10, 15), date(2026, 10, 19)], None, root=tmp_path)
+    assert date(2026, 10, 16) in set(pd.to_datetime(snapshots["date"]).dt.date)
+    row = snapshots[pd.to_datetime(snapshots["date"]).dt.date == date(2026, 10, 16)].iloc[0]
+    assert row["valuation_status"] == "available"

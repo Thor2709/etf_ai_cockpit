@@ -24,7 +24,7 @@ from etf_cockpit.portfolio import paper_bots_execution as execution
 from etf_cockpit.portfolio.benchmark_relative_diagnostics import build_relative_performance
 from etf_cockpit.portfolio.paper_trading import PaperLedger, PaperLedgerError
 from etf_cockpit.portfolio.performance_series import build_portfolio_performance_series
-from etf_cockpit.portfolio.valuation import PortfolioValuationError, build_daily_portfolio_snapshots
+from etf_cockpit.portfolio.valuation import PortfolioValuationError, build_daily_portfolio_snapshots, expected_session_dates
 
 UNCONFIRMED_LABEL = "Unconfirmed advantage"
 REPLAY_LABEL = "conditional historical simulation"
@@ -215,6 +215,10 @@ def _ledger_snapshots(
     days = [day for day in sessions if day >= start]
     if not days:
         raise PaperLedgerError("No completed session exists since the first funding flow.")
+    # An exchange session without a price bar (a data gap) still needs its daily snapshot: it is valued with the bounded
+    # carried-forward mark below, or stays unavailable when the stale limit is exceeded.
+    known_days = set(days)
+    days = sorted(known_days | {day.date() for day in expected_session_dates(days[0], days[-1], "XETR")})
     traded = sorted({str(event["payload"]["instrument_id"]) for event in fills})
     scale: dict[str, float] = {}
     first_fill: dict[str, date] = {}
@@ -280,7 +284,10 @@ def _mark(book: execution.PriceBook, instrument: str, day: date, scale: float, s
         last = book.last_bar(instrument, day)
         if last is None:
             return None
-        gap = len([session for session in book.sessions if last["date"].date() < session <= day])
+        gap = max(
+            len([session for session in book.sessions if last["date"].date() < session <= day]),
+            len(expected_session_dates(last["date"], day, "XETR")) - 1,  # exchange sessions absent from the book count as stale too
+        )
         if gap > stale_limit:
             return None
         bar = last
