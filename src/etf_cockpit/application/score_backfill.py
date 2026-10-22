@@ -9,7 +9,7 @@ engine's own fail-closed behaviour), never zero-filled, reweighted or read as of
 Only the deterministic baseline return quantiles are recomputed from as-of prices, without calibration, for friction/cost inputs.
 Withheld on purpose (no known-at in the stores): stored forecasts, TimesFM/Toto and calibration, the stored backtest trust, the cash-curve
 comparison, ETF holdings without knowledge times, PRIIPS KIDs, configured ETF product-quality metadata, stored news counts and the trade-candidate
-report. The universe is today's configured list: delisted names are absent (survivorship bias, reported with the results).
+report. Listing membership is selected as known at each session; missing history is reported explicitly.
 """
 
 from __future__ import annotations
@@ -26,6 +26,7 @@ from typing import Any
 import pandas as pd
 
 from etf_cockpit.application.feature_service import FeatureService
+from etf_cockpit.application.replay_membership import ListingHistory, MEMBERSHIP_POLICY, unverified_instruments
 from etf_cockpit.application.reference_context import (
     _benchmark_reference_snapshot_inputs,
     _reference_context_from_inputs,
@@ -61,7 +62,7 @@ from etf_cockpit.signals.simple_scores import (
     simple_scoreboard_frame,
 )
 
-PIT_POLICY_VERSION = "pit_score_backfill.v1"
+PIT_POLICY_VERSION = "pit_score_backfill.v2"
 CALENDAR_INSTRUMENT_ID = "VWCE"  # the benchmark calendar defines the sessions (as in the paper bots)
 DEFAULT_EVERY_SESSIONS = 5  # weekly
 CHECKPOINT_RUNS = 20  # persist the store after this many newly scored sessions
@@ -87,8 +88,8 @@ WITHHELD_SOURCES = (
     "etf_structure_confidence_caps",
 )
 SURVIVORSHIP_CAVEAT = (
-    "SURVIVORSHIP: the universe is today's configured list; instruments delisted or removed during the period are absent, "
-    "so historical results are biased upward."
+    "SURVIVORSHIP: listing intervals are applied using their knowledge times. Instruments without listing history "
+    "are survivorship-unverified and explicitly ineligible; missing historical identities or prices are never invented."
 )
 _BASE_HISTORY_EXTRA = (
     "analysis_status",
@@ -109,6 +110,7 @@ class BackfillResult:
     unavailable_dates: dict[str, str] = field(default_factory=dict)
     eligibility: pd.DataFrame = field(default_factory=pd.DataFrame)
     reason: str | None = None
+    survivorship_unverified: list[str] = field(default_factory=list)
 
 
 def session_dates(prices: pd.DataFrame, start: date, end: date, *, every: int = DEFAULT_EVERY_SESSIONS, calendar_id: str = CALENDAR_INSTRUMENT_ID) -> list[date]:
@@ -122,7 +124,7 @@ def session_dates(prices: pd.DataFrame, start: date, end: date, *, every: int = 
     return dates[::every]
 
 
-def config_fingerprint(config: AppConfig, excluded: Mapping[str, str] | None) -> tuple[str, dict[str, object]]:
+def config_fingerprint(config: AppConfig, excluded: Mapping[str, str] | None, membership: ListingHistory | None = None) -> tuple[str, dict[str, object]]:
     """Identity of everything that shapes a stored session besides its input data: a changed run configuration must recompute it."""
 
     formulas: dict[str, str] = {}
@@ -143,6 +145,8 @@ def config_fingerprint(config: AppConfig, excluded: Mapping[str, str] | None) ->
     ).hexdigest()
     material: dict[str, object] = {
         "pit_policy_version": PIT_POLICY_VERSION,
+        "membership_policy": MEMBERSHIP_POLICY,
+        "membership_hash": (membership or ListingHistory()).fingerprint(),
         "excluded_instruments": {str(key): str(value) for key, value in sorted((excluded or {}).items())},
         "liquidity_gate": {
             "types": sorted(LIQUIDITY_GATED_TYPES), "window_sessions": LIQUIDITY_WINDOW_SESSIONS,
@@ -212,6 +216,8 @@ def backfill_score_history(
     root = Path(root)
     say = progress or (lambda _message: None)
     config = config or load_config()
+    membership = ListingHistory.from_root(root)
+    config = _historical_config(config, membership)
     frame = load_prices(config=config) if prices is None else prices.copy()
     if frame.empty or not {"etf_id", "date", "adjusted_close"}.issubset(frame.columns):
         return BackfillResult("unavailable", None, reason="No stored price history to score.")
@@ -222,7 +228,7 @@ def backfill_score_history(
         return BackfillResult("unavailable", None, reason=f"No {CALENDAR_INSTRUMENT_ID} session between {start} and {end}.")
     fx = fx_rates if fx_rates is not None else _load_fx(frame)
     registry_signature = str(build_version_registry().get("registry_signature", "unavailable"))
-    fingerprint, applied = config_fingerprint(config, excluded)
+    fingerprint, applied = config_fingerprint(config, excluded, membership)
 
     existing = load_backfill_score_history(root)
     existing_eligibility = load_backfill_eligibility(root)
@@ -251,17 +257,16 @@ def backfill_score_history(
             else existing_eligibility
         )
         eligibility_log = _concat([kept_eligibility, *new_eligibility])
-        if history.empty:
-            return BackfillResult("unavailable", None, len(sessions), unavailable_dates=unavailable, eligibility=eligibility_log, reason="No session could be scored.")
-        history = history.sort_values(["as_of_date", "rank", "instrument_id"], kind="stable").reset_index(drop=True)
-        stored_days = set(history["as_of_date"].astype(str))
+        if not history.empty:
+            history = history.sort_values(["as_of_date", "rank", "instrument_id"], kind="stable").reset_index(drop=True)
+        stored_days = set(history["as_of_date"].astype(str)) if not history.empty else set()
         remembered = {
             day: reason for day, reason in (previous_manifest.get("unavailable_dates") or {}).items() if day not in stored_days and day not in replaced
         }
         fingerprints = (
             sorted(set(history["config_fingerprint"].fillna("unfingerprinted").astype(str)))
             if "config_fingerprint" in history.columns
-            else ["unfingerprinted"]
+            else [fingerprint] if history.empty else ["unfingerprinted"]
         )
         known_configs = dict(previous_manifest.get("configurations") or {})
         known_configs[fingerprint] = applied
@@ -272,13 +277,16 @@ def backfill_score_history(
             "pit_policy_version": PIT_POLICY_VERSION,
             "withheld_sources": list(WITHHELD_SOURCES),
             "survivorship_caveat": SURVIVORSHIP_CAVEAT,
+            "membership_policy": MEMBERSHIP_POLICY,
+            "survivorship_unverified": unverified_instruments(eligibility_log),
+            "missing_listing_metadata": sorted(set(membership.instrument_ids) - set(config.universe.by_id())),
             "calendar_instrument_id": CALENDAR_INSTRUMENT_ID,
             "every_sessions": every,
             "configurations": configurations,
             "mixed_configuration": len(fingerprints) > 1,
-            "runs": int(history["run_id"].nunique()),
-            "first_as_of": str(history["as_of_date"].min()),
-            "last_as_of": str(history["as_of_date"].max()),
+            "runs": int(history["run_id"].nunique()) if not history.empty else 0,
+            "first_as_of": str(history["as_of_date"].min()) if not history.empty else None,
+            "last_as_of": str(history["as_of_date"].max()) if not history.empty else None,
             "unavailable_dates": {**remembered, **unavailable},
             "execution_allowed": False,
         }
@@ -288,9 +296,11 @@ def backfill_score_history(
             )
         path = write_backfill_store(root, history, eligibility_log, manifest)
         return BackfillResult(
-            "available", path, len(sessions), runs_written=len(new_histories),
+            "available" if not history.empty else "unavailable", path, len(sessions), runs_written=len(new_histories),
             runs_kept=int(kept["run_id"].nunique()) if not kept.empty else 0,
             unavailable_dates=unavailable, eligibility=eligibility_log,
+            reason=None if not history.empty else "No session could be scored.",
+            survivorship_unverified=unverified_instruments(eligibility_log),
         )
 
     todo = [(index, session) for index, session in enumerate(sessions, start=1) if session.isoformat() not in done]
@@ -299,9 +309,10 @@ def backfill_score_history(
         return BackfillResult(
             "available", backfill_history_path(root), len(sessions), runs_written=0, runs_kept=int(existing["run_id"].nunique()),
             eligibility=existing_eligibility,
+            survivorship_unverified=unverified_instruments(existing_eligibility),
         )
     try:
-        for index, session, outcome in _score_sessions(config, frame, todo, fx, registry_signature, excluded, workers):
+        for index, session, outcome in _score_sessions(config, frame, todo, fx, registry_signature, excluded, workers, membership):
             say(f"[{index}/{len(sessions)}] scored as of {session}")
             if isinstance(outcome, str):  # fail closed per session: never store a partial or guessed run
                 unavailable[session.isoformat()] = outcome
@@ -325,41 +336,55 @@ def backfill_score_history(
 _WORKER_STATE: dict[str, Any] = {}
 
 
-def _worker_init(config: AppConfig, prices: pd.DataFrame, fx_rates: pd.DataFrame | None, registry_signature: str, excluded: Mapping[str, str] | None) -> None:
+def _worker_init(config: AppConfig, prices: pd.DataFrame, fx_rates: pd.DataFrame | None, registry_signature: str, excluded: Mapping[str, str] | None, membership: ListingHistory) -> None:
     import os
 
     os.environ["CUDA_VISIBLE_DEVICES"] = ""
-    _WORKER_STATE.update(config=config, prices=prices, fx=fx_rates, registry=registry_signature, excluded=excluded)
+    _WORKER_STATE.update(config=config, prices=prices, fx=fx_rates, registry=registry_signature, excluded=excluded, membership=membership)
 
 
-def _score_one(config: AppConfig, prices: pd.DataFrame, session: date, fx_rates: pd.DataFrame | None, registry_signature: str, excluded: Mapping[str, str] | None):
+def _score_one(config: AppConfig, prices: pd.DataFrame, session: date, fx_rates: pd.DataFrame | None, registry_signature: str, excluded: Mapping[str, str] | None, membership: ListingHistory):
     try:
-        return score_as_of(config, prices, session, fx_rates=fx_rates, version_registry_signature=registry_signature, excluded=excluded)
+        return score_as_of(config, prices, session, fx_rates=fx_rates, version_registry_signature=registry_signature, excluded=excluded, membership=membership)
     except Exception as exc:  # reported as the session's unavailable reason
         return f"{type(exc).__name__}: {str(exc)[:200]}"
 
 
 def _worker_score(session: date):
     state = _WORKER_STATE
-    return _score_one(state["config"], state["prices"], session, state["fx"], state["registry"], state["excluded"])
+    return _score_one(state["config"], state["prices"], session, state["fx"], state["registry"], state["excluded"], state["membership"])
 
 
-def _score_sessions(config, frame, todo, fx, registry_signature, excluded, workers):
+def _score_sessions(config, frame, todo, fx, registry_signature, excluded, workers, membership):
     """Yield ``(index, session, outcome)`` in session order; outcome is ``(run, eligibility)`` or an error string."""
 
     if workers <= 1 or len(todo) <= 1:
         for index, session in todo:
-            yield index, session, _score_one(config, frame, session, fx, registry_signature, excluded)
+            yield index, session, _score_one(config, frame, session, fx, registry_signature, excluded, membership)
         return
     import multiprocessing
-    from concurrent.futures import ProcessPoolExecutor
+    from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 
-    with ProcessPoolExecutor(
-        max_workers=min(workers, len(todo)),
-        mp_context=multiprocessing.get_context("spawn"),
-        initializer=_worker_init,
-        initargs=(config, frame, fx, registry_signature, excluded),
-    ) as pool:
+    try:
+        pool = ProcessPoolExecutor(
+            max_workers=min(workers, len(todo)),
+            mp_context=multiprocessing.get_context("spawn"),
+            initializer=_worker_init,
+            initargs=(config, frame, fx, registry_signature, excluded, membership),
+        )
+    except PermissionError:
+        # Some Windows sandboxes deny multiprocessing's named pipes. No tasks
+        # have been submitted yet; independent sessions can still run in threads.
+        import warnings
+
+        warnings.warn("Process pool unavailable; scoring sessions with parallel threads.", RuntimeWarning, stacklevel=2)
+        with ThreadPoolExecutor(max_workers=min(workers, len(todo))) as threads:
+            futures = [(index, session, threads.submit(_score_one, config, frame, session, fx, registry_signature, excluded, membership))
+                       for index, session in todo]
+            for index, session, future in futures:
+                yield index, session, future.result()
+        return
+    with pool:
         futures = [(index, session, pool.submit(_worker_score, session)) for index, session in todo]
         for index, session, future in futures:
             yield index, session, future.result()
@@ -373,15 +398,30 @@ def score_as_of(
     fx_rates: pd.DataFrame | None = None,
     version_registry_signature: str = "unavailable",
     excluded: Mapping[str, str] | None = None,
+    membership: ListingHistory | None = None,
 ) -> tuple[pd.DataFrame | None, pd.DataFrame]:
     """The canonical score history run for one session plus its eligibility log; only data known at ``as_of`` is read."""
 
-    excluded = dict(excluded or {})
+    if membership is None:
+        from etf_cockpit.core.paths import ROOT
+
+        membership = ListingHistory.from_root(ROOT)
+    config = _historical_config(config, membership)
+    log_config = config
+    snapshot = membership.snapshot(as_of, config.universe.enabled_ids)
+    excluded = {**snapshot.reasons, **dict(excluded or {})}
+    config = config.model_copy(update={"universe": config.universe.model_copy(update={
+        "etfs": [item for item in config.universe.etfs if item.id in snapshot.eligible_ids and item.id not in excluded]
+    })})
     known = prices.loc[(_as_dates(prices["date"]) <= as_of) & ~prices["etf_id"].astype(str).isin(excluded)].copy()
+    known = known.loc[known["etf_id"].astype(str).isin(config.universe.enabled_ids)]
     known["date"] = _as_dates(known["date"])
+    if not config.universe.enabled_ids:
+        eligibility = _eligibility_log(log_config, as_of, known, DataQualityReport(as_of, []), pd.DataFrame(), [], excluded, fx_rates, set())
+        return None, _membership_log(eligibility, snapshot)
     decision_time = datetime(as_of.year, as_of.month, as_of.day, 23, 59, 59, tzinfo=timezone.utc)
     created_at = decision_time.isoformat()
-    inputs_hash = _inputs_hash(config, known, fx_rates, as_of)
+    inputs_hash = hashlib.sha256((_inputs_hash(config, known, fx_rates, as_of) + snapshot.fingerprint).encode()).hexdigest()
     run_id = f"backfill_{as_of:%Y%m%d}_{inputs_hash[:8]}"
     baselines = _baseline_forecasts(known, as_of, run_id)
 
@@ -444,12 +484,34 @@ def score_as_of(
         backtest_trust={},
     )
     no_lineage = {score.display_id for score in scores if score.canonical_score is None}
-    eligibility = _eligibility_log(config, as_of, known, report, features, scores, excluded, fx_rates, no_lineage)
+    eligibility = _eligibility_log(log_config, as_of, known, report, features, scores, excluded, fx_rates, no_lineage)
+    eligibility = _membership_log(eligibility, snapshot)
     eligible_ids = set(eligibility.loc[eligibility["eligible"], "instrument_id"])
     ranked = rank_and_finalize_scores([score for score in scores if score.display_id in eligible_ids], known, metadata, news_inventory={})
     if not ranked:
         return None, eligibility
-    return _history_run(ranked, run_id, created_at, as_of, inputs_hash, eligibility, version_registry_signature, baselines), eligibility
+    run = _history_run(ranked, run_id, created_at, as_of, inputs_hash, eligibility, version_registry_signature, baselines)
+    run["membership_policy"] = MEMBERSHIP_POLICY
+    run["membership_inputs_hash"] = snapshot.fingerprint
+    run["snapshot_hash"] = _content_hash(run)
+    return run, eligibility
+
+
+def _historical_config(config: AppConfig, membership: ListingHistory) -> AppConfig:
+    """Restore retained delisted identities, without enabling manually disabled names."""
+    items = [item.model_copy(update={"enabled": True})
+             if item.lifecycle in {"delisted", "merged"} else item
+             for item in config.universe.etfs]
+    return config.model_copy(update={"universe": config.universe.model_copy(update={"etfs": items})})
+
+
+def _membership_log(eligibility, snapshot):
+    eligibility["membership_status"] = eligibility["instrument_id"].map(
+        lambda key: "survivorship_unverified" if key in snapshot.unverified_ids
+        else "listed" if key in snapshot.eligible_ids else "outside_listing_interval"
+    )
+    eligibility["membership_inputs_hash"] = snapshot.fingerprint
+    return eligibility
 
 
 def _baseline_forecasts(known: pd.DataFrame, as_of: date, run_id: str) -> dict[str, ForecastResult]:

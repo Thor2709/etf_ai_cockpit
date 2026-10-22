@@ -10,13 +10,15 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+import sqlite3
 from typing import Any, Literal, Mapping
 
 import pandas as pd
 
+from etf_cockpit.application.replay_membership import ListingHistory, MembershipPriceBook, replay_preflight, unverified_instruments
 from etf_cockpit.core.paths import ROOT
 from etf_cockpit.data.local_storage import StorageRevisionConflict, TransactionalStore
-from etf_cockpit.data.score_history_backfill import load_backfill_score_history
+from etf_cockpit.data.score_history_backfill import load_backfill_eligibility, load_backfill_score_history
 from etf_cockpit.portfolio import paper_bots as bots
 from etf_cockpit.portfolio import paper_bots_execution as execution
 
@@ -56,21 +58,26 @@ def run_historical_replay(
     if cutoff > clock + timedelta(minutes=5):
         return execution.ExecutionRunResult("unavailable", "replay", bots._time_text(cutoff), reason="as_of is in the future.", label=track.label)
 
+    try:
+        frame = history if history is not None else (
+            load_backfill_score_history(project_root) if history_source == "backfill"
+            else bots._load_published_score_history(project_root)
+        )
+        membership = ListingHistory.from_root(project_root)
+        book = price_book if price_book is not None else execution.PriceBook.from_root(project_root)
+        failure = replay_preflight(frame, membership, book, cutoff)
+        unknown = unverified_instruments(load_backfill_eligibility(project_root)) if history_source == "backfill" else []
+    except (OSError, ValueError, TypeError, KeyError, sqlite3.Error) as exc:
+        return execution.ExecutionRunResult("unavailable", "replay", bots._time_text(cutoff), reason=f"Membership preflight unavailable: {type(exc).__name__}.", label=track.label)
+    if failure:
+        return execution.ExecutionRunResult("unavailable", "replay", bots._time_text(cutoff), reason=failure, label=track.label)
+    price_book = MembershipPriceBook(book, membership)
+
     def prepare(store: TransactionalStore, bots_config: Mapping[str, Any], config_hash: str, book: execution.PriceBook, warnings: list[str]) -> None:
-        try:
-            if history is not None:
-                frame = history
-            elif history_source == "backfill":
-                frame = load_backfill_score_history(project_root)
-                warnings.append(
-                    "Replaying the historical score backfill (historical_backfill provenance: price-based point-in-time terms only; "
-                    "survivorship-biased universe). This is a conditional simulation, never forward evidence."
-                )
-            else:
-                frame = bots._load_published_score_history(project_root)
-        except Exception as exc:  # fail closed: unreadable history
-            warnings.append(f"Stored score history unavailable: {type(exc).__name__}.")
-            return
+        if unknown:
+            warnings.append("survivorship-unverified: " + ", ".join(unknown))
+        if history_source == "backfill":
+            warnings.append("Historical score backfill with point-in-time listing membership; conditional simulation, never forward evidence.")
         _write_replay_decisions(store, track, bots_config, config_hash, book, frame, cutoff, warnings)
 
     return execution._run(track, project_root, cutoff, config_path, execution_config_path, price_book, prepare)

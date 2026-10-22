@@ -57,6 +57,9 @@ def main() -> int:
         print(f"reason: {result.reason}")
     for day, reason in sorted(result.unavailable_dates.items()):
         print(f"  unavailable {day}: {reason}")
+    print("survivorship-unverified instruments (no listing history at one or more replay dates):")
+    for instrument_id in result.survivorship_unverified:
+        print(f"  {instrument_id}")
     if result.path:
         print(f"store: {result.path}")
         print("eligible instruments at the last session of each year, by asset type:")

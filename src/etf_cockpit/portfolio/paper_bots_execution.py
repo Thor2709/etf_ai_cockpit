@@ -385,6 +385,9 @@ def _run(
     config_hash = hashlib.sha256(bots_bytes).hexdigest()
     exec_hash = hashlib.sha256(exec_bytes).hexdigest()
     book = price_book if price_book is not None else PriceBook.from_root(root, benchmark_id=str(bots_config["benchmark"]["instrument_id"]))
+    if track.name == "replay" and getattr(book, "membership_fingerprint", None):
+        config_hash = hashlib.sha256((config_hash + book.membership_fingerprint).encode()).hexdigest()
+        exec_hash = hashlib.sha256((exec_hash + book.membership_fingerprint).encode()).hexdigest()
     if not book.usable:
         return ExecutionRunResult("unavailable", track.name, as_of_text, reason=book.error or "No benchmark sessions are available.", label=track.label)
     try:
@@ -551,6 +554,7 @@ def _execute_bot(context: _Context, bot_id: str, decisions: list[dict[str, Any]]
     ledger = PaperLedger(context.track.ledger_root, account_id=account_id_for(bot_id))
     written: list[dict[str, Any]] = []
     for decision_index, decision in enumerate(decisions):
+        written.extend(_liquidate_delistings(context, ledger, decision, decision["_known_at"]))
         decision_date = decision["_decided_at"].date()
         usable = [day for day in context.book.sessions_after(decision_date) if day < context.cutoff.date()]
         entry = context.book.first_session_on_or_after(decision_date)
@@ -567,6 +571,65 @@ def _execute_bot(context: _Context, bot_id: str, decisions: list[dict[str, Any]]
         # Stage A targets are complete portfolios: omission of an instrument means a zero target.
         superseded_at = max(following[0]["_decided_at"], following[0]["_known_at"]) if following else None
         written.extend(_run_intents(context, ledger, decision, plan, usable, superseded_at=superseded_at))
+    if decisions:
+        through = datetime.combine(context.cutoff.date(), time.min, tzinfo=timezone.utc) - timedelta(microseconds=1)
+        written.extend(_liquidate_delistings(context, ledger, decisions[-1], through))
+    return written
+
+
+def _liquidate_delistings(context: _Context, ledger: PaperLedger, decision: Mapping[str, Any], through: datetime) -> list[dict[str, Any]]:
+    """Sell closures chronologically through the ordinary guarded paper order path."""
+    if context.track.name != "replay" or not hasattr(context.book, "delistings"):
+        return []
+    written = []
+    for when, instrument, delisting_day in context.book.delistings(through):
+        if when < decision["_decided_at"] and not ledger.external_flows():
+            continue
+        event_id = _record_id(ledger.account_id, instrument, delisting_day.isoformat(), when.isoformat(), "delisting")
+        if context.store.get(context.track.record_type, event_id) is not None:
+            continue
+        bar = context.book.liquidation_bar(instrument, delisting_day)
+        close = None if bar is None else bots._finite_number(bar.get("close"))
+        # The closure is its own decision, with a fresh expiry and actual knowledge
+        # time. It does not borrow an expired monthly proposal or future cash.
+        closure = {**decision, "decision_id": event_id, "_decided_at": when, "_known_at": when}
+        index = 0
+        while True:
+            held = next((Decimal(str(p.quantity)) for p in ledger.snapshot().positions if p.instrument_id == instrument), Decimal(0))
+            intent_id = _record_id(event_id, str(index))
+            fills = _intent_records(context, intent_id)
+            if fills and fills[0]["status"] == "filled":
+                index += 1
+                continue
+            fill_id = "botfill_" + _record_id(intent_id, when.date().isoformat())[:20]
+            recovered = next((row for row in ledger.trade_rows() if row["paper_trade_id"] == fill_id), None)
+            if held <= 0 and recovered is None:
+                marker = _record(context, closure, {
+                    "intent_id": event_id, "instrument_id": instrument, "side": "sell", "planned_quantity": "0",
+                    "target_weight": "0", "reason": "delisting liquidation complete",
+                }, when.date(), "completed", "delisting_liquidation_complete")
+                marker["record_id"] = event_id
+                _store_record(context, marker)
+                written.append(marker)
+                break
+            intent = {
+                "intent_id": intent_id, "instrument_id": instrument, "side": "sell",
+                "planned_quantity": str(held if recovered is None else recovered["quantity"]), "target_weight": "0",
+                "sizing_price": None if close is None or close <= 0 else str(close),
+                "sizing_price_date": None if bar is None else bar["date"].date().isoformat(),
+                "currency": None if bar is None else bar.get("currency"), "reason": "delisting liquidation",
+                "unavailable_reason": "delisting_last_price_unavailable", "delisting_day": delisting_day,
+                "liquidation_at": when,
+            }
+            record = fills[0] if fills else _attempt(context, ledger, closure, intent, when.date(), final_session=True, awaits_settlement=False)
+            record.update(delisting_date=delisting_day.isoformat(), price_as_of_date=intent["sizing_price_date"], liquidation_at=when.isoformat())
+            if not fills:
+                _store_record(context, record)
+                written.append(record)
+            if record["status"] != "filled":
+                context.warnings.append(f"Delisting liquidation failed for {instrument} on {delisting_day}: {record['reason']}; position retained.")
+                break
+            index += 1  # owner order-value limits may require multiple guarded sales
     return written
 
 
@@ -879,6 +942,9 @@ def _run_intents(
         written.append(record)
 
     for index, session in enumerate(usable[: max(retries + 1, split_sessions)]):
+        if superseded_at is not None and _fill_datetime(context.config, session) >= superseded_at:
+            break  # later closures/cash belong after the next decision's plan
+        written.extend(_liquidate_delistings(context, ledger, decision, _fill_datetime(context.config, session)))
         for entry in state.values():
             intent = entry["intent"]
             if entry["final"]:
@@ -992,8 +1058,9 @@ def _proposal(
     decided_at: datetime = decision["_decided_at"]
     sign = 1 if intent["side"] == "buy" else -1
     note = f"{intent['reason']}; session {session.isoformat()}"
-    fill_time = _fill_datetime(config, session)
-    volume, opening = bots._finite_number(bar.get("volume")), bots._finite_number(bar.get("open"))
+    fill_time = intent.get("liquidation_at") or _fill_datetime(config, session)
+    reference_field = "close" if intent.get("delisting_day") else "open"
+    volume, opening = bots._finite_number(bar.get("volume")), bots._finite_number(bar.get(reference_field))
     after = held + sign * quantity
     exposure = after * unit_price
     policy = context.policy
@@ -1006,7 +1073,10 @@ def _proposal(
             held >= 0 and after >= 0, f"Paper ledger {ledger.account_id} replayed before the order: holds {held}, holds {after} after it.",
         ),
         "data_freshness": (
-            bool(decision.get("snapshot_hash")) and decision["_known_at"] <= fill_time and session > decided_at.date(),
+            bool(decision.get("snapshot_hash")) and decision["_known_at"] <= fill_time and (
+                bar["date"].date() < intent["delisting_day"] <= fill_time.date()
+                if intent.get("delisting_day") else session > decided_at.date()
+            ),
             f"Published snapshot {str(decision.get('snapshot_hash'))[:12]} was known before the fill session {session.isoformat()}.",
         ),
         "model_confidence": (
@@ -1073,7 +1143,7 @@ def _attempt(
     if currency is None:
         return miss("currency_unavailable")
     currency = currency.upper()
-    fill_time = _fill_datetime(context.config, session)
+    fill_time = intent.get("liquidation_at") or _fill_datetime(context.config, session)
     if intent.get("parent_intent_id") and fill_time >= decision["_decided_at"] + timedelta(days=float(context.config["proposal_validity_days"])):
         return miss("proposal_expired: split child is outside the original decision validity")
     fx = _eur_per_unit(context, currency, fill_time)
@@ -1081,13 +1151,14 @@ def _attempt(
         return miss(f"fx_unavailable: no {currency}/EUR rate known at {fill_time.isoformat()}")
     ledger_fx = None if currency == "EUR" else fx  # EUR keeps the ledger's implicit unit rate
     to_eur = Decimal(1) if currency == "EUR" else Decimal(str(fx))
-    bar = context.book.bar(instrument, session)
+    bar = (context.book.liquidation_bar(instrument, intent["delisting_day"])
+           if intent.get("delisting_day") else context.book.bar(instrument, session))
     if bar is None:
         return miss(f"no_session_data: provider outage, halt or missing bar on {session.isoformat()}")
     volume = bots._finite_number(bar.get("volume"))
     if volume is None or volume <= 0:
         return miss(f"zero_volume_session on {session.isoformat()}")
-    opening = bots._finite_number(bar.get("open"))
+    opening = bots._finite_number(bar.get("close" if intent.get("delisting_day") else "open"))
     if opening is None or opening <= 0:
         return miss(f"invalid_open_price on {session.isoformat()}")
     bar_currency = bots._real_text(bar.get("currency"))
@@ -1170,6 +1241,7 @@ def _attempt(
             spread_slippage_cost=str(cost), fill_id=fill_id, order_id=order_id,
             planned_quantity=str(intent["planned_quantity"]),
             remaining_quantity=str(_split_remainder(context, intent, quantity, unit, held)),
+            price_basis="last_pre_delisting_close" if intent.get("delisting_day") else "session_open",
         )
     return miss("insufficient_settled_cash after the retry sessions")
 
@@ -1198,8 +1270,9 @@ def _recovered_fill(
     quantity, price, fee = (Decimal(str(row[key])) for key in ("quantity", "price", "fee"))
     order = next((item for item in ledger.orders() if item["order_id"] == row["order_id"]), {})
     order_fx = Decimal(str(order.get("fx_rate", 1)))
-    bar = context.book.bar(str(intent["instrument_id"]), session)
-    opening = None if bar is None else bots._finite_number(bar.get("open"))
+    bar = (context.book.liquidation_bar(str(intent["instrument_id"]), intent["delisting_day"])
+           if intent.get("delisting_day") else context.book.bar(str(intent["instrument_id"]), session))
+    opening = None if bar is None else bots._finite_number(bar.get("close" if intent.get("delisting_day") else "open"))
     reference = Decimal(str(opening)) if opening else None
     return _record(
         context, decision, intent, session, "filled", f"{intent['reason']}; recovered from the paper ledger fill",
