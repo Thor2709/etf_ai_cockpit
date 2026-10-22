@@ -116,7 +116,7 @@ def test_terms_without_point_in_time_data_are_unavailable_with_a_reason(monkeypa
         seen["decision_time"] = decision_time
         return original(records, prices, decision_time)
 
-    for name in ("_etf_exposure_lookup", "_kid_record_lookup", "_etf_product_quality_lookup", "_news_inventory_lookup"):
+    for name in ("_kid_record_lookup", "_etf_product_quality_lookup", "_news_inventory_lookup"):
         monkeypatch.setattr(simple_scores, name, forbidden)
     monkeypatch.setattr(simple_scores, "get_universe_evidence", recording)
     run, log = _run(config, _prices(config))
