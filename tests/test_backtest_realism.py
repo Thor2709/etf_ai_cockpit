@@ -674,7 +674,11 @@ def _eur_universe_with_equity_certificate(config, prices):
         item.model_copy(update={"currency": "EUR"}) if item.id == certificate.id else item for item in config.universe.etfs
     ]
     patched = config.model_copy(update={"universe": config.universe.model_copy(update={"etfs": etfs})})
-    return patched, prices[prices["etf_id"].isin(eur_ids | {certificate.id})], certificate.id
+    panel = prices[prices["etf_id"].isin(eur_ids | {certificate.id})].copy()
+    # Re-label the price rows too: rows quoting NOK against a configured EUR listing conflict, and the
+    # canonical EUR basis (correctly) leaves such an instrument's NAV unavailable instead of filling it.
+    panel.loc[panel["etf_id"].eq(certificate.id), "currency"] = "EUR"
+    return patched, panel, certificate.id
 
 
 def test_equity_certificate_without_quote_fills_flagged_cost_estimated_not_held_as_cash(config, prices) -> None:
