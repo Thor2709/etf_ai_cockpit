@@ -120,27 +120,35 @@ class _Table(HTMLParser):
 
 
 def parse_wikipedia_changes(html: str, *, table_id: str) -> list[dict]:
-    """Accept the configured six-column selected-changes table, including rowspans.
+    """Accept the configured selected-changes table, including rowspans.
 
-    Announcement evidence is supplied separately; the Date column is effective.
-    A changed header/column count is a hard failure, not a best-effort scrape.
+    Two recorded shapes are verified: the original six-column table headed
+    "Date" and the live "Historical components of the S&P 500" table headed
+    "Effective Date" with an optional trailing "Refs" column (a row may omit it).
+    Announcement evidence is supplied separately; the first column is effective.
+    Any other header/column count is a hard failure, not a best-effort scrape.
     """
     parser = _Table(table_id)
     parser.feed(html)
     rows = parser.rows
     if parser.matches != 1 or len(rows) < 2:
         raise ValueError("expected exactly one configured selected-changes table")
-    if rows[0] != ["Date", "Added", "Added", "Removed", "Removed", "Reason"]:
+    shapes = {("Date",): 6, ("Effective Date",): 6, ("Effective Date", "Refs"): 7}
+    shape = next((key for key in shapes if rows[0] == [key[0], "Added", "Added", "Removed", "Removed", "Reason", *key[1:]]), None)
+    if shape is None:
         raise ValueError("unexpected Wikipedia selected-changes header")
-    if rows[1] != ["Date", "Ticker", "Security", "Ticker", "Security", "Reason"]:
+    if rows[1] != [shape[0], "Ticker", "Security", "Ticker", "Security", "Reason", *shape[1:]]:
         raise ValueError("unexpected Wikipedia selected-changes subheader")
     events = []
     for row in rows[2:]:
-        if len(row) != 6:
+        # The live table omits the Refs cell on a few old rows.
+        if len(row) not in {shapes[shape], shapes[shape] - len(shape[1:])}:
             raise ValueError("unexpected Wikipedia selected-changes row")
         effective = day(row[0])
         for action, index in (("add", 1), ("remove", 3)):
             ticker, name = row[index:index + 2]
+            # Verified live artefact: three old rows carry a stray " |" after the ticker.
+            ticker = re.sub(r" \|$", "", ticker)
             if ticker in {"", "—", "–"}:
                 if name not in {"", "—", "–"}:
                     raise ValueError("security without ticker")
@@ -194,15 +202,34 @@ def build_intervals(baseline: dict, events: list[dict], announcements: list[dict
     return sorted(result, key=lambda row: (row["ticker"], row["valid_from"], row["known_at"]))
 
 
-def intervals_from_fja(snapshots: list[dict], announcements: list[dict], *, baseline_known_at: str,
-                       baseline_names: dict | None = None) -> list[dict]:
+def fja_events(snapshots: list[dict]) -> list[dict]:
     events = []
     for previous, current in zip(snapshots, snapshots[1:]):
         before, after = set(previous["tickers"]), set(current["tickers"])
         for action, tickers in (("add", after - before), ("remove", before - after)):
             events.extend({"date": current["date"], "action": action, "ticker": ticker} for ticker in sorted(tickers))
+    return events
+
+
+def intervals_from_fja(snapshots: list[dict], announcements: list[dict], *, baseline_known_at: str,
+                       baseline_names: dict | None = None, extra_events: list[dict] = ()) -> list[dict]:
+    """``extra_events`` extend the history past the last snapshot (each needs an announcement)."""
     return build_intervals({**snapshots[0], "known_at": baseline_known_at, "names": baseline_names or {}},
-                           events, announcements, source="fja05680")
+                           fja_events(snapshots) + list(extra_events), announcements, source="fja05680")
+
+
+def compare_events(left: list[dict], right: list[dict], *, start: str, end: str) -> list[dict]:
+    """Exact (date, action, ticker) differences inside [start, end]; never reconciles them.
+
+    Wikipedia lists only selected changes and omits pure ticker renames, so a full
+    history rarely agrees exactly. The caller decides whether differences block.
+    """
+    def keys(rows):
+        return {(day(row["date"]), row["action"], row["ticker"]) for row in rows if start <= day(row["date"]) <= end}
+    a, b = keys(left), keys(right)
+    return [{"only_in": source, "date": date_, "action": action, "ticker": ticker}
+            for source, items in (("fja05680", a - b), ("wikipedia", b - a))
+            for date_, action, ticker in sorted(items)]
 
 
 def cross_validate(left: list[dict], right: list[dict]) -> list[dict]:

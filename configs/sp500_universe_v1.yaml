@@ -29,6 +29,14 @@ wikipedia_table_id: null
 companyfacts_member_template: CIK{cik}.json
 submissions_member_template: CIK{cik}.json
 # For provider directory caches set companyfacts_{cik}.json / submissions_{cik}.json.
+# block (default): fja05680 and Wikipedia must agree exactly or nothing is written.
+# report: opt-in; the fja05680 history is published and Wikipedia differences are
+# only listed in the report (Wikipedia shows selected changes, not renames).
+cross_validation: block
+# raise (default): any unprovable SEC fact fails the issuer. skip: opt-in; such facts
+# (no fp, zero shares, conflicting same-filing values, unprovable filing date) are
+# dropped and counted per issuer in the report, never repaired.
+invalid_fact_policy: raise
 require_acceptance: false  # missing join -> conservative end-of-filed-day ET
 require_historical_pages: true
 currency_unit: USD  # other units fail closed; change only with recorded evidence

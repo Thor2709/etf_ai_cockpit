@@ -74,12 +74,21 @@ def fact_known_at(row: dict, acceptances: dict, *, require_acceptance: bool = Fa
 
 def select_facts(companyfacts: dict, as_of: str, *, specs: dict, submissions: dict | None = None,
                  historical_pages: list[dict] = (), require_acceptance: bool = False,
-                 derive_q4: bool = True) -> list[dict]:
-    """Latest filed visible value per (namespace:tag, end, fp), plus optional Q4.
+                 derive_q4: bool = True, skipped: dict | None = None) -> list[dict]:
+    """Latest filed visible value per (namespace:tag, end, fp, start), plus optional Q4.
 
     ``specs`` maps ``namespace:tag`` to ``{unit, kind: instant|duration}``.
     Tags outside specs are deliberately out of scope, never guessed.
+    By default any unprovable fact raises. With a ``skipped`` dict (explicit opt-in)
+    each per-fact evidence problem instead drops that fact and is counted by reason
+    (live data: 8-K/prospectus facts carry no fp, a few share counts are zero);
+    unit mismatches and malformed container shapes still raise.
     """
+    def reject(reason: str, message: str) -> None:
+        if skipped is None:
+            raise ValueError(message)
+        skipped[reason] = skipped.get(reason, 0) + 1
+
     cutoff = datetime.fromisoformat(knowledge(as_of))
     acceptances = acceptance_index(submissions or {}, historical_pages)
     facts = companyfacts.get("facts")
@@ -106,45 +115,64 @@ def select_facts(companyfacts: dict, as_of: str, *, specs: dict, submissions: di
                     filed, end = date.fromisoformat(raw["filed"]), date.fromisoformat(raw["end"])
                     known = fact_known_at(raw, acceptances, require_acceptance=require_acceptance)
                 except (KeyError, TypeError) as exc:
-                    raise ValueError("fact lacks provable filed/end/known_at") from exc
+                    if skipped is None:
+                        raise ValueError("fact lacks provable filed/end/known_at") from exc
+                    reject("fact_lacks_filed_end", "")
+                    continue
+                except ValueError as exc:
+                    if skipped is None:
+                        raise
+                    reject("known_at_unprovable", str(exc))
+                    continue
                 if filed > cutoff.astimezone(ET).date() or datetime.fromisoformat(known) > cutoff:
                     continue
                 if end > filed or not raw.get("accn") or raw.get("dimensions"):
-                    raise ValueError("invalid fact period/accession/dimensions")
+                    reject("invalid_period_accession_dimensions", "invalid fact period/accession/dimensions")
+                    continue
                 value = raw.get("val")
                 if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
-                    raise ValueError("fact is not a finite reported number")
+                    reject("non_finite_value", "fact is not a finite reported number")
+                    continue
                 fp = raw.get("fp")
                 if fp not in _DURATIONS:
-                    raise ValueError("unsupported fact fp")
+                    reject("unsupported_fp", "unsupported fact fp")
+                    continue
                 start = raw.get("start")
                 duration = None
                 if spec["kind"] == "duration":
                     if not start:
-                        raise ValueError("duration fact lacks start")
+                        reject("duration_without_start", "duration fact lacks start")
+                        continue
                     duration = (end - date.fromisoformat(start)).days + 1
                 elif start:
-                    raise ValueError("instant fact has a duration")
-                grouped[(tag, end.isoformat(), fp)].append({
+                    reject("instant_with_duration", "instant fact has a duration")
+                    continue
+                # Live filings report the discrete quarter and the cumulative year-to-date
+                # value under the same end/fp; the start date is part of the fact identity.
+                grouped[(tag, end.isoformat(), fp, start)].append({
                     "tag": tag, "end": end.isoformat(), "fp": fp, "start": start,
                     "unit": unit, "val": value, "filed": filed.isoformat(), "accn": raw["accn"],
                     "known_at": known, "period_days": duration, "derived": False,
                 })
     selected = []
-    for (tag, end, fp), rows in sorted(grouped.items()):
+    for (tag, end, fp, _start), rows in sorted(grouped.items(), key=lambda item: tuple(str(part) for part in item[0])):
         latest = max((row["filed"], row["known_at"]) for row in rows)
         winners = [row for row in rows if (row["filed"], row["known_at"]) == latest]
         signatures = {(row["val"], row["unit"], row["start"]) for row in winners}
         if len(signatures) != 1:
-            raise ValueError(f"conflicting values/units/durations: {tag}/{end}/{fp}")
+            reject("conflicting_values_same_filing", f"conflicting values/units/durations: {tag}/{end}/{fp}")
+            continue
         winner = min(winners, key=lambda row: row["accn"])
         spec = specs[tag]
         if winner["unit"] != spec["unit"]:
             raise ValueError(f"unit mismatch: {tag}")
-        if spec["kind"] == "duration" and not _DURATIONS[fp][0] <= winner["period_days"] <= _DURATIONS[fp][1]:
-            raise ValueError(f"duration mismatch: {tag}/{fp}")
+        # fp names the filing, not the period: quarter, year-to-date and annual lengths all occur.
+        if spec["kind"] == "duration" and not any(low <= winner["period_days"] <= high for low, high in _DURATIONS.values()):
+            reject("duration_out_of_range", f"duration mismatch: {tag}/{fp}")
+            continue
         if tag == "dei:EntityCommonStockSharesOutstanding" and winner["val"] <= 0:
-            raise ValueError("nonpositive reported shares")
+            reject("nonpositive_shares", "nonpositive reported shares")
+            continue
         selected.append(winner)
     if derive_q4:
         quarters = []

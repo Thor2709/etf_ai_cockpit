@@ -11,6 +11,10 @@ one ahead; rerunning repairs the missing appends without rewriting history.
 Only new knowledge vintages are appended. Existing corrupt stores, changed
 evidence at the same knowledge time, or backdated membership corrections block.
 execution_allowed is always false. No acquisition/network calls are made.
+
+cross_validation=report (opt-in) publishes the complete fja history extended by
+later Wikipedia changes and only lists source differences; invalid_fact_policy=skip
+(opt-in) counts and drops unprovable SEC facts. Both defaults fail closed.
 """
 from __future__ import annotations
 
@@ -37,7 +41,8 @@ from etf_cockpit.core.atomic_io import atomic_write_bytes
 from etf_cockpit.data.sec_cik_history import cik_text, map_cik
 from etf_cockpit.data.sec_pit_facts import acceptance_index, fact_known_at, select_facts
 from etf_cockpit.data.sp500_history import (
-    build_intervals, cross_validate, intervals_from_fja, knowledge, parse_fja_csv, parse_wikipedia_changes,
+    build_intervals, compare_events, cross_validate, fja_events, intervals_from_fja, knowledge, parse_fja_csv,
+    parse_wikipedia_changes,
 )
 from etf_cockpit.data.stock_fundamentals import (
     PERIOD_COLUMNS, _write, append_period_rows, load_stock_config, store_paths,
@@ -115,22 +120,26 @@ def _specs(stock_config: dict, currency: str) -> dict:
     return result
 
 
-def _period_rows(payload: dict, selected: list[dict], config: dict, stamp: str, reference: str) -> list[dict]:
+def _period_rows(payload: dict, selected: list[dict], config: dict, stamp: str, reference: str,
+                 skipped: dict | None = None) -> list[dict]:
     """Reuse the canonical SEC financial mapper on one already-visible vintage."""
     visible = {"cik": payload["cik"], "facts": {}}
     # fp describes the filing, not the period. Repeated comparisons across fp
     # must not let an earlier value suppress a visible restatement.
-    periods = {}
+    groups, periods = {}, {}
     for fact in selected:
-        if fact["derived"] or fact["tag"].startswith("dei:"):
+        if not (fact["derived"] or fact["tag"].startswith("dei:")):
+            groups.setdefault((fact["tag"], fact["start"], fact["end"]), []).append(fact)
+    for key, facts in groups.items():
+        top = max((fact["filed"], fact["known_at"]) for fact in facts)
+        winners = [fact for fact in facts if (fact["filed"], fact["known_at"]) == top]
+        if len({(fact["val"], fact["unit"]) for fact in winners}) != 1:
+            if skipped is None:
+                raise ValueError("conflicting period values across filing fp")
+            # Same period, same filing time, different values: unavailable, never a pick.
+            skipped["conflicting_period_values"] = skipped.get("conflicting_period_values", 0) + 1
             continue
-        key = (fact["tag"], fact["start"], fact["end"])
-        previous = periods.get(key)
-        rank = (fact["filed"], fact["known_at"])
-        if previous is None or rank > (previous["filed"], previous["known_at"]):
-            periods[key] = fact
-        elif rank == (previous["filed"], previous["known_at"]) and (fact["val"], fact["unit"]) != (previous["val"], previous["unit"]):
-            raise ValueError("conflicting period values across filing fp")
+        periods[key] = winners[0]
     for fact in periods.values():
         namespace, tag = fact["tag"].split(":", 1)
         units = visible["facts"].setdefault(namespace, {}).setdefault(tag, {"units": {}})["units"]
@@ -180,22 +189,37 @@ def _issuer(task: dict) -> dict:
                     raise
         accepts = acceptance_index(submissions, pages)
         specs = _specs(task["stock_config"], config["currency_unit"])
+        policy = config.get("invalid_fact_policy", "raise")
+        if policy not in {"raise", "skip"}:
+            raise ValueError("invalid_fact_policy must be raise or skip")
+        # skip: unprovable facts are dropped and counted (from the final vintage), never repaired.
+        skipped = {} if policy == "skip" else None
         stamps = set()
         for tag in specs:
             namespace, concept = tag.split(":", 1)
             for entries in payload.get("facts", {}).get(namespace, {}).get(concept, {}).get("units", {}).values():
                 for raw in entries:
-                    stamps.add(fact_known_at(raw, accepts, require_acceptance=config["require_acceptance"]))
+                    try:
+                        stamps.add(fact_known_at(raw, accepts, require_acceptance=config["require_acceptance"]))
+                    except (KeyError, TypeError, ValueError):
+                        if skipped is None:
+                            raise
         cutoff = knowledge(config["as_of"])
         rows = []
         reference = str(Path(config["companyfacts"]).resolve()) + "!" + config["companyfacts_member_template"].format(cik=cik)
-        for stamp in sorted(item for item in stamps if item <= cutoff):
-            selected = select_facts(payload, stamp, specs=specs, submissions=submissions,
-                                    historical_pages=pages, require_acceptance=config["require_acceptance"])
-            rows.extend(_period_rows(payload, selected, task["stock_config"], stamp, reference))
+        ordered = sorted(item for item in stamps if item <= cutoff)
+        for stamp in ordered:
+            bucket = skipped if stamp == ordered[-1] else ({} if skipped is not None else None)
+            # Q4 is derived in the selector but the canonical mapper ignores derived rows.
+            selected = select_facts(payload, stamp, specs=specs, submissions=submissions, derive_q4=False,
+                                    historical_pages=pages, require_acceptance=config["require_acceptance"], skipped=bucket)
+            rows.extend(_period_rows(payload, selected, task["stock_config"], stamp, reference, bucket))
         if not rows:
             raise ValueError("no usable fundamentals at cutoff")
-        return {"cik": cik, "status": "ready", "rows": rows}
+        result = {"cik": cik, "status": "ready", "rows": rows}
+        if skipped is not None:
+            result["skipped_facts"] = dict(sorted(skipped.items()))
+        return result
     except Exception as exc:
         return {"cik": cik, "status": "failed", "reason": f"{type(exc).__name__}: {exc}", "rows": []}
 
@@ -291,18 +315,35 @@ def ingest(config: dict, *, root: Path, workers: int = 8) -> dict:
     report = {"execution_allowed": False, "disagreements": [], "unmapped": [], "issuers": []}
     snapshots = parse_fja_csv(Path(config["history_csv"]).read_text(encoding="utf-8"), **config["csv_shape"])
     events = parse_wikipedia_changes(Path(config["wikipedia_html"]).read_text(encoding="utf-8"), table_id=config["wikipedia_table_id"])
-    if not config.get("baseline_source") or not config.get("wikipedia_baseline", {}).get("source"):
+    mode = config.get("cross_validation", "block")
+    if mode not in {"block", "report"}:
+        raise ValueError("cross_validation must be block or report")
+    if not config.get("baseline_source") or (mode == "block" and not config.get("wikipedia_baseline", {}).get("source")):
         raise ValueError("independently sourced baselines required")
-    baseline = config["wikipedia_baseline"]
-    if baseline["date"] != snapshots[0]["date"]:
-        raise ValueError("source baselines must have the same observation date")
     # Each source retains its own baseline knowledge, never borrowed from the other.
-    left = intervals_from_fja(snapshots, config["announcements"], baseline_known_at=config["baseline_known_at"], baseline_names=config["baseline_names"])
-    right = build_intervals(baseline, events, config["announcements"], source="wikipedia")
-    report["disagreements"] = cross_validate(left, right)
-    if report["disagreements"]:
-        report["status"] = "blocked"
-        return report
+    # Report mode extends the fja history with Wikipedia changes dated after its last snapshot.
+    later = [row for row in events if row["date"] > snapshots[-1]["date"]] if mode == "report" else []
+    left = intervals_from_fja(snapshots, config["announcements"], baseline_known_at=config["baseline_known_at"],
+                              baseline_names=config["baseline_names"], extra_events=later)
+    if mode == "block":
+        baseline = config["wikipedia_baseline"]
+        if baseline["date"] != snapshots[0]["date"]:
+            raise ValueError("source baselines must have the same observation date")
+        # Wikipedia lists changes older than the baseline (1976+); they predate the observed history.
+        right = build_intervals(baseline, [row for row in events if row["date"] > baseline["date"]],
+                                config["announcements"], source="wikipedia")
+        report["disagreements"] = cross_validate(left, right)
+        if report["disagreements"]:
+            report["status"] = "blocked"
+            return report
+    else:
+        # Explicit opt-in (recorded run config): the complete daily fja history is
+        # published; Wikipedia's selected changes are only compared and reported.
+        right = left
+        report["cross_validation"] = "report"
+        report["disagreements"] = compare_events(fja_events(snapshots), events, start=snapshots[0]["date"], end=snapshots[-1]["date"])
+        # Changes after the last fja snapshot are not comparable, but must stay visible.
+        report["wikipedia_events_after_history"] = [{key: row[key] for key in ("date", "action", "ticker")} for row in later]
     identities, members = _submission_identities(config["submissions"], config["submissions_member_template"])
     tickers = _json(Path(config["company_tickers"]).read_bytes())
     cutoff = knowledge(config["as_of"])
