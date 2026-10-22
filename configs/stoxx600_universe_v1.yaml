@@ -6,6 +6,8 @@ execution_allowed: false
 gleif_isin_column: ISIN
 gleif_lei_column: LEI
 request_interval: 1.0
+# Transient HTTP/network failures are retried with exponential backoff (each retry passes the gate).
+http_retries: 4
 page_size: 100
 error_limit: 0
 entity_type: entity

@@ -26,6 +26,7 @@ from etf_cockpit.data.providers import ProviderResult
 
 Transport = Callable[[str, dict[str, str]], object]
 BASE_URL = "https://filings.xbrl.org"
+_TRANSIENT_HTTP = frozenset({408, 425, 429, 500, 502, 503, 504})
 MAX_RESPONSE_BYTES = 300 * 1024 * 1024
 
 
@@ -216,6 +217,8 @@ class FilingsXbrlOrgProvider:
         fixture_manifest: Path | None = None,
         request_interval: float = 1.0,
         request_gate: Callable[[], None] | None = None,
+        retries: int = 0,
+        retry_sleep: Callable[[float], None] = time.sleep,
     ) -> None:
         if timeout <= 0:
             raise ValueError("ESEF provider timeout must be positive")
@@ -228,6 +231,10 @@ class FilingsXbrlOrgProvider:
             raise ValueError("request_interval must be finite and non-negative")
         self.request_interval = float(request_interval)
         self.request_gate = request_gate
+        if retries < 0:
+            raise ValueError("retries must be non-negative")
+        # Bounded exponential backoff for transient HTTP/network failures only.
+        self.retries, self._retry_sleep = int(retries), retry_sleep
         self._last_request = None
 
     def list_issuer_filings(self, lei: str, *, error_limit: int = 0,
@@ -249,7 +256,7 @@ class FilingsXbrlOrgProvider:
                 raise ValueError("invalid error limit or page size")
             query = quote(json.dumps([{"name": "entity.identifier", "op": "eq", "val": lei}], separators=(",", ":")))
             url = f"{BASE_URL}/api/filings?filter={query}&include=entity&page[size]={page_size}"
-            seen, records = set(), []
+            seen, records, rows_seen = set(), [], 0
             while url:
                 parsed_url = urlparse(url)
                 if (parsed_url.scheme != "https" or parsed_url.netloc != "filings.xbrl.org"
@@ -262,6 +269,7 @@ class FilingsXbrlOrgProvider:
                 payload = json.loads(response.payload)
                 if not isinstance(payload, dict) or not isinstance(payload.get("data"), list):
                     raise ValueError("issuer discovery requires JSON:API data")
+                rows_seen += len(payload["data"])
                 included = payload.get("included", [])
                 if not isinstance(included, list):
                     raise ValueError("invalid included entities")
@@ -300,7 +308,8 @@ class FilingsXbrlOrgProvider:
                         continue
                     known = datetime.fromisoformat(str(attrs.get("date_added") or "").replace("Z", "+00:00"))
                     if known.tzinfo is None and date_added_timezone == "UTC":
-                        known = known.replace(tzinfo=timezone.utc)
+                        # A date-only value (midnight) is known only by the end of that UTC day.
+                        known = datetime.combine(known.date(), datetime.max.time(), timezone.utc) if known.time() == datetime.min.time() else known.replace(tzinfo=timezone.utc)
                     if known.tzinfo is None or known.date() < date.fromisoformat(period):
                         raise ValueError("unproven date_added")
                     package_url = _safe_package_url(str(attrs.get("package_url") or ""))
@@ -311,8 +320,16 @@ class FilingsXbrlOrgProvider:
                                     "package_url": package_url, "sequence": int(sequence[1]),
                                     "known_at": known.astimezone(timezone.utc).isoformat()})
                 links = payload.get("links")
-                if not isinstance(links, dict) or "next" not in links:
+                if not isinstance(links, dict):
                     raise ValueError("pagination requires an explicit next link or null")
+                if "next" not in links:
+                    # The live registry omits `next` on its final page: accept that only
+                    # when meta.count proves every row was returned.
+                    meta = payload.get("meta")
+                    count = meta.get("count") if isinstance(meta, dict) else None
+                    if type(count) is not int or count != rows_seen:
+                        raise ValueError("pagination requires an explicit next link or null")
+                    links = {**links, "next": None}
                 next_link = links["next"]
                 if isinstance(next_link, dict):
                     next_link = next_link.get("href")
@@ -331,6 +348,8 @@ class FilingsXbrlOrgProvider:
                 identities[identity] = row
                 key = (lei, row["period_end"])
                 if key not in winners or row["sequence"] > winners[key]["sequence"]:
+                    if key in winners and winners[key]["known_at"] == row["known_at"]:
+                        selected.remove(winners[key])  # superseded at the same instant: never a separate version
                     winners[key] = row
                     selected.append(row)
             frame = pd.DataFrame(selected if history else list(winners.values()))
@@ -433,6 +452,19 @@ class FilingsXbrlOrgProvider:
         return package.source_url, payload, 200
 
     def _get(self, url: str) -> _Response:
+        for attempt in range(self.retries + 1):
+            try:
+                return self._get_once(url)
+            except EsefProviderUnavailable as exc:
+                cause = exc.__cause__
+                transient = not isinstance(cause, ValueError) and (
+                    not hasattr(cause, "code") or getattr(cause, "code") in _TRANSIENT_HTTP)
+                if attempt >= self.retries or not transient:
+                    raise
+                self._retry_sleep(min(60.0, 2.0 ** attempt))
+        raise AssertionError("unreachable")
+
+    def _get_once(self, url: str) -> _Response:
         if self.request_gate is not None:
             self.request_gate()
         else:
@@ -452,7 +484,7 @@ class FilingsXbrlOrgProvider:
                 url, allowed=allowed, headers=headers, timeout=self.timeout, max_bytes=MAX_RESPONSE_BYTES
             )
         except (TimeoutError, OSError, ValueError) as exc:
-            raise EsefProviderUnavailable("official ESEF endpoint unavailable") from exc
+            raise EsefProviderUnavailable(f"official ESEF endpoint unavailable: {type(exc).__name__}: {str(exc)[:100]}") from exc
         return _Response(payload, status, _headers_dict(response_headers))
 
 
