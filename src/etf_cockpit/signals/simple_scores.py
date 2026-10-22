@@ -990,8 +990,24 @@ def build_simple_instrument_scores(
         excluded_instrument_ids=config.universe.by_id(),
         cyclical_projections=cyclical_projections,
     )
+    return rank_and_finalize_scores([*universe_scores, *candidate_scores], prices, metadata)
+
+
+def rank_and_finalize_scores(
+    scores: list[SimpleInstrumentScore],
+    prices: pd.DataFrame,
+    metadata: Mapping[str, object],
+    *,
+    news_inventory: Mapping[str, int] | None = None,
+) -> list[SimpleInstrumentScore]:
+    """Order, rank and attach crowding, identity, classification, evidence, authority and canonical score (one path).
+
+    ``news_inventory`` None reads the stored news counts (live); a historical caller passes ``{}`` because the stored
+    news inventory carries no point-in-time view.
+    """
+
     scores = sorted(
-        [*universe_scores, *candidate_scores],
+        scores,
         key=lambda item: (
             item.final_score_10 is None,
             -(item.final_score_10 or -1.0),
@@ -1014,7 +1030,7 @@ def build_simple_instrument_scores(
         weights={instrument_id: 1.0 for instrument_id in ranked_instruments},
     )
     ranked_crowding_lookup = {row.instrument_id: row for row in ranked_crowding.rows}
-    news_inventory = _news_inventory_lookup()
+    news_lookup = _news_inventory_lookup() if news_inventory is None else news_inventory
     ordinary_ranks = {score.display_id: index for index, score in enumerate(
         (score for score in scores if not _is_sparebank_ec_asset_type(score.asset_type)), start=1
     )}
@@ -1023,7 +1039,7 @@ def build_simple_instrument_scores(
             score,
             rank=None if _is_sparebank_ec_asset_type(score.asset_type) else ordinary_ranks[score.display_id],
             score_rank=None if _is_sparebank_ec_asset_type(score.asset_type) else ordinary_ranks[score.display_id],
-            news_inventory=news_inventory.get(score.display_id),
+            news_inventory=news_lookup.get(score.display_id),
             forecast_status=_forecast_status_for_components(score.components),
             **_crowding_fields_for_score(ranked_crowding_lookup.get(score.display_id)),
         )
@@ -1644,12 +1660,26 @@ def load_simple_scoreboard(path: Path | None = None, *, root: Path | None = None
     return project_classification_score_frame(frame, root=root)
 
 
+@dataclass(frozen=True)
+class AsOfScoreSources:
+    """Historical as-of scoring: the decision time and the reference sources withheld because they carry no known-at.
+
+    A score computed for a past date (score backfill) may only read evidence that was known then. Stock fundamentals are
+    read with their own known-at gate at ``decision_time``; the ETF-side reference evidence (holdings, PRIIPS KIDs and the
+    configured product-quality metadata) has no ingestion timestamp in the stores, so it is withheld (the component is
+    unavailable with its reason), never read as of today.
+    """
+
+    decision_time: datetime
+
+
 def build_universe_simple_scores(
     config: AppConfig,
     signals: list[SignalResult],
     forecasts: pd.DataFrame,
     prices: pd.DataFrame,
     *,
+    as_of_sources: AsOfScoreSources | None = None,
     calibration_by_id: dict[str, dict[str, object]] | None = None,
     regime: dict[str, object] | None = None,
     portfolio_fit: dict[str, dict[str, object]] | None = None,
@@ -1671,10 +1701,12 @@ def build_universe_simple_scores(
         currency_by_id={str(key): str(value.currency) for key, value in config.universe.by_id().items()},
         fx_rates=fx_rates,
     )
-    etf_exposure = _etf_exposure_lookup()
-    kid_records = _kid_record_lookup()
+    etf_exposure = {} if as_of_sources is not None else _etf_exposure_lookup()
+    kid_records = {} if as_of_sources is not None else _kid_record_lookup()
     product_lookups: dict[date | None, tuple[dict[str, dict[str, object]], dict[str, dict[str, list[float]]]]] = {}
-    stock_evidence, stock_evidence_error = _stock_evidence_lookup(config, signals, prices)
+    stock_evidence, stock_evidence_error = _stock_evidence_lookup(
+        config, signals, prices, decision_time=None if as_of_sources is None else as_of_sources.decision_time
+    )
     symbol_map = yfinance_symbol_map_from_config(config)
     etf_lookup = config.universe.by_id()
     calibration_by_id = calibration_by_id or {}
@@ -1690,7 +1722,9 @@ def build_universe_simple_scores(
         # peers are filtered to each signal's own decision date: a later-dated peer vintage never ranks an earlier decision
         decision = _parse_date(signal_date)
         if decision not in product_lookups:
-            product_lookups[decision] = _etf_product_quality_lookup(config, decision, kids=kid_records)
+            product_lookups[decision] = (
+                ({}, {}) if as_of_sources is not None else _etf_product_quality_lookup(config, decision, kids=kid_records)
+            )
         return product_lookups[decision]
 
     enabled_ids = set(config.universe.enabled_ids)
@@ -3411,6 +3445,8 @@ def _stock_evidence_lookup(
     config: AppConfig,
     signals: list[SignalResult],
     prices: pd.DataFrame,
+    *,
+    decision_time: datetime | None = None,
 ) -> tuple[dict[str, StockEvidence], str | None]:
     """Evidence of every normal stock from the canonical fundamentals store (one build per decision day)."""
 
@@ -3420,7 +3456,7 @@ def _stock_evidence_lookup(
         records = records_from_config(config)
         if not records:
             return {}, None
-        return get_universe_evidence(records, prices, live_decision_time(as_of)).evidence, None
+        return get_universe_evidence(records, prices, live_decision_time(as_of) if decision_time is None else decision_time).evidence, None
     except Exception as exc:  # a broken store must not stop scoring: the reason is shown on each component
         return {}, f"stock fundamentals could not be evaluated ({type(exc).__name__}: {str(exc)[:100]})"
 

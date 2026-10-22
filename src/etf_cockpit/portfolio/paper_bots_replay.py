@@ -10,12 +10,13 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Literal, Mapping
 
 import pandas as pd
 
 from etf_cockpit.core.paths import ROOT
 from etf_cockpit.data.local_storage import StorageRevisionConflict, TransactionalStore
+from etf_cockpit.data.score_history_backfill import load_backfill_score_history
 from etf_cockpit.portfolio import paper_bots as bots
 from etf_cockpit.portfolio import paper_bots_execution as execution
 
@@ -31,8 +32,14 @@ def run_historical_replay(
     config_path: Path | None = None,
     execution_config_path: Path | None = None,
     now: datetime | None = None,
+    history_source: Literal["published", "backfill"] = "published",
 ) -> execution.ExecutionRunResult:
-    """Replay every stored score run known at ``as_of`` into the separate replay record."""
+    """Replay every stored score run known at ``as_of`` into the separate replay record.
+
+    ``history_source`` "published" (default) reads the live published score history. "backfill" reads the separate
+    historical-backfill store (``historical_backfill`` provenance); the replay record, ledger root and label are the same.
+    An explicit ``history`` frame overrides both.
+    """
 
     project_root = Path(root or ROOT).resolve()
     try:
@@ -42,6 +49,8 @@ def run_historical_replay(
         )
     except (OSError, TypeError, ValueError) as exc:
         return execution.ExecutionRunResult("unavailable", "replay", None, reason=f"Invalid replay request: {exc}")
+    if history_source not in ("published", "backfill"):
+        return execution.ExecutionRunResult("unavailable", "replay", None, reason=f"Invalid replay request: unknown history_source {history_source!r}.")
     clock = datetime.now(timezone.utc) if now is None else now.astimezone(timezone.utc)
     track = execution.replay_track(project_root, config)
     if cutoff > clock + timedelta(minutes=5):
@@ -49,7 +58,16 @@ def run_historical_replay(
 
     def prepare(store: TransactionalStore, bots_config: Mapping[str, Any], config_hash: str, book: execution.PriceBook, warnings: list[str]) -> None:
         try:
-            frame = history if history is not None else bots._load_published_score_history(project_root)
+            if history is not None:
+                frame = history
+            elif history_source == "backfill":
+                frame = load_backfill_score_history(project_root)
+                warnings.append(
+                    "Replaying the historical score backfill (historical_backfill provenance: price-based point-in-time terms only; "
+                    "survivorship-biased universe). This is a conditional simulation, never forward evidence."
+                )
+            else:
+                frame = bots._load_published_score_history(project_root)
         except Exception as exc:  # fail closed: unreadable history
             warnings.append(f"Stored score history unavailable: {type(exc).__name__}.")
             return
