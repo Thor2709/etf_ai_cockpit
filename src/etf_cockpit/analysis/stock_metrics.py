@@ -90,7 +90,7 @@ class Period:
     """One reported period of one instrument; ``values`` holds only fields that were reported."""
 
     period_end: date
-    period_type: str  # "Q" quarter, "FY" fiscal year
+    period_type: str  # "Q" quarter, "FY" fiscal year, "SHARES" filing instant
     known_at: datetime
     currency: str
     source: str
@@ -98,6 +98,7 @@ class Period:
     field_sources: Mapping[str, str] = field(default_factory=dict)
     source_ref: str = ""
     value_status: Mapping[str, str] = field(default_factory=dict)  # per-field state when not plain "observed"
+    available_at: datetime | None = None  # share publication; known_at may be a later acquisition
 
     def has_numeric(self, *names: str) -> bool:
         """Every name carries a finite number, whatever its evidence state."""
@@ -214,11 +215,11 @@ def _not_meaningful(key: str, label: str, reason: str, *, formula: str = "", uni
 
 
 def known_periods(periods: Iterable[Period], decision_time: datetime) -> list[Period]:
-    """Latest known version of each (period_end, period_type); only ``known_at <= decision_time``."""
+    """Latest known statement versions; share publications use ``latest_reported_shares``."""
 
     best: dict[tuple[date, str], Period] = {}
     for period in periods:
-        if period.known_at > decision_time:
+        if period.period_type == "SHARES" or period.known_at > decision_time:
             continue
         key = (period.period_end, period.period_type)
         current = best.get(key)
@@ -304,6 +305,25 @@ def latest_balance(periods: Sequence[Period], names: Sequence[str]) -> Period | 
     candidates = [period for period in periods if period.has_numeric(*names)]
     latest = max(candidates, key=lambda item: (item.period_end, item.period_type == "FY"), default=None)
     return latest if latest is not None and latest.has(*names) else None
+
+
+def latest_reported_shares(periods: Sequence[Period], decision_time: datetime) -> Period | None:
+    """Latest publication known at the decision, then its most recent instant.
+
+    Only explicit reported-share provenance qualifies. A derived count, provider
+    snapshot or ambiguous latest filing fails closed without an older fallback.
+    """
+    candidates = [p for p in periods if p.source_of("shares_outstanding") in ("sec_dei", "esef_reported")
+                  and p.known_at <= decision_time and (p.available_at or p.known_at) <= decision_time
+                  and p.period_end <= (p.available_at or p.known_at).date()]
+    if not candidates:
+        return None
+    latest_key = max((p.available_at or p.known_at, p.period_end) for p in candidates)
+    latest = [p for p in candidates if (p.available_at or p.known_at, p.period_end) == latest_key]
+    if any(p.status_of("shares_outstanding") != "observed" or not p.has("shares_outstanding")
+           or p.values["shares_outstanding"] <= 0 for p in latest):
+        return None
+    return latest[0] if len({p.values["shares_outstanding"] for p in latest}) == 1 else None
 
 
 # ---------------------------------------------------------------------------------------------

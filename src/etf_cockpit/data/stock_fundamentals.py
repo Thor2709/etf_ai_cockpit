@@ -28,6 +28,8 @@ from etf_cockpit.analysis.stock_metrics import PERIOD_FIELDS, USABLE_STATUSES, V
 from etf_cockpit.core.atomic_io import atomic_write_bytes, parquet_payload, validate_parquet_file
 from etf_cockpit.core.paths import ROOT
 from etf_cockpit.data import stock_sources as src
+from etf_cockpit.data.esef_provider import fetch_stock_fundamentals as fetch_esef_fundamentals
+from etf_cockpit.data.sec_edgar_provider import fetch_stock_fundamentals as fetch_sec_fundamentals
 
 CONFIG_NAME = "stock_fundamentals_v1.yaml"
 ANALYST_FIELDS = ("eps_current", "eps_90d_ago", "revisions_up_30d", "revisions_down_30d")
@@ -36,7 +38,7 @@ IDENTITY_FIELDS = ("period_days", "reporting_standard", "consolidation_scope", "
 STATE_COLUMNS = (*IDENTITY_FIELDS, "value_status")  # value_status: JSON {field: state} for non-plain facts
 FIELD_CURRENCY_COLUMNS = tuple(f"{name}_currency" for name in PERIOD_FIELDS)
 PERIOD_COLUMNS = [
-    "instrument_id", "period_end", "period_type", "fiscal_year", "currency", "source", "source_ref", "known_at",
+    "instrument_id", "period_end", "period_type", "fiscal_year", "currency", "source", "source_ref", "known_at", "available_at",
     *PERIOD_FIELDS, *FIELD_CURRENCY_COLUMNS, *ANALYST_FIELDS, *STATE_COLUMNS,
 ]
 SNAPSHOT_COLUMNS = [
@@ -155,12 +157,21 @@ def append_period_rows(existing: pd.DataFrame, instrument_id: str, rows: Iterabl
 
     frame = existing
     added = []
-    latest: dict[tuple[str, str, str], pd.Series] = {}
+    latest: dict[tuple[str, ...], pd.Series] = {}
+
+    def version_key(row: Mapping[str, Any]) -> tuple[str, ...]:
+        key = (str(row["period_end"]), str(row["period_type"]), str(row["source"]))
+        # Filing identity and publication belong to a reported count even when
+        # its value is unchanged; re-fetching the same filing stays idempotent.
+        if str(row["period_type"]) == "SHARES":
+            key += (str(row.get("source_ref")), str(row.get("available_at")), str(row.get("known_at")))
+        return key
+
     mine = frame[frame["instrument_id"].astype(str) == instrument_id]
     for _, row in mine.sort_values("known_at").iterrows():
-        latest[(str(row["period_end"]), str(row["period_type"]), str(row["source"]))] = row
+        latest[version_key(row)] = row
     for row in rows:
-        key = (str(row["period_end"]), str(row["period_type"]), str(row["source"]))
+        key = version_key(row)
         previous = latest.get(key)
         record = {column: row.get(column) for column in PERIOD_COLUMNS}
         record["instrument_id"] = instrument_id
@@ -282,6 +293,7 @@ def _row_period(row: Mapping[str, Any], fields: Mapping[str, str]) -> Period | N
         values=values,
         field_sources=dict(fields),
         source_ref=str(row.get("source_ref") or ""),
+        available_at=as_utc(row.get("available_at")),
     )
 
 
@@ -408,7 +420,15 @@ def periods_for(instrument_id: str, frame: pd.DataFrame, chain: Sequence[str], *
     if mine.empty:
         return []
     rank = {name: index for index, name in enumerate(chain)}
-    rows = [dict(row) for _, row in mine.iterrows() if str(row.get("period_type")) != "ANALYST"]
+    reported = []
+    for _, row in mine[mine["period_type"].astype(str) == "SHARES"].iterrows():
+        available, known = as_utc(row.get("available_at")), as_utc(row.get("known_at"))
+        if available is None or known is None:
+            continue
+        period = _row_period({**dict(row), "known_at": max(available, known)}, {"shares_outstanding": str(row["source"])})
+        if period is not None:
+            reported.append(period)
+    rows = [dict(row) for _, row in mine.iterrows() if str(row.get("period_type")) not in ("ANALYST", "SHARES")]
     for row in rows:
         row["_rank"] = rank.get(str(row.get("source")), len(rank))
         row["_end"] = as_utc(row.get("period_end"))
@@ -428,7 +448,7 @@ def periods_for(instrument_id: str, frame: pd.DataFrame, chain: Sequence[str], *
                 period = _merged_view(cluster["rows"], moment, rank, last, (period_type, cluster["anchor"]["_end"].date().isoformat()))
                 if period is not None:
                     periods.append(period)
-    return periods
+    return periods + reported
 
 
 def latest_snapshot(instrument_id: str, snapshots: pd.DataFrame, decision_time: datetime, *, ok_only: bool = True) -> dict[str, Any] | None:
@@ -523,8 +543,8 @@ def refresh_stock_fundamentals(
     config: Mapping[str, Any] | None = None,
     environ: Mapping[str, str] | None = None,
     yfinance_fetch: Callable[..., src.FetchResult] = src.fetch_yfinance,
-    edgar_fetch: Callable[..., src.FetchResult] = src.fetch_edgar,
-    esef_fetch: Callable[..., src.FetchResult] = src.fetch_esef,
+    edgar_fetch: Callable[..., src.FetchResult] = fetch_sec_fundamentals,
+    esef_fetch: Callable[..., src.FetchResult] = fetch_esef_fundamentals,
     cik_resolver: Callable[..., str | None] = src.resolve_cik,
     fx_fetch: Callable[..., list[tuple[str, float]]] = src.fetch_fx_rates,
     progress: Callable[[str], None] | None = None,

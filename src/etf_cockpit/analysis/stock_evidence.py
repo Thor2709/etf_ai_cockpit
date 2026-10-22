@@ -324,7 +324,7 @@ class _Builder:
     def shares(self) -> tuple[float | None, str | None, str | None]:
         market = self.market
         provider_ok = bool(market.shares_fallback and market.shares_fallback_known_at and market.shares_fallback_known_at <= self.decision_time)
-        balance = sm.latest_balance(self.known, ["shares_outstanding"])
+        balance = sm.latest_reported_shares(self.all_periods, self.decision_time)
         if balance is not None:
             filed = balance.values["shares_outstanding"]
             tolerance = float(self.valuation.get("share_count_tolerance", 0.25))
@@ -336,8 +336,6 @@ class _Builder:
                 self.notes.append(self.share_count_reason + "; market capitalization is unavailable.")
                 return None, None, None
             return filed, balance.source_of("shares_outstanding"), balance.period_end.isoformat()
-        if provider_ok:
-            return market.shares_fallback, "yfinance:snapshot", market.shares_fallback_known_at.date().isoformat()  # type: ignore[union-attr]
         return None, None, None
 
     def market_cap(self) -> tuple[float | None, str | None, dict[str, object]]:
@@ -889,7 +887,7 @@ class _Builder:
             return None
         known = sm.known_periods(self.all_periods, moment)
         window = sm.flow_window(known, ["net_income_parent"], span_days=self.span)  # type: ignore[arg-type]
-        balance = sm.latest_balance(known, ["shares_outstanding"])
+        balance = sm.latest_reported_shares(self.all_periods, moment)
         if window is None or balance is None:
             return None
         income = sm.window_sum(window, "net_income_parent")
