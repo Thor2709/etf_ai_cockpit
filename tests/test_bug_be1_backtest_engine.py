@@ -177,7 +177,11 @@ def test_c020_n001_sell_advisory_is_an_explicit_exit_not_a_two_percent_trim() ->
     assert _signal_weight_action(SimpleNamespace(action="hold")) == "hold"
     current = pd.Series({"A": 0.6, "B": 0.4})
     assert _next_signal_weights(current, current, {"B": _signal_weight_action(sell)})["B"] == 0.0
-    assert _next_signal_weights(current, current, {"B": _signal_weight_action(trim)})["B"] == pytest.approx(0.38)
+    # AUDFIX: trims consume the pipeline-suggested size (not a fixed 2% step); a sell ignores it and exits.
+    suggested = pd.Series({"A": 0.6, "B": 0.25})
+    assert _next_signal_weights(current, suggested, {"B": _signal_weight_action(trim)})["B"] == pytest.approx(0.25)
+    assert _next_signal_weights(current, suggested, {"B": _signal_weight_action(sell)})["B"] == 0.0
+    assert _next_signal_weights(current, current, {"B": _signal_weight_action(trim)})["B"] == pytest.approx(0.4)  # no 2% trim
 
 
 def _two_asset_prices(ids: list[str], doubling_at: int) -> pd.DataFrame:
