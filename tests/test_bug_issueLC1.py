@@ -6,7 +6,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from etf_cockpit.application.replay_membership import ListingHistory
+from etf_cockpit.data.replay_membership import ListingHistory
 from etf_cockpit.data.local_storage import TransactionalStore
 from etf_cockpit.portfolio import paper_bots as bots
 from etf_cockpit.portfolio import paper_bots_execution as execution
