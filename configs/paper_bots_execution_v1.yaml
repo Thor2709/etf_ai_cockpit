@@ -37,6 +37,10 @@ position_limits:
   ledger_absolute_exposure_ceiling_eur: 1000000000.0
 # A buy that cannot be funded because sale proceeds are unsettled is retried on the following sessions, then it is missed.
 max_buy_retry_sessions: 3
+# A buy reduced by max_order_value carries its quantity remainder to following sessions through the same checks.
+# Count the initial session and any settlement deferrals; after five sessions the remainder is logged as missed.
+# Children keep the original decision's proposal expiry. A new portfolio decision supersedes pending buys.
+max_order_split_sessions: 5
 # No session data this many calendar days after the decision is a provider outage: the orders are logged as missed.
 missed_fill_grace_calendar_days: 5
 # Decision-time prices (last close known at the decision date) size the orders; older closes are unusable.
