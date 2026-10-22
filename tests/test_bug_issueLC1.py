@@ -6,10 +6,12 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
+from etf_cockpit.application.replay_membership import ListingHistory
 from etf_cockpit.data.local_storage import TransactionalStore
 from etf_cockpit.portfolio import paper_bots as bots
 from etf_cockpit.portfolio import paper_bots_execution as execution
 from etf_cockpit.portfolio.paper_bots_replay import run_historical_replay
+from tests._pit_listing import SYNTHETIC_IDS, listed_since, verified_listing_history  # noqa: F401 (autouse)
 from tests.test_paper_bots import _NOW, _rows, _run_fixture, _scoreboard
 from tests.test_paper_bots_execution import _allow, _book, _exec_config, _history_with_columns
 
@@ -22,6 +24,10 @@ def _decide(monkeypatch, root: Path, rows: list[dict], lane: str, board=None):
             board["research_promotion_allowed"] = board["instrument_id"].isin({"AAA", "BBB"})
         result = _run_fixture(monkeypatch, root, rows, board, _NOW)
         return result, list(result.records)
+    # The exact-id listing gate rejects the untrimmed id before the shared validator; list the literal
+    # stored ids so the validator under test, not the survivorship gate, decides.
+    history = listed_since([*SYNTHETIC_IDS, *(str(row["instrument_id"]) for row in rows)])
+    monkeypatch.setattr(ListingHistory, "from_root", classmethod(lambda cls, _root: history))
     track = execution.replay_track(root, _exec_config())
     _allow(root, track)
     result = run_historical_replay(
