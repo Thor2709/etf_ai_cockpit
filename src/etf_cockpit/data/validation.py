@@ -15,6 +15,9 @@ from etf_cockpit.data.etf_economics import resolve_listing_calendar
 from etf_cockpit.data.market_calendar import MarketCalendarService, MarketClockError
 from etf_cockpit.data.provenance import calendar_staleness_status, metadata_from_frame, price_staleness_status
 
+# Scope these warnings to 252 scoring sessions plus 60 warm-up sessions at effective_as_of.
+PRICE_WARNING_LOOKBACK_SESSIONS = 252 + 60
+
 REQUIRED_PRICE_COLUMNS = {
     "date",
     "etf_id",
@@ -293,13 +296,13 @@ def validate_prices(
         mad = (returns - rolling_median).abs().rolling(60, min_periods=30).median()
         robust_sigma = 1.4826 * mad.replace(0, np.nan)
         outliers = (returns - rolling_median).abs() > 8 * robust_sigma
-        if outliers.fillna(False).any():
+        if outliers.tail(PRICE_WARNING_LOOKBACK_SESSIONS).fillna(False).any():
             issues.append(DataQualityIssue(etf_id, "warning", "return_outlier", "One-day return exceeds 8 robust sigma."))
 
         if (group["volume"] < 0).any():
             issues.append(DataQualityIssue(etf_id, "block", "negative_volume", f"{int((group['volume'] < 0).sum())} rows have negative volume."))
 
-        if (group["volume"].fillna(0) == 0).any():
+        if (group["volume"].tail(PRICE_WARNING_LOOKBACK_SESSIONS).fillna(0) == 0).any():
             issues.append(DataQualityIssue(etf_id, "warning", "zero_volume", "Volume is zero or missing for at least one row."))
 
     source_name = "mixed"
