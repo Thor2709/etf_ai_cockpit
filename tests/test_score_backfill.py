@@ -494,3 +494,13 @@ def test_pit_holdings_are_passed_only_when_the_contract_and_knowledge_column_exi
             assert seen[0].etf_holdings.empty
     else:
         assert not hasattr(seen[0], "etf_holdings")
+
+
+def test_forecast_status_is_partial_for_baseline_only_rows_and_unavailable_without_a_baseline() -> None:
+    config = _config()
+    run, _log = _run(config, _prices(config))
+    assert run is not None
+    with_baseline = run["forecast_provenance"].eq("baseline_only_non_calibrated")
+    assert with_baseline.any()
+    assert run.loc[with_baseline, "forecast_status"].eq("partial").all()  # baseline only: no TimesFM/Toto, never "available"
+    assert run.loc[~with_baseline, "forecast_status"].eq("unavailable").all()

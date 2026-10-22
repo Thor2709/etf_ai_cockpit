@@ -684,6 +684,9 @@ def _history_run(
     frame["forecast_provenance"] = frame["instrument_id"].map(
         lambda key: "baseline_only_non_calibrated" if key in baselines else "unavailable"
     )
+    # The score engine labels the forecast by model components; the history carries only the uncalibrated baseline quantiles,
+    # so a row with a baseline is "partial" (no TimesFM/Toto, no calibration), never "available".
+    frame["forecast_status"] = frame["instrument_id"].map(lambda key: "partial" if key in baselines else "unavailable")
     frame["expected_return_order_value_source"] = "configured_min_trade_value_eur_research_reference"
     frame["snapshot_hash"] = ""
     frame["snapshot_hash"] = _content_hash(frame)

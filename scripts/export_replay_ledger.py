@@ -47,6 +47,10 @@ def main() -> int:
     parser.add_argument("--root", default=os.environ.get("ETF_COCKPIT_ROOT"), help="data root (defaults to ETF_COCKPIT_ROOT)")
     parser.add_argument("--out", type=Path, default=None, help="output directory (default <root>/data/paper_bots_replay/exports)")
     parser.add_argument("--as-of", type=date.fromisoformat, default=None, help="report cutoff (default: the day after the last VWCE price)")
+    parser.add_argument(
+        "--survivorship-mode", choices=("strict", "unverified-delistings"), default="strict",
+        help="must match the mode the replay ran with: the export fails closed if the stored replay label disagrees",
+    )
     args = parser.parse_args()
     if args.root:
         os.environ["ETF_COCKPIT_ROOT"] = str(Path(args.root).resolve())
@@ -238,6 +242,10 @@ def main() -> int:
     holdings_frame = pd.DataFrame(holdings)
     equity_frame = pd.DataFrame(equity)
     replay_report = overview.get("replay") or {}
+    flagged_replay = bool(replay_report.get("survivorship_unverified"))
+    if args.survivorship_mode == "strict" and flagged_replay:
+        print("stored replay is labelled survivorship_unverified: pass --survivorship-mode unverified-delistings", file=sys.stderr)
+        return 4
     banner_file = out / "SURVIVORSHIP_UNVERIFIED.txt"
     if replay_report.get("survivorship_unverified"):
         for frame in (trade_frame, holdings_frame, equity_frame):
