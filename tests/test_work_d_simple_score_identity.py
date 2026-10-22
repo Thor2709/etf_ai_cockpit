@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from types import SimpleNamespace
 
 import pandas as pd
@@ -79,3 +80,33 @@ def test_repeated_signals_do_not_duplicate_configured_score(local_scores, monkey
     scores = scores_module.build_universe_simple_scores(local_scores, [signal, signal], pd.DataFrame(), pd.DataFrame())
     assert len(scores) == 1
     assert scores[0].isin == "NO0006001601"
+
+
+@pytest.mark.parametrize("reference_order_value", [None, 250.0])
+def test_as_of_friction_uses_signal_order_value_unless_reference_is_given(local_scores, reference_order_value):
+    config = load_config()
+    identities = [item for item in config.universe.etfs if item.id == "VWCE"]
+    config = config.model_copy(update={"universe": config.universe.model_copy(update={"etfs": identities})})
+    decision = datetime(2025, 4, 1, tzinfo=timezone.utc)
+    signal_order_value = 1000.0
+    signal = SimpleNamespace(
+        etf_id="VWCE", signal_date=decision.date(), blocked_by=[], warnings=[],
+        supporting_metrics={"trade_value_eur": signal_order_value},
+        components=SimpleNamespace(momentum=0.0, trend=0.0, risk=0.0, relative_strength=0.0),
+    )
+    sources = scores_module.AsOfScoreSources(
+        decision_time=decision,
+        expected_return_distributions={
+            "VWCE": {"q10_return": -0.1, "q50_return": 0.05, "q90_return": 0.2, "horizon_days": 21},
+        },
+        reference_order_value_eur=reference_order_value,
+    )
+
+    scores = scores_module.build_universe_simple_scores(
+        config, [signal], pd.DataFrame(), pd.DataFrame(), as_of_sources=sources,
+    )
+
+    assert len(scores) == 1
+    assert scores[0].friction_status == "available"
+    expected_order_value = signal_order_value if reference_order_value is None else reference_order_value
+    assert scores[0].expected_return_order_value_eur == expected_order_value

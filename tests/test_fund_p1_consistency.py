@@ -67,7 +67,10 @@ def _period(year: int, *, currency: str = "EUR", scale: float = 1.0, **overrides
         "shares_outstanding": 10.0,
     }
     values.update(overrides)
-    return sm.Period(date(year, 12, 31), "FY", datetime(year + 1, 2, 15, tzinfo=UTC), currency, "sec_edgar", values)
+    return sm.Period(
+        date(year, 12, 31), "FY", datetime(year + 1, 2, 15, tzinfo=UTC), currency, "sec_edgar", values,
+        field_sources={"shares_outstanding": "sec_dei"},
+    )
 
 
 # Identity attributes that make a cross-source merge verifiable (SEC companyfacts rows carry them from the parser).

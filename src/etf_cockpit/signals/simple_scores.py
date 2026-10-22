@@ -1743,8 +1743,8 @@ def build_universe_simple_scores(
         seen_ids.add(signal.etf_id)
         friction_order_value = (
             as_of_sources.reference_order_value_eur
-            if as_of_sources is not None
-            else signal.supporting_metrics.get("trade_value_eur")
+            if as_of_sources is not None and as_of_sources.reference_order_value_eur is not None
+            else (getattr(signal, "supporting_metrics", None) or {}).get("trade_value_eur")
         )
         asset_type = _display_asset_type(identity)
         if _is_sparebank_ec_asset_type(asset_type):

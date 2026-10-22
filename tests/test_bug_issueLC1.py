@@ -52,7 +52,7 @@ def test_mixed_run_excludes_certificate_through_shared_validator(monkeypatch, tm
     result, decisions = _decide(monkeypatch, tmp_path, rows, lane)
     assert calls == ["score-run"]
     assert result.status in {"available", "partial"}, (result.reason, result.warnings)
-    assert {item["bot_family"] for item in decisions} == {"B0", "B1", "B2"}
+    assert {item["bot_family"] for item in decisions} == {"B0", "B1", "B2", "B3"}
     for item in decisions:
         assert item["status"] == "available"
         assert "AAA" not in item["targets"]
