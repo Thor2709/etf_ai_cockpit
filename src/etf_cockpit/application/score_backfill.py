@@ -26,7 +26,7 @@ from typing import Any
 import pandas as pd
 
 from etf_cockpit.application.feature_service import FeatureService
-from etf_cockpit.application.replay_membership import ListingHistory, MEMBERSHIP_POLICY, unverified_instruments
+from etf_cockpit.data.replay_membership import ListingHistory, MEMBERSHIP_POLICY, unverified_instruments
 from etf_cockpit.application.reference_context import (
     _benchmark_reference_snapshot_inputs,
     _reference_context_from_inputs,

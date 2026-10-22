@@ -27,7 +27,7 @@ def main() -> int:
         os.environ["ETF_COCKPIT_ROOT"] = str(Path(args.root).resolve())
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
     from etf_cockpit.application.score_backfill import SURVIVORSHIP_CAVEAT, eligible_counts_by_year, run_label, term_coverage_by_year
-    from etf_cockpit.application.replay_membership import unverified_instruments
+    from etf_cockpit.data.replay_membership import unverified_instruments
     from etf_cockpit.core.paths import ROOT
     from etf_cockpit.data.local_storage import TransactionalStore
     from etf_cockpit.data.score_history_backfill import load_backfill_eligibility, load_backfill_score_history
