@@ -221,7 +221,9 @@ def replay_preflight(history: pd.DataFrame, membership: ListingHistory, book, cu
         return "No backfill history to replay."
     if "run_completed_at" not in history:
         return "Stored scores lack point-in-time knowledge times."
-    history = history.loc[history["run_completed_at"].map(_timestamp).le(cutoff)]
+    # A score whose knowledge time cannot be verified is not evidence at the cutoff: the replay
+    # decision path skips it (lineage), so it must not invalidate earlier verifiable runs here.
+    history = history.loc[history["run_completed_at"].map(_known_by(cutoff))]
     if history.empty:
         return "No backfill history is known at the replay cutoff."
     if "membership_policy" not in history or not history["membership_policy"].eq(MEMBERSHIP_POLICY).all():
@@ -270,6 +272,16 @@ class MembershipPriceBook:
         from datetime import timedelta
 
         return self._book.last_bar(instrument_id, delisting_day - timedelta(days=1))
+
+
+def _known_by(cutoff: datetime):
+    def known(value) -> bool:
+        try:
+            return _timestamp(value) <= cutoff
+        except (TypeError, ValueError):
+            return False
+
+    return known
 
 
 def _timestamp(value) -> datetime:
