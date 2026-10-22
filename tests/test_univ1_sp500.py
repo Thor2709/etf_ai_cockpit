@@ -78,6 +78,15 @@ def test_unverified_csv_shape_fails_closed(bad):
         parse_fja_csv(bad, date_column="date", tickers_column="tickers")
 
 
+def test_live_wikipedia_shape_with_refs_column_and_pipe_artefact_parses():
+    events = parse_wikipedia_changes((FIXTURES / "changes_live_shape.html").read_text(), table_id="changes")
+    assert [(row["date"], row["action"], row["ticker"]) for row in events] == [
+        ("2020-03-03", "add", "ZZD"), ("2020-07-01", "add", "ZZC"), ("2020-07-01", "remove", "ZZB")]
+    bad = (FIXTURES / "changes_live_shape.html").read_text().replace("Refs</th>", "Sources</th>")
+    with pytest.raises(ValueError, match="header"):
+        parse_wikipedia_changes(bad, table_id="changes")
+
+
 def test_unverified_wikipedia_shape_fails_closed():
     with pytest.raises(ValueError, match="header"):
         parse_wikipedia_changes((FIXTURES / "changes.html").read_text().replace("Removed", "Deleted"),
@@ -149,6 +158,31 @@ def test_invalid_fact_evidence_fails_closed(mutation, match):
         units["USD"].append({**units["USD"][1], "val": 999})
     with pytest.raises(ValueError, match=match):
         facts("2021-03-01T12:00:00Z", payload=payload)
+
+
+def test_live_shape_quarter_and_ytd_share_end_and_fp_without_conflict():
+    payload = load("CIK9000000001.json")
+    units = payload["facts"]["us-gaap"]["Revenues"]["units"]["USD"]
+    # A 10-Q reports the 3-month and the year-to-date value under the same end/fp.
+    units += [{"start": "2020-07-01", "end": "2020-09-30", "val": 25, "accn": "synthetic-nine-a", "filed": "2020-11-02", "fp": "Q3", "fy": 2020}]
+    rows = [row for row in facts("2021-03-01T12:00:00Z", payload=payload, derive_q4=False)
+            if row["tag"] == "us-gaap:Revenues" and row["fp"] == "Q3"]
+    assert sorted((row["start"], row["val"]) for row in rows) == [("2020-01-01", 70), ("2020-07-01", 25)]
+
+
+def test_skip_policy_counts_unprovable_facts_but_default_still_raises():
+    payload = load("CIK9000000001.json")
+    # Live 8-K/prospectus facts carry no fp; a zero share count is also unusable.
+    payload["facts"]["us-gaap"]["Revenues"]["units"]["USD"].append(
+        {"start": "2020-01-01", "end": "2020-12-31", "val": 1, "accn": "synthetic-8k", "filed": "2021-02-25", "fp": None})
+    payload["facts"]["dei"]["EntityCommonStockSharesOutstanding"]["units"]["shares"].append(
+        {"end": "2021-02-10", "val": 0, "accn": "synthetic-zero", "filed": "2021-02-25", "fp": "FY", "fy": 2020})
+    with pytest.raises(ValueError, match="unsupported fact fp"):
+        facts("2021-03-01T12:00:00Z", payload=payload)
+    skipped = {}
+    rows = facts("2021-03-01T12:00:00Z", payload=payload, skipped=skipped)
+    assert skipped == {"nonpositive_shares": 1, "unsupported_fp": 1}
+    assert revenue(rows, "FY")["val"] == 100
 
 
 def test_q4_needs_both_legs_and_matching_start():
@@ -298,6 +332,62 @@ def test_disagreement_blocks_all_store_writes(tmp_path):
     report = ingest(config, root=root, workers=1)
     assert report["status"] == "blocked" and report["disagreements"]
     assert not (root / "data").exists()
+
+
+def test_report_mode_publishes_fja_history_and_lists_disagreements_but_default_blocks(tmp_path):
+    config = ingest_config(tmp_path)
+    changed = tmp_path / "different.html"
+    changed.write_text((FIXTURES / "changes.html").read_text().replace("July 1, 2020", "June 30, 2020"))
+    config["wikipedia_html"] = str(changed)
+    config["announcements"] += [{**row, "date": "2020-06-30"} for row in announcements()]
+    assert ingest(config, root=tmp_path / "blocked", workers=1)["status"] == "blocked"
+    config.update(cross_validation="report", wikipedia_baseline={})
+    root = tmp_path / "report"
+    report = ingest(config, root=root, workers=1)
+    assert report["status"] == "complete" and report["cross_validation"] == "report"
+    assert {(row["only_in"], row["date"]) for row in report["disagreements"]} == {
+        ("fja05680", "2020-07-01"), ("wikipedia", "2020-06-30")}
+    assert report["wikipedia_events_after_history"] == []
+    assert any(row[3] == "2020-07-01" for row in membership_rows(root))
+    config["cross_validation"] = "silent"
+    with pytest.raises(ValueError, match="cross_validation"):
+        ingest(config, root=tmp_path / "bad", workers=1)
+
+
+def test_report_mode_extends_history_with_wikipedia_changes_after_last_snapshot(tmp_path):
+    config = ingest_config(tmp_path)
+    later = tmp_path / "later.html"
+    later.write_text((FIXTURES / "changes.html").read_text().replace(
+        "</table>", "<tr><td>August 3, 2020</td><td>ZZE</td><td>Synthetic Later Issuer</td><td>ZZC</td>"
+        "<td>Synthetic Renamed Issuer</td><td>later</td></tr></table>"))
+    config.update(wikipedia_html=str(later), cross_validation="report", wikipedia_baseline={},
+                  announcements=announcements() + [{**row, "date": "2020-08-03", "known_at": "2020-08-03", "ticker": "ZZE" if row["action"] == "add" else "ZZC"}
+                                                   for row in announcements()])
+    root = tmp_path / "extended"
+    report = ingest(config, root=root, workers=1)
+    assert {(row["action"], row["ticker"]) for row in report["wikipedia_events_after_history"]} == {("add", "ZZE"), ("remove", "ZZC")}
+    assert report["disagreements"] == []
+    assert any(row[2] == "2020-07-01" and row[3] == "2020-08-03" for row in membership_rows(root))
+    assert any(item["ticker"] == "ZZE" for item in report["unmapped"])
+
+
+def test_ingest_skip_policy_reports_skipped_facts_and_rejects_unknown_policy(tmp_path):
+    config = ingest_config(tmp_path)
+    payload = json.loads((FIXTURES / "CIK9000000001.json").read_text())
+    payload["facts"]["us-gaap"]["Revenues"]["units"]["USD"].append(
+        {"start": "2020-01-01", "end": "2020-12-31", "val": 1, "accn": "synthetic-8k", "filed": "2021-02-25", "fp": None})
+    path = Path(config["companyfacts"])
+    path.unlink()
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr("CIK9000000001.json", json.dumps(payload))
+        archive.writestr("CIK9000000002.json", (FIXTURES / "CIK9000000002.json").read_bytes())
+    assert ingest(config, root=tmp_path / "strict", workers=1)["status"] == "partial"
+    config["invalid_fact_policy"] = "skip"
+    report = ingest(config, root=tmp_path / "skip", workers=1)
+    assert report["status"] == "complete", report
+    assert [item["skipped_facts"] for item in report["issuers"] if item["cik"] == "9000000001"] == [{"unsupported_fp": 1}]
+    config["invalid_fact_policy"] = "maybe"
+    assert ingest(config, root=tmp_path / "bad", workers=1)["status"] == "partial"
 
 
 def test_cli_report_unmapped_and_missing_issuer_fail_closed(tmp_path):
