@@ -120,6 +120,7 @@ class ExecutionRunResult:
     reason: str | None = None
     warnings: tuple[str, ...] = ()
     label: str | None = None
+    survivorship_unverified: bool = False
 
 
 class PriceBook:
@@ -189,6 +190,11 @@ class PriceBook:
         dates = self._dates.get(str(instrument_id).upper(), [])
         index = bisect_right(dates, day)
         return self._bars[str(instrument_id).upper()][dates[index - 1]] if index else None
+
+    def first_price_dates(self) -> dict[str, date]:
+        """The first available price session of every instrument (known on that day, never earlier)."""
+
+        return {instrument: dates[0] for instrument, dates in self._dates.items() if dates}
 
     def benchmark_frame(self) -> pd.DataFrame:
         rows = self._frame.loc[self._frame["_instrument"] == self.benchmark_id.upper()] if not self._frame.empty else self._frame

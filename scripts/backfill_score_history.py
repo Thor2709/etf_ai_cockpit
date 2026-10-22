@@ -29,6 +29,10 @@ def main() -> int:
         "--exclusions-csv", type=Path, default=None,
         help="CSV with columns id and reason (and optionally replay_set: only EXCLUDED rows count) of instruments removed from the replay universe",
     )
+    parser.add_argument(
+        "--survivorship-mode", choices=("strict", "unverified-delistings"), default="strict",
+        help="strict (default) or unverified-delistings: also treat an instrument as listed from its first price date (delisting stays unverified, labelled)",
+    )
     args = parser.parse_args()
     if args.root:
         os.environ["ETF_COCKPIT_ROOT"] = str(Path(args.root).resolve())
@@ -50,7 +54,8 @@ def main() -> int:
             table = table[table["replay_set"].str.upper().eq("EXCLUDED")]
         excluded = {str(row["id"]): str(row["reason"]) or "excluded" for _, row in table.iterrows()}
     result = backfill_score_history(
-        ROOT, args.start, args.end, every=args.every, force=args.force, excluded=excluded, progress=print, workers=args.workers
+        ROOT, args.start, args.end, every=args.every, force=args.force, excluded=excluded, progress=print, workers=args.workers,
+        survivorship_mode=args.survivorship_mode,
     )
     print(f"status: {result.status}; sessions requested: {result.sessions_requested}; written: {result.runs_written}; kept: {result.runs_kept}")
     if result.reason:

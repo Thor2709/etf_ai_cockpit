@@ -8,6 +8,7 @@ universe is not survivor-free (Part 4 stop rule 2), so it only debugs the rules 
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 import sqlite3
@@ -15,7 +16,10 @@ from typing import Any, Literal, Mapping
 
 import pandas as pd
 
-from etf_cockpit.application.replay_membership import ListingHistory, MembershipPriceBook, replay_preflight, unverified_instruments
+from etf_cockpit.application.replay_membership import (
+    ListingHistory, MembershipPriceBook, STRICT_MODE, SURVIVORSHIP_MODES, SURVIVORSHIP_UNVERIFIED_BANNER,
+    delisting_unverified_in_history, replay_preflight, unverified_instruments,
+)
 from etf_cockpit.core.paths import ROOT
 from etf_cockpit.data.local_storage import StorageRevisionConflict, TransactionalStore
 from etf_cockpit.data.score_history_backfill import load_backfill_eligibility, load_backfill_score_history
@@ -35,12 +39,17 @@ def run_historical_replay(
     execution_config_path: Path | None = None,
     now: datetime | None = None,
     history_source: Literal["published", "backfill"] = "published",
+    survivorship_mode: str = STRICT_MODE,
 ) -> execution.ExecutionRunResult:
     """Replay every stored score run known at ``as_of`` into the separate replay record.
 
     ``history_source`` "published" (default) reads the live published score history. "backfill" reads the separate
     historical-backfill store (``historical_backfill`` provenance); the replay record, ledger root and label are the same.
     An explicit ``history`` frame overrides both.
+
+    ``survivorship_mode`` "strict" (default) fails closed on instruments without verified listing history. "unverified-delistings"
+    also admits instruments whose listing is derived from their first price date; the delisting stays unverified and every
+    decision and the result carry ``survivorship_unverified``.
     """
 
     project_root = Path(root or ROOT).resolve()
@@ -51,6 +60,8 @@ def run_historical_replay(
         )
     except (OSError, TypeError, ValueError) as exc:
         return execution.ExecutionRunResult("unavailable", "replay", None, reason=f"Invalid replay request: {exc}")
+    if survivorship_mode not in SURVIVORSHIP_MODES:
+        return execution.ExecutionRunResult("unavailable", "replay", None, reason=f"Invalid replay request: unknown survivorship_mode {survivorship_mode!r}.")
     if history_source not in ("published", "backfill"):
         return execution.ExecutionRunResult("unavailable", "replay", None, reason=f"Invalid replay request: unknown history_source {history_source!r}.")
     clock = datetime.now(timezone.utc) if now is None else now.astimezone(timezone.utc)
@@ -65,27 +76,34 @@ def run_historical_replay(
         )
         membership = ListingHistory.from_root(project_root)
         book = price_book if price_book is not None else execution.PriceBook.from_root(project_root)
+        if survivorship_mode != STRICT_MODE:
+            membership = membership.with_price_history(book.first_price_dates(), survivorship_mode)
         failure = replay_preflight(frame, membership, book, cutoff)
+        flagged = [] if failure else delisting_unverified_in_history(frame, membership, cutoff)
         unknown = unverified_instruments(load_backfill_eligibility(project_root)) if history_source == "backfill" else []
     except (OSError, ValueError, TypeError, KeyError, sqlite3.Error) as exc:
         return execution.ExecutionRunResult("unavailable", "replay", bots._time_text(cutoff), reason=f"Membership preflight unavailable: {type(exc).__name__}.", label=track.label)
     if failure:
         return execution.ExecutionRunResult("unavailable", "replay", bots._time_text(cutoff), reason=failure, label=track.label)
     price_book = MembershipPriceBook(book, membership)
+    label = {"survivorship_unverified": True, "survivorship_unverified_ids": flagged, "survivorship_banner": SURVIVORSHIP_UNVERIFIED_BANNER} if flagged else {}
 
     def prepare(store: TransactionalStore, bots_config: Mapping[str, Any], config_hash: str, book: execution.PriceBook, warnings: list[str]) -> None:
+        if flagged:
+            warnings.append(SURVIVORSHIP_UNVERIFIED_BANNER + " Admitted: " + ", ".join(flagged))
         if unknown:
             warnings.append("survivorship-unverified: " + ", ".join(unknown))
         if history_source == "backfill":
             warnings.append("Historical score backfill with point-in-time listing membership; conditional simulation, never forward evidence.")
-        _write_replay_decisions(store, track, bots_config, config_hash, book, frame, cutoff, warnings)
+        _write_replay_decisions(store, track, bots_config, config_hash, book, frame, cutoff, warnings, label)
 
-    return execution._run(track, project_root, cutoff, config_path, execution_config_path, price_book, prepare)
+    result = execution._run(track, project_root, cutoff, config_path, execution_config_path, price_book, prepare)
+    return replace(result, survivorship_unverified=True) if flagged else result
 
 
 def _write_replay_decisions(
     store: TransactionalStore, track: execution.Track, config: Mapping[str, Any], config_hash: str, book: execution.PriceBook,
-    history: pd.DataFrame, cutoff: datetime, warnings: list[str],
+    history: pd.DataFrame, cutoff: datetime, warnings: list[str], label: Mapping[str, Any] | None = None,
 ) -> None:
     if not isinstance(history, pd.DataFrame) or history.empty:
         warnings.append("No stored score history to replay.")
@@ -152,7 +170,7 @@ def _write_replay_decisions(
             first_month = first_month or month
             decision_id = bots._decision_id(bot_id, month, group.snapshot_hash)
             decision.update(
-                decision_id=decision_id, track="replay", label=track.label, caveat=track.caveat,
+                decision_id=decision_id, track="replay", label=track.label, caveat=track.caveat, **(label or {}),
             )
             if store.get(track.decision_type, decision_id) is not None:
                 continue

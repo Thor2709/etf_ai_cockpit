@@ -22,12 +22,17 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", default=os.environ.get("ETF_COCKPIT_ROOT"), help="data root (defaults to ETF_COCKPIT_ROOT)")
     parser.add_argument("--as-of", type=date.fromisoformat, default=None, help="replay cutoff date (default: the day after the last VWCE price)")
+    parser.add_argument(
+        "--survivorship-mode", choices=("strict", "unverified-delistings"), default="strict",
+        help="strict (default): fail closed without verified listing history. unverified-delistings: also admit instruments listed "
+        "from their first price date whose delisting is unverified; the report is labelled survivorship_unverified",
+    )
     args = parser.parse_args()
     if args.root:
         os.environ["ETF_COCKPIT_ROOT"] = str(Path(args.root).resolve())
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
     from etf_cockpit.application.score_backfill import SURVIVORSHIP_CAVEAT, eligible_counts_by_year, run_label, term_coverage_by_year
-    from etf_cockpit.application.replay_membership import unverified_instruments
+    from etf_cockpit.application.replay_membership import SURVIVORSHIP_UNVERIFIED_BANNER, unverified_instruments
     from etf_cockpit.core.paths import ROOT
     from etf_cockpit.data.local_storage import TransactionalStore
     from etf_cockpit.data.score_history_backfill import load_backfill_eligibility, load_backfill_score_history
@@ -51,7 +56,11 @@ def main() -> int:
         sessions = [day for day in book.sessions]
         cutoff_day = (max(sessions) + timedelta(days=1)) if sessions else date.today()
     as_of = datetime.combine(cutoff_day, time(12, 0), tzinfo=timezone.utc)
-    result = run_historical_replay(as_of, root=ROOT, price_book=book, now=datetime.now(timezone.utc), history_source="backfill")
+    result = run_historical_replay(as_of, root=ROOT, price_book=book, now=datetime.now(timezone.utc), history_source="backfill", survivorship_mode=args.survivorship_mode)
+    if result.survivorship_unverified:
+        print("!" * 100)
+        print(SURVIVORSHIP_UNVERIFIED_BANNER)
+        print("!" * 100)
     print(f"replay: status={result.status} label={result.label!r} appended={result.appended}")
     if result.reason:
         print(f"reason: {result.reason}")
@@ -75,6 +84,9 @@ def main() -> int:
         print("No replay report is available.")
     else:
         print(f"replay report status: {replay['status']}; label: {replay['label']}")
+        if replay.get("survivorship_unverified"):
+            print(f"survivorship_unverified: true ({', '.join(replay.get('survivorship_unverified_ids') or [])})")
+            print(replay["survivorship_banner"])
         for bot in replay["bots"]:
             metrics = bot.get("metrics", {})
             print(f"--- {bot['family']} {bot['name']} (status {bot['status']}, decisions {bot['decisions']}, unavailable {bot['unavailable_decisions']})")

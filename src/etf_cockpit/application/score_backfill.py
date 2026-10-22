@@ -26,7 +26,10 @@ from typing import Any
 import pandas as pd
 
 from etf_cockpit.application.feature_service import FeatureService
-from etf_cockpit.application.replay_membership import ListingHistory, MEMBERSHIP_POLICY, unverified_instruments
+from etf_cockpit.application.replay_membership import (
+    DELISTING_UNVERIFIED_STATUS, ListingHistory, MEMBERSHIP_POLICY, STRICT_MODE, SURVIVORSHIP_MODES, delisting_unverified_instruments,
+    unverified_instruments,
+)
 from etf_cockpit.application.reference_context import (
     _benchmark_reference_snapshot_inputs,
     _reference_context_from_inputs,
@@ -198,6 +201,7 @@ def backfill_score_history(
     excluded: Mapping[str, str] | None = None,
     progress: Callable[[str], None] | None = None,
     workers: int = 1,
+    survivorship_mode: str = STRICT_MODE,
 ) -> BackfillResult:
     """Compute and store the canonical score for each selected historical session; resumable.
 
@@ -211,9 +215,15 @@ def backfill_score_history(
 
     ``workers`` > 1 scores the sessions in parallel processes. Every session is independent (it reads only prices known at its
     own close) and results are consumed in session order, so the stored output equals the serial run.
+
+    ``survivorship_mode`` "strict" (default) keeps the fail-closed listing gate. "unverified-delistings" additionally treats an
+    instrument as listed from its first price date (evidence ``listing_from_price_history``, usable from the end of that day);
+    such rows are logged as ``listed_delisting_unverified`` and the manifest carries ``survivorship_unverified_label``.
     """
 
     root = Path(root)
+    if survivorship_mode not in SURVIVORSHIP_MODES:
+        raise ValueError(f"Unknown survivorship mode {survivorship_mode!r}")
     say = progress or (lambda _message: None)
     config = config or load_config()
     membership = ListingHistory.from_root(root)
@@ -223,6 +233,9 @@ def backfill_score_history(
         return BackfillResult("unavailable", None, reason="No stored price history to score.")
     frame["date"] = _as_dates(frame["date"])
     frame = frame[frame["etf_id"].astype(str).isin(set(config.universe.enabled_ids))].copy()
+    if survivorship_mode != STRICT_MODE:
+        first_dates = frame.groupby(frame["etf_id"].astype(str))["date"].min()
+        membership = membership.with_price_history({key: value for key, value in first_dates.items()}, survivorship_mode)
     sessions = session_dates(frame, start, end, every=every)
     if not sessions:
         return BackfillResult("unavailable", None, reason=f"No {CALENDAR_INSTRUMENT_ID} session between {start} and {end}.")
@@ -279,6 +292,9 @@ def backfill_score_history(
             "survivorship_caveat": SURVIVORSHIP_CAVEAT,
             "membership_policy": MEMBERSHIP_POLICY,
             "survivorship_unverified": unverified_instruments(eligibility_log),
+            "survivorship_mode": survivorship_mode,
+            "survivorship_unverified_label": bool(delisting_unverified_instruments(eligibility_log)),
+            "delisting_unverified": delisting_unverified_instruments(eligibility_log),
             "missing_listing_metadata": sorted(set(membership.instrument_ids) - set(config.universe.by_id())),
             "calendar_instrument_id": CALENDAR_INSTRUMENT_ID,
             "every_sessions": every,
@@ -508,6 +524,7 @@ def _historical_config(config: AppConfig, membership: ListingHistory) -> AppConf
 def _membership_log(eligibility, snapshot):
     eligibility["membership_status"] = eligibility["instrument_id"].map(
         lambda key: "survivorship_unverified" if key in snapshot.unverified_ids
+        else DELISTING_UNVERIFIED_STATUS if key in snapshot.delisting_unverified_ids
         else "listed" if key in snapshot.eligible_ids else "outside_listing_interval"
     )
     eligibility["membership_inputs_hash"] = snapshot.fingerprint

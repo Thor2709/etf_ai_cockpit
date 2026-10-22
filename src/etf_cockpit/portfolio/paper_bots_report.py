@@ -87,6 +87,7 @@ def build_track_report(
 ) -> dict[str, Any]:
     base = _unavailable(track.name, track.label, "No paper bot decision is recorded yet.")
     base["caveat"] = track.caveat
+    base["survivorship_unverified"] = False
     base["as_of"] = bots._time_text(cutoff)
     book = price_book if price_book is not None else execution.PriceBook.from_root(root)
     try:
@@ -111,6 +112,13 @@ def build_track_report(
         for bot_id, items in sorted(by_bot.items(), key=lambda pair: (_family_order(pair[1][0]), pair[0]))
     ]
     statuses = {item["status"] for item in reports}
+    flagged = [item for item in decisions if item.get("survivorship_unverified") is True]
+    if flagged:  # replay admitted instruments whose delisting history is unverified: carry the label to every consumer
+        base.update(
+            survivorship_unverified=True,
+            survivorship_unverified_ids=sorted({str(key) for item in flagged for key in item.get("survivorship_unverified_ids") or ()}),
+            survivorship_banner=str(flagged[0].get("survivorship_banner") or "SURVIVORSHIP UNVERIFIED"),
+        )
     base.update(
         status="available" if statuses == {"available"} else "partial" if "available" in statuses or "partial" in statuses else "unavailable",
         reason=None, bots=reports,
