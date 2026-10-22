@@ -1671,6 +1671,9 @@ class AsOfScoreSources:
     """
 
     decision_time: datetime
+    # Recomputed as-of distributions feed only friction/cost inputs, never model score admission.
+    expected_return_distributions: Mapping[str, dict[str, object]] | None = None
+    reference_order_value_eur: float | None = None
 
 
 def build_universe_simple_scores(
@@ -1693,6 +1696,8 @@ def build_universe_simple_scores(
 ) -> list[SimpleInstrumentScore]:
     raw_forecast_scores = forecast_component_maps(forecasts)
     return_distributions = forecast_return_distributions(forecasts)
+    if as_of_sources is not None and as_of_sources.expected_return_distributions is not None:
+        return_distributions = as_of_sources.expected_return_distributions
     forecast_details = forecast_score_details(forecasts)
     latest_prices = _latest_price_lookup(prices)
     price_quality = _price_quality_lookup(prices)
@@ -1736,6 +1741,11 @@ def build_universe_simple_scores(
         if signal.etf_id not in enabled_ids or identity is None or signal.etf_id in seen_ids:
             continue
         seen_ids.add(signal.etf_id)
+        friction_order_value = (
+            as_of_sources.reference_order_value_eur
+            if as_of_sources is not None
+            else signal.supporting_metrics.get("trade_value_eur")
+        )
         asset_type = _display_asset_type(identity)
         if _is_sparebank_ec_asset_type(asset_type):
             native = _sparebank_scorecard_status(
@@ -1945,11 +1955,11 @@ def build_universe_simple_scores(
                     volatility=_safe_float(signal.supporting_metrics.get("vol_60d_ann")),
                     costs=_configured_friction_costs(config, signal.etf_id),
                     expected_return_distribution=return_distributions.get(signal.etf_id) or {},
-                    order_value_eur=_positive_order_value(signal.supporting_metrics.get("trade_value_eur")),
+                    order_value_eur=_positive_order_value(friction_order_value),
                     cost_estimate=_order_size_cost_estimate(
                         config,
                         signal.etf_id,
-                        signal.supporting_metrics.get("trade_value_eur"),
+                        friction_order_value,
                     ),
                 ),
             )

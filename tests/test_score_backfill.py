@@ -102,7 +102,7 @@ def test_terms_without_point_in_time_data_are_unavailable_with_a_reason(monkeypa
     for term in ("stock_value", "stock_quality", "etf_exposure", "etf_product_quality", "baseline"):
         entry = coverage["terms"][term]
         assert entry["available"] == 0 and entry["unavailable"] > 0 and entry["reasons"], term
-    assert "etf_holdings_exposure" in coverage["withheld_sources"] and "forecasts_and_calibration" in coverage["withheld_sources"]
+    assert "etf_holdings_exposure" in coverage["withheld_sources"] and "stored_forecasts_and_calibration" in coverage["withheld_sources"]
     etf_row = run[run["asset_type"].eq("ETF")].iloc[0]
     assert "etf_exposure" in etf_row["pit_terms_unavailable"].split("|") and "momentum" not in etf_row["pit_terms_unavailable"].split("|")
     assert not run["research_promotion_allowed"].any() and run["execution_allowed"].eq(False).all()  # never filled, never promoted

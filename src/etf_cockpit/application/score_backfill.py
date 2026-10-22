@@ -6,7 +6,8 @@ store (``data/derived/score_history_backfill.parquet``), never to the live publi
 a ``historical_backfill`` provenance label. Any term that has no point-in-time source is unavailable with its reason (the
 engine's own fail-closed behaviour), never zero-filled, reweighted or read as of today.
 
-Withheld on purpose (no known-at in the stores): forecasts and their calibration, the stored backtest trust, the cash-curve
+Only the deterministic baseline return quantiles are recomputed from as-of prices, without calibration, for friction/cost inputs.
+Withheld on purpose (no known-at in the stores): stored forecasts, TimesFM/Toto and calibration, the stored backtest trust, the cash-curve
 comparison, ETF holdings, PRIIPS KIDs, configured ETF product-quality metadata, stored news counts and the trade-candidate
 report. The universe is today's configured list: delisted names are absent (survivorship bias, reported with the results).
 """
@@ -17,7 +18,7 @@ import hashlib
 import json
 from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -46,9 +47,11 @@ from etf_cockpit.data.validation import validate_prices
 from etf_cockpit.features.crowding import build_correlation_clusters
 from etf_cockpit.features.feature_pipeline import eur_basis_prices, latest_features
 from etf_cockpit.features.regime import build_benchmark_attribution_lookup, build_market_regime, build_portfolio_fit_lookup
-from etf_cockpit.core.types import DataQualityReport
+from etf_cockpit.core.types import DataQualityReport, ForecastResult
+from etf_cockpit.models.baseline_models import baseline_forecast
+from etf_cockpit.models.forecast_scores import PRIMARY_MODEL_HORIZON_DAYS
 from etf_cockpit.signals.canonical_scoring import load_score_policy
-from etf_cockpit.signals.signal_pipeline import generate_signals
+from etf_cockpit.signals.signal_pipeline import BASELINE_MODEL_VERSION, generate_signals
 from etf_cockpit.signals.simple_scores import (
     AsOfScoreSources,
     SimpleInstrumentScore,
@@ -70,7 +73,9 @@ LIQUIDITY_MIN_MEDIAN_VALUE_EUR = 20_000.0
 LIQUIDITY_MAX_ZERO_VOLUME_SHARE = 0.30
 LIQUIDITY_GATED_TYPES = frozenset({"stock", "equity_certificate"})
 WITHHELD_SOURCES = (
-    "forecasts_and_calibration",
+    "stored_forecasts_and_calibration",
+    "timesfm",
+    "toto",
     "stored_backtest_trust",
     "cash_curve_comparison",
     "etf_holdings_exposure",
@@ -145,6 +150,11 @@ def config_fingerprint(config: AppConfig, excluded: Mapping[str, str] | None) ->
         "min_history_rows": MIN_HISTORY_ROWS,
         "max_stale_business_days": MAX_STALE_BUSINESS_DAYS,
         "fx_policy": "canonical_available_at",
+        "baseline_forecast": {
+            "model_name": "baseline", "model_version": BASELINE_MODEL_VERSION,
+            "horizon_days": PRIMARY_MODEL_HORIZON_DAYS, "calibrated": False, "use": "friction_cost_only",
+            "reference_order_value_eur": config.risks.portfolio_limits.min_trade_value_eur,
+        },
         "calendar_instrument_id": CALENDAR_INSTRUMENT_ID,
         "universe_hash": universe,
         "formulas": formulas,
@@ -309,6 +319,7 @@ def score_as_of(
     created_at = decision_time.isoformat()
     inputs_hash = _inputs_hash(config, known, fx_rates, as_of)
     run_id = f"backfill_{as_of:%Y%m%d}_{inputs_hash[:8]}"
+    baselines = _baseline_forecasts(known, as_of, run_id)
 
     reference_inputs = _benchmark_reference_snapshot_inputs(config, as_of, None)
     context = _reference_context_from_inputs(reference_inputs, purpose="comparison", analysis_id=f"backfill:{as_of.isoformat()}")
@@ -345,7 +356,13 @@ def score_as_of(
         signals,
         pd.DataFrame(),
         known,
-        as_of_sources=AsOfScoreSources(decision_time=decision_time),
+        as_of_sources=AsOfScoreSources(
+            decision_time=decision_time,
+            expected_return_distributions={key: asdict(value) for key, value in baselines.items()},
+            # No historical portfolio exists. Use the configured minimum trade size
+            # as a conservative research cost reference (fixed fees bite hardest here).
+            reference_order_value_eur=config.risks.portfolio_limits.min_trade_value_eur,
+        ),
         fx_rates=fx_rates if fx_rates is not None else pd.DataFrame(),
         calibration_by_id={},
         regime=build_market_regime(known, pd.DataFrame(), **benchmark_args),
@@ -361,7 +378,22 @@ def score_as_of(
     ranked = rank_and_finalize_scores([score for score in scores if score.display_id in eligible_ids], known, metadata, news_inventory={})
     if not ranked:
         return None, eligibility
-    return _history_run(ranked, run_id, created_at, as_of, inputs_hash, eligibility, version_registry_signature), eligibility
+    return _history_run(ranked, run_id, created_at, as_of, inputs_hash, eligibility, version_registry_signature, baselines), eligibility
+
+
+def _baseline_forecasts(known: pd.DataFrame, as_of: date, run_id: str) -> dict[str, ForecastResult]:
+    """Uncalibrated baseline quantiles at the canonical 60-session horizon; no model-score admission.
+
+    The caller supplies only prices known at the close. The baseline's own history,
+    sparsity and freshness checks return no forecast when its inputs are insufficient.
+    """
+
+    forecasts: dict[str, ForecastResult] = {}
+    for instrument_id, rows in known.groupby("etf_id", sort=True):
+        adjusted = rows.set_index(pd.DatetimeIndex(pd.to_datetime(rows["date"])))["adjusted_close"]
+        for forecast in baseline_forecast(str(instrument_id), adjusted, [PRIMARY_MODEL_HORIZON_DAYS], as_of, run_id):
+            forecasts[str(instrument_id)] = forecast
+    return forecasts
 
 
 def _eligibility_log(
@@ -473,6 +505,7 @@ def _history_run(
     inputs_hash: str,
     eligibility: pd.DataFrame,
     version_registry_signature: str,
+    baselines: Mapping[str, ForecastResult],
 ) -> pd.DataFrame:
     frame = build_score_history_frame(ranked, run_id=run_id, created_at=created_at, version_registry_signature=version_registry_signature)
     board = simple_scoreboard_frame(list(ranked)).set_index("instrument_id")
@@ -492,6 +525,16 @@ def _history_run(
     frame["pit_terms_unavailable"] = frame["instrument_id"].map(lambda key: "|".join(unavailable_terms.get(key, [])))
     frame["pit_coverage"] = json.dumps(_pit_coverage(ranked, eligibility), sort_keys=True)
     frame["survivorship_caveat"] = SURVIVORSHIP_CAVEAT
+    for column in (
+        "model_name", "model_version", "forecast_date", "horizon_days", "target_id", "quantile_method",
+        "q10_return", "q50_return", "q90_return", "prob_positive_return", "prob_beat_benchmark",
+        "probability_calibration_status", "calibration_status",
+    ):
+        frame[column] = frame["instrument_id"].map(lambda key: getattr(baselines.get(key), column, None))
+    frame["forecast_provenance"] = frame["instrument_id"].map(
+        lambda key: "baseline_only_non_calibrated" if key in baselines else "unavailable"
+    )
+    frame["expected_return_order_value_source"] = "configured_min_trade_value_eur_research_reference"
     frame["snapshot_hash"] = ""
     frame["snapshot_hash"] = _content_hash(frame)
     return frame
