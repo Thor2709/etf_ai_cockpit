@@ -11,9 +11,11 @@ import pandas as pd
 import pytest
 
 from etf_cockpit.application import score_backfill
+from etf_cockpit.application.replay_membership import MEMBERSHIP_POLICY, ListingHistory
 from etf_cockpit.core.config import load_config
 from etf_cockpit.data import score_history_backfill as store
 from etf_cockpit.portfolio import paper_bots, paper_bots_execution as execution
+from tests._pit_listing import verified_listing_history  # noqa: F401 (autouse)
 from tests.test_paper_bots import _rows
 from tests.test_paper_bots_execution import _allow, _book, _exec_config, _history_with_columns, _records
 
@@ -23,6 +25,13 @@ CALENDAR = list(pd.bdate_range("2021-01-04", "2022-12-30"))
 
 def _config():
     return load_config()
+
+
+def _fingerprint(config, root=None) -> tuple[str, dict]:
+    """The run fingerprint exactly as backfill_score_history derives it (historical config + membership)."""
+
+    membership = ListingHistory.from_root(root)
+    return score_backfill.config_fingerprint(score_backfill._historical_config(config, membership), None, membership)
 
 
 def _eur_ids(config, kind: str, count: int) -> list[str]:
@@ -72,7 +81,9 @@ def test_backfill_quality_gate_resolves_configured_exchange_without_identity_col
     reports = []
 
     def validate(frame, **kwargs):
-        assert kwargs["config"] is config
+        # The historical view only restores retained delisted identities; the exchange mapping is the config's own.
+        by_id = kwargs["config"].universe.by_id()
+        assert by_id and all(item.exchange == config.universe.by_id()[key].exchange for key, item in by_id.items())
         report = original(frame, **kwargs)
         reports.append(report)
         return report
@@ -201,6 +212,7 @@ def test_the_replay_reads_the_backfill_store_on_request_and_trades_through_norma
     rows = _history_with_columns(_rows(october) + _rows(november, run_id="score-run-nov", snapshot="b"))
     history = pd.DataFrame(rows)
     history["provenance"] = store.BACKFILL_PROVENANCE
+    history["membership_policy"] = MEMBERSHIP_POLICY  # stamped by score_as_of on every real backfill row
     history["as_of_date"] = [str(value)[:10] for value in history["run_completed_at"]]
     store.write_backfill_store(tmp_path, history, pd.DataFrame(), {})
     as_of = datetime(2026, 12, 1, 12, 0, tzinfo=timezone.utc)
@@ -212,7 +224,7 @@ def test_the_replay_reads_the_backfill_store_on_request_and_trades_through_norma
     assert default.status == "unavailable" and _records(tmp_path, replay_track) == []
     result = run_historical_replay(as_of, root=tmp_path, price_book=book, now=as_of, history_source="backfill")
     assert result.label == "conditional historical simulation" and result.status in {"available", "partial"}, (result.reason, result.warnings)
-    assert any("historical_backfill" in warning for warning in result.warnings)
+    assert any("Historical score backfill" in warning for warning in result.warnings)
     filled = [item for item in _records(tmp_path, replay_track) if item["status"] == "filled"]
     assert filled and {item["bot_family"] for item in filled} >= {"B1"}
     assert all(item["track"] == "replay" for item in filled)
@@ -346,14 +358,14 @@ def test_fingerprint_changes_when_engine_hash_changes(monkeypatch, tmp_path: Pat
     config = _config()
     prices = _prices(config)
     monkeypatch.setattr(score_backfill, "_score_engine_hash", lambda: "a" * 64)
-    first_hash, material = score_backfill.config_fingerprint(config, None)
+    first_hash, material = _fingerprint(config)
     assert material["score_engine_hash"] == "a" * 64
     first = score_backfill.backfill_score_history(tmp_path, AS_OF, AS_OF, config=config, prices=prices, fx_rates=pd.DataFrame())
     monkeypatch.setattr(score_backfill, "_score_engine_hash", lambda: "b" * 64)
-    assert score_backfill.config_fingerprint(config, None)[0] != first_hash
+    assert _fingerprint(config)[0] != first_hash
     second = score_backfill.backfill_score_history(tmp_path, AS_OF, AS_OF, config=config, prices=prices, fx_rates=pd.DataFrame())
     assert first.runs_written == second.runs_written == 1 and second.runs_kept == 0
-    assert set(store.load_backfill_score_history(tmp_path)["config_fingerprint"]) == {score_backfill.config_fingerprint(config, None)[0]}
+    assert set(store.load_backfill_score_history(tmp_path)["config_fingerprint"]) == {_fingerprint(config)[0]}
 
 
 @pytest.mark.parametrize("source", ["signals/simple_scores.py", "analysis/formula_registry.py", "data/etf_economics.py"])
@@ -432,7 +444,7 @@ def test_worker_init_overrides_inherited_cuda_devices(monkeypatch) -> None:
 
     monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "0")
     monkeypatch.setattr(score_backfill, "_WORKER_STATE", {})
-    score_backfill._worker_init(_config(), pd.DataFrame(), None, "test", None)
+    score_backfill._worker_init(_config(), pd.DataFrame(), None, "test", None, ListingHistory())
     assert os.environ["CUDA_VISIBLE_DEVICES"] == ""
 
 

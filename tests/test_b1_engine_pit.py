@@ -17,6 +17,7 @@ from etf_cockpit.data import stock_fundamentals as store
 from etf_cockpit.data.esef_provider import parse_reported_shares
 from etf_cockpit.signals import simple_scores as scores
 from tests.test_b1_blockers import _facts
+from tests._pit_listing import listed_since, verified_listing_history  # noqa: F401 (autouse)
 from tests.test_score_backfill import _config, _series
 from tests.test_stock_evidence import _evidence, _period
 
@@ -95,7 +96,11 @@ def _pit_run(monkeypatch, *, missing: str | None = None):
 
     monkeypatch.setattr(score_backfill, "build_universe_simple_scores", build)
     monkeypatch.setattr(score_backfill, "rank_and_finalize_scores", rank)
-    run, eligibility = score_backfill.score_as_of(config, prices, DAY, fx_rates=pd.DataFrame())
+    run, eligibility = score_backfill.score_as_of(
+        config, prices, DAY, fx_rates=pd.DataFrame(),
+        # Listing history known long before DAY: survivorship is verified, so the engine gates under test decide.
+        membership=listed_since(selected, "2021-01-01"),
+    )
     return run, eligibility, observed, stocks[0], etf
 
 

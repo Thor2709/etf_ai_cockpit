@@ -942,9 +942,9 @@ def _run_intents(
         written.append(record)
 
     for index, session in enumerate(usable[: max(retries + 1, split_sessions)]):
-        if superseded_at is not None and _fill_datetime(context.config, session) >= superseded_at:
-            break  # later closures/cash belong after the next decision's plan
-        written.extend(_liquidate_delistings(context, ledger, decision, _fill_datetime(context.config, session)))
+        # Closures after the next decision belong to its plan; the loop still records the superseded buys as missed.
+        if superseded_at is None or _fill_datetime(context.config, session) < superseded_at:
+            written.extend(_liquidate_delistings(context, ledger, decision, _fill_datetime(context.config, session)))
         for entry in state.values():
             intent = entry["intent"]
             if entry["final"]:

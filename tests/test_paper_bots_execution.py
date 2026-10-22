@@ -10,9 +10,11 @@ import pandas as pd
 import pytest
 import yaml
 
+from etf_cockpit.application.replay_membership import MEMBERSHIP_POLICY
 from etf_cockpit.data.local_storage import StorageSchemaError, TransactionalStore
 from etf_cockpit.portfolio import paper_bots, paper_bots_execution as execution
 from etf_cockpit.portfolio.paper_trading import PaperLedger, PaperLedgerError
+from tests._pit_listing import verified_listing_history  # noqa: F401 (autouse)
 from tests.test_paper_bots import _NOW, _rows, _run_fixture, _scoreboard
 
 DECISION_DAY = date(2026, 10, 14)  # _NOW is 12:00 UTC on this Wednesday; the recorder only accepts the current day
@@ -613,6 +615,8 @@ def _history_with_columns(rows: list[dict]) -> list[dict]:
         enriched["yahoo_ticker"] = "VWCE.DE" if row["instrument_id"] == "VWCE" else f"{row['instrument_id']}.X"
         enriched["research_promotion_allowed"] = row["instrument_id"] in {"AAA", "BBB"}
         enriched["legacy_action"] = row["final_action"]
+        enriched["as_of_date"] = str(row["run_completed_at"])[:10]
+        enriched["membership_policy"] = MEMBERSHIP_POLICY  # stamped by score_as_of on every real backfill row
         result.append(enriched)
     return result
 

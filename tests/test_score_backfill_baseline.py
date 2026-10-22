@@ -15,7 +15,8 @@ from etf_cockpit.models.forecast_scores import PRIMARY_MODEL_HORIZON_DAYS
 from etf_cockpit.portfolio.costs import estimate_execution_cost
 from etf_cockpit.signals.friction_edge import estimate_friction_adjusted_return
 from etf_cockpit.signals.signal_pipeline import BASELINE_MODEL_VERSION
-from tests.test_score_backfill import AS_OF, _config, _eur_ids, _prices, _run
+from tests.test_score_backfill import AS_OF, _config, _eur_ids, _prices, _run, _fingerprint
+from tests._pit_listing import verified_listing_history  # noqa: F401 (autouse)
 
 
 def _stored(root, config, prices, *, force=False):
@@ -141,7 +142,7 @@ def test_pre_baseline_fingerprint_recomputes_stored_sessions(tmp_path):
     config = _config()
     prices = _prices(config)
     history = _stored(tmp_path, config, prices)
-    fingerprint, material = score_backfill.config_fingerprint(config, None)
+    fingerprint, material = _fingerprint(config, tmp_path)
     material.pop("baseline_forecast")
     legacy = hashlib.sha256(json.dumps(material, sort_keys=True).encode("utf-8")).hexdigest()
     assert legacy != fingerprint
