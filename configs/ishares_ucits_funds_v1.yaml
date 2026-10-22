@@ -1,0 +1,25 @@
+# Forward collection only; the orchestrator fills this list from verified sources.
+# No latest endpoint supports as-of history. Historical files must be imported
+# with a timezone-aware source known_at and licence_ref/manual provenance.
+schema_version: 1
+execution_allowed: false
+user_agent: Mozilla/5.0
+funds: []
+# Fund schema (required unless stated optional):
+# ticker: verified listing ticker
+# ISIN: verified share-class ISIN
+# product_page_url: verified UK iShares product URL from recon's route
+# slug: exact final segment of that product page
+# instrument_id: existing canonical instrument-master id (never generated here)
+# calendar: existing ListingCalendarEvidence fields:
+#   listing_id, instrument_id, mic, calendar_id, timezone, source_id,
+#   source_checksum (SHA-256), valid_from (ISO date), known_at (aware ISO timestamp)
+#   optional: source_version, valid_to, conflict_ids, auction minutes
+# isin_mapping: optional list of {ticker, exchange, ISIN}; exact matches only.
+#   Empty leaves every holding flagged isin_unavailable; no identifier is guessed.
+# expected_columns: optional exact ordered CSV header; default is recon's 12 columns.
+# bond_asset_classes: optional explicit asset-class labels for a verified bond CSV.
+#   Bond formats are UNVERIFIED and disabled by default. Extra columns require an
+#   explicit expected_columns list; fields outside the equity schema remain raw
+#   evidence in the snapshot payload, with no inferred financial semantics.
+# Duplicate product ids or instrument ids reject the complete configuration.

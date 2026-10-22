@@ -1,0 +1,9 @@
+Fund Holdings as of,"20/Oct/2026"
+
+Ticker,Name,Sector,Asset Class,Market Value,Weight (%),Notional Value,Shares,Price,Location,Exchange,Market Currency
+SYN,Synthetic equity fixture,Technology,Equity,"8,344,104,027.00",98.00,"8,344,104,027.00","1,234.00",12.50,Synthetic location,Synthetic exchange,USD
+USD,Synthetic cash fixture,Cash and/or Derivatives,Cash,-100.00,-0.01,-100.00,-100.00,1.00,Synthetic location,-,USD
+FUT,Synthetic future fixture,Cash and/or Derivatives,Futures,0.00,0.00,"1,234,567.89",12.00,12.50,-,Synthetic exchange,USD
+FX,Synthetic FX fixture,Cash and/or Derivatives,FX,10.00,0.00,10.00,10.00,1.00,-,-,USD
+MM,Synthetic money market fixture,Cash and/or Derivatives,Money Market,100.00,0.01,100.00,100.00,1.00,-,-,USD
+COL,Synthetic collateral fixture,Cash and/or Derivatives,Cash Collateral and Margins,100.00,0.01,100.00,100.00,1.00,-,-,USD
