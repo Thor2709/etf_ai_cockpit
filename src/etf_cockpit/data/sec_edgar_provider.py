@@ -10,9 +10,10 @@ from __future__ import annotations
 from collections import OrderedDict
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 import hashlib
 import json
+import math
 from pathlib import Path
 import re
 import threading
@@ -29,6 +30,65 @@ from etf_cockpit.parsers.contracts import RawDocument
 
 
 Transport = Callable[[str, dict[str, str]], Any]
+
+
+def parse_reported_shares(payload: Mapping[str, Any], *, source_ref: str) -> list[dict[str, Any]]:
+    """DEI instant counts, preserving each filing rather than collapsing revisions.
+
+    Date-only availability is gated at end of day by the canonical store. Multiple
+    counts for one instant/filing are ambiguous (e.g. share classes), never summed.
+    """
+    entries = payload.get("facts", {}).get("dei", {}).get("EntityCommonStockSharesOutstanding", {}).get("units", {}).get("shares", [])
+    grouped: dict[tuple[str, str, str], list[float | None]] = {}
+    for entry in entries:
+        if entry.get("start") or entry.get("dimensions"):
+            continue
+        try:
+            end = date.fromisoformat(entry["end"])
+            filed = date.fromisoformat(entry["filed"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if end > filed:
+            continue
+        try:
+            value = float(entry["val"])
+        except (KeyError, TypeError, ValueError):
+            value = float("nan")
+        valid = math.isfinite(value) and value > 0 and not isinstance(entry.get("val"), bool)
+        key = (end.isoformat(), filed.isoformat(), str(entry.get("accn") or ""))
+        grouped.setdefault(key, []).append(value if valid else None)
+    rows = []
+    for (end, filed, accession), values in sorted(grouped.items()):
+        usable = None not in values and len(set(values)) == 1
+        rows.append({
+            "period_end": end, "period_type": "SHARES", "fiscal_year": date.fromisoformat(end).year,
+            "currency": "", "source": "sec_dei", "source_ref": f"{source_ref}:{accession or filed}",
+            "known_at": filed, "available_at": filed,
+            "shares_outstanding": values[0] if usable else None,
+            "value_status": json.dumps({"shares_outstanding": "observed" if usable else "conflicted"}),
+        })
+    return rows
+
+
+def fetch_stock_fundamentals(
+    cik: str, config: Mapping[str, Any], *, user_agent: str | None,
+    fetch: Callable[..., Any] | None = None, sleep: Callable[[float], None] | None = None,
+) -> Any:
+    """Keep the existing statement adapter and extract DEI from the same response."""
+    from etf_cockpit.data import stock_sources as src
+
+    reported: list[dict[str, Any]] = []
+
+    def capture(url: str, agent: str) -> Any:
+        payload = (fetch or src.http_get_json)(url, agent)
+        reported.extend(parse_reported_shares(payload, source_ref=url))
+        return payload
+
+    result = src.fetch_edgar(cik, config, user_agent=user_agent, fetch=capture, sleep=sleep or time.sleep)
+    result.rows.extend(reported)
+    if reported and result.status == "no_statements":
+        result.status, result.reason = "ok", ""
+    return result
 
 
 class SecEdgarError(RuntimeError):

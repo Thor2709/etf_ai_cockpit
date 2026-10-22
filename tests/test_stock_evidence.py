@@ -41,7 +41,8 @@ def _period(year: int, *, known: str | None = None, currency: str = "EUR", **ove
     }
     values.update(overrides)
     known_at = datetime.fromisoformat(known or f"{year + 1}-02-15").replace(tzinfo=UTC)
-    return sm.Period(date(year, 12, 31), "FY", known_at, currency, "sec_edgar", values)
+    return sm.Period(date(year, 12, 31), "FY", known_at, currency, "sec_edgar", values,
+                     field_sources={"shares_outstanding": "sec_dei"})
 
 
 def _market(price: float = 50.0, currency: str = "EUR", **extra: object) -> MarketInputs:

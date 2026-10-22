@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
 import json
 from pathlib import Path
+from typing import Any
 from urllib.parse import quote, urljoin, urlparse
 
 import pandas as pd
@@ -23,6 +24,85 @@ from etf_cockpit.data.providers import ProviderResult
 Transport = Callable[[str, dict[str, str]], object]
 BASE_URL = "https://filings.xbrl.org"
 MAX_RESPONSE_BYTES = 300 * 1024 * 1024
+
+
+def parse_reported_shares(facts: pd.DataFrame, *, source_ref: str) -> list[dict[str, Any]]:
+    """Only named, consolidated, undimensioned outstanding-share instant facts.
+
+    Require ``filed`` or registry ``date_added``: imported ``known_at`` alone
+    can be acquisition time and does not prove publication. Preserve each filing
+    separately. Weighted averages, issued shares and EPS are ineligible.
+    """
+    from etf_cockpit.analysis.stock_metrics import as_utc
+
+    # Filter missing dimensions before to_dict converts pd.NA to undimensioned None.
+    if "dimensions" in facts:
+        facts = facts.loc[facts["dimensions"].map(
+            lambda value: value is None or not (pd.api.types.is_scalar(value) and pd.isna(value))
+        )]
+    grouped: dict[tuple[str, str, str, str], list[float | None]] = {}
+    for fact in facts.to_dict("records"):
+        if (str(fact.get("taxonomy")) != "ifrs-full"
+                or str(fact.get("concept")) != "NumberOfSharesOutstanding"
+                or str(fact.get("consolidation_scope")) != "consolidated"
+                or str(fact.get("unit")) != "shares"):
+            continue
+        dimensions = fact.get("dimensions")
+        if dimensions is not None and not (isinstance(dimensions, str) and dimensions in ("", "{}")) and dimensions != {}:
+            continue
+        start = fact.get("start")
+        if start is not None and pd.notna(start) and str(start):
+            continue
+        instant = fact.get("instant")
+        if instant is None or pd.isna(instant) or not str(instant):
+            instant = fact.get("end")
+        end, known = as_utc(instant), as_utc(fact.get("known_at"))
+        published = as_utc(fact.get("filed")) or as_utc(fact.get("date_added"))
+        if end is None or known is None or published is None or end.date() > published.date():
+            continue
+        value = pd.to_numeric(fact.get("value"), errors="coerce")
+        valid = pd.notna(value) and float("-inf") < value < float("inf") and value > 0 and not isinstance(fact.get("value"), bool)
+        reference = fact.get("source_id")
+        reference = str(reference) if reference is not None and pd.notna(reference) else source_ref
+        key = (end.date().isoformat(), published.isoformat(), max(known, published).isoformat(), reference)
+        grouped.setdefault(key, []).append(float(value) if valid else None)
+    rows = []
+    for (end, published, known, reference), values in sorted(grouped.items()):
+        usable = None not in values and len(set(values)) == 1
+        rows.append({
+            "period_end": end, "period_type": "SHARES", "fiscal_year": int(end[:4]),
+            "currency": "", "source": "esef_reported", "source_ref": reference,
+            "known_at": known, "available_at": published,
+            "shares_outstanding": values[0] if usable else None,
+            "value_status": json.dumps({"shares_outstanding": "observed" if usable else "conflicted"}),
+        })
+    return rows
+
+
+def fetch_stock_fundamentals(
+    instrument_id: str, config: Mapping[str, Any], *, root: Path | None = None,
+    facts: pd.DataFrame | None = None,
+) -> Any:
+    """Read the rooted canonical fact store once for statements and reported counts."""
+    from etf_cockpit.core.paths import STATEMENT_FACTS_PATH
+    from etf_cockpit.data import stock_sources as src
+
+    if facts is None:
+        path = Path(root) / "data" / "clean" / "statement_facts.parquet" if root else Path(STATEMENT_FACTS_PATH)
+        if not path.exists():
+            return src.FetchResult("esef", status="unavailable", reason=f"no ESEF statement facts store at {path}")
+        try:
+            facts = pd.read_parquet(path)
+        except Exception as exc:
+            return src.FetchResult("esef", status="error", reason=f"ESEF statement facts store unreadable: {str(exc)[:120]}")
+    result = src.fetch_esef(instrument_id, config, facts=facts)
+    if "instrument_id" in facts.columns:
+        own = facts[facts["instrument_id"].astype(str) == str(instrument_id)]
+        reported = parse_reported_shares(own, source_ref=f"esef:filings_xbrl_org:{instrument_id}")
+        result.rows.extend(reported)
+        if reported and result.status == "no_statements":
+            result.status, result.reason = "ok", ""
+    return result
 
 
 class EsefProviderUnavailable(RuntimeError):
