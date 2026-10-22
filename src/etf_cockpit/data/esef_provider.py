@@ -7,6 +7,9 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
 import json
+import re
+import time
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote, urljoin, urlparse
@@ -105,6 +108,93 @@ def fetch_stock_fundamentals(
     return result
 
 
+def extract_issuer_shares(facts, *, lei: str, filing: Mapping[str, Any],
+                          share_class_members: Mapping[str, list[str]] | None = None) -> dict[str, Any] | None:
+    """Extract a consolidated instant count using the existing XbrlFact contract.
+
+    DEI outstanding is preferred. The requested IFRS fallback subtracts explicit
+    treasury counts, including an explicit zero; missing treasury is not zero.
+    Share-class totals require a configured exhaustive axis/member set and exact
+    matching treasury coverage. Conflicting duplicates, mixed totals/classes,
+    durations, extensions and unknown consolidation are unusable. No issued or
+    weighted-average substitution is permitted. Only the registry period end is
+    used; other share instants require independent publication evidence.
+    """
+    from etf_cockpit.parsers.esef_ixbrl import is_ifrs_full_namespace
+
+    period = str(filing["period_end"])
+    known = datetime.fromisoformat(str(filing["known_at"]).replace("Z", "+00:00"))
+    if known.tzinfo is None or period > known.date().isoformat():
+        raise ValueError("shares require proven known_at")
+    groups: dict[str, dict[tuple, set[Decimal]]] = {}
+    bad = set()
+    if share_class_members and (len(share_class_members) != 1 or any(
+        not isinstance(members, list) or not members or len(set(members)) != len(members)
+        for members in share_class_members.values()
+    )):
+        return None
+    for fact in facts:
+        if (fact.entity_lei != lei or fact.period_end != period or fact.period_start
+                or fact.consolidation_scope != "consolidated" or fact.unit != "shares"
+                or not fact.is_numeric):
+            continue
+        concept = fact.concept.split(":")[-1]
+        dei = bool(re.fullmatch(r"https?://xbrl.sec.gov/dei/\d{4}(?:-\d{2}-\d{2})?", fact.namespace or ""))
+        if concept == "EntityCommonStockSharesOutstanding" and dei:
+            group = "dei"
+        elif is_ifrs_full_namespace(fact.namespace) and concept in {"NumberOfSharesOutstanding", "TreasuryShares"}:
+            group = concept
+        else:
+            continue
+        dims = tuple(sorted(fact.context_dimensions))
+        if group == "dei" and dims:
+            continue
+        if dims and (len(dims) != 1 or dims[0][0] not in (share_class_members or {})
+                     or dims[0][1] not in share_class_members[dims[0][0]]):
+            bad.add(group)
+            continue
+        try:
+            value = Decimal(fact.value)
+            if (fact.mapping_status == "unsupported_numeric" or not value.is_finite()
+                    or value < 0 or value != value.to_integral_value()):
+                raise InvalidOperation
+        except (InvalidOperation, ValueError):
+            bad.add(group)
+            continue
+        groups.setdefault(group, {}).setdefault(dims, set()).add(value)
+
+    def total(group):
+        values = groups.get(group, {})
+        if group in bad or not values or any(len(v) != 1 for v in values.values()):
+            return None
+        if () in values:
+            return next(iter(values[()])) if len(values) == 1 else None
+        expected = {((axis, member),) for axis, members in (share_class_members or {}).items() for member in members}
+        if set(values) != expected:
+            return None
+        return sum((next(iter(v)) for v in values.values()), Decimal(0))
+
+    value, source = total("dei"), "dei:EntityCommonStockSharesOutstanding"
+    if value is None and ("dei" in groups or "dei" in bad):
+        return None
+    if value is None:
+        outstanding, treasury = total("NumberOfSharesOutstanding"), total("TreasuryShares")
+        if outstanding is None or treasury is None or set(groups.get("NumberOfSharesOutstanding", {})) != set(groups.get("TreasuryShares", {})):
+            return None
+        value = outstanding - treasury
+        source = "ifrs-full:NumberOfSharesOutstanding-ifrs-full:TreasuryShares"
+    if value <= 0 or value > Decimal(2 ** 53):
+        return None
+    reference = json.dumps({"filing_id": filing["id"], "lei": lei, "concept": source,
+                            "sha256": filing.get("package_sha256"), "share_class_members": share_class_members or {}}, sort_keys=True)
+    return {"period_end": period, "period_type": "SHARES", "fiscal_year": int(period[:4]),
+            "currency": "", "source": "esef_reported", "source_ref": reference,
+            "known_at": known.astimezone(timezone.utc).isoformat(),
+            "available_at": known.astimezone(timezone.utc).isoformat(),
+            "shares_outstanding": float(value),
+            "value_status": json.dumps({"shares_outstanding": "observed"})}
+
+
 class EsefProviderUnavailable(RuntimeError):
     """The official ESEF endpoint was unavailable within the bounded request."""
 
@@ -124,6 +214,8 @@ class FilingsXbrlOrgProvider:
         transport: Transport | None = None,
         timeout: float = 20.0,
         fixture_manifest: Path | None = None,
+        request_interval: float = 1.0,
+        request_gate: Callable[[], None] | None = None,
     ) -> None:
         if timeout <= 0:
             raise ValueError("ESEF provider timeout must be positive")
@@ -132,6 +224,120 @@ class FilingsXbrlOrgProvider:
         self.timeout = float(timeout)
         self.fixture_manifest = Path(fixture_manifest) if fixture_manifest is not None else None
         self._filings: dict[str, dict[str, object]] = {}
+        if request_interval < 0 or not float(request_interval) < float("inf"):
+            raise ValueError("request_interval must be finite and non-negative")
+        self.request_interval = float(request_interval)
+        self.request_gate = request_gate
+        self._last_request = None
+
+    def list_issuer_filings(self, lei: str, *, error_limit: int = 0,
+                           page_size: int = 100, history: bool = False,
+                           entity_type: str = "entity", date_added_timezone: str | None = None) -> ProviderResult:
+        """Discover every page; validate entity joins and select valid sequences.
+
+        date_added is a conservative ceiling for public availability, rather
+        than the issuer's publication date. Missing/naive timestamps, sequence
+        numbers, error counts and entity relationships are unusable. With
+        history=True retain successive sequence winners at their own known_at
+        so a later restatement never erases evidence available earlier.
+        The undocumented filter shape is checked against included entities.
+        """
+        try:
+            if not re.fullmatch(r"[A-Z0-9]{18}[0-9]{2}", lei):
+                raise ValueError("invalid LEI")
+            if error_limit < 0 or not 1 <= page_size <= 100 or entity_type not in {"entity", "entities"}:
+                raise ValueError("invalid error limit or page size")
+            query = quote(json.dumps([{"name": "entity.identifier", "op": "eq", "val": lei}], separators=(",", ":")))
+            url = f"{BASE_URL}/api/filings?filter={query}&include=entity&page[size]={page_size}"
+            seen, records = set(), []
+            while url:
+                parsed_url = urlparse(url)
+                if (parsed_url.scheme != "https" or parsed_url.netloc != "filings.xbrl.org"
+                        or parsed_url.path != "/api/filings" or url in seen or len(seen) >= 10000):
+                    raise ValueError("unsafe, cyclic or excessive pagination")
+                seen.add(url)
+                response = self._get(url)
+                if not 200 <= response.status < 300:
+                    raise EsefProviderUnavailable("issuer discovery HTTP failure")
+                payload = json.loads(response.payload)
+                if not isinstance(payload, dict) or not isinstance(payload.get("data"), list):
+                    raise ValueError("issuer discovery requires JSON:API data")
+                included = payload.get("included", [])
+                if not isinstance(included, list):
+                    raise ValueError("invalid included entities")
+                entities = {}
+                for item in included:
+                    if item.get("type") == entity_type:
+                        entity_id = str(item["id"])
+                        identifier = item["attributes"]["identifier"]
+                        if entity_id in entities and entities[entity_id] != identifier:
+                            raise ValueError("conflicting included entity")
+                        entities[entity_id] = identifier
+                for item in payload["data"]:
+                    if not isinstance(item, dict) or not isinstance(item.get("attributes"), dict):
+                        raise ValueError("invalid filing row")
+                    relationship = item.get("relationships", {}).get("entity", {})
+                    relation = relationship.get("data")
+                    if relation is not None:
+                        matches = relation.get("type") == entity_type and entities.get(str(relation.get("id"))) == lei
+                    else:
+                        related = urljoin(BASE_URL, str(relationship.get("links", {}).get("related") or ""))
+                        matches = related == f"{BASE_URL}/api/entities/{lei}"
+                    if not matches:
+                        raise ValueError("filing entity does not match requested LEI")
+                    attrs = item["attributes"]
+                    error_count = attrs.get("error_count")
+                    if type(error_count) is not int or error_count < 0:
+                        raise ValueError("unproven error count")
+                    if error_count > error_limit:
+                        continue
+                    period = str(attrs.get("period_end") or "")
+                    if len(period) != 10:
+                        raise ValueError("missing period_end")
+                    from datetime import date
+                    date.fromisoformat(period)
+                    if period < "2020-01-01":
+                        continue
+                    known = datetime.fromisoformat(str(attrs.get("date_added") or "").replace("Z", "+00:00"))
+                    if known.tzinfo is None and date_added_timezone == "UTC":
+                        known = known.replace(tzinfo=timezone.utc)
+                    if known.tzinfo is None or known.date() < date.fromisoformat(period):
+                        raise ValueError("unproven date_added")
+                    package_url = _safe_package_url(str(attrs.get("package_url") or ""))
+                    sequence = re.search(r"/" + re.escape(lei) + "/" + re.escape(period) + r"/ESEF/[A-Z]{2}/(\d+)/", urlparse(package_url).path)
+                    if sequence is None or not item.get("id"):
+                        raise ValueError("unproven filing sequence or identity")
+                    records.append({**attrs, "id": str(item["id"]), "entity_lei": lei,
+                                    "package_url": package_url, "sequence": int(sequence[1]),
+                                    "known_at": known.astimezone(timezone.utc).isoformat()})
+                links = payload.get("links")
+                if not isinstance(links, dict) or "next" not in links:
+                    raise ValueError("pagination requires an explicit next link or null")
+                next_link = links["next"]
+                if isinstance(next_link, dict):
+                    next_link = next_link.get("href")
+                if next_link is not None and (not isinstance(next_link, str) or not next_link):
+                    raise ValueError("invalid next link")
+                url = urljoin(BASE_URL, next_link) if next_link is not None else ""
+            winners = {}
+            selected = []
+            identities = {}
+            for row in sorted(records, key=lambda r: (r["known_at"], r["sequence"], r["id"])):
+                identity = (lei, row["period_end"], row["sequence"])
+                if identity in identities and identities[identity] != row:
+                    raise ValueError("conflicting filing sequence")
+                if identity in identities:
+                    continue
+                identities[identity] = row
+                key = (lei, row["period_end"])
+                if key not in winners or row["sequence"] > winners[key]["sequence"]:
+                    winners[key] = row
+                    selected.append(row)
+            frame = pd.DataFrame(selected if history else list(winners.values()))
+            self._filings.update(_index_filings(frame))
+            return ProviderResult("filings_xbrl_org", "filings", "ok", "Complete issuer pagination.", frame)
+        except (EsefProviderUnavailable, OSError, ValueError, TypeError, KeyError, AttributeError) as exc:
+            return ProviderResult("filings_xbrl_org", "filings", "error", f"Issuer discovery failed closed: {exc}", pd.DataFrame())
 
     def list_filings(self, country: str, limit: int = 10) -> ProviderResult:
         country_code = str(country or "").strip().upper()
@@ -227,6 +433,13 @@ class FilingsXbrlOrgProvider:
         return package.source_url, payload, 200
 
     def _get(self, url: str) -> _Response:
+        if self.request_gate is not None:
+            self.request_gate()
+        else:
+            now = time.monotonic()
+            if self._last_request is not None:
+                time.sleep(max(0.0, self.request_interval - (now - self._last_request)))
+            self._last_request = time.monotonic()
         headers = {"User-Agent": "ETF AI Evidence Cockpit/1.0", "Accept": "application/json"}
         if self.transport is not None:
             return _normalise_response(self.transport(url, headers))
