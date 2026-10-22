@@ -8,7 +8,7 @@ engine's own fail-closed behaviour), never zero-filled, reweighted or read as of
 
 Only the deterministic baseline return quantiles are recomputed from as-of prices, without calibration, for friction/cost inputs.
 Withheld on purpose (no known-at in the stores): stored forecasts, TimesFM/Toto and calibration, the stored backtest trust, the cash-curve
-comparison, ETF holdings, PRIIPS KIDs, configured ETF product-quality metadata, stored news counts and the trade-candidate
+comparison, ETF holdings without knowledge times, PRIIPS KIDs, configured ETF product-quality metadata, stored news counts and the trade-candidate
 report. The universe is today's configured list: delisted names are absent (survivorship bias, reported with the results).
 """
 
@@ -18,7 +18,7 @@ import hashlib
 import json
 from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -34,6 +34,7 @@ from etf_cockpit.core.config import AppConfig, load_config
 from etf_cockpit.core.versioning import build_version_registry
 from etf_cockpit.data.duckdb_store import load_prices
 from etf_cockpit.data.fx_data import fx_rates_for_prices
+from etf_cockpit.data.reference_data import load_reference_dataset
 from etf_cockpit.data.score_history_backfill import (
     BACKFILL_PROVENANCE,
     backfill_history_path,
@@ -158,8 +159,26 @@ def config_fingerprint(config: AppConfig, excluded: Mapping[str, str] | None) ->
         "calendar_instrument_id": CALENDAR_INSTRUMENT_ID,
         "universe_hash": universe,
         "formulas": formulas,
+        "score_engine_hash": _score_engine_hash(),
     }
     return hashlib.sha256(json.dumps(material, sort_keys=True).encode("utf-8")).hexdigest(), material
+
+
+def _score_engine_hash() -> str:
+    """Hash package sources, including the formula registry and score-path dependencies.
+
+    Conservatively include the whole package so a new transitive score dependency cannot
+    escape invalidation. Normalise line endings for identical Windows/Linux identities.
+    """
+
+    package = Path(__file__).resolve().parents[1]
+    digest = hashlib.sha256()
+    for source in sorted(package.rglob("*.py")):
+        digest.update(source.relative_to(package).as_posix().encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(source.read_bytes().replace(b"\r\n", b"\n"))
+        digest.update(b"\0")
+    return digest.hexdigest()
 
 
 def backfill_score_history(
@@ -221,7 +240,7 @@ def backfill_score_history(
     unavailable: dict[str, str] = {}
 
     def persist() -> BackfillResult:
-        replaced = {session.isoformat() for session in sessions} if force else {
+        replaced = {
             str(value) for part in new_histories for value in part["as_of_date"].unique()
         } | set(unavailable)
         kept = existing.loc[~existing["as_of_date"].astype(str).isin(replaced)] if not existing.empty else existing
@@ -275,30 +294,32 @@ def backfill_score_history(
         )
 
     todo = [(index, session) for index, session in enumerate(sessions, start=1) if session.isoformat() not in done]
-    for index, session, outcome in _score_sessions(config, frame, todo, fx, registry_signature, excluded, workers):
-        say(f"[{index}/{len(sessions)}] scored as of {session}")
-        if isinstance(outcome, str):  # fail closed per session: one broken date never writes a partial or guessed run
-            unavailable[session.isoformat()] = outcome
-            say(f"  unavailable: {outcome}")
-            continue
-        run, eligibility = outcome
-        eligibility["config_fingerprint"] = fingerprint
-        new_eligibility.append(eligibility)
-        if run is None:
-            unavailable[session.isoformat()] = "no eligible scored instrument"
-            continue
-        run["config_fingerprint"] = fingerprint
-        new_histories.append(run)
-        if len(new_histories) % CHECKPOINT_RUNS == 0:
-            persist()  # a long backfill survives an interruption: stored runs are resumable
-
-    if not new_histories and not unavailable and not force and not existing.empty:
+    if not todo and not force and not existing.empty:
         # Nothing to recompute: the store (and its manifest, including remembered unavailable dates) is left untouched.
         return BackfillResult(
             "available", backfill_history_path(root), len(sessions), runs_written=0, runs_kept=int(existing["run_id"].nunique()),
             eligibility=existing_eligibility,
         )
-    return persist()
+    try:
+        for index, session, outcome in _score_sessions(config, frame, todo, fx, registry_signature, excluded, workers):
+            say(f"[{index}/{len(sessions)}] scored as of {session}")
+            if isinstance(outcome, str):  # fail closed per session: never store a partial or guessed run
+                unavailable[session.isoformat()] = outcome
+                say(f"  unavailable: {outcome}")
+                continue
+            run, eligibility = outcome
+            eligibility["config_fingerprint"] = fingerprint
+            new_eligibility.append(eligibility)
+            if run is None:
+                unavailable[session.isoformat()] = "no eligible scored instrument"
+                continue
+            run["config_fingerprint"] = fingerprint
+            new_histories.append(run)
+            if len(new_histories) % CHECKPOINT_RUNS == 0:
+                persist()
+    finally:
+        result = persist()  # also preserve completed sessions when a process pool dies
+    return result
 
 
 _WORKER_STATE: dict[str, Any] = {}
@@ -307,7 +328,7 @@ _WORKER_STATE: dict[str, Any] = {}
 def _worker_init(config: AppConfig, prices: pd.DataFrame, fx_rates: pd.DataFrame | None, registry_signature: str, excluded: Mapping[str, str] | None) -> None:
     import os
 
-    os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
+    os.environ["CUDA_VISIBLE_DEVICES"] = ""
     _WORKER_STATE.update(config=config, prices=prices, fx=fx_rates, registry=registry_signature, excluded=excluded)
 
 
@@ -394,6 +415,12 @@ def score_as_of(
         benchmark_registry=context.registry,
         peer_member_ids=context.peer_member_ids,
     )
+    source_kwargs: dict[str, object] = {}
+    if "etf_holdings" in {item.name for item in fields(AsOfScoreSources)}:
+        holdings = load_reference_dataset("etf_holdings")
+        # Legacy snapshots with no knowledge time are not PIT evidence. The engine
+        # owns vintage/date selection, including rejection of future known_at rows.
+        source_kwargs["etf_holdings"] = holdings if "known_at" in holdings.columns else pd.DataFrame()
     scores = build_universe_simple_scores(
         config,
         signals,
@@ -405,6 +432,7 @@ def score_as_of(
             # No historical portfolio exists. Use the configured minimum trade size
             # as a conservative research cost reference (fixed fees bite hardest here).
             reference_order_value_eur=config.risks.portfolio_limits.min_trade_value_eur,
+            **source_kwargs,
         ),
         fx_rates=fx_rates if fx_rates is not None else pd.DataFrame(),
         calibration_by_id={},

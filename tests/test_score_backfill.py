@@ -340,3 +340,145 @@ def test_parallel_backfill_equals_serial_backfill(tmp_path: Path) -> None:
     pd.testing.assert_frame_equal(
         store.load_backfill_eligibility(serial_root).reset_index(drop=True), store.load_backfill_eligibility(parallel_root).reset_index(drop=True)
     )
+
+
+def test_fingerprint_changes_when_engine_hash_changes(monkeypatch, tmp_path: Path) -> None:
+    config = _config()
+    prices = _prices(config)
+    monkeypatch.setattr(score_backfill, "_score_engine_hash", lambda: "a" * 64)
+    first_hash, material = score_backfill.config_fingerprint(config, None)
+    assert material["score_engine_hash"] == "a" * 64
+    first = score_backfill.backfill_score_history(tmp_path, AS_OF, AS_OF, config=config, prices=prices, fx_rates=pd.DataFrame())
+    monkeypatch.setattr(score_backfill, "_score_engine_hash", lambda: "b" * 64)
+    assert score_backfill.config_fingerprint(config, None)[0] != first_hash
+    second = score_backfill.backfill_score_history(tmp_path, AS_OF, AS_OF, config=config, prices=prices, fx_rates=pd.DataFrame())
+    assert first.runs_written == second.runs_written == 1 and second.runs_kept == 0
+    assert set(store.load_backfill_score_history(tmp_path)["config_fingerprint"]) == {score_backfill.config_fingerprint(config, None)[0]}
+
+
+@pytest.mark.parametrize("source", ["signals/simple_scores.py", "analysis/formula_registry.py", "data/etf_economics.py"])
+def test_engine_hash_covers_score_code_and_formula_registry(monkeypatch, source) -> None:
+    original = Path.read_bytes
+    before = score_backfill._score_engine_hash()
+    target = Path(score_backfill.__file__).resolve().parents[1] / source
+
+    def changed(path):
+        content = original(path)
+        return content + b"\n# synthetic engine change\n" if path == target else content
+
+    monkeypatch.setattr(Path, "read_bytes", changed)
+    assert score_backfill._score_engine_hash() != before
+
+
+@pytest.mark.parametrize("force", [False, True])
+def test_pool_failure_finally_persists_completed_sessions(monkeypatch, tmp_path: Path, force) -> None:
+    from concurrent.futures import Future
+    from concurrent.futures.process import BrokenProcessPool
+    import concurrent.futures
+
+    config = _config()
+    prices = _prices(config)
+    start, end = date(2022, 6, 29), AS_OF
+    if force:
+        score_backfill.backfill_score_history(tmp_path, start, end, every=1, config=config, prices=prices, fx_rates=pd.DataFrame())
+    before = store.load_backfill_score_history(tmp_path)
+
+    class Pool:
+        def __init__(self, **_kwargs):
+            self.count = 0
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def submit(self, _function, session):
+            future = Future()
+            self.count += 1
+            if self.count == 1:
+                future.set_result(score_backfill.score_as_of(config, prices, session, fx_rates=pd.DataFrame()))
+            else:
+                future.set_exception(BrokenProcessPool("synthetic dead worker"))
+            return future
+
+    writes = []
+    original = score_backfill.write_backfill_store
+
+    def write(*args):
+        writes.append(args[1].copy())
+        return original(*args)
+
+    monkeypatch.setattr(concurrent.futures, "ProcessPoolExecutor", Pool)
+    monkeypatch.setattr(score_backfill, "write_backfill_store", write)
+    with pytest.raises(BrokenProcessPool, match="synthetic dead worker"):
+        score_backfill.backfill_score_history(
+            tmp_path, start, end, every=1, config=config, prices=prices, fx_rates=pd.DataFrame(), workers=2, force=force,
+        )
+    assert len(writes) == 1  # fewer than CHECKPOINT_RUNS: only the final persist can save it
+    saved = store.load_backfill_score_history(tmp_path)
+    assert start.isoformat() in set(saved["as_of_date"])
+    if force:
+        pd.testing.assert_frame_equal(
+            saved.loc[saved["as_of_date"].eq(end.isoformat())].reset_index(drop=True),
+            before.loc[before["as_of_date"].eq(end.isoformat())].reset_index(drop=True),
+        )  # an unprocessed prior session survives an interrupted --force run
+    else:
+        assert set(saved["as_of_date"]) == {start.isoformat()}
+
+
+def test_worker_init_overrides_inherited_cuda_devices(monkeypatch) -> None:
+    import os
+
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "0")
+    monkeypatch.setattr(score_backfill, "_WORKER_STATE", {})
+    score_backfill._worker_init(_config(), pd.DataFrame(), None, "test", None)
+    assert os.environ["CUDA_VISIBLE_DEVICES"] == ""
+
+
+@pytest.mark.parametrize("supports_holdings,has_known_at", [(False, True), (True, True), (True, False)])
+def test_pit_holdings_are_passed_only_when_the_contract_and_knowledge_column_exist(monkeypatch, supports_holdings, has_known_at) -> None:
+    from dataclasses import field, make_dataclass
+    from etf_cockpit.signals import simple_scores
+
+    legacy = make_dataclass("LegacySources", [
+        ("decision_time", datetime),
+        ("expected_return_distributions", object, field(default=None)),
+        ("reference_order_value_eur", object, field(default=None)),
+    ], frozen=True)
+    contract = make_dataclass("HoldingsSources", [("etf_holdings", object, field(default=None))], bases=(legacy,), frozen=True) if supports_holdings else legacy
+    monkeypatch.setattr(score_backfill, "AsOfScoreSources", contract)
+    holdings = pd.DataFrame({"etf_id": ["VWCE", "VWCE"], "as_of_date": ["2022-06-01", "2023-01-01"], "known_at": ["2022-06-02", "2023-01-02"]})
+    if not has_known_at:
+        holdings = holdings.drop(columns="known_at")
+    reads, seen = [], []
+
+    def load(dataset):
+        reads.append(dataset)
+        return holdings
+
+    original = score_backfill.build_universe_simple_scores
+
+    def build(*args, **kwargs):
+        supplied = kwargs["as_of_sources"]
+        seen.append(supplied)
+        # Keep the real engine's currently installed contract in this merge-order test.
+        kwargs["as_of_sources"] = simple_scores.AsOfScoreSources(
+            decision_time=supplied.decision_time,
+            expected_return_distributions=supplied.expected_return_distributions,
+            reference_order_value_eur=supplied.reference_order_value_eur,
+        )
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(score_backfill, "load_reference_dataset", load)
+    monkeypatch.setattr(score_backfill, "build_universe_simple_scores", build)
+    assert _run(_config(), _prices(_config()))[0] is not None
+    assert reads == (["etf_holdings"] if supports_holdings else [])
+    assert len(seen) == 1
+    if supports_holdings:
+        if has_known_at:
+            pd.testing.assert_frame_equal(seen[0].etf_holdings, holdings)  # the engine owns date filtering
+        else:
+            assert seen[0].etf_holdings.empty
+    else:
+        assert not hasattr(seen[0], "etf_holdings")
