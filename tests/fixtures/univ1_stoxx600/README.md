@@ -1,0 +1,1 @@
+All amounts, dates, index events, report packages and joins here are hand-made synthetic test data, not financial evidence. Real identifier strings are reused from the supplied recon notes, repository universe and official fixture; the scenarios do not assert real memberships or mappings. No live retrieval was performed.
