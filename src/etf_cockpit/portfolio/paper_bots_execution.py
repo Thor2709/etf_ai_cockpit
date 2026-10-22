@@ -1160,14 +1160,16 @@ def _attempt(
                     continue
                 return miss("insufficient_settled_cash after the retry sessions")
             return miss("ledger_refused: " + message[:200])
-        cost = quantity * abs(price - reference) * to_eur
+        # Project the immutable fill and the account's frozen cost policy, exactly
+        # as recovery does after a lost record-store write.
+        state = ledger._replay(ledger._read_events())
+        fill = next(item for item in state["fills"] if item["fill_id"] == fill_id)
         return _record(
             context, decision, intent, session, "filled", intent["reason"] if quantity == Decimal(str(intent["planned_quantity"]))
             else f"{intent['reason']}; reduced to the percent-of-NAV position limit" if room is not None and quantity == room
             else f"{intent['reason']}; reduced to the order-value limit" if capped and quantity == _floor_lot(order_limit / unit, policy.lot_size)
             else f"{intent['reason']}; reduced to settled cash",
-            quantity=str(quantity), reference_open=str(reference), fill_price=str(price), fee=str(policy.commission),
-            spread_slippage_cost=str(cost), fill_id=fill_id, order_id=order_id,
+            **_fill_evidence_fields(fill, state["cost_policy"]), fill_id=fill_id, order_id=order_id,
             planned_quantity=str(intent["planned_quantity"]),
             remaining_quantity=str(_split_remainder(context, intent, quantity, unit, held)),
         )
@@ -1190,24 +1192,42 @@ def _split_remainder(
     return max(Decimal("0"), requested - quantity)
 
 
+def _fill_evidence_fields(fill: Mapping[str, Any], cost_policy: Mapping[str, Any] | None) -> dict[str, Any]:
+    """EUR amounts and adverse cost from durable fill terms and frozen policy only."""
+
+    quantity, price, fee = (Decimal(str(fill[key])) for key in ("quantity", "price", "fee"))
+    rate = bots._finite_number(fill.get("fx_rate"))
+    fx = Decimal(str(fill["fx_rate"])) if rate is not None and rate > 0 else None
+    reference = None
+    if cost_policy is not None:
+        adverse = Decimal(str(cost_policy["adverse_bps"])) / Decimal(10000)
+        factor = Decimal(1) + adverse * (1 if fill["side"] == "buy" else -1)
+        if factor > 0:
+            reference = price / factor
+    return {
+        "quantity": str(quantity), "fill_price": str(price), "fee": str(fee),
+        "currency": fill.get("currency"), "fx_rate": None if fx is None else str(fx),
+        "traded_notional_eur": None if fx is None else str(quantity * price * fx),
+        "reference_open": None if reference is None else str(reference),
+        "spread_slippage_cost": None if reference is None or fx is None else str(quantity * abs(price - reference) * fx),
+    }
+
+
 def _recovered_fill(
     context: _Context, ledger: PaperLedger, decision: Mapping[str, Any], intent: Mapping[str, Any], session: date, row: Mapping[str, Any],
 ) -> dict[str, Any]:
     """The ``filled`` record of a fill the ledger already holds (its record write was lost)."""
 
-    quantity, price, fee = (Decimal(str(row[key])) for key in ("quantity", "price", "fee"))
-    order = next((item for item in ledger.orders() if item["order_id"] == row["order_id"]), {})
-    order_fx = Decimal(str(order.get("fx_rate", 1)))
-    bar = context.book.bar(str(intent["instrument_id"]), session)
-    opening = None if bar is None else bots._finite_number(bar.get("open"))
-    reference = Decimal(str(opening)) if opening else None
+    state = ledger._replay(ledger._read_events())
+    fill = next(item for item in state["fills"] if item["fill_id"] == row["paper_trade_id"])
+    quantity, price, fill_fx = (Decimal(str(fill[key])) for key in ("quantity", "price", "fx_rate"))
+    order = state["orders"][fill["order_id"]]
     return _record(
         context, decision, intent, session, "filled", f"{intent['reason']}; recovered from the paper ledger fill",
-        quantity=str(quantity), reference_open=None if reference is None else str(reference), fill_price=str(price),
-        fee=str(fee), spread_slippage_cost="0" if reference is None else str(quantity * abs(price - reference) * order_fx),
+        **_fill_evidence_fields(fill, state["cost_policy"]),
         fill_id=str(row["paper_trade_id"]), order_id=str(row["order_id"]), planned_quantity=str(intent["planned_quantity"]),
         remaining_quantity=str(_split_remainder(
-            context, intent, quantity, price * order_fx,
+            context, intent, quantity, price * fill_fx,
             Decimal(str(order["proposal_snapshot"]["input_material"]["current_quantity"])),
         )),
     )

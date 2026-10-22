@@ -128,16 +128,18 @@ def _write_replay_decisions(
     unavailable = 0
     for spec, lineage_hash, candidates in plan:
         bot_id = bots._bot_identity(spec, config_hash, lineage_hash)
-        months: dict[str, bots._PublishedGroup] = {}
+        months: dict[str, list[bots._PublishedGroup]] = {}
         for group in candidates:
-            months.setdefault(group.known_at.strftime("%Y-%m"), group)  # the first run of a month, as the forward bots
+            months.setdefault(group.known_at.strftime("%Y-%m"), []).append(group)
         first_month: str | None = None  # the cadence is counted from the first month with a verifiable decision
-        for month, group in sorted(months.items()):
+        for month, month_candidates in sorted(months.items()):
             if not bots._cadence_due(spec, month, first_month):
                 continue  # not a rebalance month for this bot (B0 decides once): no new target
-            matched = _matched_rows(group, book)
-            decision, failure = bots._build_decision(spec, bot_id, config_hash, config, group.known_at, month, group, matched)
-            if failure:
+            decision, group, failure = bots._first_successful_candidate(
+                spec, bot_id, config_hash, config, cutoff, month, month_candidates, lineage_hash,
+                lambda candidate: _matched_rows(candidate, book), historical=True,
+            )
+            if decision is None or group is None:
                 unavailable += 1
                 continue
             first_month = first_month or month

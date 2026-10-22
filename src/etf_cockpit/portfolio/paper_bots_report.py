@@ -17,6 +17,7 @@ from typing import Any, Mapping
 import pandas as pd
 
 from etf_cockpit.core.paths import ROOT
+from etf_cockpit.data.fx_data import EurRateBook, load_fx_rates
 from etf_cockpit.data.local_storage import StorageSchemaError, TransactionalStore
 from etf_cockpit.portfolio import paper_bots as bots
 from etf_cockpit.portfolio import paper_bots_execution as execution
@@ -162,13 +163,13 @@ def _bot_report(
         strategy = benchmark
     else:
         try:
-            strategy = _ledger_snapshots(ledger, book, config, cutoff, [day for day in book.sessions if day <= through], check)
+            strategy = _ledger_snapshots(ledger, book, config, cutoff, [day for day in book.sessions if day <= through], check, root=root)
         except (PortfolioValuationError, PaperLedgerError, ValueError, KeyError) as exc:
             report["reason"] = f"Bot valuation unavailable: {str(exc)[:160]}"
             return report
     relative = build_relative_performance(strategy, benchmark)
     report.update(_series_fields(strategy, benchmark))
-    report["metrics"] = _metrics(strategy, benchmark, relative, records, shadow, config)
+    report["metrics"] = _metrics(strategy, benchmark, relative, records, shadow, config, ledger=ledger)
     report["uncertainty"] = _uncertainty(strategy, benchmark, config)
     report["status"] = "available" if relative.status == "available" and not relative.reasons else "partial"
     report["reason"] = None if report["status"] == "available" else "; ".join(relative.reasons) or "Relative measures are partly unavailable."
@@ -193,10 +194,11 @@ def _matched_through(ledger: PaperLedger, shadow: PaperLedger, book: execution.P
 
 def _ledger_snapshots(
     ledger: PaperLedger, book: execution.PriceBook, config: Mapping[str, Any], cutoff: datetime, sessions: list[date], check: Any,
+    *, root: Path = ROOT,
 ) -> pd.DataFrame:
     """Daily canonical snapshots of a bot account: ledger cash and fills valued with the point-in-time price book."""
 
-    events = ledger._read_events()
+    events = [event for event in ledger._read_events() if pd.Timestamp(event["occurred_at"]) <= pd.Timestamp(cutoff)]
     flows = [event for event in events if event["event_type"] == "external_flow_recorded"]
     fills = [event for event in events if event["event_type"] == "fill_recorded"]
     if not flows:
@@ -220,30 +222,29 @@ def _ledger_snapshots(
     stale_limit = int(config["max_stale_mark_sessions"])
     known_text = (cutoff if book.known_at is None else min(book.known_at, cutoff)).isoformat()
     holdings, prices, cash_rows, movements = [], [], [], []
+    try:
+        fx_rates = load_fx_rates(root / "data" / "clean" / "fx.parquet")
+    except (OSError, ValueError, KeyError):
+        fx_rates = pd.DataFrame()
     for day in days:
-        balance = Decimal(0)
-        quantity = {instrument: Decimal(0) for instrument in traded}
-        mark_fx = {instrument: Decimal(1) for instrument in traded}  # EUR per unit of quote currency at the last fill
-        for event in flows:
-            payload = event["payload"]
-            if pd.Timestamp(payload["effective_at"]).date() <= day:
-                balance += Decimal(payload["amount"]) * (1 if payload["flow_kind"] == "contribution" else -1)
-        for event in fills:
-            if pd.Timestamp(event["occurred_at"]).date() <= day:
-                payload = event["payload"]
-                units = Decimal(payload["quantity"]) * (1 if payload["side"] == "buy" else -1)
-                quantity[str(payload["instrument_id"])] += units
-                mark_fx[str(payload["instrument_id"])] = Decimal(payload["fx_rate"])
-                balance -= units * Decimal(payload["price"]) * Decimal(payload["fx_rate"]) + Decimal(payload["fee"])
-        cash_rows.append({"date": day, "cash_value": float(balance)})
+        daily_events = [event for event in events if pd.Timestamp(event["occurred_at"]).date() <= day
+                        and (event["event_type"] != "external_flow_recorded"
+                             or pd.Timestamp(event["payload"]["effective_at"]).date() <= day)]
+        state = ledger._replay(daily_events)
+        day_end = (pd.Timestamp(day, tz="UTC") + pd.Timedelta(days=1) - pd.Timedelta(microseconds=1)).to_pydatetime()
+        rates = EurRateBook(fx_rates, known_by=min(day_end, cutoff))
+        cash_rows.append({"date": day, "cash_value": float(state["cash"])})
         for instrument in traded:
-            holdings.append({"date": day, "instrument_id": instrument, "quantity": float(quantity[instrument])})
-            if quantity[instrument] == 0:
+            position = state["positions"].get(instrument, {})
+            quantity = float(position.get("quantity", 0))
+            holdings.append({"date": day, "instrument_id": instrument, "quantity": quantity})
+            if quantity == 0:
                 prices.append({"date": day, "instrument_id": instrument, "price": 0.0})
                 continue
             mark = _mark(book, instrument, day, scale[instrument], stale_limit)
-            if mark is not None:
-                prices.append({"date": day, "instrument_id": instrument, "price": mark * float(mark_fx[instrument])})
+            fx = rates.series(str(position.get("currency", "")), [day]).rates.iloc[0]
+            if mark is not None and pd.notna(fx):
+                prices.append({"date": day, "instrument_id": instrument, "price": mark * float(fx)})
     for event in flows:
         payload = event["payload"]
         movements.append({"date": pd.Timestamp(payload["effective_at"]).date(), "event_type": payload["flow_kind"], "amount": float(payload["amount"])})
@@ -312,13 +313,22 @@ def _number(value: object) -> float | None:
 def _metrics(
     strategy: pd.DataFrame, benchmark: pd.DataFrame, relative: Any, records: list[dict[str, Any]], shadow: PaperLedger,
     config: Mapping[str, Any],
+    *, ledger: PaperLedger | None = None,
 ) -> dict[str, Any]:
     flows = pd.to_numeric(strategy["external_flow"], errors="coerce").fillna(0.0)
     final = _number(strategy["total_value"].iloc[-1])
     filled = [item for item in records if item.get("status") == "filled"]
-    traded = sum(float(Decimal(item["quantity"]) * Decimal(item["fill_price"])) for item in filled)
+    evidence = filled
+    if ledger is not None and filled:
+        state = ledger._replay(ledger._read_events())
+        fills_by_id = {item["fill_id"]: item for item in state["fills"]}
+        evidence = [execution._fill_evidence_fields(fills_by_id[item["fill_id"]], state["cost_policy"])
+                    if item.get("fill_id") in fills_by_id else {} for item in filled]
+    notionals = [_number(item.get("traded_notional_eur")) for item in evidence]
+    traded = sum(notionals) if all(value is not None for value in notionals) else None
     fees = sum(float(item["fee"]) for item in filled)
-    spread = sum(float(item["spread_slippage_cost"]) for item in filled)
+    spread_costs = [_number(item.get("spread_slippage_cost")) for item in evidence]
+    spread = sum(spread_costs) if all(value is not None for value in spread_costs) else None
     shadow_trades = [flow for flow in _shadow_flows(shadow) if flow["side"] != "none"]
     if not filled and shadow_trades and strategy is benchmark:
         traded = sum(float(Decimal(flow["quantity"]) * Decimal(flow["price"])) for flow in shadow_trades)
@@ -335,8 +345,8 @@ def _metrics(
         "compounded_relative_wealth": relative.compounded_relative_wealth,
         "compounded_relative_wealth_label": relative.compounded_relative_wealth_label,
         "max_drawdown": min(drawdowns) if drawdowns else None,
-        "turnover": None if not average or average <= 0 else traded / average,
-        "traded_notional_eur": traded, "fees_eur": fees, "spread_slippage_eur": spread, "costs_eur": fees + spread,
+        "turnover": None if traded is None or not average or average <= 0 else traded / average,
+        "traded_notional_eur": traded, "fees_eur": fees, "spread_slippage_eur": spread, "costs_eur": None if spread is None else fees + spread,
         "filled_orders": len(filled), "missed_orders": sum(1 for item in records if item.get("status") == "missed"),
         "relative_status": relative.status, "relative_reasons": list(relative.reasons),
     }

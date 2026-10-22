@@ -485,10 +485,13 @@ def _drift_to_execution(signal_weights: pd.Series, execution_returns: pd.Series)
     drifted book, never with the signal-day weights.
     """
 
-    execution_return = float((signal_weights * execution_returns).sum())
+    active_returns = execution_returns.loc[signal_weights.ne(0)]
+    if active_returns.isna().any():
+        return signal_weights.copy(), float("nan")
+    execution_return = float((signal_weights.loc[active_returns.index] * active_returns).sum())
     if execution_return <= -1.0:
         return signal_weights.copy(), execution_return
-    return signal_weights * (1.0 + execution_returns) / (1.0 + execution_return), execution_return
+    return signal_weights * (1.0 + execution_returns.where(signal_weights.ne(0), 0.0)) / (1.0 + execution_return), execution_return
 
 
 def _adv_by_instrument(
@@ -1424,15 +1427,12 @@ def _instrument_operational_evidence(
     }
 
 
-SIGNAL_WEIGHT_STEP = 0.02
-
-
 def _signal_weight_action(signal: object) -> str:
     """Map a published advisory action to the explicit backtest weight action.
 
     ``advisory_action`` publishes both ``trim`` and ``sell`` as ``trim_candidate``;
     the sell is the advisory whose suggested new weight is zero, so it exits the
-    position instead of becoming a 2% trim.  Anything else is ``hold`` (no change).
+    position. Anything else is ``hold`` (no change).
     """
 
     action = str(getattr(signal, "action", ""))
@@ -1440,31 +1440,37 @@ def _signal_weight_action(signal: object) -> str:
         return "sell"
     if action in {"trim", "trim_candidate"}:
         suggested = finite_float_or_none(getattr(signal, "suggested_new_weight", None))
-        return "sell" if suggested is not None and suggested <= 0.0 else "trim"
+        return "sell" if suggested is not None and suggested == 0.0 else "trim"
     if action in {"buy", "add", "add_candidate"}:
         return "add"
     return "hold"
 
 
-def _next_signal_weights(current: pd.Series, target: pd.Series, actions: Mapping[str, str]) -> pd.Series:
-    """Apply per-instrument weight actions; weight not held stays implicit cash.
-
-    Weights above 100% are scaled down; weights below 100% keep the remainder as
-    cash (it is not redistributed over the other positions).
-    """
+def _next_signal_weights(current: pd.Series, suggested: pd.Series, actions: Mapping[str, str]) -> pd.Series:
+    """Consume gated pipeline sizes; unchanged holdings and implicit cash stay put."""
 
     weights = current.copy()
     for etf_id, action in actions.items():
         if etf_id not in weights.index:
             continue
-        if action == "add":
-            weights[etf_id] = min(float(target.get(etf_id, 0.0)) * 1.20, weights[etf_id] + SIGNAL_WEIGHT_STEP)
-        elif action == "trim":
-            weights[etf_id] = max(0.0, weights[etf_id] - SIGNAL_WEIGHT_STEP)
-        elif action == "sell":
+        if action == "sell":
             weights[etf_id] = 0.0
+            continue
+        value = finite_float_or_none(suggested.get(etf_id))
+        if value is None or not 0.0 <= value <= 1.0:
+            continue
+        if action == "add" and value > current[etf_id]:
+            weights[etf_id] = value
+        elif action == "trim" and value < current[etf_id]:
+            weights[etf_id] = value
     total = float(weights.sum())
-    return weights / total if total > 1.0 else weights
+    if total > 1.0:
+        # Only permitted additions may use cash released by trims. Never resize holds.
+        additions = (weights - current).clip(lower=0.0)
+        added = float(additions.sum())
+        if added > 0.0:
+            weights -= additions * min(1.0, (total - 1.0) / added)
+    return weights
 
 
 def _holdings_from_weights(weights: pd.Series, price_row: pd.Series, portfolio_value: float, as_of: date) -> pd.DataFrame:
@@ -1808,9 +1814,18 @@ def run_backtest(
             f"{len(short_history_ids)} instrument(s) listed later with fewer than {MIN_INSTRUMENT_HISTORY_SESSIONS} "
             "adjusted-price sessions were left out of this backtest: " + ", ".join(short_history_ids)
         )
-    # The first complete price row is a zero-return warm-up placeholder; it is never traded, and pre-listing rows were excluded above.
-    # Holdings accounting aggregates SIMPLE returns across instruments (log returns do not add across assets).
-    simple_returns = (pivot / pivot.shift(1) - 1.0).fillna(0.0)
+    # NAV and signal features share the canonical adjusted EUR basis. Missing FX
+    # leaves returns unavailable, including either side of a gap.
+    eur_prices = share.memo(
+        ("eur_nav_prices", id(config), id(source_prices), id(reference_identity), id(fx_frame), repr(calculation_window)),
+        lambda: eur_basis_prices(prices, fx_frame, configured_currency=instrument_currency, known_by=fx_known_by),
+        config, source_prices, reference_identity, fx_frame,
+    )
+    # Local prices were validated above; unavailable converted prices must remain NaN.
+    eur_pivot = eur_prices.frame.assign(date=pd.to_datetime(eur_prices.frame["date"])).pivot(
+        index="date", columns="etf_id", values="adjusted_close"
+    ).reindex(index=pivot.index, columns=columns)
+    simple_returns = eur_pivot / eur_pivot.shift(1) - 1.0
     start_index = 220
     rebalance_indexes = set(range(start_index, len(pivot), rebalance_frequency_days))
     # Signal features are causal, but computing the complete historical frame
@@ -1909,9 +1924,8 @@ def run_backtest(
         weights["equal_weight"] = equal_weights(columns)
     weights["quality_only"] = pd.Series(0.0, index=columns, dtype=float)
     weights["quality_momentum"] = pd.Series(0.0, index=columns, dtype=float)
-    # ``weights`` stays the intended allocation after the last fill (it feeds the
-    # unchanged signal logic).  ``actual_weights`` is the value-weighted holding
-    # mix, which drifts with prices between actual fills.
+    # ``weights`` records the last executed allocation. ``actual_weights`` is
+    # the value-weighted holding mix, which drifts between actual fills.
     actual_weights = {name: weight.copy() for name, weight in weights.items()}
     equity = {name: [initial_value_eur] for name in strategies}
     index_values = [pivot.index[start_index]]
@@ -2073,12 +2087,12 @@ def run_backtest(
         for name in strategies:
             previous_equity = equity[name][-1]
             held_weights = actual_weights[name].reindex(columns).fillna(0)
-            portfolio_return = float((held_weights * day_return).sum())
+            drifted_weights, portfolio_return = _drift_to_execution(held_weights, day_return)
             growth = 1.0 + portfolio_return
             new_equity = previous_equity * growth
             if growth > 0:
                 # Value-weighted drift: holdings grow with their price, cash stays flat.
-                actual_weights[name] = held_weights * (1.0 + day_return) / growth
+                actual_weights[name] = drifted_weights
             if execution_costs.get(name, 0.0):
                 new_equity = max(new_equity - execution_costs[name], 0.0)
             equity[name].append(max(new_equity, 0.0))
@@ -2108,7 +2122,7 @@ def run_backtest(
                 "trend_only": trend_weights(config, history, columns),
                 "quality_only": pd.Series(0.0, index=columns, dtype=float),
                 "quality_momentum": pd.Series(0.0, index=columns, dtype=float),
-                "signal_strategy": weights["signal_strategy"],
+                "signal_strategy": actual_weights["signal_strategy"],
             }
             def build_quality_evidence() -> pd.DataFrame:
                 quality_prices = history.rename_axis("date").reset_index().melt(
@@ -2193,7 +2207,7 @@ def run_backtest(
             # Signals see what is actually held (drifted with prices), not the stale target of the last fill.
             holdings = _holdings_from_weights(
                 actual_weights["signal_strategy"].reindex(columns).fillna(0.0),
-                pivot.iloc[i],
+                eur_pivot.iloc[i],
                 equity["signal_strategy"][-1],
                 dt.date(),
             )
@@ -2244,9 +2258,9 @@ def run_backtest(
                 decision_timestamp=decision_timestamp,
                 publish=False,
                 structure_confidence_caps=structure_caps,
-            )
-            signal_weight = weights["signal_strategy"].copy()
-            target = target_weights(config, columns)
+            ) if math.isfinite(equity["signal_strategy"][-1]) else []
+            signal_weight = actual_weights["signal_strategy"].copy()
+            suggested_weights = pd.Series(dtype=float)
             signal_actions: dict[str, str] = {}
             for signal in signals:
                 if signal.etf_id not in column_set:
@@ -2277,8 +2291,10 @@ def run_backtest(
                         ),
                     }
                 )
-                signal_actions[signal.etf_id] = _signal_weight_action(signal)
-            new_weights["signal_strategy"] = _next_signal_weights(signal_weight, target, signal_actions)
+                if not signal.blocked_by:
+                    signal_actions[signal.etf_id] = _signal_weight_action(signal)
+                    suggested_weights[signal.etf_id] = signal.suggested_new_weight
+            new_weights["signal_strategy"] = _next_signal_weights(signal_weight, suggested_weights, signal_actions)
 
             execution_dt = pivot.index[i + 1]
             pending_execution_date = execution_dt
@@ -2312,6 +2328,8 @@ def run_backtest(
             execution_returns = simple_returns.loc[execution_dt, columns]
             for name, new_weight in new_weights.items():
                 signal_weight_row = actual_weights[name].reindex(columns).fillna(0)
+                if not math.isfinite(equity[name][-1]) or execution_returns.loc[signal_weight_row.ne(0)].isna().any():
+                    continue  # an unavailable valuation cannot authorise another trade
                 # Orders fill at the next close: the held weights first drift through the
                 # execution session, and both the target difference and the notional use
                 # that drifted book, not the signal-day weights.
@@ -2321,6 +2339,14 @@ def run_backtest(
                 target_weight_row = (
                     current_weight_row.copy() if name == "buy_and_hold" else new_weight.reindex(columns).fillna(0)
                 )
+                if name == "signal_strategy":
+                    # A hold keeps its units through the execution session, including
+                    # when another instrument receives a permitted weight change.
+                    target_weight_row = _next_signal_weights(
+                        current_weight_row, target_weight_row,
+                        {column: action for column, action in signal_actions.items()
+                         if new_weight[column] != signal_weight_row[column]},
+                    )
                 capacity_info: dict[str, object] | None = None
                 if name != "buy_and_hold":
                     # A skipped order is never placed, so it is neither costed nor counted as unfilled.

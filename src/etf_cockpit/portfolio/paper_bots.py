@@ -13,7 +13,7 @@ from io import BytesIO
 import json
 import math
 from pathlib import Path
-from typing import Any, Collection, Mapping
+from typing import Any, Callable, Collection, Mapping, Sequence
 
 import pandas as pd
 import yaml
@@ -316,30 +316,11 @@ def run_paper_bots(
                         if expected_lineage_hash is not None
                         else "No complete score snapshot is bound to the scoreboard known at as_of."
                     )
-                for candidate in (() if failure else candidates):
-                    if candidate.known_at > cutoff:
-                        failure = "Published scoreboard is newer than as_of."
-                        continue
-                    age = cutoff - candidate.known_at
-                    if age > timedelta(hours=float(config["max_snapshot_age_hours"])):
-                        age_limit = float(config["max_snapshot_age_hours"])
-                        failure = f"Published score snapshot is stale for the configured {age_limit:g}-hour forward window."
-                        continue
-                    if expected_lineage_hash is not None and candidate.lineage_hash != expected_lineage_hash:
-                        failure = "Published score lineage conflicts with the bot's pinned lineage."
-                        continue
-                    matched_rows = _matched_score_rows(candidate, scoreboard)
-                    if matched_rows is None:
-                        failure = "Published scoreboard does not match the selected score-history snapshot."
-                        continue
-                    candidate_decision, candidate_failure = _build_decision(
-                        spec, bot_id, config_hash, config, cutoff, month, candidate, matched_rows
+                if failure is None:
+                    decision, group, failure = _first_successful_candidate(
+                        spec, bot_id, config_hash, config, cutoff, month, candidates,
+                        expected_lineage_hash, lambda candidate: _matched_score_rows(candidate, scoreboard),
                     )
-                    if candidate_failure:
-                        failure = candidate_failure
-                        continue
-                    decision, group = candidate_decision, candidate
-                    break
 
                 if decision is None or group is None:
                     decision = _unavailable_record(
@@ -831,6 +812,39 @@ def _history_row_matches_board(history_row: Mapping[str, Any], board_row: Mappin
     if "rank" in board_row and not _same_value(history_row.get("rank"), board_row.get("rank")):
         return False
     return _same_value(board_row.get("execution_allowed"), False)
+
+
+def _first_successful_candidate(
+    spec: Mapping[str, Any], bot_id: str, config_hash: str, config: Mapping[str, Any],
+    cutoff: datetime, month: str, candidates: Sequence[_PublishedGroup], expected_lineage_hash: str | None,
+    match_rows: Callable[[_PublishedGroup], dict[str, tuple[dict[str, Any], dict[str, Any]]] | None],
+    *, historical: bool = False,
+) -> tuple[dict[str, Any] | None, _PublishedGroup | None, str | None]:
+    """Shared chronological, first-successful selection for one cadence-due month."""
+
+    failure = "No eligible published snapshot is available."
+    for candidate in sorted(candidates, key=lambda item: (item.known_at, item.run_id)):
+        if candidate.known_at > cutoff:
+            failure = "Published scoreboard is newer than as_of."
+            continue
+        decision_time = candidate.known_at if historical else cutoff
+        age_limit = float(config["max_snapshot_age_hours"])
+        if decision_time - candidate.known_at > timedelta(hours=age_limit):
+            failure = f"Published score snapshot is stale for the configured {age_limit:g}-hour forward window."
+            continue
+        if expected_lineage_hash is not None and candidate.lineage_hash != expected_lineage_hash:
+            failure = "Published score lineage conflicts with the bot's pinned lineage."
+            continue
+        matched = match_rows(candidate)
+        if matched is None:
+            failure = "Published scoreboard does not match the selected score-history snapshot."
+            continue
+        decision, error = _build_decision(spec, bot_id, config_hash, config, decision_time, month, candidate, matched)
+        if error:
+            failure = error
+            continue
+        return decision, candidate, None
+    return None, None, failure
 
 
 def _build_decision(
