@@ -221,6 +221,10 @@ def load_execution_config(path: Path | None = None) -> tuple[bytes, dict[str, An
         raise ValueError("unsupported paper bot execution specification")
     if payload.get("base_currency") != "EUR" or payload.get("fill_rule") != "next_session_open":
         raise ValueError("paper bots execute in EUR at the next session open only")
+    split_sessions = payload.get("max_order_split_sessions", 5)
+    if isinstance(split_sessions, bool) or not isinstance(split_sessions, int) or split_sessions < 1:
+        raise ValueError("invalid paper bot execution setting: max_order_split_sessions")
+    payload["max_order_split_sessions"] = split_sessions
     for key in ("lot_size", "rebalance_tolerance_weight", "min_trade_value_eur", "max_buy_retry_sessions",
                 "missed_fill_grace_calendar_days", "sizing_price_max_age_days", "max_stale_mark_sessions",
                 "proposal_validity_days"):
@@ -546,7 +550,7 @@ def _quote_currency(context: _Context, decision: Mapping[str, Any], instrument_i
 def _execute_bot(context: _Context, bot_id: str, decisions: list[dict[str, Any]]) -> list[dict[str, Any]]:
     ledger = PaperLedger(context.track.ledger_root, account_id=account_id_for(bot_id))
     written: list[dict[str, Any]] = []
-    for decision in decisions:
+    for decision_index, decision in enumerate(decisions):
         decision_date = decision["_decided_at"].date()
         usable = [day for day in context.book.sessions_after(decision_date) if day < context.cutoff.date()]
         entry = context.book.first_session_on_or_after(decision_date)
@@ -559,7 +563,10 @@ def _execute_bot(context: _Context, bot_id: str, decisions: list[dict[str, Any]]
         if decision.get("strategy") == "benchmark":
             continue  # B0 trades through its cash-flow-matched shadow account
         plan = _plan(context, ledger, decision, decision_date)
-        written.extend(_run_intents(context, ledger, decision, plan, usable))
+        following = decisions[decision_index + 1:decision_index + 2]
+        # Stage A targets are complete portfolios: omission of an instrument means a zero target.
+        superseded_at = max(following[0]["_decided_at"], following[0]["_known_at"]) if following else None
+        written.extend(_run_intents(context, ledger, decision, plan, usable, superseded_at=superseded_at))
     return written
 
 
@@ -852,35 +859,59 @@ def _store_record(context: _Context, record: dict[str, Any]) -> None:
 
 
 def _run_intents(
-    context: _Context, ledger: PaperLedger, decision: Mapping[str, Any], plan: Mapping[str, Any], usable: list[date]
+    context: _Context, ledger: PaperLedger, decision: Mapping[str, Any], plan: Mapping[str, Any], usable: list[date],
+    *, superseded_at: datetime | None = None,
 ) -> list[dict[str, Any]]:
     if plan.get("status") != "planned":
         return _miss_unplanned(context, ledger, decision, str(plan.get("reason") or "plan_unavailable"))
     retries = int(context.config["max_buy_retry_sessions"])
+    split_sessions = int(context.config["max_order_split_sessions"])
     state: dict[str, dict[str, Any]] = {}
     for intent in plan["intents"]:
         history = _intent_records(context, intent["intent_id"])
-        final = next((item for item in history if item["status"] in {"filled", "missed"}), None)
-        state[intent["intent_id"]] = {"intent": intent, "final": final, "attempts": sorted(item["session"] for item in history if item["status"] == "deferred")}
+        state[intent["intent_id"]] = {"intent": intent, "final": False, "split": False, "history": history}
     written: list[dict[str, Any]] = []
-    for index, session in enumerate(usable[: retries + 1]):
+
+    def save(record: dict[str, Any], entry: dict[str, Any]) -> None:
+        if any(item["record_id"] == record["record_id"] for item in entry["history"]):
+            return
+        _store_record(context, record)
+        written.append(record)
+
+    for index, session in enumerate(usable[: max(retries + 1, split_sessions)]):
         for entry in state.values():
             intent = entry["intent"]
-            if entry["final"] is not None or session.isoformat() in entry["attempts"]:
+            if entry["final"]:
                 continue
             if intent["side"] == "sell" and index > 0:
                 continue
-            final_session = index == retries
-            record = _attempt(
-                context, ledger, decision, intent, session, final_session=final_session,
-                awaits_settlement=any(item['side'] == 'sell' for item in plan['intents']),
-            )
-            written.append(record)
-            _store_record(context, record)
-            if record["status"] == "deferred":
-                entry["attempts"].append(record["session"])
+            if not entry["split"] and index > retries:
+                continue
+            history = [item for item in entry["history"] if item["session"] == session.isoformat()]
+            record = next((item for item in history if item["status"] == "filled"), None)
+            if record is None:
+                record = next(iter(history), None)
+            if record is None:
+                if intent["side"] == "buy" and superseded_at is not None and _fill_datetime(context.config, session) >= superseded_at:
+                    record = _record(context, decision, intent, session, "missed", "superseded_by_new_decision")
+                else:
+                    record = _attempt(
+                        context, ledger, decision, intent, session,
+                        final_session=index >= (split_sessions - 1 if entry["split"] else min(retries, split_sessions - 1)),
+                        awaits_settlement=any(item['side'] == 'sell' for item in plan['intents']),
+                    )
+                save(record, entry)
+            remainder = Decimal(str(record.get("remaining_quantity", "0")))
+            if intent["side"] == "buy" and record["status"] == "filled" and remainder > 0:
+                entry["split"] = True
+                entry["intent"] = {**intent, "planned_quantity": str(remainder), "parent_intent_id": intent["intent_id"]}
+                if index + 1 >= split_sessions:
+                    save(_record(context, decision, entry["intent"], session, "missed", "max_order_split_sessions_exhausted"), entry)
+                    entry["final"] = True
+            elif record["status"] == "deferred":
+                continue
             else:
-                entry["final"] = record
+                entry["final"] = True
     return written
 
 
@@ -921,6 +952,8 @@ def _record(
         "fill_id": None, "order_id": None, "exec_config_hash": context.exec_hash, "execution_allowed": False,
     }
     record.update(fields)
+    if intent.get("parent_intent_id"):
+        record["parent_intent_id"] = intent["parent_intent_id"]
     return record
 
 
@@ -1004,7 +1037,7 @@ def _proposal(
         strategy_id=str(config["strategy_id"]), strategy_stage="paper", model_id=str(config["model_id"]), model_stage="paper",
         account_id=str(config["account_capability"]), account_stage="paper",
         optimiser_output_id=str(decision["decision_id"]), portfolio_revision=f"{ledger.account_id}:{intent['intent_id']}:{session.isoformat()}",
-        data_revision=str(decision.get("snapshot_hash")), as_of=decided_at,
+        data_revision=str(decision.get("snapshot_hash")), as_of=fill_time if intent.get("parent_intent_id") else decided_at,
         expires_at=decided_at + timedelta(days=float(config["proposal_validity_days"])),
         authority_policy_checksum=current_authority_policy_checksum(),
         gate_evidence=tuple(GateEvidence(gate, bool(checks[gate][0]), checks[gate][1]) for gate in REQUIRED_GATES),
@@ -1041,6 +1074,8 @@ def _attempt(
         return miss("currency_unavailable")
     currency = currency.upper()
     fill_time = _fill_datetime(context.config, session)
+    if intent.get("parent_intent_id") and fill_time >= decision["_decided_at"] + timedelta(days=float(context.config["proposal_validity_days"])):
+        return miss("proposal_expired: split child is outside the original decision validity")
     fx = _eur_per_unit(context, currency, fill_time)
     if fx is None:
         return miss(f"fx_unavailable: no {currency}/EUR rate known at {fill_time.isoformat()}")
@@ -1134,8 +1169,25 @@ def _attempt(
             quantity=str(quantity), reference_open=str(reference), fill_price=str(price), fee=str(policy.commission),
             spread_slippage_cost=str(cost), fill_id=fill_id, order_id=order_id,
             planned_quantity=str(intent["planned_quantity"]),
+            remaining_quantity=str(_split_remainder(context, intent, quantity, unit, held)),
         )
     return miss("insufficient_settled_cash after the retry sessions")
+
+
+def _split_remainder(
+    context: _Context, intent: Mapping[str, Any], quantity: Decimal, unit: Decimal, held: Decimal,
+) -> Decimal:
+    """Carry only a hard-order-limit reduction; cash and concentration reductions stay final."""
+    if intent["side"] != "buy":
+        return Decimal("0")
+    limit = _limit(context, "max_order_value")
+    if limit is None or quantity != _floor_lot(limit / unit, context.policy.lot_size):
+        return Decimal("0")
+    requested = Decimal(str(intent["planned_quantity"]))
+    cap = intent.get("max_after_position_value_eur")
+    if cap is not None:
+        requested = min(requested, _cap_room(Decimal(str(cap)), unit, held, context.policy.lot_size))
+    return max(Decimal("0"), requested - quantity)
 
 
 def _recovered_fill(
@@ -1154,6 +1206,10 @@ def _recovered_fill(
         quantity=str(quantity), reference_open=None if reference is None else str(reference), fill_price=str(price),
         fee=str(fee), spread_slippage_cost="0" if reference is None else str(quantity * abs(price - reference) * order_fx),
         fill_id=str(row["paper_trade_id"]), order_id=str(row["order_id"]), planned_quantity=str(intent["planned_quantity"]),
+        remaining_quantity=str(_split_remainder(
+            context, intent, quantity, price * order_fx,
+            Decimal(str(order["proposal_snapshot"]["input_material"]["current_quantity"])),
+        )),
     )
 
 
