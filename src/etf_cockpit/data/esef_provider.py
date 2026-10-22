@@ -35,6 +35,11 @@ def parse_reported_shares(facts: pd.DataFrame, *, source_ref: str) -> list[dict[
     """
     from etf_cockpit.analysis.stock_metrics import as_utc
 
+    # Filter missing dimensions before to_dict converts pd.NA to undimensioned None.
+    if "dimensions" in facts:
+        facts = facts.loc[facts["dimensions"].map(
+            lambda value: value is None or not (pd.api.types.is_scalar(value) and pd.isna(value))
+        )]
     grouped: dict[tuple[str, str, str, str], list[float | None]] = {}
     for fact in facts.to_dict("records"):
         if (str(fact.get("taxonomy")) != "ifrs-full"

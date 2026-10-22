@@ -38,7 +38,8 @@ def _period(year: int, *, income: float = 100.0, known: str | None = None) -> sm
         "minority_interest": 30.0, "ib_debt": 300.0, "lease_liabilities": 50.0, "cash_sti": 150.0, "shares_outstanding": 10.0,
     }
     known_at = datetime.fromisoformat(known or f"{year + 1}-02-15").replace(tzinfo=UTC)
-    return sm.Period(date(year, 12, 31), "FY", known_at, "EUR", "sec_edgar", values)
+    return sm.Period(date(year, 12, 31), "FY", known_at, "EUR", "sec_edgar", values,
+                     field_sources={"shares_outstanding": "sec_dei"})
 
 
 # ----- B009-N001: stale peer P/E leaves the discount ----------------------------------------------------------------
