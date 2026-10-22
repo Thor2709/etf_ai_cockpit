@@ -235,9 +235,21 @@ def main() -> int:
             )
 
     trade_frame = pd.DataFrame(trades)
+    holdings_frame = pd.DataFrame(holdings)
+    equity_frame = pd.DataFrame(equity)
+    replay_report = overview.get("replay") or {}
+    banner_file = out / "SURVIVORSHIP_UNVERIFIED.txt"
+    if replay_report.get("survivorship_unverified"):
+        for frame in (trade_frame, holdings_frame, equity_frame):
+            frame["survivorship_unverified"] = True
+        banner = str(replay_report["survivorship_banner"])
+        banner_file.write_text(banner + "\nAdmitted: " + ", ".join(replay_report.get("survivorship_unverified_ids") or []) + "\n", encoding="utf-8")
+        print(banner)
+    elif banner_file.exists():
+        banner_file.unlink()  # a stale label from an earlier flagged export must not outlive its data
     trade_frame.to_csv(out / "trades.csv", index=False)
-    pd.DataFrame(holdings).to_csv(out / "holdings_weekly.csv", index=False)
-    pd.DataFrame(equity).to_csv(out / "equity_weekly.csv", index=False)
+    holdings_frame.to_csv(out / "holdings_weekly.csv", index=False)
+    equity_frame.to_csv(out / "equity_weekly.csv", index=False)
     counts = (
         trade_frame.groupby(["bot", "decision_month"]).agg(
             orders=("instrument_id", "size"), initial=("order_kind", lambda s: int((s == "initial_buy_in").sum())),

@@ -2,22 +2,39 @@
 
 The configured watchlist is not listing history. Only listing scopes from the
 existing append-only membership store establish eligibility. Intervals are
-half-open; prices are never used to invent a listing or delisting date.
+half-open; prices are never used to invent a delisting date.
+
+Optional, explicit and OFF by default (``survivorship_mode``): a listing may be
+derived from an instrument's first available price date (evidence type
+``listing_from_price_history``, usable only from the end of that day) so that
+instruments with a verified listing but an unverified delisting can be admitted.
+Such admissions are always labelled ``survivorship_unverified``.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime, time, timezone
 import hashlib
 import json
 from pathlib import Path
 import sqlite3
+from typing import Mapping
 
 import pandas as pd
 
 
 MEMBERSHIP_POLICY = "replay_listing_membership.v1"
+STRICT_MODE = "strict"
+UNVERIFIED_DELISTINGS_MODE = "unverified-delistings"
+SURVIVORSHIP_MODES = (STRICT_MODE, UNVERIFIED_DELISTINGS_MODE)
+PRICE_LISTING_EVIDENCE = "listing_from_price_history"
+DELISTING_UNVERIFIED_STATUS = "listed_delisting_unverified"
+SURVIVORSHIP_UNVERIFIED_BANNER = (
+    "SURVIVORSHIP UNVERIFIED: survivorship-mode unverified-delistings is on; the instruments below have a listing date derived from "
+    "their first price but no verified delisting history, so delisted or merged names may be missing and results are biased upward. "
+    "Conditional simulation, never forward evidence."
+)
 
 
 @dataclass(frozen=True)
@@ -26,6 +43,7 @@ class MembershipSnapshot:
     unverified_ids: tuple[str, ...]
     reasons: dict[str, str]
     fingerprint: str
+    delisting_unverified_ids: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -33,6 +51,30 @@ class ListingHistory:
     # Plain records can be sent unchanged to the existing spawn process pool.
     revisions: tuple[dict[str, object], ...] = ()
     captures: tuple[dict[str, object], ...] = ()
+    # Listing evidence derived from first price dates; consulted only in survivorship mode "unverified-delistings".
+    price_listings: tuple[dict[str, object], ...] = ()
+    survivorship_mode: str = STRICT_MODE
+
+    def with_price_history(self, first_dates: Mapping[str, date], survivorship_mode: str = UNVERIFIED_DELISTINGS_MODE) -> ListingHistory:
+        """Attach ``listing_from_price_history`` evidence: listed from the first price date, known at the end of that day.
+
+        A delisting is never inferred from a price gap or last price: such instruments stay delisting-unverified.
+        """
+        if survivorship_mode not in SURVIVORSHIP_MODES:
+            raise ValueError(f"Unknown survivorship mode {survivorship_mode!r}")
+        records = tuple({
+            "evidence_type": PRICE_LISTING_EVIDENCE, "instrument_id": str(key), "valid_from": first.isoformat(), "valid_to": None,
+            "known_at": datetime.combine(first, time.max, tzinfo=timezone.utc).isoformat(), "delisting_verified": False,
+        } for key, first in sorted(first_dates.items(), key=lambda item: str(item[0])))
+        return replace(self, price_listings=records, survivorship_mode=survivorship_mode)
+
+    def _price_listed(self, known_ids: set[str], when: date | datetime) -> set[str]:
+        if self.survivorship_mode != UNVERIFIED_DELISTINGS_MODE:
+            return set()
+        cutoff = _timestamp(when)
+        day = cutoff.date().isoformat()
+        return {str(row["instrument_id"]) for row in self.price_listings
+                if str(row["instrument_id"]) not in known_ids and str(row["valid_from"]) <= day and _timestamp(row["known_at"]) <= cutoff}
 
     @classmethod
     def from_root(cls, root: Path) -> ListingHistory:
@@ -101,8 +143,11 @@ class ListingHistory:
             # closure in the same listing scope. A real relisting starts a new interval.
             and str(row["valid_from"]) >= closed_through.get((str(row["scope"]), str(row["instrument_id"])), "")
         )}
+        price_listed = self._price_listed(known_ids, when)
+        active |= price_listed
         ids = sorted(set(map(str, instrument_ids)))
-        unverified = tuple(key for key in ids if key not in known_ids)
+        unverified = tuple(key for key in ids if key not in known_ids and key not in price_listed)
+        delisting_unverified = tuple(key for key in ids if key in price_listed)
         reasons = {key: "survivorship_unverified: no listing history known as of this date" if key in unverified
                    else "outside_listing_interval" for key in ids if key not in active}
         material = {
@@ -111,12 +156,18 @@ class ListingHistory:
             "intervals": sorted((str(row["scope"]), str(row["instrument_id"]), str(row["valid_from"]),
                                  str(row["valid_to"]), str(row["known_at"])) for row in intervals),
         }
+        if self.survivorship_mode == UNVERIFIED_DELISTINGS_MODE:  # strict fingerprints stay byte-identical
+            material["survivorship_mode"] = self.survivorship_mode
+            material["price_listed"] = sorted(price_listed.intersection(ids))
         fingerprint = hashlib.sha256(json.dumps(material, sort_keys=True).encode()).hexdigest()
-        return MembershipSnapshot(tuple(key for key in ids if key in active), unverified, reasons, fingerprint)
+        return MembershipSnapshot(
+            tuple(key for key in ids if key in active), unverified, reasons, fingerprint, delisting_unverified,
+        )
 
     def fingerprint(self) -> str:
         """Invalidate resumable backfills when any membership input changes."""
-        records = [json.dumps(row, sort_keys=True, default=str) for row in (*self.revisions, *self.captures)]
+        extra = (self.survivorship_mode, *self.price_listings) if self.survivorship_mode == UNVERIFIED_DELISTINGS_MODE else ()
+        records = [json.dumps(row, sort_keys=True, default=str) for row in (*self.revisions, *self.captures, *extra)]
         return hashlib.sha256(json.dumps(sorted(records)).encode()).hexdigest()
 
     def delistings(self, cutoff: datetime) -> tuple[tuple[datetime, str, date], ...]:
@@ -143,6 +194,25 @@ def unverified_instruments(eligibility: pd.DataFrame) -> list[str]:
     return sorted(set(eligibility.loc[
         eligibility["membership_status"].eq("survivorship_unverified"), "instrument_id"
     ].astype(str)))
+
+
+def delisting_unverified_instruments(eligibility: pd.DataFrame) -> list[str]:
+    if eligibility.empty or "membership_status" not in eligibility:
+        return []
+    return sorted(set(eligibility.loc[
+        eligibility["membership_status"].eq(DELISTING_UNVERIFIED_STATUS), "instrument_id"
+    ].astype(str)))
+
+
+def delisting_unverified_in_history(history: pd.DataFrame, membership: ListingHistory, cutoff: datetime) -> list[str]:
+    """Instruments actually scored on a day where their only listing evidence was the first price date."""
+    if membership.survivorship_mode != UNVERIFIED_DELISTINGS_MODE or history.empty:
+        return []
+    found: set[str] = set()
+    known_times = history["run_completed_at"].map(_timestamp)
+    for known, rows in history.loc[known_times.le(cutoff)].groupby("run_completed_at", sort=True):
+        found.update(membership.snapshot(_timestamp(known), rows["instrument_id"]).delisting_unverified_ids)
+    return sorted(found)
 
 
 def replay_preflight(history: pd.DataFrame, membership: ListingHistory, book, cutoff: datetime) -> str | None:
