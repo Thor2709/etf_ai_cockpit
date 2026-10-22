@@ -30,7 +30,7 @@ from etf_cockpit.portfolio.benchmark_reference import (
     VwceReferenceSeriesCheck,
     vwce_series_source_hash,
 )
-from etf_cockpit.portfolio.valuation import build_daily_portfolio_snapshots, valuation_snapshot_id
+from etf_cockpit.portfolio.valuation import build_daily_portfolio_snapshots, expected_session_dates, valuation_snapshot_id
 from etf_cockpit.trading.cash_reservation import CashReservationError
 from etf_cockpit.trading.order_lifecycle import (
     ALLOWED_TRANSITIONS,
@@ -1817,6 +1817,7 @@ class PaperLedger:
         series_check: VwceReferenceSeriesCheck,
         through: date,
         decision_time: datetime | None = None,
+        max_stale_sessions: int = 0,
     ) -> pd.DataFrame:
         """Value the shadow account per session through the canonical daily-snapshot builder.
 
@@ -1865,6 +1866,24 @@ class PaperLedger:
         days = sorted(day for day in closes if start <= day <= end)
         if not days or days[-1] != end:
             raise PaperLedgerError("The requested end date is not a benchmark session.")
+        # An exchange session without a benchmark bar (data gap) is valued with the last close for at most
+        # ``max_stale_sessions`` consecutive sessions; beyond that the series stays gapped (fail closed). Labelled in attrs.
+        carried: list[str] = []
+        if max_stale_sessions > 0:
+            expected = [day.date() for day in expected_session_dates(days[0], days[-1], "XETR")]
+            known = set(days)
+            run, last_close = 0, None
+            filled = dict(closes)
+            for day in sorted(known | set(expected)):
+                if day in known:
+                    run, last_close = 0, closes[day]
+                elif day in expected and last_close is not None:
+                    run += 1
+                    if run <= max_stale_sessions:
+                        filled[day] = last_close
+                        carried.append(day.isoformat())
+            closes = filled
+            days = sorted(day for day in closes if start <= day <= end)
         instrument = str(shadow["instrument_id"])
         holdings, price_rows, cash_rows, events = [], [], [], []
         for day in days:
@@ -1900,7 +1919,8 @@ class PaperLedger:
         )
         result.attrs.update(benchmark_id="benchmark:ftse-all-world", source_hash=series_check.source_hash,
                             known_at=series_check.known_at, active_account_id=shadow["active_account_id"],
-                            shadow_account_id=self.account_id, execution_allowed=False, calendar="XETR")
+                            shadow_account_id=self.account_id, execution_allowed=False, calendar="XETR",
+                            carried_forward_sessions=carried)
         return result
 
     def _append(self, event_type: str, payload: Mapping[str, object], *, occurred_at: datetime | None) -> None:

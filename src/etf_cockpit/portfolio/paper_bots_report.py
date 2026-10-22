@@ -163,7 +163,10 @@ def _bot_report(
         return report
     report["valued_through"] = through.isoformat()
     try:
-        benchmark = shadow.shadow_daily_snapshots(frame, series_check=check, through=through, decision_time=cutoff)
+        benchmark = shadow.shadow_daily_snapshots(
+            frame, series_check=check, through=through, decision_time=cutoff,
+            max_stale_sessions=int(config["max_stale_mark_sessions"]),
+        )
     except PaperLedgerError as exc:
         report["reason"] = f"Benchmark shadow account unavailable: {str(exc)[:160]}"
         return report
@@ -177,6 +180,10 @@ def _bot_report(
             return report
     relative = build_relative_performance(strategy, benchmark)
     report.update(_series_fields(strategy, benchmark))
+    carried = list(benchmark.attrs.get("carried_forward_sessions") or ())
+    if carried:  # label the bounded carry-forward marks used for VWCE data gaps
+        report["benchmark_carried_forward_sessions"] = carried
+        report["benchmark_carry_label"] = f"VWCE mark carried forward on {len(carried)} session(s) without a bar: {', '.join(carried)}"
     report["metrics"] = _metrics(strategy, benchmark, relative, records, shadow, config, ledger=ledger)
     report["uncertainty"] = _uncertainty(strategy, benchmark, config)
     report["status"] = "available" if relative.status == "available" and not relative.reasons else "partial"
