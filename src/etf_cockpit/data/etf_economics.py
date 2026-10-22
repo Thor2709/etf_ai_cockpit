@@ -1397,6 +1397,7 @@ _EXCHANGE_CALENDAR_ALIASES = {
 # Yahoo-style ticker suffix -> exchange_calendars code; used only when the configured exchange label is not itself certified.
 _TICKER_SUFFIX_CALENDARS = {
     ".OL": "XOSL", ".AS": "XAMS", ".DE": "XETR", ".PA": "XPAR", ".MI": "XMIL", ".MC": "XMAD", ".L": "XLON", ".ST": "XSTO", ".BR": "XBRU",
+    ".HE": "XHEL", ".CO": "XCSE", ".SW": "XSWX", ".VI": "XWBO", ".LS": "XLIS", ".IR": "XDUB",
 }
 
 

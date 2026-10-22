@@ -16,6 +16,9 @@ from pathlib import Path
 
 import pandas as pd
 
+from etf_cockpit.core.atomic_io import atomic_write_bytes, parquet_payload, validate_parquet_file
+from etf_cockpit.parsers.sec_facts import esef_publication_date
+
 
 def stamp_filed(facts: pd.DataFrame, log_lines: list[str]) -> tuple[pd.DataFrame, int]:
     published: dict[str, str] = {}
@@ -24,10 +27,14 @@ def stamp_filed(facts: pd.DataFrame, log_lines: list[str]) -> tuple[pd.DataFrame
             continue
         entry = json.loads(line)
         if entry.get("status") == "imported" and entry.get("sha256") and entry.get("date_added"):
-            published[str(entry["sha256"])] = str(entry["date_added"])[:10]
+            published[str(entry["sha256"])] = esef_publication_date(str(entry["date_added"]))
     if facts.empty or "filing_version" not in facts.columns:
         return facts, 0
     result = facts.copy()
+    if "form" not in result.columns:
+        return result, 0  # no proof these are ESEF facts
+    if "filed" not in result.columns:
+        result["filed"] = None
     empty = result["filed"].isna() | result["filed"].astype(str).str.strip().isin(["", "None"])
     stamp = result["filing_version"].astype(str).map(published)
     mask = empty & stamp.notna() & result["form"].astype(str).eq("ESEF")
@@ -44,7 +51,7 @@ def main() -> int:
     facts = pd.read_parquet(path)
     stamped, count = stamp_filed(facts, args.import_log.read_text(encoding="utf-8").splitlines())
     if count:
-        stamped.to_parquet(path, index=False)
+        atomic_write_bytes(path, parquet_payload(stamped), validate_parquet_file)
     print(f"stamped filed on {count} of {len(facts)} ESEF facts")
     return 0
 
