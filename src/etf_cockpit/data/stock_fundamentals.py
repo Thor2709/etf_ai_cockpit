@@ -369,7 +369,10 @@ def _merged_view(
     # Positive NCI invalidates unverified parent-income attribution across the
     # complete merged view: neither sparse carry-forward nor a fallback source
     # may restore income removed by a newer filing's ownership-scope guard.
-    blocked_parent_income = (values.get("minority_interest") or 0.0) > 0.0
+    # The one exception is a source that verified the attribution itself and said so with an explicit
+    # ``observed`` state on the field (ESEF: ProfitLossAttributableToOwnersOfParent is parent-only by definition).
+    verified_parent_income = field_sources.get("net_income_parent") == "esef" and field_status.get("net_income_parent") == "observed"
+    blocked_parent_income = (values.get("minority_interest") or 0.0) > 0.0 and not verified_parent_income
     if blocked_parent_income:
         for name in ("net_income_parent", "_net_income_parent_currency", "_net_income_parent_known_at"):
             values.pop(name, None)
@@ -521,6 +524,7 @@ def refresh_stock_fundamentals(
     environ: Mapping[str, str] | None = None,
     yfinance_fetch: Callable[..., src.FetchResult] = src.fetch_yfinance,
     edgar_fetch: Callable[..., src.FetchResult] = src.fetch_edgar,
+    esef_fetch: Callable[..., src.FetchResult] = src.fetch_esef,
     cik_resolver: Callable[..., str | None] = src.resolve_cik,
     fx_fetch: Callable[..., list[tuple[str, float]]] = src.fetch_fx_rates,
     progress: Callable[[str], None] | None = None,
@@ -530,7 +534,7 @@ def refresh_stock_fundamentals(
     stamp = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     cfg = dict(config) if config is not None else load_stock_config(root)
     env = os.environ if environ is None else environ
-    chain = list((cfg.get("sources", {}) or {}).get("chain", ["sec_edgar", "yfinance"]))
+    chain = list((cfg.get("sources", {}) or {}).get("chain", ["sec_edgar", "esef", "yfinance"]))
     agent = src.sec_user_agent(cfg, env)
     paths = store_paths(root)
     periods = read_fundamentals(root)
@@ -574,6 +578,10 @@ def refresh_stock_fundamentals(
                         notes.append("SEC EDGAR skipped: " + ("no CIK resolved" if agent else "no SEC User-Agent configured (set ETF_COCKPIT_SEC_EDGAR_USER_AGENT)"))
                     continue
                 result = edgar_fetch(cik, cfg, user_agent=agent)
+            elif source == "esef":
+                result = esef_fetch(target.instrument_id, cfg, root=root)
+                if result.status == "unavailable":  # nothing imported for this issuer (e.g. a US filer): not a gap worth reporting
+                    continue
             elif source == "yfinance":
                 result = yfinance_fetch(target.yahoo_symbol, cfg, now=stamp)
             else:

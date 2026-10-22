@@ -36,10 +36,21 @@ def refresh_universe_stock_fundamentals(
     only_ids: set[str] | None = None,
     progress: Callable[[str], None] | None = None,
     now: datetime | None = None,
+    chain: Sequence[str] | None = None,
 ) -> store.RefreshReport:
-    """Fetch fundamentals for every normal stock (filings first, then yfinance); read-only free sources."""
+    """Fetch fundamentals for every normal stock (filings first, then yfinance); read-only free sources.
+
+    ``chain`` restricts the configured source chain (never extends it): a point-in-time history backfill passes
+    ``("sec_edgar",)`` so restated, fetch-dated yfinance rows are not written next to the as-originally-filed facts.
+    """
 
     cfg = store.load_stock_config(root)
+    if chain is not None:
+        configured = list((cfg.get("sources", {}) or {}).get("chain", ["sec_edgar", "esef", "yfinance"]))
+        unknown = [name for name in chain if name not in configured]
+        if unknown:
+            raise ValueError(f"source(s) not in the configured chain {configured}: {unknown}")
+        cfg = {**cfg, "sources": {**(cfg.get("sources", {}) or {}), "chain": [name for name in configured if name in set(chain)]}}
     targets = store.targets_from_universe(universe_rows(config), excluded_sectors=(cfg.get("scope", {}) or {}).get("excluded_sectors", []))
     if only_ids:
         targets = [t for t in targets if t.instrument_id in only_ids]

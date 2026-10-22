@@ -113,16 +113,17 @@ def import_official_filing(
     if str(jurisdiction).strip().upper() != "NO":
         raise ValueError("official filing importer currently supports jurisdiction NO only")
     canonical = _normalise_ticker(str(instrument_id or "").strip().upper().removeprefix("NO:").removeprefix("OSL:"))
-    issuer = next(
-        (
-            record
-            for record in load_sparebank_records(universe_root or ROOT, enabled_only=False)
-            if record.instrument_id.upper() == canonical
-        ),
-        None,
-    )
+    # An id that carries the exchange suffix (ROGS.OL) names the same issuer as its bare ticker: both sides are
+    # normalised, exactly one configured certificate must match, and the facts are keyed by the configured id.
+    matches = [
+        record
+        for record in load_sparebank_records(universe_root or ROOT, enabled_only=False)
+        if _normalise_ticker(record.instrument_id) == canonical
+    ]
+    issuer = matches[0] if len(matches) == 1 else None
     if issuer is None:
         raise ValueError("filing identity is ambiguous: issuer is not in the configured universe")
+    canonical = issuer.instrument_id.upper()
     if issuer.asset_type not in {"equity_certificate", "certificate"}:
         raise ValueError("filing issuer is not configured as an equity certificate")
     bound_ticker = issuer.ticker.strip().upper()

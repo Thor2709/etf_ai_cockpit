@@ -9,17 +9,20 @@ from __future__ import annotations
 
 import json
 import math
+import re
 import time
 import urllib.request
 from collections import defaultdict
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
+from pathlib import Path
 from typing import Any
 
 import pandas as pd
 
 from etf_cockpit.analysis.stock_metrics import BALANCE_FIELDS, FLOW_FIELDS
+from etf_cockpit.core.paths import STATEMENT_FACTS_PATH
 from etf_cockpit.data.yfinance_provider import classify_provider_error
 
 # Accounting-identity legs (cash roll-forward, balance identity). They default here so a config that
@@ -686,4 +689,253 @@ def fetch_edgar(
     if not result.rows:
         result.status = "no_statements"
         result.reason = f"SEC EDGAR holds no us-gaap statement facts for CIK {cik}"
+    return result
+
+
+# ---------------------------------------------------------------------------------------------
+# ESEF / IFRS statement facts (already imported into the statement-facts store; no network request)
+# ---------------------------------------------------------------------------------------------
+
+ESEF_SOURCE = "esef"
+# The only concept net_income_parent may come from. It is parent-only by definition, which is what justifies the explicit
+# ``observed`` state below; total ProfitLoss (parent + non-controlling) must never fill it, whatever the configuration says.
+ESEF_PARENT_INCOME_CONCEPTS = frozenset({"ProfitLossAttributableToOwnersOfParent"})
+_CURRENCY_UNIT = re.compile(r"^[A-Z]{3}$")
+_MEMBER_SPEC = re.compile(r"^([A-Za-z0-9_]+)\[([A-Za-z0-9_]+)\]$")
+
+
+def _esef_timestamp(value: object) -> pd.Timestamp | None:
+    stamp = pd.to_datetime(value, errors="coerce", utc=True)
+    return None if pd.isna(stamp) else stamp
+
+
+def _esef_member(dimensions: object) -> str | None:
+    """The member of a facts row whose only dimension is ComponentsOfEquityAxis; ``""`` for no dimension; None otherwise."""
+
+    text = "" if dimensions is None or (isinstance(dimensions, float) and math.isnan(dimensions)) else str(dimensions).strip()
+    if text in ("", "{}"):
+        return ""
+    try:
+        parsed = json.loads(text)
+    except ValueError:
+        return None
+    if not isinstance(parsed, dict) or set(parsed) != {"ifrs-full:ComponentsOfEquityAxis"}:
+        return None
+    return str(parsed["ifrs-full:ComponentsOfEquityAxis"]).split(":")[-1]
+
+
+def _esef_spec(spec: str) -> tuple[str, str]:
+    match = _MEMBER_SPEC.match(spec)
+    return (match.group(1), match.group(2)) if match else (spec, "")
+
+
+def parse_esef_statement_facts(facts: pd.DataFrame, config: Mapping[str, Any], *, source_ref: str) -> list[dict[str, Any]]:
+    """Annual Period rows from ESEF/IFRS statement facts, as originally reported.
+
+    ``known_at`` of a value is the registry ``date_added`` of the earliest filing that reported it; later
+    comparatives and restatements never replace what was known earlier, and a row becomes visible only at the
+    latest ``known_at`` among its values. Only consolidated, undimensioned ifrs-full facts qualify (plus the
+    equity-axis member fallbacks named in ``esef_concepts``). A fact without a valid ``known_at`` or a numeric
+    value is dropped; a field nobody tagged is simply absent (never zero), a disagreement is ``conflicted``.
+    """
+
+    concepts: dict[str, list[str]] = {name: list(items or []) for name, items in (config.get("esef_concepts", {}) or {}).items()}
+    if "net_income_parent" in concepts:
+        concepts["net_income_parent"] = [spec for spec in concepts["net_income_parent"] if spec in ESEF_PARENT_INCOME_CONCEPTS]
+    rules = config.get("esef_rules", {}) or {}
+    tolerance = float(rules.get("share_count_agreement", 0.01))
+    absolute_fields = set(rules.get("absolute_value_fields", []) or [])
+    if facts is None or facts.empty:
+        return []
+
+    wanted = {_esef_spec(spec) for specs in concepts.values() for spec in specs}
+    prepared: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+    for record in facts.to_dict("records"):
+        concept = str(record.get("concept") or "")
+        if str(record.get("taxonomy") or "") != "ifrs-full" or str(record.get("consolidation_scope") or "") != "consolidated":
+            continue
+        member = _esef_member(record.get("dimensions"))
+        if member is None or (concept, member) not in wanted:
+            continue
+        value = _number(record.get("value"))
+        known = _esef_timestamp(record.get("known_at"))
+        if value is None or known is None:
+            continue
+        start, end, instant = record.get("start"), record.get("end"), record.get("instant")
+        prepared[(concept, member)].append(
+            {
+                "value": value,
+                "known": known,
+                "unit": str(record.get("unit") or ""),
+                "start": str(start) if start else None,
+                "end": str(end) if end else None,
+                "instant": str(instant) if instant else None,
+            }
+        )
+
+    def collect(name: str, *, kind: str, unit_ok: Callable[[str], bool]) -> dict[Any, tuple[float, pd.Timestamp, str, bool]]:
+        """period key -> (value, known_at, unit, filings_agree); the earliest known_at wins, config order breaks a tie."""
+
+        merged: dict[Any, tuple[float, pd.Timestamp, str, bool]] = {}
+        for spec in (_esef_spec(item) for item in concepts.get(name, [])):
+            local: dict[Any, list[dict[str, Any]]] = defaultdict(list)
+            for item in prepared.get(spec, []):
+                if not unit_ok(item["unit"]):
+                    continue
+                if kind == "flow":
+                    if not (item["start"] and item["end"]):
+                        continue
+                    key: Any = (item["start"], item["end"])
+                else:
+                    key = item["instant"] or (item["end"] if not item["start"] else None)
+                    if not key:
+                        continue
+                local[key].append(item)
+            for key, items in local.items():
+                first_known = min(item["known"] for item in items)
+                earliest = [item for item in items if item["known"] == first_known]
+                if len({item["value"] for item in earliest}) > 1 or len({item["unit"] for item in earliest}) > 1:
+                    continue  # one filing, two different values for the same period: nothing is guessed
+                agree = True
+                if name == "shares_outstanding":
+                    pool = [item["value"] for item in items]
+                    agree = max(pool) - min(pool) <= tolerance * max(abs(value) for value in pool)
+                if key not in merged or first_known < merged[key][1]:
+                    merged[key] = (earliest[0]["value"], first_known, earliest[0]["unit"], agree)
+        return merged
+
+    def is_currency(unit: str) -> bool:
+        return bool(_CURRENCY_UNIT.match(unit))
+
+    flow = {name: collect(name, kind="flow", unit_ok=is_currency) for name in FLOW_FIELDS if concepts.get(name)}
+    instant_names = ("equity_parent", "minority_interest", "total_assets", "total_liabilities", "cash", "debt_total", "debt_noncurrent", "debt_current", "lease_total", "lease_noncurrent", "lease_current")
+    instant = {name: collect(name, kind="instant", unit_ok=is_currency) for name in instant_names if concepts.get(name)}
+    if concepts.get("shares_outstanding"):
+        instant["shares_outstanding"] = collect("shares_outstanding", kind="instant", unit_ok=lambda unit: unit == "shares")
+
+    rows: dict[str, dict[str, Any]] = {}
+    statuses: dict[str, dict[str, str]] = defaultdict(dict)
+    known_of: dict[str, list[pd.Timestamp]] = defaultdict(list)
+
+    for name, series in flow.items():
+        for (start, end), (value, known, unit, _agree) in series.items():
+            length = _days(start, end)
+            if not 345 <= length <= 385:
+                continue
+            entry = rows.setdefault(
+                end,
+                {
+                    "period_end": end,
+                    "period_type": "FY",
+                    "fiscal_year": int(end[:4]),
+                    "currency": "",
+                    "source": ESEF_SOURCE,
+                    "source_ref": source_ref,
+                    "reporting_standard": "ifrs",
+                    "consolidation_scope": "consolidated",
+                    "share_class": "all_classes",
+                },
+            )
+            entry.setdefault("period_days", length)
+            entry[name] = abs(value) if name in absolute_fields else value
+            entry[f"{name}_currency"] = unit
+            known_of[end].append(known)
+
+    for end, entry in rows.items():
+        def at(name: str, day: str = end) -> tuple[float, pd.Timestamp, str, bool] | None:
+            return instant.get(name, {}).get(day)
+
+        for name in ("equity_parent", "minority_interest", "total_assets", "total_liabilities", "cash"):
+            item = at(name)
+            if item is not None:
+                entry[name], entry[f"{name}_currency"] = item[0], item[2]
+                known_of[end].append(item[1])
+        shares = at("shares_outstanding")
+        if shares is not None:
+            if shares[3]:
+                entry["shares_outstanding"] = shares[0]
+                known_of[end].append(shares[1])
+            else:
+                statuses[end]["shares_outstanding"] = "conflicted"
+        # interest-bearing debt: a reported total, else non-current + current when both are tagged; one side alone is partial
+        total = at("debt_total")
+        if total is not None:
+            entry["ib_debt"], entry["ib_debt_currency"] = total[0], total[2]
+            known_of[end].append(total[1])
+        else:
+            parts = [item for item in (at("debt_noncurrent"), at("debt_current")) if item is not None]
+            if parts:
+                if len({item[2] for item in parts}) == 1:
+                    entry["ib_debt"], entry["ib_debt_currency"] = sum(item[0] for item in parts), parts[0][2]
+                    statuses[end]["ib_debt"] = "derived" if len(parts) == 2 else "partial"
+                else:
+                    entry["ib_debt_currency"] = "currency_mismatch"
+                known_of[end].extend(item[1] for item in parts)
+        lease = at("lease_total")
+        lease_parts = [item for item in (at("lease_noncurrent"), at("lease_current")) if item is not None]
+        if lease is not None:
+            entry["lease_liabilities"], entry["lease_liabilities_currency"] = lease[0], lease[2]
+            known_of[end].append(lease[1])
+        elif len(lease_parts) == 2:  # one side alone is not the liability: it stays unavailable
+            if lease_parts[0][2] == lease_parts[1][2]:
+                entry["lease_liabilities"], entry["lease_liabilities_currency"] = lease_parts[0][0] + lease_parts[1][0], lease_parts[0][2]
+                statuses[end]["lease_liabilities"] = "derived"
+            else:
+                entry["lease_liabilities_currency"] = "currency_mismatch"
+            known_of[end].extend(item[1] for item in lease_parts)
+        reported = [
+            str(entry[f"{name}_currency"])
+            for name in FLOW_FIELDS + BALANCE_FIELDS
+            if name != "shares_outstanding" and name in entry and entry.get(f"{name}_currency") not in (None, "currency_mismatch")
+        ]
+        if reported:
+            entry["currency"] = max(reported, key=reported.count)
+
+    output: list[dict[str, Any]] = []
+    for end, entry in rows.items():
+        if "net_income_parent" in entry:
+            # ProfitLossAttributableToOwnersOfParent is parent-only by definition: the explicit state tells the store
+            # that the ownership scope is verified, so a positive non-controlling interest does not drop the value
+            statuses[end].setdefault("net_income_parent", "observed")
+        entry["known_at"] = max(known_of[end]).isoformat(timespec="microseconds")
+        if statuses.get(end):
+            entry["value_status"] = json.dumps(statuses[end], sort_keys=True)
+        output.append(entry)
+    return sorted(output, key=lambda item: item["period_end"])
+
+
+def fetch_esef(
+    instrument_id: str,
+    config: Mapping[str, Any],
+    *,
+    facts: pd.DataFrame | None = None,
+    facts_path: Path | None = None,
+    root: Path | None = None,
+) -> FetchResult:
+    """ESEF/IFRS annual periods for one instrument from the imported statement-facts store (no network).
+
+    With ``root`` the store is ``<root>/data/clean/statement_facts.parquet``; the process-wide path is used only without one."""
+
+    result = FetchResult(ESEF_SOURCE)
+    if facts is None:
+        path = Path(facts_path) if facts_path else (Path(root) / "data" / "clean" / "statement_facts.parquet" if root else Path(STATEMENT_FACTS_PATH))
+        if not path.exists():
+            result.status, result.reason = "unavailable", f"no ESEF statement facts store at {path}"
+            return result
+        try:
+            facts = pd.read_parquet(path)
+        except Exception as exc:
+            result.status, result.reason = "error", f"ESEF statement facts store unreadable: {str(exc)[:120]}"
+            return result
+    if "instrument_id" not in facts.columns:
+        result.status, result.reason = "error", "ESEF statement facts store has no instrument_id column"
+        return result
+    own = facts[facts["instrument_id"].astype(str) == str(instrument_id)]
+    if own.empty:
+        result.status, result.reason = "unavailable", f"no ESEF statement facts imported for {instrument_id}"
+        return result
+    result.rows = parse_esef_statement_facts(own, config, source_ref=f"esef:filings_xbrl_org:{instrument_id}")
+    result.snapshot = {"source": ESEF_SOURCE, "entity": instrument_id}
+    if not result.rows:
+        result.status, result.reason = "no_statements", f"ESEF facts for {instrument_id} hold no mapped annual statement values"
     return result

@@ -30,6 +30,7 @@ from etf_cockpit.parsers.contracts import ParseResult, ParseWarning, _sha256_fil
 MAX_UNCOMPRESSED_BYTES = 250 * 1024 * 1024
 MAX_MEMBER_BYTES = 100 * 1024 * 1024
 PARSER_VERSION = "1.1"
+_NON_XBRL_SUFFIXES = frozenset({".pdf", ".jpg", ".jpeg", ".png", ".gif", ".svg", ".ico", ".css", ".txt", ".js", ".woff", ".woff2", ".ttf", ".otf"})
 _ALLOWED_MEMBER_SUFFIXES = frozenset({".json", ".xhtml", ".html", ".xml", ".xsd", ".css", ".jpg", ".jpeg", ".png", ".gif", ".svg", ".txt"})
 
 
@@ -98,8 +99,11 @@ def parse_esef_package(path: Path) -> ParseResult[XbrlFact]:
             unsafe = [info.filename for info in infos if _unsafe_name(info.filename)]
             if unsafe:
                 return _failure(source_sha, "unsafe_archive", "ESEF package contains traversal, absolute or backslash paths")
-            total_size = sum(max(0, info.file_size) for info in infos)
-            if total_size > MAX_UNCOMPRESSED_BYTES or any(info.file_size > MAX_MEMBER_BYTES for info in infos):
+            # Non-XBRL members (PDF, images, fonts, scripts, stylesheets, HTML viewer pages) are never read, so they do not
+            # count towards the size limits; the limits stay on every member that is or could be XBRL / iXBRL.
+            sized = [info for info in infos if not _is_non_xbrl_member(info.filename)]
+            total_size = sum(max(0, info.file_size) for info in sized)
+            if total_size > MAX_UNCOMPRESSED_BYTES or any(info.file_size > MAX_MEMBER_BYTES for info in sized):
                 return _failure(source_sha, "archive_too_large", "ESEF package exceeds the uncompressed size limit")
             names = [info.filename for info in infos]
             unsupported = [
@@ -108,6 +112,7 @@ def parse_esef_package(path: Path) -> ParseResult[XbrlFact]:
                 if not name.endswith("/")
                 and Path(name).suffix
                 and Path(name).suffix.lower() not in _ALLOWED_MEMBER_SUFFIXES
+                and not _is_non_xbrl_member(name)
             ]
             if unsupported:
                 return _failure(source_sha, "unsupported_member", "ESEF package contains unsupported member types")
@@ -133,7 +138,7 @@ def parse_esef_package(path: Path) -> ParseResult[XbrlFact]:
                         for root in layout_roots
                         if name.lower().startswith(f"{root}reports/")
                         and "/" not in name[len(root) + len("reports/"):]
-                        and name.lower().endswith(".xhtml")
+                        and name.lower().endswith((".xhtml", ".html"))
                     ),
                     None,
                 )
@@ -145,7 +150,9 @@ def parse_esef_package(path: Path) -> ParseResult[XbrlFact]:
                     )
                 metadata: dict[str, object] = {}
             else:
-                xhtml_name = next((name for name in names if name.lower().endswith((".xhtml", ".html"))), None)
+                # as before HDP2: the first .xhtml/.html member, now preferring one under reports/ (a viewer page can come first)
+                candidates = [name for name in names if name.lower().endswith((".xhtml", ".html"))]
+                xhtml_name = next((name for name in candidates if "reports/" in name.lower()), candidates[0] if candidates else None)
                 if xhtml_name is None:
                     return _failure(source_sha, "unsupported_package", "ESEF package lacks an XHTML report")
                 try:
@@ -156,6 +163,11 @@ def parse_esef_package(path: Path) -> ParseResult[XbrlFact]:
                     return _failure(source_sha, "malformed_archive", "ESEF reportPackage.json must contain an object")
             if not any(name.lower().endswith("taxonomypackage.xml") for name in names):
                 warnings.append(ParseWarning("missing_taxonomy_package", "ESEF taxonomyPackage.xml is missing; facts remain retained with bounded local parsing", "warning", report_package))
+            report_info = archive.getinfo(xhtml_name)
+            if _is_non_xbrl_member(xhtml_name) and (  # a report outside reports/ was left out of the sums above: count it now
+                report_info.file_size > MAX_MEMBER_BYTES or total_size + max(0, report_info.file_size) > MAX_UNCOMPRESSED_BYTES
+            ):
+                return _failure(source_sha, "archive_too_large", "ESEF package exceeds the uncompressed size limit")
             xhtml_payload = archive.read(xhtml_name)
             if b"<!DOCTYPE" in xhtml_payload.upper() or b"<!ENTITY" in xhtml_payload.upper():
                 return _failure(source_sha, "unsafe_xml", "ESEF XHTML contains a disallowed document type or entity declaration")
@@ -326,6 +338,19 @@ def map_ifrs_fact(concept: str, namespace: str | None = None) -> str | None:
 
 def _failure(source_sha: str, code: str, message: str) -> ParseResult[XbrlFact]:
     return ParseResult((), (ParseWarning(code, message, "error"),), "esef_ixbrl", PARSER_VERSION, source_sha, False)
+
+
+def _is_non_xbrl_member(name: str) -> bool:
+    """True for members that can never hold facts: documents, images, fonts, scripts, styles and HTML viewer pages.
+
+    An ``.html`` page is only a report candidate inside a ``reports/`` directory; anywhere else it is a viewer.
+    """
+
+    lower = name.lower()
+    suffix = Path(lower).suffix
+    if suffix in _NON_XBRL_SUFFIXES:
+        return True
+    return suffix in {".html", ".htm"} and "reports/" not in lower
 
 
 def _unsafe_name(name: str) -> bool:

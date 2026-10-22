@@ -256,7 +256,7 @@ def build_universe_evidence(
     excluded = {r.instrument_id: "invalid_lifecycle_date: the lifecycle cutoff cannot be parsed, so the stock is not shown as active" for r in records if r.invalid_lifecycle}
     records = [record for record in records if not record.invalid_lifecycle and (record.lifecycle_date is None or decision_time.date() <= record.lifecycle_date)]
     cfg = dict(config) if config is not None else store.load_stock_config(root)
-    chain = list((cfg.get("sources", {}) or {}).get("chain", ["sec_edgar", "yfinance"]))
+    chain = list((cfg.get("sources", {}) or {}).get("chain", ["sec_edgar", "esef", "yfinance"]))
     periods_frame = store.read_fundamentals(root)
     snapshots = store.read_snapshots(root)
     fx = store.read_fx(root)

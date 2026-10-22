@@ -523,3 +523,64 @@ def test_inline_formats_decode_and_unsupported_numeric_is_not_mapped(tmp_path: P
     assert float(values["Assets"].value) == -15.0
     assert values["Equity"].value == "one hundred" and values["Equity"].mapping_status == "unsupported_numeric"
     assert any(warning.code == "unsupported_numeric_fact" for warning in result.warnings)
+
+
+_MINIMAL_REPORT = """<?xml version='1.0'?>
+<html xmlns='http://www.w3.org/1999/xhtml' xmlns:ix='http://www.xbrl.org/2013/inlineXBRL'
+  xmlns:xbrli='http://www.xbrl.org/2003/instance' xmlns:ifrs-full='https://xbrl.ifrs.org/taxonomy/2024-03-27/ifrs-full'>
+  <body><xbrli:context id='c'><xbrli:entity><xbrli:identifier>549300TESTLEI00000001</xbrli:identifier></xbrli:entity>
+    <xbrli:period><xbrli:startDate>2025-01-01</xbrli:startDate><xbrli:endDate>2025-12-31</xbrli:endDate></xbrli:period></xbrli:context>
+    <ix:nonFraction name='ifrs-full:Revenue' contextRef='c' unitRef='EUR'>100</ix:nonFraction></body></html>"""
+
+
+def test_non_xbrl_members_do_not_count_towards_the_size_limits_but_the_report_does(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(esef_ixbrl, "_arelle_available", lambda: False)
+    monkeypatch.setattr(esef_ixbrl, "MAX_MEMBER_BYTES", 5_000)
+    monkeypatch.setattr(esef_ixbrl, "MAX_UNCOMPRESSED_BYTES", 12_000)
+
+    def package(name: str, report: str) -> Path:
+        path = tmp_path / name
+        with zipfile.ZipFile(path, "w") as archive:
+            archive.writestr("META-INF/reportPackage.json", "{}")
+            archive.writestr("reports/report.xhtml", report)
+            archive.writestr("reports/annual-report.pdf", b"%PDF" + b"0" * 50_000)  # a document: never read, never counted
+            archive.writestr("reports/cover.png", b"0" * 50_000)
+            archive.writestr("viewer/index.html", "<html>" + "x" * 50_000 + "</html>")  # an HTML viewer page, not a report
+        return path
+
+    accepted = parse_esef_package(package("with-attachments.xbri", _MINIMAL_REPORT))
+    assert accepted.success is True and accepted.records
+
+    oversized_report = _MINIMAL_REPORT.replace("</body>", "<!-- " + "x" * 6_000 + " --></body>")
+    rejected = parse_esef_package(package("big-report.xbri", oversized_report))
+    assert rejected.success is False
+    assert any(warning.code == "archive_too_large" for warning in rejected.warnings)  # the cap stays on the iXBRL member
+
+
+def test_html_report_in_the_catalog_layout_is_accepted(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(esef_ixbrl, "_arelle_available", lambda: False)
+    package = tmp_path / "html-report.xbri"
+    with zipfile.ZipFile(package, "w") as archive:
+        archive.writestr("report-root/META-INF/catalog.xml", "<catalog />")
+        archive.writestr("report-root/META-INF/taxonomyPackage.xml", "<taxonomyPackage />")
+        archive.writestr("report-root/reports/report.html", _MINIMAL_REPORT)
+
+    result = parse_esef_package(package)
+
+    assert result.success is True and result.records
+
+
+def test_report_package_layout_still_accepts_an_html_report_and_caps_it(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(esef_ixbrl, "_arelle_available", lambda: False)
+
+    def package(report: str) -> Path:
+        path = tmp_path / f"rp-{len(report)}.xbri"
+        with zipfile.ZipFile(path, "w") as archive:
+            archive.writestr("META-INF/reportPackage.json", "{}")
+            archive.writestr("filing/report.html", report)  # an .html report outside reports/, as packages imported before HDP2
+        return path
+
+    assert parse_esef_package(package(_MINIMAL_REPORT)).success is True
+    monkeypatch.setattr(esef_ixbrl, "MAX_MEMBER_BYTES", 2_000)
+    rejected = parse_esef_package(package(_MINIMAL_REPORT.replace("</body>", "<!-- " + "x" * 3_000 + " --></body>")))
+    assert rejected.success is False and any(w.code == "archive_too_large" for w in rejected.warnings)
