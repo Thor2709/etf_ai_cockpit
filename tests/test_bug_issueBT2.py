@@ -260,8 +260,15 @@ def test_backtest_signal_features_use_the_eur_basis(config, prices) -> None:
     assert report.signal_log["currency_basis"].eq("EUR").all()
 
     unavailable = run_backtest(config, panel, rebalance_frequency_days=42, fx_rates=pd.DataFrame())
-    blocked = unavailable.signal_log[unavailable.signal_log["etf_id"] == nok]
-    assert blocked["momentum_60d"].isna().all()  # fx_unavailable: no feature, never the local price
+    # fx_unavailable: no feature and never the local price.  Since AUDFIX an unavailable EUR valuation leaves the
+    # signal strategy's NAV unavailable, so no signal is authorised at all (no row can carry a local-basis feature).
+    assert unavailable.equity_curves["signal_strategy"].isna().all() or unavailable.signal_log.empty
+    if not unavailable.signal_log.empty:
+        blocked = unavailable.signal_log[unavailable.signal_log["etf_id"] == nok]
+        assert blocked["momentum_60d"].isna().all()
+        assert not unavailable.signal_log["currency_basis"].eq("local").any()
+    else:
+        assert unavailable.signal_log.empty and unavailable.trade_log.empty
 
 
 # --- BT1 binding decisions --------------------------------------------------------
