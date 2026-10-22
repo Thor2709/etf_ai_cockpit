@@ -248,6 +248,8 @@ class SimpleScoreComponent:
     band_low: float | None = None
     band_high: float | None = None
     label_stable: bool | None = None
+    # Metric dates may differ from the peer-scored component's reporting date.
+    input_as_of_dates: tuple[tuple[str, str], ...] = ()
 
     def __post_init__(self) -> None:
         if self.source_id is None:
@@ -1195,7 +1197,9 @@ def _critical_evidence_dated(score: SimpleInstrumentScore) -> dict[str, str | No
         if component.score_eligible:
             add(component.key, component.as_of_date)
         for item in component.inputs_used:
-            add(item, component.as_of_date)
+            add(item, dict(component.input_as_of_dates).get(item, component.as_of_date))
+        for item, as_of in component.input_as_of_dates:
+            add(item, as_of)
     if str(score.isin or "").strip() or str(score.yahoo_symbol or "").strip():
         add("identity", None)
     if _is_sparebank_ec_asset_type(score.asset_type):
@@ -1665,15 +1669,15 @@ class AsOfScoreSources:
     """Historical as-of scoring: the decision time and the reference sources withheld because they carry no known-at.
 
     A score computed for a past date (score backfill) may only read evidence that was known then. Stock fundamentals are
-    read with their own known-at gate at ``decision_time``; the ETF-side reference evidence (holdings, PRIIPS KIDs and the
-    configured product-quality metadata) has no ingestion timestamp in the stores, so it is withheld (the component is
-    unavailable with its reason), never read as of today.
+    read with their own known-at gate at ``decision_time``. Explicit holdings are gated on both vintage and known-at;
+    absent holdings, PRIIPS KIDs and configured product-quality metadata are withheld, never read as of today.
     """
 
     decision_time: datetime
     # Recomputed as-of distributions feed only friction/cost inputs, never model score admission.
     expected_return_distributions: Mapping[str, dict[str, object]] | None = None
     reference_order_value_eur: float | None = None
+    etf_holdings: pd.DataFrame | None = None
 
 
 def build_universe_simple_scores(
@@ -1706,7 +1710,11 @@ def build_universe_simple_scores(
         currency_by_id={str(key): str(value.currency) for key, value in config.universe.by_id().items()},
         fx_rates=fx_rates,
     )
-    etf_exposure = {} if as_of_sources is not None else _etf_exposure_lookup()
+    etf_exposure = (
+        (_etf_exposure_lookup(as_of_sources.decision_time, holdings=as_of_sources.etf_holdings)
+         if as_of_sources.etf_holdings is not None else {})
+        if as_of_sources is not None else _etf_exposure_lookup()
+    )
     kid_records = {} if as_of_sources is not None else _kid_record_lookup()
     product_lookups: dict[date | None, tuple[dict[str, dict[str, object]], dict[str, dict[str, list[float]]]]] = {}
     stock_evidence, stock_evidence_error = _stock_evidence_lookup(
@@ -3524,7 +3532,8 @@ def _stock_fundamental_components(
             # from the generic fundamentals, and the 6-input quality detail does not apply (completeness stays partial).
             held = _critical_evidence_ids(evidence)
             cyclical = [
-                replace(row, inputs_used=held) if row.key == "stock_quality" else row for row in cyclical
+                replace(row, inputs_used=held, input_as_of_dates=_leverage_evidence_dates(evidence))
+                if row.key == "stock_quality" else row for row in cyclical
             ]
         return [*cyclical, revision]
 
@@ -3542,7 +3551,14 @@ def _stock_fundamental_components(
         inputs = {}
         if key in {"stock_value", "stock_quality"}:
             inputs = {
-                "inputs_used": _used_input_keys(part) + (_owner_claim_ids(evidence) + _capital_ids(evidence) if key == "stock_value" else ()),
+                "inputs_used": (
+                    _used_input_keys(part) + _owner_claim_ids(evidence) + _capital_ids(evidence)
+                    if key == "stock_value" else tuple(
+                        item for item in _used_input_keys(part)
+                        if item not in _LEVERAGE_METRIC_IDS or item in dict(_leverage_evidence_dates(evidence))
+                    )
+                ),
+                "input_as_of_dates": _leverage_evidence_dates(evidence) if key == "stock_quality" else (),
                 "inputs_configured": (
                     tuple(str(getattr(item, "key", "")) for item in (getattr(part, "inputs", ()) or ()))
                     if key == "stock_quality"
@@ -3612,7 +3628,28 @@ def _critical_evidence_ids(evidence: object) -> tuple[str, ...]:
     """Solvency/leverage and owner-claim evidence ids the generic fundamentals actually hold."""
 
     quality = getattr(evidence, "components", {}).get("stock_quality")
-    return _used_input_keys(quality) + _owner_claim_ids(evidence) + _capital_ids(evidence)
+    used = tuple(key for key in _used_input_keys(quality) if key not in _LEVERAGE_METRIC_IDS)
+    leverage = tuple(key for key, _ in _leverage_evidence_dates(evidence))
+    return tuple(dict.fromkeys(used + leverage + _owner_claim_ids(evidence) + _capital_ids(evidence)))
+
+
+_LEVERAGE_METRIC_IDS = ("debt_to_equity", "interest_coverage", "net_debt_to_ebitda")
+
+
+def _leverage_evidence_dates(evidence: object) -> tuple[tuple[str, str], ...]:
+    """Solvency does not need a peer score; its own dated metric must still be fresh."""
+
+    metrics = getattr(evidence, "metrics", None)
+    if not isinstance(metrics, Mapping):
+        return ()
+    decision = _parse_date(getattr(evidence, "decision_time", None))
+    return tuple(
+        (key, str(metric.as_of))
+        for key in _LEVERAGE_METRIC_IDS
+        if (metric := metrics.get(key)) is not None
+        and getattr(metric, "available", False) is True
+        and _evidence_age_status(getattr(metric, "as_of", None), decision, 456) == "ok"
+    )
 
 
 def _cyclical_stock_components(
@@ -4980,14 +5017,28 @@ def _liquidity_fx_snapshot(fx_state: dict[str, object], row_day: date, known_at:
     return snapshots[cache_key]
 
 
-def _etf_exposure_lookup() -> dict[str, dict[str, object]]:
-    try:
-        holdings = load_reference_dataset("etf_holdings")
-    except Exception:
-        return {}
+def _etf_exposure_lookup(
+    decision_date: date | datetime | None = None, holdings: pd.DataFrame | None = None,
+) -> dict[str, dict[str, object]]:
+    if holdings is None:
+        if decision_date is not None:
+            return {}  # Historical callers must supply their PIT source explicitly.
+        try:
+            holdings = load_reference_dataset("etf_holdings")
+        except Exception:
+            return {}
     if holdings.empty or not {"etf_id", "weight"}.issubset(holdings.columns):
         return {}
     frame = holdings.copy()
+    if decision_date is not None:
+        if not {"as_of_date", "known_at"}.issubset(frame.columns):
+            return {}
+        # A date-only cutoff conservatively means the start of that day in UTC.
+        cutoff = pd.Timestamp(decision_date)
+        cutoff = cutoff.tz_localize("UTC") if cutoff.tzinfo is None else cutoff.tz_convert("UTC")
+        vintages = pd.to_datetime(frame["as_of_date"], errors="coerce", utc=True)
+        known = pd.to_datetime(frame["known_at"], errors="coerce", utc=True)
+        frame = frame.loc[(vintages.dt.normalize() <= cutoff.normalize()) & (known <= cutoff)].copy()
     frame["weight"] = pd.to_numeric(frame["weight"], errors="coerce")
     has_vintage = "as_of_date" in frame.columns
     if has_vintage:
