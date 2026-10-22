@@ -1,0 +1,22 @@
+{
+  "cik": 9000000001,
+  "entityName": "Synthetic Issuer A",
+  "facts": {
+    "us-gaap": {
+      "Revenues": {"units": {"USD": [
+        {"start":"2020-01-01","end":"2020-09-30","val":70,"accn":"synthetic-nine-a","filed":"2020-11-02","fp":"Q3","fy":2020},
+        {"start":"2020-01-01","end":"2020-12-31","val":100,"accn":"synthetic-original-a","filed":"2021-02-19","fp":"FY","fy":2020},
+        {"start":"2020-01-01","end":"2020-12-31","val":110,"accn":"synthetic-restated-a","filed":"2021-05-03","fp":"FY","fy":2021,"frame":"CY2020"}
+      ]}},
+      "NetIncomeLoss": {"units": {"USD": [
+        {"start":"2020-01-01","end":"2020-12-31","val":10,"accn":"synthetic-original-a","filed":"2021-02-19","fp":"FY","fy":2020}
+      ]}},
+      "StockholdersEquity": {"units": {"USD": [
+        {"end":"2020-12-31","val":40,"accn":"synthetic-original-a","filed":"2021-02-19","fp":"FY","fy":2020}
+      ]}}
+    },
+    "dei": {"EntityCommonStockSharesOutstanding": {"units": {"shares": [
+      {"end":"2021-02-01","val":20,"accn":"synthetic-original-a","filed":"2021-02-19","fp":"FY","fy":2020}
+    ]}}}
+  }
+}

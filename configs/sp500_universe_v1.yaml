@@ -1,0 +1,46 @@
+# Offline only. All nulls are REQUIRED evidence/input values, not inferred defaults.
+# Paths must be absolute. Populate a separate recorded run config before ingestion.
+schema_version: 1
+execution_allowed: false
+history_csv: null
+wikipedia_html: null
+company_tickers: null
+companyfacts: null  # companyfacts.zip OR a directory of cached JSON members
+submissions: null   # submissions.zip OR a directory of cached JSON members
+as_of: null  # explicit zoned timestamp or end-of-day UTC date
+identity_observed_at: null
+baseline_known_at: null
+baseline_source: null
+baseline_names: {}  # ticker -> exact security name, with recorded source evidence
+# An independent recorded Wikipedia baseline at the same observation date is
+# required; the selected-changes table alone cannot establish initial members.
+wikipedia_baseline:
+  date: null
+  known_at: null
+  source: null
+  tickers: []
+  names: {}
+# Recon did not verify literal CSV headers/table ID. Set these from the recorded
+# files. Parsers reject a response that differs from these configured shapes.
+csv_shape:
+  date_column: null
+  tickers_column: null
+wikipedia_table_id: null
+companyfacts_member_template: CIK{cik}.json
+submissions_member_template: CIK{cik}.json
+# For provider directory caches set companyfacts_{cik}.json / submissions_{cik}.json.
+require_acceptance: false  # missing join -> conservative end-of-filed-day ET
+require_historical_pages: true
+currency_unit: USD  # other units fail closed; change only with recorded evidence
+scope: listing:sp500:all
+source: fja05680+wikipedia
+licence_ref: null  # REQUIRED: upstream attribution, revisions and licence references
+# Each: {date: effective ISO date, action: add|remove, ticker: ..., known_at: ...,
+#        source: recorded announcement reference}. Effective Date is NOT announcement.
+announcements: []
+# Optional dated SEC identity evidence, no fuzzy/name/ticker guessing:
+# {ticker, valid_from, valid_to: null|date, cik, known_at, source}
+cik_bindings: []
+# REQUIRED canonical identities approved by the caller, never minted from tickers:
+# {ticker, valid_from, valid_to: null|date, instrument_id, known_at, source}
+instrument_bindings: []
