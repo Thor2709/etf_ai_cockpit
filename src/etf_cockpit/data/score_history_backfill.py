@@ -8,10 +8,11 @@ provenance label and a point-in-time coverage summary, so the optional historica
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 
 import pandas as pd
+
+from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_group, parquet_payload, validate_parquet_file
 
 BACKFILL_PROVENANCE = "historical_backfill"
 BACKFILL_HISTORY_RELATIVE_PATH = Path("data") / "derived" / "score_history_backfill.parquet"
@@ -40,26 +41,38 @@ def load_backfill_eligibility(root: Path) -> pd.DataFrame:
     return pd.read_parquet(path) if path.is_file() else pd.DataFrame()
 
 
-def _atomic_write(path: Path, writer) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+def load_backfill_manifest(root: Path) -> dict[str, object]:
+    path = Path(root) / BACKFILL_MANIFEST_RELATIVE_PATH
+    if not path.is_file():
+        return {}
     try:
-        writer(temporary)
-        os.replace(temporary, path)
-    finally:
-        if temporary.exists():
-            temporary.unlink()
+        loaded = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return loaded if isinstance(loaded, dict) else {}
+
+
+def _validate_manifest(path: Path) -> None:
+    json.loads(path.read_text(encoding="utf-8"))
 
 
 def write_backfill_store(root: Path, history: pd.DataFrame, eligibility: pd.DataFrame, manifest: dict[str, object]) -> Path:
-    """Replace the three backfill files (history, eligibility log, manifest); the live score history is not touched."""
+    """Replace the three backfill files (history, eligibility log, manifest) as one atomic group.
+
+    A crash cannot leave history without its eligibility rows or manifest. The live score history is not touched.
+    """
 
     root = Path(root)
-    _atomic_write(root / BACKFILL_HISTORY_RELATIVE_PATH, lambda target: history.to_parquet(target, index=False))
-    _atomic_write(root / BACKFILL_ELIGIBILITY_RELATIVE_PATH, lambda target: eligibility.to_parquet(target, index=False))
-    _atomic_write(
-        root / BACKFILL_MANIFEST_RELATIVE_PATH,
-        lambda target: target.write_text(json.dumps(manifest, indent=2, sort_keys=True, default=str), encoding="utf-8"),
+    atomic_write_group(
+        [
+            AtomicWriteRequest(root / BACKFILL_HISTORY_RELATIVE_PATH, parquet_payload(history), validate_parquet_file),
+            AtomicWriteRequest(root / BACKFILL_ELIGIBILITY_RELATIVE_PATH, parquet_payload(eligibility), validate_parquet_file),
+            AtomicWriteRequest(
+                root / BACKFILL_MANIFEST_RELATIVE_PATH,
+                json.dumps(manifest, indent=2, sort_keys=True, default=str).encode("utf-8"),
+                _validate_manifest,
+            ),
+        ]
     )
     return root / BACKFILL_HISTORY_RELATIVE_PATH
 
@@ -71,6 +84,7 @@ __all__ = [
     "BACKFILL_PROVENANCE",
     "backfill_history_path",
     "load_backfill_eligibility",
+    "load_backfill_manifest",
     "load_backfill_score_history",
     "write_backfill_store",
 ]

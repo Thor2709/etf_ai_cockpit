@@ -18,6 +18,30 @@ from decimal import Decimal
 from pathlib import Path
 
 
+def value_positions(cash, held, fx, mark_of):
+    """Mark every held position; an unmarked one (stale beyond the limit, no bar) is never valued as zero.
+
+    Returns (value per position or None, invested, total, ids without a mark). When any position is unmarked, invested and
+    total are None for that date (and so is every weight): a partial sum would silently understate the portfolio.
+    """
+
+    values: dict[str, float | None] = {}
+    missing: list[str] = []
+    for key, units in held.items():
+        if units == 0:
+            continue
+        mark = mark_of(key)
+        if mark is None or mark != mark:
+            values[key] = None
+            missing.append(key)
+        else:
+            values[key] = float(units) * float(mark) * float(fx[key])
+    if missing:
+        return values, None, None, sorted(missing)
+    invested = sum(value for value in values.values() if value is not None)
+    return values, invested, float(cash) + invested, []
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", default=os.environ.get("ETF_COCKPIT_ROOT"), help="data root (defaults to ETF_COCKPIT_ROOT)")
@@ -186,29 +210,27 @@ def main() -> int:
             cash, held, fx = state_at(f"{session.isoformat()}T23:59:59")
             if not flows or not any(str(flow["effective_at"])[:10] <= session.isoformat() for flow in flows):
                 continue
-            values: dict[str, float] = {}
-            for key, units in held.items():
-                if units == 0:
-                    continue
-                mark = report._mark(book, key, session, scale.get(key, 1.0), stale_limit)
-                values[key] = float(units) * mark * float(fx[key]) if mark is not None else float("nan")
-            invested = sum(value for value in values.values() if value == value)
-            total = float(cash) + invested
+            values, invested, total, missing = value_positions(
+                cash, held, fx, lambda key, session=session: report._mark(book, key, session, scale.get(key, 1.0), stale_limit)
+            )
+            unmarked = ",".join(missing)
             for key, value in values.items():
                 holdings.append(
                     {
                         "date": session.isoformat(), "bot": family, "instrument_id": key, "name": names.get(key, ""),
-                        "quantity": float(held[key]), "value_eur": value, "weight": value / total if total else None,
+                        "quantity": float(held[key]), "value_eur": value,
+                        "weight": None if total is None or value is None or not total else value / total, "marks_unavailable": unmarked,
                     }
                 )
             holdings.append(
                 {"date": session.isoformat(), "bot": family, "instrument_id": "CASH", "name": "cash", "quantity": float(cash),
-                 "value_eur": float(cash), "weight": float(cash) / total if total else None}
+                 "value_eur": float(cash), "weight": None if total is None or not total else float(cash) / total, "marks_unavailable": unmarked}
             )
             equity.append(
                 {
                     "date": session.isoformat(), "bot": family, "cash_eur": float(cash), "invested_eur": invested, "total_eur": total,
                     "report_total_eur": wealth.get(session.isoformat()), "vwce_benchmark_total_eur": bench.get(session.isoformat()),
+                    "marks_unavailable": unmarked,
                 }
             )
 

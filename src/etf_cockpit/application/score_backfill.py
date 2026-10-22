@@ -35,7 +35,9 @@ from etf_cockpit.data.duckdb_store import load_prices
 from etf_cockpit.data.fx_data import fx_rates_for_prices
 from etf_cockpit.data.score_history_backfill import (
     BACKFILL_PROVENANCE,
+    backfill_history_path,
     load_backfill_eligibility,
+    load_backfill_manifest,
     load_backfill_score_history,
     write_backfill_store,
 )
@@ -45,6 +47,7 @@ from etf_cockpit.features.crowding import build_correlation_clusters
 from etf_cockpit.features.feature_pipeline import eur_basis_prices, latest_features
 from etf_cockpit.features.regime import build_benchmark_attribution_lookup, build_market_regime, build_portfolio_fit_lookup
 from etf_cockpit.core.types import DataQualityReport
+from etf_cockpit.signals.canonical_scoring import load_score_policy
 from etf_cockpit.signals.signal_pipeline import generate_signals
 from etf_cockpit.signals.simple_scores import (
     AsOfScoreSources,
@@ -113,6 +116,42 @@ def session_dates(prices: pd.DataFrame, start: date, end: date, *, every: int = 
     return dates[::every]
 
 
+def config_fingerprint(config: AppConfig, excluded: Mapping[str, str] | None) -> tuple[str, dict[str, object]]:
+    """Identity of everything that shapes a stored session besides its input data: a changed run configuration must recompute it."""
+
+    formulas: dict[str, str] = {}
+    for asset_type in ("ETF", "Stock"):
+        try:
+            policy = load_score_policy(asset_type)
+            formulas[asset_type] = f"{policy.formula_version}@{policy.formula_checksum}"
+        except Exception:  # an unreadable policy is part of the identity, never a silent default
+            formulas[asset_type] = "unavailable"
+    identities = config.universe.by_id()
+    universe = hashlib.sha256(
+        json.dumps(
+            sorted(
+                (key, str(getattr(identities[key], "instrument_type", "")), str(getattr(identities[key], "currency", "")))
+                for key in config.universe.enabled_ids
+            ),
+        ).encode("utf-8")
+    ).hexdigest()
+    material: dict[str, object] = {
+        "pit_policy_version": PIT_POLICY_VERSION,
+        "excluded_instruments": {str(key): str(value) for key, value in sorted((excluded or {}).items())},
+        "liquidity_gate": {
+            "types": sorted(LIQUIDITY_GATED_TYPES), "window_sessions": LIQUIDITY_WINDOW_SESSIONS,
+            "min_median_traded_value_eur": LIQUIDITY_MIN_MEDIAN_VALUE_EUR, "max_zero_volume_share": LIQUIDITY_MAX_ZERO_VOLUME_SHARE,
+        },
+        "min_history_rows": MIN_HISTORY_ROWS,
+        "max_stale_business_days": MAX_STALE_BUSINESS_DAYS,
+        "fx_policy": "canonical_available_at",
+        "calendar_instrument_id": CALENDAR_INSTRUMENT_ID,
+        "universe_hash": universe,
+        "formulas": formulas,
+    }
+    return hashlib.sha256(json.dumps(material, sort_keys=True).encode("utf-8")).hexdigest(), material
+
+
 def backfill_score_history(
     root: Path,
     start: date,
@@ -126,7 +165,11 @@ def backfill_score_history(
     excluded: Mapping[str, str] | None = None,
     progress: Callable[[str], None] | None = None,
 ) -> BackfillResult:
-    """Compute and store the canonical score for each selected historical session; resumable (stored runs are kept).
+    """Compute and store the canonical score for each selected historical session; resumable.
+
+    A stored session is kept only when it was produced with the same run configuration (exclusions, liquidity gate, universe,
+    formula, FX policy: ``config_fingerprint``); a session stored under another configuration is recomputed, so the stored
+    rows always match the configuration of the latest run. ``force`` recomputes every selected session.
 
     ``excluded`` maps instrument ids to the reason they are removed from the replay universe (identity or data defects): they
     are dropped before scoring, logged as ineligible with that reason and influence no peer, correlation or rank.
@@ -146,10 +189,19 @@ def backfill_score_history(
         return BackfillResult("unavailable", None, reason=f"No {CALENDAR_INSTRUMENT_ID} session between {start} and {end}.")
     fx = fx_rates if fx_rates is not None else _load_fx(frame)
     registry_signature = str(build_version_registry().get("registry_signature", "unavailable"))
+    fingerprint, applied = config_fingerprint(config, excluded)
 
     existing = load_backfill_score_history(root)
     existing_eligibility = load_backfill_eligibility(root)
-    done = set() if existing.empty or force else set(existing["as_of_date"].astype(str))
+    previous_manifest = load_backfill_manifest(root)
+    stored_fingerprint: dict[str, str] = {}
+    if not existing.empty:
+        column = existing["config_fingerprint"] if "config_fingerprint" in existing.columns else pd.Series("unfingerprinted", index=existing.index)
+        stored_fingerprint = dict(zip(existing["as_of_date"].astype(str), column.fillna("unfingerprinted").astype(str)))
+    done = set() if force else {day for day, value in stored_fingerprint.items() if value == fingerprint}
+    changed = [session for session in sessions if session.isoformat() in stored_fingerprint and session.isoformat() not in done and not force]
+    if changed:
+        say(f"{len(changed)} stored sessions were produced with a different run configuration and are recomputed")
     new_histories: list[pd.DataFrame] = []
     new_eligibility: list[pd.DataFrame] = []
     unavailable: dict[str, str] = {}
@@ -169,27 +221,38 @@ def backfill_score_history(
         if history.empty:
             return BackfillResult("unavailable", None, len(sessions), unavailable_dates=unavailable, eligibility=eligibility_log, reason="No session could be scored.")
         history = history.sort_values(["as_of_date", "rank", "instrument_id"], kind="stable").reset_index(drop=True)
-        manifest = {
-            "schema_version": "score_history_backfill.v1",
+        stored_days = set(history["as_of_date"].astype(str))
+        remembered = {
+            day: reason for day, reason in (previous_manifest.get("unavailable_dates") or {}).items() if day not in stored_days and day not in replaced
+        }
+        fingerprints = (
+            sorted(set(history["config_fingerprint"].fillna("unfingerprinted").astype(str)))
+            if "config_fingerprint" in history.columns
+            else ["unfingerprinted"]
+        )
+        known_configs = dict(previous_manifest.get("configurations") or {})
+        known_configs[fingerprint] = applied
+        configurations = {key: known_configs.get(key, {"unknown": "stored before configuration fingerprints existed"}) for key in fingerprints}
+        manifest: dict[str, object] = {
+            "schema_version": "score_history_backfill.v2",
             "provenance": BACKFILL_PROVENANCE,
             "pit_policy_version": PIT_POLICY_VERSION,
             "withheld_sources": list(WITHHELD_SOURCES),
             "survivorship_caveat": SURVIVORSHIP_CAVEAT,
             "calendar_instrument_id": CALENDAR_INSTRUMENT_ID,
             "every_sessions": every,
-            "min_history_rows": MIN_HISTORY_ROWS,
-                "excluded_instruments": dict(excluded or {}),
-            "liquidity_gate": {
-                "types": sorted(LIQUIDITY_GATED_TYPES), "window_sessions": LIQUIDITY_WINDOW_SESSIONS,
-                "min_median_traded_value_eur": LIQUIDITY_MIN_MEDIAN_VALUE_EUR, "max_zero_volume_share": LIQUIDITY_MAX_ZERO_VOLUME_SHARE,
-            },
-            "max_stale_business_days": MAX_STALE_BUSINESS_DAYS,
+            "configurations": configurations,
+            "mixed_configuration": len(fingerprints) > 1,
             "runs": int(history["run_id"].nunique()),
             "first_as_of": str(history["as_of_date"].min()),
             "last_as_of": str(history["as_of_date"].max()),
-            "unavailable_dates": unavailable,
+            "unavailable_dates": {**remembered, **unavailable},
             "execution_allowed": False,
         }
+        if len(fingerprints) == 1 and fingerprints[0] == fingerprint:  # what was actually applied to every stored row
+            manifest.update(
+                {key: applied[key] for key in ("excluded_instruments", "liquidity_gate", "min_history_rows", "max_stale_business_days", "fx_policy")}
+            )
         path = write_backfill_store(root, history, eligibility_log, manifest)
         return BackfillResult(
             "available", path, len(sessions), runs_written=len(new_histories),
@@ -209,14 +272,22 @@ def backfill_score_history(
             unavailable[session.isoformat()] = f"{type(exc).__name__}: {str(exc)[:200]}"
             say(f"  unavailable: {unavailable[session.isoformat()]}")
             continue
+        eligibility["config_fingerprint"] = fingerprint
         new_eligibility.append(eligibility)
         if run is None:
             unavailable[session.isoformat()] = "no eligible scored instrument"
             continue
+        run["config_fingerprint"] = fingerprint
         new_histories.append(run)
         if len(new_histories) % CHECKPOINT_RUNS == 0:
             persist()  # a long backfill survives an interruption: stored runs are resumable
 
+    if not new_histories and not unavailable and not force and not existing.empty:
+        # Nothing to recompute: the store (and its manifest, including remembered unavailable dates) is left untouched.
+        return BackfillResult(
+            "available", backfill_history_path(root), len(sessions), runs_written=0, runs_kept=int(existing["run_id"].nunique()),
+            eligibility=existing_eligibility,
+        )
     return persist()
 
 
@@ -572,6 +643,7 @@ __all__ = [
     "SMOKE_TEST_LABEL",
     "SURVIVORSHIP_CAVEAT",
     "backfill_score_history",
+    "config_fingerprint",
     "eligible_counts_by_year",
     "never_eligible",
     "run_label",

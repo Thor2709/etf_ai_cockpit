@@ -8,6 +8,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from etf_cockpit.application import score_backfill
 from etf_cockpit.core.config import load_config
@@ -211,3 +212,88 @@ def test_replay_universe_rules_exclusions_and_liquidity_gate() -> None:
     assert "liquidity_gate: median traded value" in reasons[illiquid_stock] and illiquid_stock not in set(run["instrument_id"])
     assert reasons[illiquid_etf] == "" and illiquid_etf in set(run["instrument_id"])  # ETFs are not liquidity-gated
     assert reasons[excluded_id] == "excluded: duplicate listing" and excluded_id not in set(run["instrument_id"])
+
+
+def _fx(rate: float) -> pd.DataFrame:
+    from etf_cockpit.data.fx_data import stamp_fx_availability
+
+    days = pd.bdate_range("2020-12-01", "2023-01-31")
+    quotes = pd.DataFrame(
+        {"as_of_date": [day.date() for day in days], "base_currency": "NOK", "quote_currency": "EUR", "pair": "NOK/EUR", "rate": rate, "source": "test"}
+    )
+    return stamp_fx_availability(quotes, ingested_at=datetime(2026, 10, 21, 10, 0, tzinfo=timezone.utc))
+
+
+def test_liquidity_gate_converts_a_foreign_listing_to_eur_exactly_once() -> None:
+    config = _config()
+    nok = next(item.id for item in config.universe.etfs if item.currency == "NOK" and item.instrument_type == "stock" and item.id in config.universe.enabled_ids)
+    rate = 0.1
+    base = _series(nok, CALENDAR, 7, currency="NOK")
+    tail_close = base[base["date"] <= AS_OF]["close"].tail(score_backfill.LIQUIDITY_WINDOW_SESSIONS)
+    per_unit_eur = float(tail_close.median()) * rate  # close is NOK; the EUR value of one traded unit
+    for factor, passes in ((1.5, True), (0.5, False)):
+        volume = factor * score_backfill.LIQUIDITY_MIN_MEDIAN_VALUE_EUR / per_unit_eur
+        frame = base.assign(volume=volume)
+        known = frame[frame["date"] <= AS_OF]
+        failures = score_backfill._liquidity_gate(config, known, _fx(rate), AS_OF)
+        # a missing conversion would pass both cases, a doubled one would fail both
+        assert (nok not in failures) == passes, (factor, failures.get(nok))
+        if not passes:
+            median = float((known["close"] * known["volume"] * rate).tail(score_backfill.LIQUIDITY_WINDOW_SESSIONS).median())
+            assert f"EUR {median:,.0f}" in failures[nok]
+
+
+def test_a_stored_session_is_recomputed_when_the_run_configuration_changes(tmp_path: Path) -> None:
+    config = _config()
+    prices = _prices(config)
+    victim = _eur_ids(config, "etf", 2)[0]
+    window = (date(2022, 6, 1), date(2022, 6, 30))
+    first = score_backfill.backfill_score_history(tmp_path, *window, every=10, config=config, prices=prices, fx_rates=pd.DataFrame())
+    assert first.status == "available" and victim in set(store.load_backfill_score_history(tmp_path)["instrument_id"])
+    again = score_backfill.backfill_score_history(tmp_path, *window, every=10, config=config, prices=prices, fx_rates=pd.DataFrame())
+    assert again.runs_written == 0  # same configuration: kept
+    second = score_backfill.backfill_score_history(
+        tmp_path, *window, every=10, config=config, prices=prices, fx_rates=pd.DataFrame(), excluded={victim: "duplicate listing"}
+    )
+    assert second.runs_written == first.runs_written  # no --force needed: the fingerprint differs
+    history = store.load_backfill_score_history(tmp_path)
+    assert victim not in set(history["instrument_id"]) and history["config_fingerprint"].nunique() == 1
+    manifest = store.load_backfill_manifest(tmp_path)
+    assert manifest["excluded_instruments"] == {victim: "duplicate listing"} and manifest["mixed_configuration"] is False
+    log = store.load_backfill_eligibility(tmp_path)
+    assert (log.loc[log["instrument_id"].eq(victim), "reasons"].str.startswith("excluded")).all()
+
+
+def test_the_store_is_written_as_one_group_and_a_noop_rerun_keeps_unavailable_dates(monkeypatch, tmp_path: Path) -> None:
+    config = _config()
+    prices = _prices(config)
+    window = (date(2022, 6, 1), date(2022, 6, 30))
+    score_backfill.backfill_score_history(tmp_path, *window, every=10, config=config, prices=prices, fx_rates=pd.DataFrame())
+    manifest_path = tmp_path / store.BACKFILL_MANIFEST_RELATIVE_PATH
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["unavailable_dates"] = {"2022-05-02": "earlier failure"}
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    score_backfill.backfill_score_history(tmp_path, *window, every=10, config=config, prices=prices, fx_rates=pd.DataFrame())
+    assert json.loads(manifest_path.read_text(encoding="utf-8"))["unavailable_dates"] == {"2022-05-02": "earlier failure"}
+
+    history_path = tmp_path / store.BACKFILL_HISTORY_RELATIVE_PATH
+    before = {path: path.read_bytes() for path in (history_path, tmp_path / store.BACKFILL_ELIGIBILITY_RELATIVE_PATH, manifest_path)}
+    monkeypatch.setattr(store, "_validate_manifest", lambda _path: (_ for _ in ()).throw(ValueError("manifest invalid")))
+    with pytest.raises(Exception):
+        store.write_backfill_store(tmp_path, pd.DataFrame({"x": [1]}), pd.DataFrame({"y": [2]}), {"a": 1})
+    assert {path: path.read_bytes() for path in before} == before  # a failed group leaves all three files as they were
+
+
+def test_an_unmarked_position_is_never_valued_as_zero() -> None:
+    import importlib.util
+    from decimal import Decimal
+
+    spec = importlib.util.spec_from_file_location("export_replay_ledger", Path(__file__).resolve().parents[1] / "scripts" / "export_replay_ledger.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    held = {"VWCE": Decimal(10), "STALE": Decimal(5)}
+    fx = {"VWCE": Decimal(1), "STALE": Decimal(1)}
+    values, invested, total, missing = module.value_positions(Decimal(100), held, fx, lambda key: 50.0 if key == "VWCE" else None)
+    assert missing == ["STALE"] and values["STALE"] is None and invested is None and total is None  # no partial total, no weights
+    values, invested, total, missing = module.value_positions(Decimal(100), held, fx, lambda key: 50.0 if key == "VWCE" else 20.0)
+    assert missing == [] and invested == 600.0 and total == 700.0
