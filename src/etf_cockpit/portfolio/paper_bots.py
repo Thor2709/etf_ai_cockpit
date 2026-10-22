@@ -45,6 +45,10 @@ _ACCEPTED_FRESHNESS = {"ok", "fresh"}
 # DEFAULTS: the scoreboard legacy action "add_candidate" is the sleeve action CANDIDATE_BUY.
 _LEGACY_ACTION_TO_SLEEVE_ACTION = {"add_candidate": "CANDIDATE_BUY"}
 _MAX_REPORTED_WARNINGS = 10
+# Owner spec 2026-10-22: the bots that rebalance on a cadence, and the families the baseline lineage pins.
+_CADENCE_FAMILIES = ("B1", "B2", "B3")
+_REQUIRED_FAMILIES = frozenset({"B0", "B1", "B2", "B3"})
+_MAX_REBALANCE_EVERY_MONTHS = 12
 # DEFAULTS: a date-only as_of is rejected; no implicit time of day is assumed.
 _DATE_ONLY_MESSAGE = "as_of must be a timezone-aware date and time; a date-only value is not accepted"
 
@@ -84,8 +88,10 @@ def run_paper_bots(
     config_path: Path | None = None,
     now: datetime | None = None,
 ) -> PaperBotRunResult:
-    """Record this month's first eligible published decision for each bot.
+    """Record this month's first eligible published decision for each bot that is due this month.
 
+    A bot decides only in the months its cadence allows (``rebalance_every_months`` counted in calendar months from its
+    first available decision month; B0 only in its first month); in any other month it records no target and no order.
     ``now`` injects the recorder clock (default: the real UTC clock) for deterministic replay and tests.
     """
 
@@ -239,7 +245,7 @@ def run_paper_bots(
                 if group.score_version == str(config["baseline_score_version"])
                 and group.lineage_hash == baseline_lineage_hash
             ]
-            for family in ("B1", "B2"):
+            for family in _CADENCE_FAMILIES:
                 spec = next(item for item in config["bots"] if item["family_id"] == family)
                 bot_id = _bot_identity(spec, config_hash, baseline_lineage_hash)
                 tasks.append((spec, tuple(baseline_groups), baseline_lineage_hash, bot_id))
@@ -262,6 +268,7 @@ def run_paper_bots(
             results: list[dict[str, Any]] = []
             appended = 0
             snapshot_hashes: set[str] = set()
+            first_months = _first_decision_months(store)
             for spec, candidates, expected_lineage_hash, bot_id in tasks:
                 slot_id = _month_slot_id(bot_id, month)
                 existing_slot = store.get(MONTH_SLOT_ENTITY_TYPE, slot_id)
@@ -296,9 +303,12 @@ def run_paper_bots(
                             snapshot_hashes.add(str(existing.payload.get("snapshot_hash") or ""))
                     continue
 
+                if not _cadence_due(spec, month, first_months.get(bot_id)):
+                    continue  # not a rebalance month for this bot: no new target and no orders
+
                 decision = None
                 group = None
-                failure = baseline_error if spec.get("family_id") in {"B1", "B2"} else None
+                failure = baseline_error if spec.get("family_id") in set(_CADENCE_FAMILIES) else None
                 last_group = candidates[-1] if candidates else None
                 if failure is None and not candidates:
                     failure = (
@@ -421,6 +431,47 @@ def run_paper_bots(
         )
 
 
+def _month_index(month: str) -> int:
+    year, _, number = str(month).partition("-")
+    return int(year) * 12 + int(number) - 1
+
+
+def _first_decision_months(store: TransactionalStore, *, by: str = "bot_id") -> dict[str, str]:
+    """The first calendar month (YYYY-MM) with an available decision per ``by`` key (bot ID or bot family).
+
+    The cadence is counted from it. The family key serves the no-publication path, where the pinned lineage (and so the
+    bot ID) is not known.
+    """
+
+    first: dict[str, str] = {}
+    for record in store.list(DECISION_ENTITY_TYPE):
+        payload = record.payload
+        key, month = payload.get(by), payload.get("decision_month")
+        if payload.get("status") != "available" or not isinstance(key, str) or not isinstance(month, str):
+            continue
+        if key not in first or month < first[key]:
+            first[key] = month
+    return first
+
+
+def _cadence_due(spec: Mapping[str, Any], month: str, first_month: str | None) -> bool:
+    """Whether ``month`` is a decision month of the bot: B0 only its first month, the others every N-th month.
+
+    Without an available decision yet every month is due. An unverifiable cadence is never due (fail closed).
+    """
+
+    if first_month is None:
+        return True
+    try:
+        offset = _month_index(month) - _month_index(first_month)
+    except ValueError:
+        return False
+    if str(spec.get("strategy")) == "benchmark":
+        return offset == 0
+    every = _positive_int(spec.get("rebalance_every_months"))
+    return every is not None and offset >= 0 and offset % every == 0
+
+
 def _challenger_spec(source_spec: Mapping[str, Any], strategy_family: str, score_version: str) -> dict[str, Any]:
     """The B3.x challenger of a B1/B2 spec: same rule, pinned to a new score version (a new bot ID)."""
 
@@ -436,9 +487,9 @@ def _load_config(path: Path) -> tuple[bytes, dict[str, Any]]:
     if not isinstance(payload, dict) or payload.get("schema_version") != "paper_bots.v1":
         raise ValueError("unsupported paper bot specification")
     bots = payload.get("bots")
-    if not isinstance(bots, list) or {str(item.get("family_id")) for item in bots if isinstance(item, dict)} != {"B0", "B1", "B2"}:
-        raise ValueError("paper bot specification must define B0, B1 and B2 exactly once")
-    if len({str(item["family_id"]) for item in bots}) != 3:
+    if not isinstance(bots, list) or {str(item.get("family_id")) for item in bots if isinstance(item, dict)} != _REQUIRED_FAMILIES:
+        raise ValueError("paper bot specification must define B0, B1, B2 and B3 exactly once")
+    if len({str(item["family_id"]) for item in bots}) != len(_REQUIRED_FAMILIES) or len(bots) != len(_REQUIRED_FAMILIES):
         raise ValueError("paper bot family IDs must be unique")
     for key in ("initial_virtual_cash_eur", "monthly_contribution_eur", "max_snapshot_age_hours"):
         number = _finite_number(payload.get(key))
@@ -466,6 +517,14 @@ def _load_config(path: Path) -> tuple[bytes, dict[str, Any]]:
     for item in bots:
         if not isinstance(item, dict) or item.get("strategy") not in {"benchmark", "top_n", "core_sleeve"}:
             raise ValueError("unsupported paper bot strategy")
+        if item["strategy"] != "benchmark":
+            every = _positive_int(item.get("rebalance_every_months"))
+            if every is None or every > _MAX_REBALANCE_EVERY_MONTHS:
+                raise ValueError("rebalancing bots need rebalance_every_months between 1 and 12")
+            horizon = item.get("horizon_months")
+            low, high = (_positive_int(value) for value in horizon[:2]) if isinstance(horizon, list) and len(horizon) == 2 else (None, None)
+            if low is None or high is None or low > high:
+                raise ValueError("rebalancing bots need horizon_months as a [low, high] pair of positive months")
         if item["strategy"] == "top_n":
             if _positive_int(item.get("top_n")) is None:
                 raise ValueError("top_n strategy requires a positive integer top_n")
@@ -927,6 +986,15 @@ def _build_decision(
             return unavailable(f"Selected instrument {instrument_id} price unavailable: {reason}.")
         prices_used[instrument_id] = price
 
+    # The wrapper type of every selected instrument as the published score row states it; the execution stage reads it
+    # (with the universe) to place the instrument in a concentration-cap class. A missing type stays absent.
+    asset_types: dict[str, str] = {}
+    for instrument_id in selected_ids:
+        pair = matched.get(instrument_id)
+        asset_type = _real_text(pair[0].get("asset_type")) if pair is not None else None
+        if asset_type is not None:
+            asset_types[instrument_id] = asset_type.upper()
+
     record = {
         "schema_version": "paper_bot_decision.v1",
         "decision_id": "",
@@ -950,6 +1018,8 @@ def _build_decision(
         "monthly_contribution_eur": float(config["monthly_contribution_eur"]),
         "currency": "EUR",
         "targets": targets,
+        "instrument_asset_types": asset_types,
+        "rebalance_every_months": _positive_int(spec.get("rebalance_every_months")),
         "prices_used": prices_used,
         "skipped_instruments": sorted(skipped, key=lambda item: (item["instrument_id"], item["reason"])),
         "authority_stage": "paper",
@@ -1015,9 +1085,12 @@ def _persist_unavailable(
     records: list[dict[str, Any]] = []
     try:
         with TransactionalStore(root) as store:
+            first_months = _first_decision_months(store, by="bot_family")
             for spec in config["bots"]:
                 lineage = None
                 bot_id = _bot_identity(spec, config_hash, lineage)
+                if not _cadence_due(spec, month, first_months.get(str(spec["family_id"]))):
+                    continue
                 record = _unavailable_record(spec, bot_id, config_hash, config, cutoff, month, reason)
                 _append_unavailable(store, record)
                 records.append(record)

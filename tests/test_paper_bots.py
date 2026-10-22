@@ -693,7 +693,7 @@ def test_dirty_older_run_does_not_block_the_clean_bound_run(monkeypatch, tmp_pat
     result = _run_fixture(monkeypatch, tmp_path, old_rows + bound_rows, board, now, binding_rows=bound_rows)
 
     assert result.status == "available"
-    assert result.appended == 3
+    assert result.appended == 4
     assert all(record["status"] == "available" for record in result.records)
     assert result.snapshot_hash == "a" * 64
     assert result.warnings

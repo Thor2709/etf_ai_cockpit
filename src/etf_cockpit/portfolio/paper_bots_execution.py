@@ -13,7 +13,7 @@ from __future__ import annotations
 from bisect import bisect_right
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, time, timedelta, timezone
-from decimal import ROUND_FLOOR, Decimal
+from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal
 import hashlib
 import json
 import math
@@ -65,6 +65,19 @@ NETWORK_ACCESS_ALLOWED = False
 _PENDING_SHADOW_MARKERS = ("No eligible benchmark session", "Benchmark execution close is unavailable")
 _AVAILABLE_BUYING_POWER = re.compile(r"available buying power is ([0-9.]+)")
 _MAX_WARNINGS = 12
+# Owner spec 2026-10-22 concentration classes. Universe instrument types that name one issuer (stricter stock cap).
+_STOCK_LIKE_TYPES = frozenset({"stock", "equity_certificate", "certificate"})
+# Universe sector labels that describe breadth or size, not an industry: they never count toward the sector cap.
+_NON_SECTOR_LABELS = frozenset({"broad", "small cap"})
+# Universe region labels that span many countries: they never count toward the country cap (an unrecognised label does).
+_MULTI_COUNTRY_REGIONS = frozenset({
+    "world", "global", "europe", "emerging markets", "developed markets", "eurozone", "asia", "asia pacific",
+    "north america", "latin america", "africa", "middle east", "frontier markets",
+})
+_POSITION_LIMIT_WEIGHTS = (
+    "narrow_etf_max_weight", "unknown_class_max_weight", "stock_entry_max_weight", "stock_trim_trigger_weight",
+    "stock_trim_to_weight", "sector_max_weight", "country_max_weight",
+)
 
 
 @dataclass(frozen=True)
@@ -222,12 +235,31 @@ def load_execution_config(path: Path | None = None) -> tuple[bytes, dict[str, An
         payload[key] = number
     hour, _, minute = str(payload.get("fill_time_utc", "")).partition(":")
     payload["_fill_time"] = time(int(hour), int(minute))
-    for key in ("cost_model", "uncertainty", "replay"):
+    for key in ("cost_model", "uncertainty", "replay", "position_limits"):
         if not isinstance(payload.get(key), dict):
             raise ValueError(f"paper bot execution section is missing: {key}")
+    payload["position_limits"] = _validated_position_limits(payload["position_limits"])
     if not isinstance(payload.get("paper_approvals"), list) or not payload["paper_approvals"]:
         raise ValueError("paper bot execution needs its paper approvals")
     return raw, payload
+
+
+def _validated_position_limits(raw: Mapping[str, Any]) -> dict[str, float]:
+    """The percent-of-NAV caps; every share is a finite fraction in (0, 1] and the stock trim levels are consistent."""
+
+    limits: dict[str, float] = {}
+    for key in _POSITION_LIMIT_WEIGHTS:
+        number = bots._finite_number(raw.get(key))
+        if number is None or not 0 < number <= 1:
+            raise ValueError(f"invalid paper bot position limit: {key}")
+        limits[key] = number
+    if limits["stock_entry_max_weight"] > limits["stock_trim_trigger_weight"] or limits["stock_trim_to_weight"] > limits["stock_trim_trigger_weight"]:
+        raise ValueError("invalid paper bot position limit: stock entry and trim-to weights must not exceed the trim trigger")
+    ceiling = bots._finite_number(raw.get("ledger_absolute_exposure_ceiling_eur"))
+    if ceiling is None or ceiling <= 0:
+        raise ValueError("invalid paper bot position limit: ledger_absolute_exposure_ceiling_eur")
+    limits["ledger_absolute_exposure_ceiling_eur"] = ceiling
+    return limits
 
 
 def _cost_policy(root: Path, config: Mapping[str, Any]) -> tuple[ShadowCostPolicy, dict[str, Any], tuple[str, ...], Any]:
@@ -263,8 +295,11 @@ def _cost_policy(root: Path, config: Mapping[str, Any]) -> tuple[ShadowCostPolic
     return policy, evidence, tuple(sorted(app_config.universe.by_id())), app_config
 
 
-def _ensure_limits(track: Track, root: Path, universe_ids: tuple[str, ...]) -> None:
+def _ensure_limits(track: Track, root: Path, universe_ids: tuple[str, ...], *, exposure_ceiling: float | None = None) -> None:
     """Give the bot ledger root its own pre-trade limits: the owner's numeric limits, the configured universe allowlist.
+
+    ``exposure_ceiling`` replaces the absolute ``max_position_exposure`` of this ledger root only (the owner's live
+    ``pre_trade_limits_v1.yaml`` is never changed): the paper bots are held to the percent-of-NAV position limits instead.
 
     A digest of the universe and the source limits sits beside the file: when either changes (an instrument was added to
     the universe, the owner edited a limit) the file is rewritten, so the allowlist never freezes at first creation. A file
@@ -277,10 +312,18 @@ def _ensure_limits(track: Track, root: Path, universe_ids: tuple[str, ...]) -> N
     source = local if local.is_file() else CONFIG_DIR / "pre_trade_limits_v1.yaml"
     source_bytes = source.read_bytes()
     digest = hashlib.sha256(
-        json.dumps({"universe": sorted(item.upper() for item in universe_ids), "limits": hashlib.sha256(source_bytes).hexdigest()}).encode("utf-8")
+        json.dumps({
+            "universe": sorted(item.upper() for item in universe_ids), "limits": hashlib.sha256(source_bytes).hexdigest(),
+            "exposure_ceiling": exposure_ceiling,
+        }).encode("utf-8")
     ).hexdigest()
     if target.is_file():
         if not marker.is_file():
+            if exposure_ceiling is not None:  # adopt the legacy file, but never keep its absolute exposure check
+                adopted = yaml.safe_load(target.read_text(encoding="utf-8"))
+                if isinstance(adopted, dict) and adopted.get("max_position_exposure") != exposure_ceiling:
+                    adopted["max_position_exposure"] = exposure_ceiling
+                    target.write_text(yaml.safe_dump(adopted, sort_keys=True), encoding="utf-8")
             marker.write_text(digest, encoding="utf-8")
             return
         if marker.read_text(encoding="utf-8").strip() == digest:
@@ -289,6 +332,8 @@ def _ensure_limits(track: Track, root: Path, universe_ids: tuple[str, ...]) -> N
     if not isinstance(limits, dict) or limits.get("schema_version") != "pre_trade_limits.v1":
         raise ValueError("pre-trade limits are unavailable for the paper bots")
     limits["allowed_instruments"] = sorted({*(item.upper() for item in universe_ids), "VWCE"})
+    if exposure_ceiling is not None:
+        limits["max_position_exposure"] = exposure_ceiling
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(yaml.safe_dump(limits, sort_keys=True), encoding="utf-8")
     marker.write_text(digest, encoding="utf-8")
@@ -340,7 +385,7 @@ def _run(
         return ExecutionRunResult("unavailable", track.name, as_of_text, reason=book.error or "No benchmark sessions are available.", label=track.label)
     try:
         policy, policy_evidence, universe_ids, app_config = _cost_policy(root, config)
-        _ensure_limits(track, root, universe_ids)
+        _ensure_limits(track, root, universe_ids, exposure_ceiling=config["position_limits"]["ledger_absolute_exposure_ceiling_eur"])
     except Exception as exc:  # fail closed: costs, universe or limits unreadable
         return ExecutionRunResult("unavailable", track.name, as_of_text, reason=f"Cost model unavailable: {type(exc).__name__}.", label=track.label)
 
@@ -402,6 +447,7 @@ class _Context:
     app_config: Any
     by_intent: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
     fx_cache: dict[Any, float | None] = field(default_factory=dict)
+    universe_index: dict[str, Any] = field(default_factory=dict)
 
 
 def _load_decisions(
@@ -595,8 +641,13 @@ def _plan(context: _Context, ledger: PaperLedger, decision: Mapping[str, Any], d
     value = cash + sum((held[i] * eur_prices[i] for i in held), Decimal("0"))
     threshold = max(Decimal(str(context.config["min_trade_value_eur"])), Decimal(str(context.config["rebalance_tolerance_weight"])) * value)
     lot = policy.lot_size
+    limits = context.config["position_limits"]
+    info = {instrument: _classify(context, decision, instrument) for instrument in sorted({*held, *targets})}
+    plan["classification"] = {instrument: dict(item) for instrument, item in info.items()}
+    plan["position_limits"] = dict(limits)
     buys: list[dict[str, Any]] = []
     sells: list[dict[str, Any]] = []
+    rows: dict[str, dict[str, Any]] = {}
     for instrument in sorted({*held, *targets}):
         weight = targets.get(instrument, Decimal("0"))
         price_entry = prices[instrument]
@@ -609,26 +660,43 @@ def _plan(context: _Context, ledger: PaperLedger, decision: Mapping[str, Any], d
             continue
         price = eur_prices[instrument]
         currency, rate = quoted[instrument]
-        target_quantity = _floor_lot(weight * value / (price * (1 + adverse)), lot) if weight > 0 else Decimal("0")
-        delta = target_quantity - have
+        cost_price = price * (1 + adverse)
+        raw_quantity = _floor_lot(weight * value / cost_price, lot) if weight > 0 else Decimal("0")
+        target_quantity, cap_weight, cap_note = _apply_position_cap(info[instrument], limits, raw_quantity, have, price, cost_price, value, lot)
+        rows[instrument] = {
+            "weight": weight, "price_entry": price_entry, "have": have, "price": price, "currency": currency, "rate": rate,
+            "target": target_quantity, "ordered": target_quantity, "cap_weight": cap_weight, "notes": [cap_note] if cap_note else [],
+            "refusal": None,
+        }
+    _apply_group_caps(rows, info, targets, limits, value, lot)
+    for instrument in sorted(rows):
+        row = rows[instrument]
+        weight, price, have, price_entry = row["weight"], row["price"], row["have"], row["price_entry"]
+        currency, rate = row["currency"], row["rate"]
+        delta = row["target"] - have
+        if row["refusal"] is not None and (row["ordered"] - have) * price >= threshold:
+            buys.append(_intent(decision, instrument, "buy", Decimal("0"), weight, None, None, row["refusal"]))
+            continue
         if delta == 0:
             continue
         exits = instrument not in targets
         if abs(delta) * price < threshold and not (exits and delta < 0):
             plan["within_tolerance"].append({"instrument_id": instrument, "delta_quantity": str(delta), "reason": "within_rebalance_tolerance"})
             continue
+        suffix = "".join(f"; {note}" for note in row["notes"])
+        max_after = None if row["cap_weight"] is None else row["cap_weight"] * value
         if delta > 0:
             reason = (
                 f"enter target weight {float(weight):.1%}" if have == 0 else f"increase to target weight {float(weight):.1%}"
-            ) + f" ({decision['bot_family']}, decision {str(decision['snapshot_hash'])[:8]})"
-            buys.append(_intent(decision, instrument, "buy", delta, weight, price_entry, currency, reason, rate))
+            ) + suffix + f" ({decision['bot_family']}, decision {str(decision['snapshot_hash'])[:8]})"
+            buys.append(_intent(decision, instrument, "buy", delta, weight, price_entry, currency, reason, rate, max_after_value=max_after))
         else:
             skipped_reason = reasons.get(instrument)
             reason = (
                 f"exit: not in the target set ({skipped_reason})" if exits and skipped_reason
                 else "exit: not in the target set" if exits
                 else f"trim to target weight {float(weight):.1%}"
-            ) + f" ({decision['bot_family']}, decision {str(decision['snapshot_hash'])[:8]})"
+            ) + suffix + f" ({decision['bot_family']}, decision {str(decision['snapshot_hash'])[:8]})"
             sells.append(_intent(decision, instrument, "sell", -delta, weight, price_entry, currency, reason, rate))
     buys.sort(key=lambda item: (-float(item["target_weight"]), item["instrument_id"]))
     plan["intents"] = [*sells, *buys]
@@ -637,9 +705,127 @@ def _plan(context: _Context, ledger: PaperLedger, decision: Mapping[str, Any], d
     return plan
 
 
+def _ceil_lot(quantity: Decimal, lot: Decimal) -> Decimal:
+    return (quantity / lot).to_integral_value(rounding=ROUND_CEILING) * lot
+
+
+def _clean_label(value: object) -> str | None:
+    text = str(value).strip() if value is not None else ""
+    return None if text.casefold() in {"", "none", "null", "nan", "unavailable", "unknown"} else text
+
+
+def _classify(context: _Context, decision: Mapping[str, Any], instrument_id: str) -> dict[str, Any]:
+    """Concentration class of an instrument from the existing universe fields (instrument_type, sector, region).
+
+    ``broad_etf`` is an ETF whose universe sector is ``Broad``; any other ETF with a universe sector is ``narrow_etf``;
+    ``stock`` is a single-issuer instrument (universe type, or the wrapper type the decision froze from the score row).
+    Everything else, including an ETF the universe does not describe, is ``unknown`` and takes the narrow-ETF cap.
+    """
+
+    if not context.universe_index:
+        context.universe_index = {str(key).upper(): item for key, item in context.app_config.universe.by_id().items()}
+    entry = context.universe_index.get(str(instrument_id).upper())
+    frozen = decision.get("instrument_asset_types")
+    frozen_type = frozen.get(instrument_id) if isinstance(frozen, Mapping) else None
+    types = {
+        text.casefold() for text in (_clean_label(getattr(entry, "instrument_type", None)), _clean_label(frozen_type)) if text
+    }
+    sector = _clean_label(getattr(entry, "sector", None))
+    region = _clean_label(getattr(entry, "region", None))
+    if types & _STOCK_LIKE_TYPES:
+        kind = "stock"
+    elif "etf" in types and sector is not None and sector.casefold() == "broad":
+        kind = "broad_etf"
+    elif "etf" in types and entry is not None and sector is not None:
+        kind = "narrow_etf"
+    else:
+        kind = "unknown"
+    return {
+        "kind": kind,
+        "sector": sector if kind != "broad_etf" and sector is not None and sector.casefold() not in _NON_SECTOR_LABELS else None,
+        "country": region if region is not None and region.casefold() not in _MULTI_COUNTRY_REGIONS else None,
+        "basis": "universe" if entry is not None else "decision_asset_type" if frozen_type else "unclassified",
+    }
+
+
+def _apply_position_cap(
+    info: Mapping[str, Any], limits: Mapping[str, float], raw_quantity: Decimal, have: Decimal, price: Decimal,
+    cost_price: Decimal, value: Decimal, lot: Decimal,
+) -> tuple[Decimal, Decimal | None, str | None]:
+    """The per-instrument percent-of-NAV rule: (target quantity, cap weight a buy is held to, a note).
+
+    Broad diversified ETF: no cap. Narrow/sector ETF and unknown class: at most the narrow cap. Stock: a buy is reduced to
+    the entry cap; a position grown above the trim trigger is sold back to the trim-to weight; between the two it is held.
+    """
+
+    def quantity_at(weight: Decimal) -> Decimal:
+        return _floor_lot(weight * value / cost_price, lot)
+
+    kind = str(info["kind"])
+    if kind == "broad_etf":
+        return raw_quantity, None, None
+    if kind == "stock":
+        entry_weight = Decimal(str(limits["stock_entry_max_weight"]))
+        trigger_weight = Decimal(str(limits["stock_trim_trigger_weight"]))
+        trim_weight = Decimal(str(limits["stock_trim_to_weight"]))
+        if have > 0 and have * price > trigger_weight * value:
+            target = min(raw_quantity, quantity_at(trim_weight))
+            return target, entry_weight, f"trim to {float(trim_weight):.0%} of the portfolio (position above the {float(trigger_weight):.0%} trim trigger)"
+        entry_quantity = quantity_at(entry_weight)
+        if raw_quantity <= entry_quantity:
+            return raw_quantity, entry_weight, None
+        return max(entry_quantity, have), entry_weight, f"capped at the {float(entry_weight):.0%} single-stock entry limit"
+    cap_weight = Decimal(str(limits["narrow_etf_max_weight" if kind == "narrow_etf" else "unknown_class_max_weight"]))
+    cap_quantity = quantity_at(cap_weight)
+    if raw_quantity > cap_quantity:
+        label = "narrow or sector ETF" if kind == "narrow_etf" else "unclassified instrument"
+        return cap_quantity, cap_weight, f"capped at the {float(cap_weight):.0%} {label} limit"
+    return raw_quantity, cap_weight, None
+
+
+def _apply_group_caps(
+    rows: dict[str, dict[str, Any]], info: Mapping[str, Mapping[str, Any]], targets: Mapping[str, Decimal],
+    limits: Mapping[str, float], value: Decimal, lot: Decimal,
+) -> None:
+    """Hold every sector and every country to its percent-of-NAV cap by cutting buys, lowest target weight first.
+
+    A buy cut to nothing is marked refused with a named reason. Positions already held are never sold for a group cap.
+    """
+
+    for dimension in ("sector", "country"):
+        cap_weight = Decimal(str(limits[f"{dimension}_max_weight"]))
+        members: dict[str, list[str]] = {}
+        labels: dict[str, str] = {}
+        for instrument in rows:
+            label = info[instrument].get(dimension)
+            if label:
+                members.setdefault(label.casefold(), []).append(instrument)
+                labels.setdefault(label.casefold(), label)
+        for key, names in sorted(members.items()):
+            excess = sum((rows[name]["target"] * rows[name]["price"] for name in names), Decimal("0")) - cap_weight * value
+            buyers = sorted((name for name in names if rows[name]["target"] > rows[name]["have"]), key=lambda name: (-rows[name]["weight"], name), reverse=True)
+            for name in buyers:
+                if excess <= 0:
+                    break
+                row = rows[name]
+                cut = min(row["target"] - row["have"], _ceil_lot(excess / row["price"], lot))
+                row["target"] -= cut
+                excess -= cut * row["price"]
+                row["notes"].append(f"reduced to the {float(cap_weight):.0%} {dimension} limit ({labels[key]})")
+                if row["target"] <= row["have"]:
+                    row["refusal"] = f"{dimension}_cap_reached: {labels[key]} would exceed {float(cap_weight):.0%} of the portfolio value"
+
+
+def _cap_room(max_after_value: Decimal, unit: Decimal, held: Decimal, lot: Decimal) -> Decimal:
+    """Whole lots a buy may still add before the position passes its percent-of-NAV value limit."""
+
+    return _floor_lot(max_after_value / unit, lot) - held
+
+
 def _intent(
     decision: Mapping[str, Any], instrument: str, side: str, quantity: Decimal, weight: Decimal,
     price: tuple[Decimal, str] | None, currency: str | None, reason: str, fx_rate: float | None = None,
+    *, max_after_value: Decimal | None = None,
 ) -> dict[str, Any]:
     return {
         "intent_id": _record_id(str(decision["decision_id"]), instrument, side),
@@ -647,6 +833,7 @@ def _intent(
         "sizing_price": None if price is None else str(price[0]), "sizing_price_date": None if price is None else price[1],
         "currency": currency, "sizing_fx_rate": fx_rate, "reason": reason,
         "unavailable_reason": reason if price is None else None,
+        "max_after_position_value_eur": None if max_after_value is None else str(max_after_value),
     }
 
 
@@ -766,6 +953,7 @@ def _rule_friction_gate(context: _Context, instrument_id: str, order_value_eur: 
 def _proposal(
     context: _Context, ledger: PaperLedger, decision: Mapping[str, Any], intent: Mapping[str, Any],
     held: Decimal, quantity: Decimal, session: date, *, friction: FrictionGateResult, bar: Mapping[str, Any], unit_price: Decimal,
+    max_after_value: Decimal | None = None,
 ) -> dict[str, object]:
     config = context.config
     decided_at: datetime = decision["_decided_at"]
@@ -774,7 +962,6 @@ def _proposal(
     fill_time = _fill_datetime(config, session)
     volume, opening = bots._finite_number(bar.get("volume")), bots._finite_number(bar.get("open"))
     after = held + sign * quantity
-    exposure_limit = _limit(context, "max_position_exposure")
     exposure = after * unit_price
     policy = context.policy
     checks: dict[str, tuple[bool, str]] = {
@@ -803,8 +990,9 @@ def _proposal(
             f"modelled order cost {friction.required_bps} bps.",
         ),
         "concentration": (
-            exposure_limit is not None and exposure <= exposure_limit,
-            f"Position after the order is {exposure:.2f} EUR against the limit {exposure_limit}.",
+            max_after_value is None or exposure <= max_after_value,
+            f"Position after the order is {exposure:.2f} EUR against the percent-of-NAV limit "
+            + ("(none: broad diversified ETF or a sale)." if max_after_value is None else f"{max_after_value:.2f} EUR."),
         ),
         "account_authority": (
             EXECUTION_ALLOWED is False and decision.get("authority_stage") == "paper" and bool(config["paper_approvals"]),
@@ -883,6 +1071,15 @@ def _attempt(
         if quantity < policy.lot_size:
             return miss("position_not_held")
     unit = price * to_eur  # EUR per unit
+    max_after_text = intent.get("max_after_position_value_eur")
+    max_after_value = Decimal(str(max_after_text)) if side == "buy" and max_after_text is not None else None
+    room: Decimal | None = None
+    if max_after_value is not None:  # percent-of-NAV position limit: trade what fits, never breach it
+        room = _cap_room(max_after_value, unit, held, policy.lot_size)
+        if room < policy.lot_size:
+            return miss(f"position_cap_reached: the position already fills its {max_after_value:.2f} EUR percent-of-NAV limit")
+        if quantity > room:
+            quantity = room
     capped = False
     order_limit = _limit(context, "max_order_value")
     if order_limit is not None and quantity * unit > order_limit:  # the owner's hard limit: trade what fits, never breach it
@@ -894,7 +1091,10 @@ def _attempt(
         friction = _rule_friction_gate(context, instrument, quantity * unit)
         if not friction.propose:
             return miss(friction.reason if friction.status == "unavailable" else f"friction_gate_blocked: {friction.reason}")
-        proposal = _proposal(context, ledger, decision, intent, held, quantity, session, friction=friction, bar=bar, unit_price=unit)
+        proposal = _proposal(
+            context, ledger, decision, intent, held, quantity, session, friction=friction, bar=bar, unit_price=unit,
+            max_after_value=max_after_value,
+        )
         if proposal.get("proposal_allowed") is not True:
             return miss(f"proposal_policy_refused: {str(proposal.get('rationale'))[:200]}")
         order_id = None
@@ -928,6 +1128,7 @@ def _attempt(
         cost = quantity * abs(price - reference) * to_eur
         return _record(
             context, decision, intent, session, "filled", intent["reason"] if quantity == Decimal(str(intent["planned_quantity"]))
+            else f"{intent['reason']}; reduced to the percent-of-NAV position limit" if room is not None and quantity == room
             else f"{intent['reason']}; reduced to the order-value limit" if capped and quantity == _floor_lot(order_limit / unit, policy.lot_size)
             else f"{intent['reason']}; reduced to settled cash",
             quantity=str(quantity), reference_open=str(reference), fill_price=str(price), fee=str(policy.commission),

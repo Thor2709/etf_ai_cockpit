@@ -121,7 +121,7 @@ def build_track_report(
 
 def _family_order(decision: Mapping[str, Any]) -> tuple[int, str]:
     family = str(decision.get("bot_family"))
-    return ({"B0": 0, "B1": 1, "B2": 2}.get(family, 3), family)
+    return ({"B0": 0, "B1": 1, "B2": 2, "B3": 3}.get(family, 4), family)
 
 
 def _bot_report(

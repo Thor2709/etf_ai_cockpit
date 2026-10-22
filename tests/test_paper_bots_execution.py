@@ -263,14 +263,14 @@ def test_an_order_above_the_owner_hard_limit_is_reduced_to_fit_it_not_missed(mon
     assert _decisions(monkeypatch, tmp_path, mutate=fail_gate).status == "available"  # B1 then puts 100% into BBB
     _allow(tmp_path)
     _execute(tmp_path, _book())
-    track = execution.forward_track(tmp_path)
-    limit = Decimal(str(yaml.safe_load((track.ledger_root / "configs" / "pre_trade_limits_v1.yaml").read_text(encoding="utf-8"))["max_order_value"]))
+    limit = Decimal("40000") * Decimal(str(_exec_config()["position_limits"]["unknown_class_max_weight"]))
+    assert limit == Decimal("8000")
     filled = _by(_records(tmp_path), "B1", "BBB", "filled")
     assert filled and not _by(_records(tmp_path), "B1", "BBB", "missed")
     for item in filled:
         assert Decimal(item["quantity"]) * Decimal(item["fill_price"]) <= limit
         assert Decimal(item["quantity"]) < Decimal(item["planned_quantity"])
-        assert "order-value limit" in item["reason"]
+        assert "reduced to the percent-of-NAV position limit" in item["reason"]
 
 
 def test_the_independent_allowlist_still_blocks_an_instrument_outside_the_universe(monkeypatch, tmp_path: Path) -> None:
@@ -281,8 +281,9 @@ def test_the_independent_allowlist_still_blocks_an_instrument_outside_the_univer
     path = execution.forward_track(tmp_path).ledger_root / "configs" / "pre_trade_limits_v1.yaml"
     limits = yaml.safe_load(path.read_text(encoding="utf-8"))
     owner = yaml.safe_load((execution.CONFIG_DIR / "pre_trade_limits_v1.yaml").read_text(encoding="utf-8"))
-    for key in ("max_order_value", "max_position_exposure", "max_daily_turnover"):
-        assert limits[key] == owner[key]  # the numeric limits are the owner's, unchanged
+    for key in ("max_order_value", "max_daily_turnover"):
+        assert limits[key] == owner[key]
+    assert limits["max_position_exposure"] == _exec_config()["position_limits"]["ledger_absolute_exposure_ceiling_eur"]
 
 
 def _write_fx(tmp_path: Path, usd_per_eur: float = 1.25) -> None:
@@ -352,14 +353,24 @@ def test_the_friction_gate_fails_closed_without_a_benefit_and_places_no_order(mo
 
 
 def test_a_concentration_breach_fails_the_real_gate_not_a_literal_pass(monkeypatch, tmp_path: Path) -> None:
-    ready = _ready(monkeypatch, tmp_path)
-    path = execution.forward_track(tmp_path).ledger_root / "configs" / "pre_trade_limits_v1.yaml"
-    limits = yaml.safe_load(path.read_text(encoding="utf-8"))
-    limits["max_position_exposure"] = 100  # far below one planned position
-    path.write_text(yaml.safe_dump(limits), encoding="utf-8")
+    ready = _ready(monkeypatch, tmp_path, opens={"AAA": {date(2026, 10, 15): 30.0}, "BBB": {date(2026, 10, 15): 40.0}})
+    # Force sizing to miss the percent cap after a gap up: the independent proposal gate must still refuse both buys.
+    monkeypatch.setattr(execution, "_cap_room", lambda *args, **kwargs: Decimal("1000000"))
+    proposals = []
+    real_proposal = execution._proposal
+
+    def capture_proposal(*args, **kwargs):
+        proposal = real_proposal(*args, **kwargs)
+        if args[2]["bot_family"] == "B1":
+            proposals.append(proposal)
+        return proposal
+
+    monkeypatch.setattr(execution, "_proposal", capture_proposal)
     _execute(tmp_path, ready)
     refused = _by(_records(tmp_path), "B1", "BBB")
     assert refused and refused[0]["status"] == "missed" and "proposal_policy_refused" in refused[0]["reason"]
+    assert {proposal["instrument_id"] for proposal in proposals} == {"AAA", "BBB"}
+    assert all({gate["gate_id"] for gate in proposal["gates"] if not gate["passed"]} == {"concentration"} for proposal in proposals)
     assert not _by(_records(tmp_path), "B1", status="filled")
 
 
@@ -504,37 +515,47 @@ def _record_month(
 
 
 def test_a_rebalance_sells_first_and_waits_for_settled_cash_before_buying(monkeypatch, tmp_path: Path) -> None:
+    # Broad ETFs can invest the whole fixture NAV under the owner caps, so the next buy needs the sale proceeds.
+    config = yaml.safe_load(paper_bots.PAPER_BOTS_CONFIG_PATH.read_text(encoding="utf-8"))
+    config["initial_virtual_cash_eur"] = 10000.0
+    config_path = tmp_path / "settlement_bots.yaml"
+    config_path.write_text(yaml.safe_dump(config), encoding="utf-8")
+
+    def broad_rows(known_at, **kwargs):
+        return [
+            dict(row, instrument_id={"AAA": "LYP6", "BBB": "VWCE"}.get(row["instrument_id"], row["instrument_id"]), asset_type="ETF")
+            for row in _rows(known_at, **kwargs) if row["instrument_id"] != "VWCE"
+        ]
+
     october = _NOW - timedelta(minutes=5)
-    rows_october = _rows(october)
+    rows_october = broad_rows(october)
     board_october = _scoreboard(rows_october, october)
     board_october["instrument_currency"] = "EUR"
-    assert _record_month(monkeypatch, tmp_path, rows_october, board_october, _NOW).status == "available"
-    _allow(tmp_path)
-    # The fixture instruments are not in the configured universe: give them the venue a real universe entry has.
-    monkeypatch.setattr(PaperLedger, "_order_market_terms", lambda self, proposal, instrument_id: ("XETRA", "etf"))
-    book = _book(known_at=datetime(2026, 11, 30, 12, 0, tzinfo=timezone.utc))
-    _execute(tmp_path, book)
+    board_october["research_promotion_allowed"] = board_october["instrument_id"].isin({"LYP6", "VWCE"})
+    assert _record_month(monkeypatch, tmp_path, rows_october, board_october, _NOW, config_path).status == "available"
+    book = _book(base={"VWCE": 100.0, "LYP6": 21.0, "BAD": 23.0}, known_at=datetime(2026, 11, 30, 12, 0, tzinfo=timezone.utc))
+    _execute(tmp_path, book, config_path=config_path)
 
     now = datetime(2026, 11, 10, 12, 0, tzinfo=timezone.utc)
     november = now - timedelta(minutes=5)
-    rows_november = _rows(november, run_id="score-run-nov", snapshot="b")
+    rows_november = broad_rows(november, run_id="score-run-nov", snapshot="b")
     board_november = _scoreboard(rows_november, november)
     board_november["instrument_currency"] = "EUR"
-    board_november.loc[board_november["instrument_id"] == "AAA", "research_promotion_allowed"] = False  # AAA fails its gate
-    assert _record_month(monkeypatch, tmp_path, rows_october + rows_november, board_november, now).status == "available"
-    _execute(tmp_path, book, as_of=datetime(2026, 11, 30, 12, 0, tzinfo=timezone.utc))
+    board_november["research_promotion_allowed"] = board_november["instrument_id"] == "VWCE"  # LYP6 fails its gate
+    assert _record_month(monkeypatch, tmp_path, rows_october + rows_november, board_november, now, config_path).status == "available"
+    _execute(tmp_path, book, as_of=datetime(2026, 11, 30, 12, 0, tzinfo=timezone.utc), config_path=config_path)
 
     november_log = [item for item in _records(tmp_path) if item["decision_month"] == "2026-11" and item["bot_family"] == "B1"]
-    sale = next(item for item in november_log if item["instrument_id"] == "AAA")
+    sale = next(item for item in november_log if item["instrument_id"] == "LYP6")
     assert sale["side"] == "sell" and sale["status"] == "filled" and sale["session"] == "2026-11-11"
     assert "exit" in sale["trade_reason"]
-    buys = sorted((item for item in november_log if item["instrument_id"] == "BBB"), key=lambda item: (item["session"], item["status"]))
+    buys = sorted((item for item in november_log if item["instrument_id"] == "VWCE"), key=lambda item: (item["session"], item["status"]))
     assert [item["status"] for item in buys][-1] == "filled", [(i["session"], i["status"], i["reason"]) for i in buys]
     assert any(item["status"] == "deferred" for item in buys)  # the sale proceeds were not settled on the first sessions
     assert buys[-1]["session"] > sale["session"]
     assert Decimal(buys[-1]["quantity"]) > 0
     # Nothing was reweighted into other instruments while waiting.
-    assert {item["instrument_id"] for item in november_log} == {"AAA", "BBB"}
+    assert {item["instrument_id"] for item in november_log} == {"LYP6", "VWCE"}
 
 
 def _daily(returns: list[float]) -> pd.DataFrame:
@@ -664,7 +685,7 @@ def test_the_bots_view_reads_both_records_and_labels_the_advantage(monkeypatch, 
     monkeypatch.setattr(execution.PriceBook, "from_root", classmethod(lambda cls, root, **kwargs: book))
     view = load_paper_bots_view(tmp_path, as_of=RUN_AT)
     forward = view["forward"]
-    assert forward["status"] in {"available", "partial"} and {bot["family"] for bot in forward["bots"]} == {"B0", "B1", "B2"}
+    assert forward["status"] in {"available", "partial"} and {bot["family"] for bot in forward["bots"]} == {"B0", "B1", "B2", "B3"}
     for bot in forward["bots"]:
         assert bot["uncertainty"]["verdict"] == UNCONFIRMED_LABEL  # one month of history can never confirm an advantage
         assert bot["execution_allowed"] is False
@@ -849,7 +870,7 @@ def test_monthly_contributions_are_mirrored_into_the_shadow_and_never_paid_twice
     track = execution.forward_track(root)
     bot_id = _by(_records(root), "B1")[0]["bot_id"]
     ledger = PaperLedger(track.ledger_root, account_id=execution.account_id_for(bot_id))
-    assert [Decimal(flow["amount"]) for flow in ledger.external_flows()] == [Decimal("10000.0")]
+    assert [Decimal(flow["amount"]) for flow in ledger.external_flows()] == [Decimal("40000.0")]
 
     now = datetime(2026, 11, 10, 12, 0, tzinfo=timezone.utc)
     november = now - timedelta(minutes=5)
@@ -861,12 +882,12 @@ def test_monthly_contributions_are_mirrored_into_the_shadow_and_never_paid_twice
     _execute(root, book, as_of=november_run, config_path=config)
     _execute(root, book, as_of=november_run, config_path=config)
     flows = ledger.external_flows()
-    assert [Decimal(flow["amount"]) for flow in flows] == [Decimal("10000.0"), Decimal("500.0")]
+    assert [Decimal(flow["amount"]) for flow in flows] == [Decimal("40000.0"), Decimal("500.0")]
     assert flows[1]["flow_at"].startswith("2026-11-10")
 
     overview = build_paper_bots_overview(root, as_of=november_run, price_book=book, config_path=None)
     b1 = next(bot for bot in overview["forward"]["bots"] if bot["family"] == "B1")
     assert b1["status"] == "available", b1["reason"]
-    assert b1["metrics"]["net_contributions_eur"] == pytest.approx(10_500.0)
+    assert b1["metrics"]["net_contributions_eur"] == pytest.approx(40_500.0)
     assert b1["relative_wealth"] and b1["metrics"]["compounded_relative_wealth"] is not None  # flows matched with the shadow
     assert b1["dates"][-1] == "2026-11-27"

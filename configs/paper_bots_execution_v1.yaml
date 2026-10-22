@@ -16,7 +16,25 @@ cost_model:
 # A bot trades a position only when its value differs from the target by more than this share of the portfolio value
 # (a position leaving the target set is always sold in full).
 rebalance_tolerance_weight: 0.01
-min_trade_value_eur: 50.0
+# Owner spec 2026-10-22: no order below EUR 500 (a position leaving the target set is still sold in full).
+min_trade_value_eur: 500.0
+# Concentration caps as shares of the portfolio value (NAV) at the decision-time prices, for the paper-bot ledger root only
+# (the live configs/pre_trade_limits_v1.yaml is untouched). Owner spec 2026-10-22:
+#   broad diversified ETF: no cap beyond its core weight; narrow or sector ETF: at most 20 percent;
+#   single stock: at most 8 percent at entry, trimmed to 8 percent when it grows above 12 percent;
+#   any one sector or any one country: at most 30 percent.
+# An instrument whose class cannot be established from the universe fails closed to the narrow-ETF cap (never unlimited).
+position_limits:
+  narrow_etf_max_weight: 0.20
+  unknown_class_max_weight: 0.20
+  stock_entry_max_weight: 0.08
+  stock_trim_trigger_weight: 0.12
+  stock_trim_to_weight: 0.08
+  sector_max_weight: 0.30
+  country_max_weight: 0.30
+  # The ledger's absolute EUR position check (pre_trade_limits max_position_exposure) is replaced by the percent rules above
+  # in the bot ledger root: its copy carries this non-binding ceiling instead.
+  ledger_absolute_exposure_ceiling_eur: 1000000000.0
 # A buy that cannot be funded because sale proceeds are unsettled is retried on the following sessions, then it is missed.
 max_buy_retry_sessions: 3
 # No session data this many calendar days after the decision is a provider outage: the orders are logged as missed.

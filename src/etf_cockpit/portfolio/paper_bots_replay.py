@@ -113,10 +113,10 @@ def _write_replay_decisions(
     specs = {item["family_id"]: item for item in config["bots"]}
     plan: list[tuple[Mapping[str, Any], str | None, list[bots._PublishedGroup]]] = [(specs["B0"], None, groups)]
     if baseline is None:
-        warnings.append(f"No stored score run carries the baseline score version {baseline_version}; B1/B2 are not replayed.")
+        warnings.append(f"No stored score run carries the baseline score version {baseline_version}; B1/B2/B3 are not replayed.")
     else:
         pinned = [group for group in groups if group.lineage_hash == baseline.lineage_hash]
-        plan += [(specs[family], baseline.lineage_hash, pinned) for family in ("B1", "B2")]
+        plan += [(specs[family], baseline.lineage_hash, pinned) for family in bots._CADENCE_FAMILIES]
     by_lineage: dict[str, list[bots._PublishedGroup]] = {}
     for group in groups:
         if baseline is None or group.lineage_hash != baseline.lineage_hash:
@@ -131,12 +131,16 @@ def _write_replay_decisions(
         months: dict[str, bots._PublishedGroup] = {}
         for group in candidates:
             months.setdefault(group.known_at.strftime("%Y-%m"), group)  # the first run of a month, as the forward bots
+        first_month: str | None = None  # the cadence is counted from the first month with a verifiable decision
         for month, group in sorted(months.items()):
+            if not bots._cadence_due(spec, month, first_month):
+                continue  # not a rebalance month for this bot (B0 decides once): no new target
             matched = _matched_rows(group, book)
             decision, failure = bots._build_decision(spec, bot_id, config_hash, config, group.known_at, month, group, matched)
             if failure:
                 unavailable += 1
                 continue
+            first_month = first_month or month
             decision_id = bots._decision_id(bot_id, month, group.snapshot_hash)
             decision.update(
                 decision_id=decision_id, track="replay", label=track.label, caveat=track.caveat,
