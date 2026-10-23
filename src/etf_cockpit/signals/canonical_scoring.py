@@ -23,6 +23,7 @@ import yaml
 
 from etf_cockpit.core.config import AppConfig
 from etf_cockpit.core.paths import CONFIG_DIR
+from etf_cockpit.core.research_states import register_headline_weights_resolver
 from etf_cockpit.core.values import finite_float_or_none
 from etf_cockpit.models.ensemble import BASELINE_SOURCE_FORECAST, BASELINE_SOURCE_HEURISTIC, effective_ensemble_weights
 
@@ -975,3 +976,11 @@ def _normalise_10(value: float | None) -> float | None:
 def _is_sparebank_ec_asset_type(value: object) -> bool:
     normalized = str(value or "").strip().casefold().replace("-", "_").replace(" ", "_")
     return normalized in {"ec", "equity_certificate", "egenkapitalbevis"}
+
+
+def _registered_headline_weights(asset_type: object, components: Iterable[Any]) -> dict[str, float]:
+    return headline_weights_for_components(resolve_policy_asset_type(asset_type), asset_type, components)
+
+
+# core.research_states may not import this domain module (ADR-0002); it receives the policy here instead.
+register_headline_weights_resolver(_registered_headline_weights)

@@ -142,20 +142,29 @@ def collect_daily(root: Path, *, workers: int = 6, fetcher=None, publish_guard=N
         return []
     get = fetcher or fetch_csv
 
-    def collect(fund):
+    def fetch(fund):
+        # Network only: the publication scope is thread-bound (AppState.shared_activity_id), so writes stay on the caller thread.
         try:
-            payload = get(fund["_download_url"], config["user_agent"])
-            receipt = datetime.now(timezone.utc)
+            return get(fund["_download_url"], config["user_agent"]), datetime.now(timezone.utc), None
+        except Exception as exc:
+            return None, None, exc
+
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        fetched = list(pool.map(fetch, config["funds"]))
+
+    statuses = []
+    for fund, (payload, receipt, error) in zip(config["funds"], fetched):
+        try:
+            if error is not None:
+                raise error
             with publication_scope(publish_guard):
                 result = write_snapshot(root, payload, instrument_id=fund["instrument_id"],
                     source_url=fund["_download_url"], fetched_at=receipt, listing=fund["_listing"],
                     isin_mapping=fund["_mapping"], expected_columns=tuple(fund.get("expected_columns", COLUMNS)),
                     bond_asset_classes=tuple(fund.get("bond_asset_classes", [])))
-            return dict(ticker=fund["ticker"], status=result["status"], as_of=result["snapshot"]["as_of"])
+            statuses.append(dict(ticker=fund["ticker"], status=result["status"], as_of=result["snapshot"]["as_of"]))
         except WorkflowTransitionError:
             raise
         except Exception as exc:
-            return dict(ticker=fund["ticker"], status="failed", reason=type(exc).__name__)
-
-    with ThreadPoolExecutor(max_workers=workers) as pool:
-        return list(pool.map(collect, config["funds"]))
+            statuses.append(dict(ticker=fund["ticker"], status="failed", reason=type(exc).__name__))
+    return statuses

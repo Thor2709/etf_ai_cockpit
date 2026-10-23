@@ -43,6 +43,17 @@ def project_root(
 
 ROOT = project_root()
 CONFIG_DIR = ROOT / "configs"
+
+
+def _code_root() -> Path:
+    for parent in Path(__file__).resolve().parents:
+        if _has_project_config(parent):
+            return parent
+    return ROOT
+
+
+# Configs shipped next to this code, used when the data root (ETF_COCKPIT_ROOT) is a checkout without a given file.
+CODE_CONFIG_DIR = _code_root() / "configs"
 DATA_DIR = ROOT / "data"
 RAW_DIR = DATA_DIR / "raw"
 ETF_QUOTES_DIR = RAW_DIR / "etf_quotes"
