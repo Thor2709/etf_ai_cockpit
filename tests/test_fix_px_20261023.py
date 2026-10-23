@@ -388,3 +388,30 @@ def test_fx_snapshot_caps_quote_day_at_knowledge_date_and_rejects_future_row_ava
     assert validation.ok is False
     assert any("later than their availability" in error for error in validation.errors)
     assert snapshot.execution_allowed is False
+
+
+def test_late_known_at_action_on_undated_candles_fails_closed() -> None:
+    dividend = _action(
+        "DIV-LATE",
+        "dividend",
+        ex_date="2024-01-12",
+        payable_at="2024-01-12T00:00:00Z",
+        amount=1.0,
+        known_at="2024-02-01T00:00:00Z",
+    )
+    prices = pd.DataFrame(
+        {
+            "date": ["2024-01-10", "2024-01-11", "2024-01-12"],
+            "close": [100.0, 99.0, 98.0],
+            "currency": "USD",
+        }
+    )
+
+    result = apply_total_return_adjustments(prices, (dividend,))
+
+    assert result.available is False
+    assert "action_not_visible_at_applied_day:DIV-LATE" in result.warnings
+    assert "DIV-LATE" not in result.action_ids
+    assert result.total_return is None
+    assert result.frame["adjusted_close"].isna().all()
+    assert result.frame["security_cash_flow"].isna().all()

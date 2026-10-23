@@ -998,6 +998,7 @@ def apply_total_return_adjustments(
     income: list[float] = [0.0]
     principal: list[float] = [0.0]
     action_ids: list[str] = [""]
+    applied_final: set[str] = set()
     # Alternative vintages use the previous trading day's close available at their own knowledge time.
     row_days = [pd.Timestamp(value).normalize() for value in frame["date"]]
     for index in range(1, len(frame)):
@@ -1036,6 +1037,16 @@ def apply_total_return_adjustments(
         income.append(income_cash)
         principal.append(principal_cash)
         action_ids.append(",".join(sorted(item.action_id for item in day_actions)))
+        if index + 1 == len(row_days) or row_days[index + 1] != row_day:
+            applied_final.update(item.action_id for item in day_actions)
+    # An in-range action never visible on its applied day's final vintage row is not applied: fail closed.
+    invisible = [item for item in in_range if item.action_id not in applied_final]
+    for action in invisible:
+        warnings.append(f"action_not_visible_at_applied_day:{action.action_id}")
+        total_blocked = True
+        price_blocked = price_blocked or action.ratio is not None
+    if invisible and status == "available":
+        status = "unavailable"
     # Each day counts once in cumulative figures: its last (latest-vintage) row.
     day_is_final = [index + 1 == len(row_days) or row_days[index + 1] != day for index, day in enumerate(row_days)]
     # Anchor each row on its own as-known snapshot (never on later publications): the snapshot's first
@@ -1091,7 +1102,7 @@ def apply_total_return_adjustments(
             price_result,
             income_result,
             total_result,
-            action_ids=tuple(sorted({item.action_id for item in in_range})),
+            action_ids=tuple(sorted(applied_final)),
             # Share-count reconciliation is split-only; return indices above
             # retain their total-return basis.
             applied_ratio=math.prod(item.quantity_factor for item in in_range if item.action_type == "split"),
