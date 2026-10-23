@@ -981,6 +981,7 @@ def build_simple_instrument_scores(
         backtest_trust=backtest_trust,
         missing_signal_reasons=missing_signal_reasons,
         cyclical_projections=cyclical_projections,
+        decision_time=_analysis_decision_time(reference_decision_time, decision_as_of),
     )
     candidate_scores = build_candidate_simple_scores(
         candidate_report,
@@ -1706,12 +1707,14 @@ def build_universe_simple_scores(
     missing_signal_reasons: Mapping[str, str] | None = None,
     cyclical_projections: Mapping[str, object] | None = None,
     fx_rates: pd.DataFrame | None = None,
+    decision_time: datetime | None = None,
 ) -> list[SimpleInstrumentScore]:
     raw_forecast_scores = forecast_component_maps(forecasts)
     return_distributions = forecast_return_distributions(forecasts)
     if as_of_sources is not None and as_of_sources.expected_return_distributions is not None:
         return_distributions = as_of_sources.expected_return_distributions
     forecast_details = forecast_score_details(forecasts)
+    stock_decision_time = decision_time if as_of_sources is None else as_of_sources.decision_time
     # Each instrument's price lookups share its own signal cutoff. The explicit
     # historical decision time is an additional upper bound, including intraday.
     if not prices.empty and "date" in prices and "etf_id" in prices:
@@ -1725,8 +1728,8 @@ def build_universe_simple_scores(
             [day is not None and (cutoff is None or day <= cutoff) for day, cutoff in zip(dates.dt.date, cutoffs)],
             index=prices.index,
         )
-        if as_of_sources is not None:
-            known &= dates <= pd.to_datetime(as_of_sources.decision_time, utc=True)
+        if stock_decision_time is not None:
+            known &= dates <= pd.to_datetime(stock_decision_time, utc=True)
         prices = prices.loc[known].copy()
     latest_prices = _latest_price_lookup(prices)
     price_quality = _price_quality_lookup(prices)
@@ -1743,7 +1746,7 @@ def build_universe_simple_scores(
     kid_records = {} if as_of_sources is not None else _kid_record_lookup()
     product_lookups: dict[date | None, tuple[dict[str, dict[str, object]], dict[str, dict[str, list[float]]]]] = {}
     stock_evidence, stock_evidence_error = _stock_evidence_lookup(
-        config, signals, prices, decision_time=None if as_of_sources is None else as_of_sources.decision_time
+        config, signals, prices, decision_time=stock_decision_time
     )
     symbol_map = yfinance_symbol_map_from_config(config)
     etf_lookup = config.universe.by_id()
@@ -1757,12 +1760,15 @@ def build_universe_simple_scores(
     output: list[SimpleInstrumentScore] = []
     score_now = datetime.now(timezone.utc)
 
-    def _full_decision_time(signal_date: object) -> datetime | None:
+    def _full_decision_time(signal: SignalResult) -> datetime | None:
         # The full cutoff timestamp (never the date-only signal date): as-of runs use their own decision time, live runs
         # follow the stock-evidence rule (now, or the end of an older price date) so a projection built at that cutoff matches.
-        if as_of_sources is not None:
-            return as_of_sources.decision_time
-        parsed = _parse_date(signal_date)
+        if stock_decision_time is not None:
+            return stock_decision_time
+        evidence_time = getattr(stock_evidence.get(signal.etf_id), "decision_time", None)
+        if evidence_time is not None:
+            return evidence_time
+        parsed = _parse_date(signal.signal_date)
         return None if parsed is None else live_decision_time(parsed, score_now)
 
     def _product_lookup_for(signal_date: object) -> tuple[dict[str, dict[str, object]], dict[str, dict[str, list[float]]]]:
@@ -1849,7 +1855,7 @@ def build_universe_simple_scores(
                     stock_evidence_error,
                     cyclical_projection=(cyclical_projections or {}).get(signal.etf_id),
                     instrument_id=signal.etf_id,
-                    decision_time=_full_decision_time(signal.signal_date),
+                    decision_time=_full_decision_time(signal),
                     sector=identity.sector,
                 )
                 if stock_like
@@ -2107,10 +2113,11 @@ def build_candidate_simple_scores(
         )
     relative_reference = _candidate_relative_reference(source, decision_date)
     volatility_reference = _candidate_volatility_reference(source, decision_date)
-    # Full cutoff timestamp for the cyclical comparison: the caller's, else the live rule for the decision date.
+    # Preserve a supplied intraday cutoff. Date-only callers retain the conservative
+    # start-of-day UTC cutoff used by the adapter's existing contract.
     _cyclical_decision_time = (
         decision_time if decision_time is not None
-        else (None if decision_date is None else live_decision_time(decision_date))
+        else (None if decision_date is None else datetime.combine(decision_date, datetime.min.time(), timezone.utc))
     )
     etf_exposure = _etf_exposure_lookup()
     calibration_by_id = calibration_by_id or {}
@@ -3105,7 +3112,10 @@ def _etf_product_quality_component(
     as_of = _noneable_str(inputs.get("as_of_date"))
     source_id = _noneable_str(inputs.get("source_id")) or COMPONENT_SOURCE_IDS["etf_product_quality"]
     # KID cost has its own date; it cannot vouch for the configured product metrics.
-    metrics_present = any(_safe_float(inputs.get(key)) is not None for key in ("ter", "tracking_difference", "premium_discount_bps"))
+    metrics_present = (
+        any(_safe_float(inputs.get(key)) is not None for key in ("ter", "tracking_difference", "premium_discount_bps"))
+        or _structure_bucket(inputs.get("structure")) is not None
+    )
     metric_freshness = _evidence_age_status(as_of, decision_date, int(policy["max_age_days"]))
     if metrics_present and metric_freshness != "ok":
         return _product_quality_unavailable(

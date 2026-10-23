@@ -155,12 +155,13 @@ def test_stale_bank_capital_fails_gate():
             assert dict(component.input_as_of_dates) == ({key: vintage for key in metrics} if expected else {})
 
 
-@pytest.mark.parametrize("finding", ["A01-F5", "A01-F6", "A01-F8"])
+@pytest.mark.parametrize("finding", ["A01-F5", "A01-F6", "A01-F7", "A01-F8"])
 def test_finalization_and_bound_sources(local, monkeypatch, finding):
     if finding in {"A01-F5", "A01-F6"}:
         base = s._with_canonical_score(_score())
         if finding == "A01-F6":
-            bound = s._with_canonical_score(s._with_classification_dependency(base))
+            monkeypatch.setattr(s, "build_correlation_clusters", lambda *a, **kw: N(rows=[]))
+            (bound,) = s.rank_and_finalize_scores([base], pd.DataFrame(), {}, news_inventory={})
             raw = s.canonical_score_from_simple_components(base.display_id, base.asset_type, base.latest_date, base.components,
                                                          critical_evidence=s._critical_evidence_dated(base), business_model=base.business_model)
             expected = hashlib.sha256(f"{raw.source_vintage_hash}|classification:audit-token".encode()).hexdigest()
@@ -183,6 +184,58 @@ def test_finalization_and_bound_sources(local, monkeypatch, finding):
             assert bad.score_band_low is bad.score_band_high is bad.score_band_basis is None
             assert bad.final_action == bad.legacy_action == "manual_review" and bad.internal_intent.value == "none"
             assert next(row for row in result if row.display_id == "AURG").rank is None
+    elif finding == "A01-F7":
+        # Reuse the verified adapter fixture; only the cutoff changes from midnight.
+        from tests.test_gap_241 import INSTRUMENT, _projection
+
+        cutoff = datetime(2025, 2, 28, 18, tzinfo=timezone.utc)
+        projection = _projection(decision_time=cutoff.isoformat())
+        identity = local.universe.etfs[0].model_copy(update={
+            "id": INSTRUMENT, "instrument_type": "stock", "sector": "energy",
+        })
+        config = local.model_copy(update={"universe": local.universe.model_copy(update={"etfs": [identity]})})
+        signal = _signal(INSTRUMENT, cutoff.date())
+        monkeypatch.setattr(s, "live_decision_time", lambda *a: cutoff)
+        for kwargs in ({"as_of_sources": s.AsOfScoreSources(cutoff)}, {"decision_time": cutoff}, {}):
+            (score,) = s.build_universe_simple_scores(
+                config, [signal], pd.DataFrame(), pd.DataFrame(),
+                cyclical_projections={INSTRUMENT: projection}, **kwargs,
+            )
+            parts = {part.key: part for part in score.components}
+            assert parts["stock_value"].score_10 == 2.0 and parts["stock_quality"].score_10 == 4.0
+            assert score.execution_allowed is False
+        report = pd.DataFrame([{
+            "instrument_id": INSTRUMENT, "asset_type": "STOCK", "sector": "energy",
+            "latest_date": cutoff.date().isoformat(), "latest_price": 50.0,
+            "value_score_10": 7.5, "quality_score_10": 6.5,
+        }])
+        (candidate,) = s.build_candidate_simple_scores(
+            report, pd.DataFrame(), decision_date=cutoff.date(), decision_time=cutoff,
+            cyclical_projections={INSTRUMENT: projection},
+        )
+        parts = {part.key: part for part in candidate.components}
+        assert parts["stock_value"].score_10 == 2.0 and parts["stock_quality"].score_10 == 4.0
+        assert candidate.execution_allowed is False
+        # The caller's analysis timestamp must reach both public builders.
+        monkeypatch.setattr(s, "_generate_missing_price_signals", lambda config, sigs, px: (sigs, {}))
+        monkeypatch.setattr(s, "load_latest_candidate_report", lambda: (pd.DataFrame(), None))
+        monkeypatch.setattr(s, "load_forecast_history", lambda: pd.DataFrame())
+        monkeypatch.setattr(s, "build_market_regime", lambda *a, **kw: {})
+        monkeypatch.setattr(s, "build_portfolio_fit_lookup", lambda *a, **kw: {})
+        monkeypatch.setattr(s, "build_benchmark_attribution_lookup", lambda *a, **kw: {})
+        monkeypatch.setattr(s, "build_correlation_clusters", lambda *a, **kw: N(rows=[]))
+        monkeypatch.setattr(s, "_backtest_trust_lookup", lambda **kw: {})
+        received = []
+        def capture(*a, **kw):
+            received.append(kw["decision_time"])
+            return []
+        monkeypatch.setattr(s, "build_universe_simple_scores", capture)
+        monkeypatch.setattr(s, "build_candidate_simple_scores", capture)
+        s.build_simple_instrument_scores(
+            config, [signal], pd.DataFrame(), pd.DataFrame(), universe_revision="audit",
+            benchmark_reference={"analysis": {"decision_time": cutoff.isoformat()}}, cash_comparison_lookup={},
+        )
+        assert received == [cutoff, cutoff]
     else:
         from etf_cockpit.features import feature_pipeline as fp
         seen = []
@@ -218,7 +271,8 @@ def test_product_quality_stale_metric_unavailable(monkeypatch):
     monkeypatch.setattr(s, "build_priips_kid_cost_evidence", lambda *a, **kw: kid)
     for vintage in (None, "2022-12-31", "2026-10-21"):
         for inputs in ({"ter": 0.002}, {"kid_record": object(), "tracking_difference": 0.002},
-                       {"kid_record": object(), "premium_discount_bps": 5.0}):
+                       {"kid_record": object(), "premium_discount_bps": 5.0},
+                       {"kid_record": object(), "structure": "physical"}):
             component = s._etf_product_quality_component({**inputs, "as_of_date": vintage}, peers, DAY)
             assert component.score_10 is None and not component.score_eligible
     fresh = s._etf_product_quality_component({"ter": 0.002, "as_of_date": DAY.isoformat()}, peers, DAY)
