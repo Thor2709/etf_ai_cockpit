@@ -249,25 +249,40 @@ def membership_frame(
                         }
                     )
         licensed = connection.execute(
-            "SELECT scope, instrument_id, valid_from, valid_to, known_at, snapshot_date, complete "
-            "FROM licensed_history WHERE scope=? AND known_at<=? "
-            "ORDER BY snapshot_date, known_at, history_id",
-            (scope, cutoff),
+            "SELECT scope, instrument_id, valid_from, valid_to, known_at, snapshot_date, complete, import_id "
+            "FROM licensed_history WHERE scope=? ORDER BY snapshot_date, known_at, history_id",
+            (scope,),
         ).fetchall()
+        # A correction replaces the entire day's imported snapshot.  Wait until
+        # every row in that import is known before exposing any of its members.
+        batches: dict[tuple[str, int], list[tuple[object, ...]]] = {}
+        for row in licensed:
+            batches.setdefault((str(row[5]), int(row[7])), []).append(row)
+        latest_batch: dict[str, tuple[str, int]] = {}
+        for (day, import_id), rows in batches.items():
+            known_at = max(str(row[4]) for row in rows)
+            if known_at <= cutoff:
+                latest_batch[day] = max(latest_batch.get(day, ("", -1)), (known_at, import_id))
         latest_licensed: dict[tuple[str, str], tuple[object, ...]] = {}
+        unavailable_days: set[str] = set()
         for row in licensed:
             snapshot_date = str(row[5])
-            if snapshot_date in self_days:
+            if snapshot_date in self_days or int(row[7]) != latest_batch.get(snapshot_date, ("", -1))[1]:
                 continue
-            latest_licensed[(snapshot_date, str(row[1]))] = row
+            if any(str(value) > str(row[4])[:10] for value in (row[2], row[3], row[5]) if value is not None):
+                unavailable_days.add(snapshot_date)
+                continue
+            latest_licensed[(snapshot_date, str(row[1]).casefold())] = row
         for (snapshot_date, _instrument_id), row in sorted(latest_licensed.items()):
+            if snapshot_date in unavailable_days:
+                continue
             if _covers(str(row[2]), str(row[3]) if row[3] is not None else None, snapshot_date):
                 result.append(
                     {
                         "instrument_id": row[1],
                         "valid_from": row[2],
                         "valid_to": row[3],
-                        "known_at": row[4],
+                        "known_at": latest_batch[snapshot_date][0],
                         "snapshot_date": row[5],
                         "snapshot_complete": bool(row[6]),
                     }
@@ -390,6 +405,9 @@ def import_licensed_history(
                 "complete": complete_value,
             }
         )
+    for row in prepared:
+        if any(str(row[key]) > str(row["known_at"])[:10] for key in ("valid_from", "snapshot_date", "valid_to") if row[key] is not None):
+            raise MembershipCaptureError("licensed interval and snapshot dates must not be after known_at")
     if not prepared:
         raise MembershipCaptureError("licensed history payload is empty")
     checksum = hashlib.sha256(payload).hexdigest()
@@ -402,6 +420,13 @@ def import_licensed_history(
     skipped_count = 0
     try:
         connection.execute("BEGIN IMMEDIATE")
+        previous_by_day = {
+            (str(row["scope"]), str(row["snapshot_date"])): connection.execute(
+                "SELECT MAX(known_at) FROM licensed_history WHERE scope=? AND snapshot_date=?",
+                (row["scope"], row["snapshot_date"]),
+            ).fetchone()[0]
+            for row in prepared
+        }
         import_cursor = connection.execute(
             "INSERT INTO licensed_imports(source_id, licence_ref, checksum, row_count, raw_path, imported_at) "
             "VALUES (?, ?, ?, ?, ?, ?)",
@@ -416,10 +441,7 @@ def import_licensed_history(
             if self_capture is not None:
                 skipped_count += 1
                 continue
-            existing = connection.execute(
-                "SELECT MAX(known_at) FROM licensed_history WHERE scope=? AND snapshot_date=? AND instrument_id=?",
-                (row["scope"], row["snapshot_date"], row["instrument_id"]),
-            ).fetchone()[0]
+            existing = previous_by_day[(str(row["scope"]), str(row["snapshot_date"]))]
             if existing is not None and str(row["known_at"]) <= str(existing):
                 raise MembershipCaptureError(
                     "a licensed correction requires a later source known_at revision"
@@ -517,6 +539,12 @@ def _record_capture(
         ).fetchone()[0]
         if previous_known_at is not None and timestamp <= str(previous_known_at):
             raise MembershipCaptureError("capture known_at must advance within its declared scope")
+        previous_snapshot_date = connection.execute(
+            "SELECT MAX(snapshot_date) FROM capture_log WHERE scope=? AND source_kind='self'",
+            (scope,),
+        ).fetchone()[0]
+        if previous_snapshot_date is not None and snapshot_date < str(previous_snapshot_date):
+            raise MembershipCaptureError("capture snapshot_date must not move backwards within its declared scope")
         active = _latest_intervals(connection, scope, timestamp, "self")
         # Listing IDs are compared case-normalised so a case-only change is not a close/open.
         open_by_instrument = {
@@ -525,9 +553,12 @@ def _record_capture(
             if row["valid_to"] is None
         }
         for key, prior in open_by_instrument.items():
-            if str(prior["valid_from"]) > snapshot_date and key not in {item.casefold() for item in identifiers}:
+            # Day-resolution intervals cannot represent a same-day removal.
+            # Reject it atomically rather than publish an empty interval or
+            # invent a next-day exit date.
+            if str(prior["valid_from"]) >= snapshot_date and key not in {item.casefold() for item in identifiers}:
                 raise MembershipCaptureError(
-                    "backdated capture would close a membership interval before it opened: "
+                    "capture would close a membership interval on or before it opened: "
                     f"{prior['instrument_id']!r} opened {prior['valid_from']} but snapshot_date is {snapshot_date}"
                 )
         raw_path = _store_raw_payload(payload, digest, active_root)

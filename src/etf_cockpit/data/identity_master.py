@@ -30,7 +30,6 @@ from etf_cockpit.data.instrument_identity import (
     IdentityResolution,
     IdentityResolutionError,
     IdentityReviewDecision,
-    _eligible_claims,
     resolve_identity,
 )
 from etf_cockpit.data.local_storage import (
@@ -91,7 +90,7 @@ _UNIQUE_INSTRUMENT_IDENTIFIERS = frozenset(
         "broker_contract_id",
     }
 )
-_EXACT_MATCH_IDENTIFIERS = _UNIQUE_INSTRUMENT_IDENTIFIERS | frozenset({"lei", "cik", "national_id"})
+_EXACT_MATCH_IDENTIFIERS = _UNIQUE_INSTRUMENT_IDENTIFIERS
 
 
 class IdentityMasterSchemaError(RuntimeError):
@@ -242,10 +241,11 @@ class IdentityMasterStore:
                 continue
             if row.available_at is not None:
                 try:
-                    classification_claims = _eligible_claims(
-                        all_claims,
-                        effective_at=row.valid_from or row.available_at,
-                        decision_time=row.available_at,
+                    classification_claims = tuple(
+                        claim for claim in all_claims if _claim_is_eligible(
+                            claim, effective_at=row.valid_from or row.available_at,
+                            decision_time=row.available_at,
+                        )
                     )
                 except IdentityResolutionError:
                     # Missing or ambiguous point-in-time evidence must not
@@ -579,23 +579,30 @@ class IdentityMasterStore:
             if canonical_field not in _EXACT_MATCH_IDENTIFIERS or not value:
                 continue
             normalised = _identifier_value(canonical_field, value)
-            matching = tuple(
-                claim
-                for claim in claims
+            matching_streams = {
+                _identifier_revision_key(claim) for claim in claims
                 if _field(claim.field) == canonical_field
                 and _identifier_value(canonical_field, claim.value) == normalised
+            }
+            field_claims = tuple(
+                claim
+                for claim in claims
+                if _identifier_revision_key(claim) in matching_streams
             )
             try:
-                eligible = _eligible_claims(
-                    matching,
-                    effective_at=effective_at,
-                    decision_time=row.available_at,
+                eligible = tuple(
+                    claim for claim in field_claims if _claim_is_eligible(
+                        claim, effective_at=effective_at, decision_time=row.available_at,
+                    )
                 )
             except IdentityResolutionError:
                 # Ambiguous availability is not permission to choose the other
                 # candidate.  Keep the importing row explicitly unresolved.
                 return set()
-            candidates.update(claim.instrument_id for claim in eligible)
+            candidates.update(
+                claim.instrument_id for claim in _latest_identifier_revisions(eligible)
+                if _identifier_value(canonical_field, claim.value) == normalised
+            )
         return candidates
 
     def _load_claims(self) -> tuple[IdentityClaim, ...]:
@@ -628,19 +635,26 @@ class IdentityMasterStore:
             for claim in claims
             if claim.instrument_id == instrument_id and _field(claim.field) in _UNIQUE_INSTRUMENT_IDENTIFIERS
         }
-        relevant = tuple(
-            claim
+        relevant_streams = {
+            _identifier_revision_key(claim)
             for claim in claims
             if claim.instrument_id == instrument_id
             or (
                 _field(claim.field) in _UNIQUE_INSTRUMENT_IDENTIFIERS
                 and (_field(claim.field), _identifier_value(_field(claim.field), claim.value)) in own_keys
             )
+        }
+        # Include a matching claim's corrections even when the corrected value
+        # no longer matches.  Filtering by value first revives stale duplicates.
+        relevant = tuple(
+            claim
+            for claim in claims
+            if _identifier_revision_key(claim) in relevant_streams
         )
-        eligible = _eligible_claims(
-            relevant,
-            effective_at=effective_at,
-            decision_time=decision_time,
+        eligible = tuple(
+            claim for claim in relevant if _claim_is_eligible(
+                claim, effective_at=effective_at, decision_time=decision_time,
+            )
         )
         groups = _duplicate_identifier_groups(eligible)
         conflicts: list[IdentityConflict] = []
@@ -911,6 +925,10 @@ def _claim_key(claim: IdentityClaim) -> str:
         "field": _field(claim.field),
         "source_id": claim.source_id,
         "revision": claim.revision,
+        "valid_from": claim.valid_from,
+        "valid_to": claim.valid_to,
+        "available_at": claim.available_at,
+        "event_type": claim.event_type,
     }
     if claim.retrieved_at is not None:
         logical["retrieved_at"] = claim.retrieved_at
@@ -921,11 +939,26 @@ def _review_key(decision: IdentityReviewDecision) -> str:
     return _hash({"conflict_id": decision.conflict_id, "revision": decision.revision})
 
 
+def _identifier_revision_key(claim: IdentityClaim) -> tuple[str, str, str | None, str, str]:
+    return (claim.instrument_id, claim.object_type, claim.object_id, _field(claim.field), claim.source_id)
+
+
+def _latest_identifier_revisions(claims: Iterable[IdentityClaim]) -> tuple[IdentityClaim, ...]:
+    items = tuple(claims)
+    revisions: dict[tuple[str, str, str | None, str, str], int] = {}
+    for claim in items:
+        key = _identifier_revision_key(claim)
+        revisions[key] = max(revisions.get(key, 0), claim.revision)
+    # Retain ties as evidence; conflicting same-revision values must not be
+    # resolved by iteration order.
+    return tuple(claim for claim in items if claim.revision == revisions[_identifier_revision_key(claim)])
+
+
 def _duplicate_identifier_groups(
     claims: Iterable[IdentityClaim],
 ) -> dict[tuple[str, str], tuple[str, ...]]:
     groups: dict[tuple[str, str], set[str]] = {}
-    for claim in claims:
+    for claim in _latest_identifier_revisions(claims):
         field = _field(claim.field)
         if field not in _UNIQUE_INSTRUMENT_IDENTIFIERS:
             continue
