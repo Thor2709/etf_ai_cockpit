@@ -60,8 +60,9 @@ def test_stamping_uses_only_the_import_log_date_added_of_the_matching_package() 
     log = [json.dumps({"status": "imported", "sha256": "a" * 64, "date_added": "2023-03-30 10:03:36.514266"}),
            json.dumps({"status": "failed", "sha256": "b" * 64, "date_added": "2023-04-01 00:00:00"})]
     stamped, count = _stamp_module().stamp_filed(both, log)
-    assert count == 1
-    assert list(stamped["filed"].astype(str)) == ["2023-03-30", "None"]
+    # HOLD audit: _facts() now carries NumberOfSharesOutstanding + TreasuryShares per package (2 facts each).
+    assert count == 2
+    assert list(stamped["filed"].astype(str)) == ["2023-03-30", "2023-03-30", "None", "None"]
 
 
 @pytest.mark.parametrize("suffix,calendar", [
@@ -93,7 +94,7 @@ def test_import_and_stamp_use_only_explicit_publication_in_utc(published_on, exp
         stamped, count = _stamp_module().stamp_filed(_facts(None), [json.dumps({
             "status": "imported", "sha256": "a" * 64, "date_added": published_on,
         })])
-        assert count == 1 and stamped.iloc[0]["filed"] == expected
+        assert count == 2 and set(stamped["filed"]) == {expected}  # HOLD audit: two facts per package
 
 
 @pytest.mark.parametrize("missing", [("filed",), ("form",), ("filed", "form")])
@@ -102,7 +103,7 @@ def test_stamp_tolerates_missing_columns_and_requires_esef_form(missing) -> None
     stamped, count = _stamp_module().stamp_filed(facts, [json.dumps({
         "status": "imported", "sha256": "a" * 64, "date_added": "2023-03-30T00:30:00+02:00",
     })])
-    assert count == (0 if "form" in missing else 1)
+    assert count == (0 if "form" in missing else 2)  # HOLD audit: two facts per package
     if count:
         assert stamped.iloc[0]["filed"] == "2023-03-29"
     else:
