@@ -171,7 +171,7 @@ def fetch_yfinance(
         result.reason = f"Yahoo returned no profile for {symbol} ({kind}): {text[:140]}"
         result.snapshot = {"known_at": known_at, "source": "yfinance", "status": result.status, "reason": result.reason}
         return result
-    financial_currency = str(info.get("financialCurrency") or info.get("currency") or "")
+    financial_currency = str(info.get("financialCurrency") or "").strip()
     quote_currency = str(info.get("currency") or "")
     snapshot: dict[str, Any] = {
         "known_at": known_at,
@@ -222,6 +222,13 @@ def fetch_yfinance(
     )
     result.rows = annual + quarterly
     result.statement_errors = dict(statement_errors)
+    if result.rows and not financial_currency:
+        result.rows = []
+        result.status = "unavailable"
+        result.reason = "financialCurrency is unavailable; statement values cannot be assigned a reporting currency"
+        snapshot.update(status=result.status, reason=result.reason)
+        result.snapshot = snapshot
+        return result
     snapshot.update(_analyst_fields(ticker))
     detail = "; ".join(f"{name}: {text}" for name, text in sorted(statement_errors.items()))
     if not result.rows and statement_errors:
@@ -316,6 +323,23 @@ def parse_edgar_companyfacts(payload: Mapping[str, Any], config: Mapping[str, An
     gaap = (payload.get("facts", {}) or {}).get("us-gaap", {}) or {}
     dei = (payload.get("facts", {}) or {}).get("dei", {}) or {}
     currency = ""
+    # Exclude late comparative-only facts: retaining them would postpone every
+    # original value on a row because the storage contract has one known_at.
+    max_lag = int((config.get("sec_edgar_rules", {}) or {}).get("max_original_filing_lag_days", 120))
+    filing_ends: dict[tuple[str, str], str] = {}
+    for concept_name in {name for names in concepts.values() for name in names}:
+        for unit, facts in (gaap.get(concept_name, {}).get("units", {}) or {}).items():
+            if unit == "shares" or "/" in unit:
+                continue
+            for fact in facts:
+                end, filed = _valid_filed(fact.get("end")), _valid_filed(fact.get("filed"))
+                if end and filed and end <= filed:
+                    key = (filed, str(fact.get("accn") or ""))
+                    filing_ends[key] = max(end, filing_ends.get(key, end))
+
+    def original(end: str, filed: str, fact: Mapping[str, Any]) -> bool:
+        latest = filing_ends.get((filed, str(fact.get("accn") or "")), end)
+        return end == latest and 0 <= _days(end, filed) <= max_lag
     selected_flow_concepts: dict[tuple[str, str, str], str] = {}
     flow_cumulative: dict[str, dict[tuple[str, str], tuple[float, str, str]]] = defaultdict(dict)
     def collect_flow(name: str, concept_names: Sequence[str]) -> dict[tuple[str, str], tuple[float, str, str]]:
@@ -329,7 +353,7 @@ def parse_edgar_companyfacts(payload: Mapping[str, Any], config: Mapping[str, An
             local: dict[tuple[str, str], tuple[float, str, str]] = {}
             for entry in entries:
                 start, end, filed, value = entry.get("start"), entry.get("end"), _valid_filed(entry.get("filed")), _number(entry.get("val"))
-                if not (start and end and filed) or value is None:
+                if not (start and end and filed) or value is None or not original(end, filed, entry):
                     continue
                 key = (start, end)
                 if key not in local or filed < local[key][1]:
@@ -357,7 +381,7 @@ def parse_edgar_companyfacts(payload: Mapping[str, Any], config: Mapping[str, An
             ambiguous: set[str] = set()
             for entry in entries:
                 end, filed, value = entry.get("end"), _valid_filed(entry.get("filed")), _number(entry.get("val"))
-                if not (end and filed) or value is None:
+                if not (end and filed) or value is None or not original(end, filed, entry):
                     continue
                 if end not in local or filed < local[end][1]:
                     local[end] = (value, filed, unit)
@@ -368,7 +392,8 @@ def parse_edgar_companyfacts(payload: Mapping[str, Any], config: Mapping[str, An
                     ambiguous.add(end)
             for end, item in local.items():
                 if end not in ambiguous:
-                    merged.setdefault(end, item)
+                    if end not in merged or item[1] < merged[end][1]:
+                        merged[end] = item
             if not shares:
                 currency = currency or unit
         return merged
@@ -510,7 +535,6 @@ def parse_edgar_companyfacts(payload: Mapping[str, Any], config: Mapping[str, An
     debt_parts = {name: collect_instant([name]) for name in concepts.get("debt_parts", [])}
     lease_parts = {name: collect_instant([name]) for name in concepts.get("lease_parts", [])}
     shares = collect_instant(concepts.get("shares_outstanding", []), shares=True)
-    cover = collect_instant(["EntityCommonStockSharesOutstanding"], shares=True, source=dei)
 
     for (end, ptype), entry in list(rows.items()):
         def pick(series: Mapping[str, tuple[float, str, str]]) -> tuple[float, str, str] | None:
@@ -535,13 +559,6 @@ def parse_edgar_companyfacts(payload: Mapping[str, Any], config: Mapping[str, An
             # positive non-controlling balance makes it unsafe for parent-equity multiples.
             entry.pop("net_income_parent", None)
             entry.pop("net_income_parent_currency", None)
-        if "shares_outstanding" not in entry:
-            for cover_end, (value, filed, _unit) in cover.items():
-                # cover-page count of the filing that reports this period: filed within 120 days after the period end
-                if 0 <= (date.fromisoformat(filed) - date.fromisoformat(end)).days <= 120 and (date.fromisoformat(cover_end) >= date.fromisoformat(end)):
-                    entry["shares_outstanding"] = value
-                    entry["_filed"].append(filed)
-                    break
         cash_item, sti_item = pick(cash), pick(sti)
         if cash_item is not None:
             entry["cash"] = cash_item[0]
@@ -570,7 +587,8 @@ def parse_edgar_companyfacts(payload: Mapping[str, Any], config: Mapping[str, An
                 entry["lease_liabilities_currency"] = "currency_mismatch"
             entry["_filed"].extend(item[1] for _, item in lease_found)
 
-        debt_item = next(((name, pick(series)) for name, series in debt_totals.items() if pick(series) is not None), None)
+        debt_item = min(((name, pick(series)) for name, series in debt_totals.items() if pick(series) is not None),
+                        key=lambda item: item[1][1], default=None)
         if debt_item is not None:
             debt_name, debt = debt_item
             assert debt is not None
@@ -635,6 +653,31 @@ def parse_edgar_companyfacts(payload: Mapping[str, Any], config: Mapping[str, An
         if not any(name in entry for name in FLOW_FIELDS + BALANCE_FIELDS) and "value_status" not in entry:
             continue
         output.append(entry)
+    # A cover-page share count is a separate publication at its actual instant,
+    # never a balance-sheet value backdated to the preceding fiscal period.
+    # Keep every publication so the latest ambiguous filing can block an older
+    # count. Values from different classes are never summed or guessed.
+    publications: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+    cover_names = (config.get("sec_edgar_rules", {}) or {}).get("dei_shares", ["EntityCommonStockSharesOutstanding"])
+    for name in cover_names:
+        _, facts = _unit_values(dei.get(name, {}), shares=True)
+        for fact in facts:
+            end, filed, value = fact.get("end"), _valid_filed(fact.get("filed")), _number(fact.get("val"))
+            if end and filed and value is not None and end <= filed:
+                publications[(end, filed)].append(fact)
+    for (end, filed), facts in sorted(publications.items()):
+        values = {_number(fact.get("val")) for fact in facts}
+        conflicted = len(values) != 1 or any(fact.get("dimensions") or fact.get("segment") for fact in facts)
+        value = next(iter(values)) if len(values) == 1 else None
+        output.append({
+            "period_end": end, "period_type": "SHARES", "fiscal_year": int(end[:4]),
+            "currency": "", "source": "sec_dei", "source_ref": source_ref,
+            "known_at": filed, "available_at": filed,
+            "share_class": "unverified" if conflicted else "all_classes",
+            **({"shares_outstanding": value} if value is not None and value > 0 else {}),
+            **({"value_status": json.dumps({"shares_outstanding": "conflicted" if conflicted else "invalid"})}
+               if conflicted or value is None or value <= 0 else {}),
+        })
     return sorted(output, key=lambda item: (item["period_end"], item["period_type"]))
 
 

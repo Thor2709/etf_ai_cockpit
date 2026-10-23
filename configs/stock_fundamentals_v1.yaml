@@ -40,7 +40,7 @@ yfinance_labels:
   shares_outstanding: [Ordinary Shares Number, Share Issued]
 
 sec_edgar_concepts:
-  # field -> ordered us-gaap concepts (first reported wins). Debt is the sum of the listed parts
+  # field -> us-gaap concepts (earliest filing wins, order breaks same-day ties). Debt is the sum of the listed parts
   # that are reported (current + non-current), never a guess for a missing part.
   revenue: [Revenues, RevenueFromContractWithCustomerExcludingAssessedTax, SalesRevenueNet, RevenueFromContractWithCustomerIncludingAssessedTax]
   gross_profit: [GrossProfit]
@@ -63,6 +63,16 @@ sec_edgar_concepts:
   short_term_investments: [ShortTermInvestments, MarketableSecuritiesCurrent, AvailableForSaleSecuritiesDebtSecuritiesCurrent]
   total_assets: [Assets]
   shares_outstanding: [CommonStockSharesOutstanding]
+
+sec_edgar_rules:
+  # A fact for an earlier period than the latest period in its filing is a
+  # comparative and is excluded even when it falls inside the lag below.
+  # Original 10-K/10-Q facts only; facts first seen more than 120 days after
+  # their period end are excluded as late comparatives, not used to delay a row.
+  max_original_filing_lag_days: 120
+  # Cover-page publications retain their actual instant and filing-date known_at.
+  # Conflicting classes/counts remain unavailable; no inferred split adjustment.
+  dei_shares: [EntityCommonStockSharesOutstanding]
 
 esef_concepts:
   # field -> ordered ifrs-full concepts (consolidated, undimensioned facts; the earliest-known filing wins a period,
@@ -110,6 +120,8 @@ reporting:
   ttm_span_days: [240, 300]
   minor_currency_units: {GBp: [GBP, 0.01], GBX: [GBP, 0.01], ILA: [ILS, 0.01], ZAc: [ZAR, 0.01]}
   max_balance_staleness_days: 400
+  # Maximum fiscal-calendar drift when combining balance-sheet claims and flows.
+  balance_flow_tolerance_days: 45
 
 growth:
   years: 3
