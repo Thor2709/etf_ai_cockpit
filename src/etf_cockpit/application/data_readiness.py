@@ -29,7 +29,7 @@ import pandas as pd
 import yaml
 
 from etf_cockpit.application.score_backfill import CALENDAR_INSTRUMENT_ID
-from etf_cockpit.core.paths import CONFIG_DIR
+from etf_cockpit.core.paths import CODE_CONFIG_DIR, CONFIG_DIR
 from etf_cockpit.data.duckdb_store import SYNTHETIC_PRICE_SOURCES, load_prices
 from etf_cockpit.data.fx_data import EurRateBook, load_fx_rates, major_currency
 from etf_cockpit.data.replay_membership import ListingHistory
@@ -42,7 +42,7 @@ from etf_cockpit.signals.canonical_scoring import headline_evidence_weights
 
 _CONFIG_NAME = "data_readiness_v1.yaml"
 # The data root (ETF_COCKPIT_ROOT) may be a checkout without this file: fall back to the configs next to this code.
-CONFIG_PATH = CONFIG_DIR / _CONFIG_NAME if (CONFIG_DIR / _CONFIG_NAME).is_file() else Path(__file__).resolve().parents[3] / "configs" / _CONFIG_NAME
+CONFIG_PATH = CONFIG_DIR / _CONFIG_NAME if (CONFIG_DIR / _CONFIG_NAME).is_file() else CODE_CONFIG_DIR / _CONFIG_NAME
 PRICES_RELATIVE_PATH = Path("data") / "clean" / "prices.parquet"
 FX_RELATIVE_PATH = Path("data") / "clean" / "fx.parquet"
 CHECKS = ("scored_run", "pit_membership", "universe_counts", "family_completeness", "prices", "fx", "gate_results")

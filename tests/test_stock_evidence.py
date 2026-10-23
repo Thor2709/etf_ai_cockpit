@@ -292,5 +292,6 @@ def test_ev_never_combines_net_debt_and_minority_interest_from_different_balance
     latest = periods[-1]
     periods[-1] = replace(latest, values={key: value for key, value in latest.values.items() if key != "minority_interest"})
     ev = _evidence(periods=periods).metrics["ev"]
-    assert ev.value is None and "period_mismatch" in ev.reason
+    # Audit stock_metrics.latest_balance ("without older fallback"): the stale minority interest is no longer used, so EV is missing, not mismatched.
+    assert ev.value is None and "missing_minority_interest" in ev.reason
     assert _evidence().metrics["ev"].value == pytest.approx(730.0)

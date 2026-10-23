@@ -12,7 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import StrEnum
 from math import isfinite
-from typing import Literal, Mapping, Sequence
+from typing import Callable, Literal, Mapping, Sequence
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -244,6 +244,16 @@ def _component_is_model_only(component: object) -> bool:
     }
 
 
+_headline_weights_resolver: Callable[[object, Sequence[object]], Mapping[str, float]] | None = None
+
+
+def register_headline_weights_resolver(resolver: Callable[[object, Sequence[object]], Mapping[str, float]]) -> None:
+    """Install the headline-evidence weight policy (called by ``signals.canonical_scoring`` at import)."""
+
+    global _headline_weights_resolver
+    _headline_weights_resolver = resolver
+
+
 def normalise_analysis_status(value: object, *, fallback: AnalysisStatus = "unavailable") -> AnalysisStatus:
     """Return only the release-facing analysis-status vocabulary."""
 
@@ -287,9 +297,11 @@ def resolve_research_state(
             return ResearchState.NOT_SCOREABLE
         # Completeness concerns only the headline evidence families. Disabled
         # models and diagnostic zero-weight families cannot veto promotion.
-        from etf_cockpit.signals.canonical_scoring import headline_weights_for_components, resolve_policy_asset_type
-
-        weights = headline_weights_for_components(resolve_policy_asset_type(asset_type), asset_type, component_list)
+        # The domain layer registers the headline-weight policy (ADR-0002: shared code never imports it).
+        # Without a registered policy no headline family can be judged complete, so fail closed.
+        if _headline_weights_resolver is None:
+            return ResearchState.NOT_SCOREABLE
+        weights = _headline_weights_resolver(asset_type, component_list)
         required = [
             component for component in component_list
             if weights.get(str(getattr(component, "key", "")), 0.0) > 0
@@ -380,5 +392,6 @@ __all__ = [
     "normalise_analysis_status",
     "public_authority_payload",
     "research_state_for_legacy_action",
+    "register_headline_weights_resolver",
     "resolve_research_state",
 ]
