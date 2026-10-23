@@ -36,9 +36,6 @@ TargetKind = Literal["forward_return", "excess_return", "drawdown", "max_drawdow
 _OUTCOME_COLUMN = re.compile(r"(^|[_.:-])(target|label|future|outcome|fwd|forward[_.:-](return|ret|excess|drawdown|label|target))([_.:-]|$)", re.IGNORECASE)
 _IDENTIFIER = re.compile(r"^[A-Za-z0-9_.:-]{1,120}$")
 _ENTITY_COLUMNS = ("etf_id", "instrument_id", "entity_id")
-# Calendar days the benchmark end close may precede the target end date (exchange holidays); the same
-# bound as the feature pipeline's benchmark as-of join.
-_BENCHMARK_END_MAX_GAP_DAYS = 5
 _ENTITY_TYPE = "feature.definition"
 _TARGET_TYPE = "feature.target"
 
@@ -560,13 +557,9 @@ def _prepare_benchmark(frame: pd.DataFrame, date_column: str, price_column: str)
 
 def _forward_benchmark_return(frame: pd.DataFrame, start: pd.Timestamp, end: pd.Timestamp) -> float | None:
     left = frame[frame["__date"] <= start].tail(1)
-    # The benchmark end close must sit at the target's own end date (at most a holiday gap before it,
-    # never after it): a close from a much shorter horizon is not comparable with the target return.
-    right = frame[
-        frame["__date"].gt(start)
-        & frame["__date"].le(end)
-        & frame["__date"].ge(end - pd.Timedelta(days=_BENCHMARK_END_MAX_GAP_DAYS))
-    ].tail(1)
+    # Excess returns require a benchmark close on the target's own end date; a nearby shorter
+    # horizon is not comparable with the instrument return.
+    right = frame[frame["__date"].eq(end)]
     if left.empty or right.empty or float(left.iloc[0]["__price"]) == 0:
         return None
     return float(right.iloc[0]["__price"]) / float(left.iloc[0]["__price"]) - 1.0

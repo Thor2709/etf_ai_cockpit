@@ -63,7 +63,7 @@ def test_r1_f6_liquidity_score_uses_eur_close_and_keeps_local_close() -> None:
 
 
 # --- A04-F1 / F2 / F6: returns from unfilled prices ----------------------------------------------
-def test_a04_f2_per_series_returns_never_fabricate_zero_returns_on_gaps() -> None:
+def test_a04_f2_f6_returns_use_each_series_and_peer_coverage() -> None:
     index = pd.bdate_range("2026-01-01", periods=8)
     prices = pd.DataFrame(
         {"A": [100.0, 101.0, np.nan, np.nan, 104.0, 105.0, 106.0, 107.0], "B": np.arange(100.0, 108.0)}, index=index
@@ -74,6 +74,15 @@ def test_a04_f2_per_series_returns_never_fabricate_zero_returns_on_gaps() -> Non
     assert returns["A"].iloc[4] == pytest.approx(104.0 / 101.0 - 1.0)  # multi-session return, no 0.0 on the gap
     assert not (returns["A"].dropna() == 0.0).any()
     assert returns["B"].notna().sum() == 7  # another instrument keeps every return date
+    peer_index = pd.bdate_range("2025-01-01", periods=100)
+    peer_returns = pd.DataFrame(
+        {"X": np.full(100, 0.01), "P1": np.full(100, 0.02), "P2": np.full(100, 0.04), "P3": np.full(100, 0.08)},
+        index=peer_index,
+    )
+    peer_returns.loc[peer_index[:30], "P3"] = np.nan
+    result = _peer_attribution_result(peer_returns, "X", ["P1", "P2", "P3"], "sector", 100)
+    assert result["sector_sample_size"] == 100  # skipna=False would have kept only 70 rows
+    assert result["sector_attribution_status"] == "available"
 
 
 def test_a04_f1_macro_regime_panel_is_not_forward_filled(monkeypatch) -> None:
@@ -94,17 +103,6 @@ def test_a04_f1_macro_regime_panel_is_not_forward_filled(monkeypatch) -> None:
 
     equity = captured["frame"].loc[captured["frame"]["etf_id"] == "EQUITY"]
     assert pd.Timestamp(equity["date"].max()) == pd.Timestamp(dates[-7], tz="UTC")  # the real last close, not filled
-
-
-def test_a04_f6_one_missing_peer_does_not_nullify_the_peer_return_row() -> None:
-    index = pd.bdate_range("2025-01-01", periods=100)
-    rng = np.random.default_rng(3)
-    returns = pd.DataFrame(rng.normal(0.0, 0.01, (100, 4)), index=index, columns=["X", "P1", "P2", "P3"])
-    returns.loc[index[:30], "P3"] = np.nan  # one peer has no return for 30 dates
-    result = _peer_attribution_result(returns, "X", ["P1", "P2", "P3"], "sector", 100)
-
-    assert result["sector_sample_size"] == 100  # skipna=False would have kept only 70 rows
-    assert result["sector_attribution_status"] == "available"
 
 
 # --- A04-F5: unavailable benchmark SMA200 -> unavailable regime ----------------------------------
@@ -180,12 +178,8 @@ def test_a04_f4_price_scope_applies_known_at_and_all_identity_columns() -> None:
 
     assert report.latest_price == pytest.approx(130.0)  # the 999 revision was not known at the as_of
     assert report.rows == 30  # rows 0..30 minus the identity-conflicting row, the future revision dropped
-
-
-def test_a04_f4_same_day_fx_is_available_without_as_of() -> None:
-    config = load_config()
-    history = _history(instrument="ZZUSD", currency="USD")
-    latest = history["date"].iloc[-1]
+    usd_history = _history(instrument="ZZUSD", currency="USD")
+    latest = usd_history["date"].iloc[-1]
     fx = pd.DataFrame(
         {
             "as_of_date": [latest.date()],
@@ -196,9 +190,9 @@ def test_a04_f4_same_day_fx_is_available_without_as_of() -> None:
             "ingested_at": [(latest + pd.Timedelta(hours=16)).isoformat() + "Z"],
         }
     )
-    report = calculate_etf_liquidity(config, history, "ZZUSD", fx_evidence=fx)
-    assert report.fx_status == "available"
-    assert report.rolling_turnover_eur_20d is not None
+    same_day_fx = calculate_etf_liquidity(config, usd_history, "ZZUSD", fx_evidence=fx)
+    assert same_day_fx.fx_status == "available"
+    assert same_day_fx.rolling_turnover_eur_20d is not None
 
 
 # --- A04-F7: targets ----------------------------------------------------------------------------
@@ -223,16 +217,14 @@ def test_a04_f7_targets_use_known_revisions_dedupe_and_strict_adjusted_flags(tmp
     unadjusted = prices.assign(is_adjusted="False")
     with pytest.raises(FeatureStoreError):
         store.build_targets(unadjusted, ["2026-01-02"])
-
-
-def test_a04_f7_benchmark_horizon_must_end_at_the_target_end_date() -> None:
     benchmark = pd.DataFrame(
-        {"date": ["2026-01-01", "2026-01-02", "2026-04-10"], "adjusted_close": [100.0, 101.0, 130.0]}
+        {"date": ["2026-01-01", "2026-01-02", "2026-01-03", "2026-04-01"], "adjusted_close": [100.0, 101.0, 102.0, 160.0]}
     )
     prepared = _prepare_benchmark(benchmark, "date", "adjusted_close")
-    # A 60-session target ends 2026-04-01 and the benchmark's only in-window close is a day after the start.
-    assert _forward_benchmark_return(prepared, pd.Timestamp("2026-01-01"), pd.Timestamp("2026-04-01")) is None
-    assert _forward_benchmark_return(prepared, pd.Timestamp("2026-01-01"), pd.Timestamp("2026-01-03")) == pytest.approx(0.01)
+    assert _forward_benchmark_return(prepared, pd.Timestamp("2026-01-01"), pd.Timestamp("2026-04-01")) == pytest.approx(0.60)
+    # A benchmark close on an earlier date cannot stand in for the instrument's target end date.
+    assert _forward_benchmark_return(prepared.iloc[:2], pd.Timestamp("2026-01-01"), pd.Timestamp("2026-01-03")) is None
+    assert _forward_benchmark_return(prepared, pd.Timestamp("2026-01-01"), pd.Timestamp("2026-01-03")) == pytest.approx(0.02)
 
 
 # --- A04-F8: candidate breadth needs a knowledge time --------------------------------------------
