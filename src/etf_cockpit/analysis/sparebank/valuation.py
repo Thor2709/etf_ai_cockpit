@@ -244,11 +244,11 @@ def reverse_valuation(price_to_book: float, *, k: float | None = None, r: float 
 
 def capital_release(book_value: float, earnings: float, release: float, earnings_on_released_capital: float) -> dict[str, float]:
     book, profit, released, carry = map(_num, (book_value, earnings, release, earnings_on_released_capital))
-    if None in (book, profit, released, carry) or released < 0:
+    if None in (book, profit, released, carry) or released < 0 or book <= released:
         raise ValueError("capital release inputs are required")
     adjusted = profit - carry
-    operating_value = book + released
-    return {"release": released, "earnings_before": profit, "earnings_after": adjusted, "operating_value": operating_value, "operating_return": adjusted / operating_value if operating_value else 0.0}
+    operating_value = book - released
+    return {"release": released, "earnings_before": profit, "earnings_after": adjusted, "operating_value": operating_value, "operating_return": adjusted / operating_value}
 
 
 def buyback_accretion(book_value: float, intrinsic_value: float, count: float, quantity: float, price: float) -> dict[str, object]:
@@ -471,7 +471,20 @@ def valuation(claim: ECClaimState | Mapping[str, object], *, price: float | None
     """Build the explicit valuation section used by the suite entry point."""
 
     certification = _certification(claim)
-    standalone = owner_valuation(claim, price=price, allow_partial=True)
+    claim_status = claim.get("claim_status") if isinstance(claim, Mapping) else getattr(claim, "claim_status", None)
+    if claim_status != "resolved":
+        standalone = owner_valuation(claim, price=price, allow_partial=False)
+        unavailable = {"status": "unavailable", "reason_code": "OWNER_VALUATION_CLAIM_NOT_RESOLVED"}
+        return {
+            "status": "unavailable",
+            "standalone": standalone,
+            "reverse": dict(unavailable),
+            "central_owner_value_per_ec": dict(unavailable),
+            "certified": False,
+            "certification": certification,
+            "execution_allowed": False,
+        }
+    standalone = owner_valuation(claim, price=price, allow_partial=False)
     if standalone.get("status") not in {"resolved", "partial"}:
         return {"status": "unavailable", "standalone": standalone, "reverse": {"status": "unavailable"}, "certified": False, "certification": certification, "execution_allowed": False}
     assumptions = assumptions or {}

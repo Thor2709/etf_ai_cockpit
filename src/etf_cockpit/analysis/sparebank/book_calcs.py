@@ -288,17 +288,16 @@ def tax_effected(pre_tax_amount: object, tax_rate: object) -> float | None:
 def justified_price_to_book(sustainable_roe_: object, cost_of_equity: object, growth: object) -> float | None:
     """P/B = (ROE - g) / (COE - g) (eq. 5.22, p. 107: 12 % ROE, 9 % COE, 3 % g -> 1.50x).
 
-    ``g = b ROE`` (eq. 5.20) cannot exceed ROE, so growth is capped at ROE; a non-positive ROE
-    or COE <= g has no stable-model value; a negative g has none either (same rule as stable_pb).
+    ``g = b ROE`` (eq. 5.20) cannot exceed ROE, so growth at or above ROE has no stable-model
+    value; a non-positive ROE or COE <= g has no stable-model value either (same rule as stable_pb).
     """
 
     roe, coe, g = _num(sustainable_roe_), _num(cost_of_equity), _num(growth)
     if roe is None or coe is None or g is None or roe <= 0 or g < 0:
         return None
-    g_effective = min(g, roe)
-    if coe <= g_effective:
+    if g >= roe or coe <= g:
         return None
-    return (roe - g_effective) / (coe - g_effective)
+    return (roe - g) / (coe - g)
 
 
 def residual_income_per_unit(sustainable_roe_: object, cost_of_equity: object, opening_book: object) -> float | None:
