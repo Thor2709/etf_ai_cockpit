@@ -377,6 +377,8 @@ def _import_members(
             if entry is not None and _checkpoint_entry_valid(entry, identity, archive_sha256, member_path, member_sha256, source, parsed, records, facts_destination, inventory_destination):
                 results.append(BulkCikStatus(cik, identity.instrument_id, "skipped", member_name, "validated completed checkpoint" if not warnings else "validated completed checkpoint with parser warnings", member_sha256, coverage_status, warnings))
                 continue
+            from etf_cockpit.application.filing_ingestion import _load_vendor_statement_claims
+
             with publication_scope(publish_guard):
                 write_statement_evidence(
                     source,
@@ -384,6 +386,7 @@ def _import_members(
                     facts_destination,
                     inventory_destination,
                     instrument_id=identity.instrument_id,
+                    vendor_records=_load_vendor_statement_claims(identity.instrument_id),
                 )
             published = True
             checkpoint_entry = _checkpoint_entry(identity, archive_sha256, member_path, member_sha256, source, parsed, records, facts_destination, inventory_destination, coverage_status, warnings)

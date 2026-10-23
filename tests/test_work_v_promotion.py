@@ -63,10 +63,10 @@ def test_enabled_and_shadow_flags_fail_closed(tmp_path, monkeypatch, enabled, sh
     for state in (COUNTING, NOT_PROVEN):
         rows = service.run_forecasts(as_of, [etf], prices, horizons=[60], output_path=tmp_path / f"{state}.csv", promotions={"timesfm3": _promotion(state=state)})
         optional = [row for row in rows if row.model_name != "baseline"]
-        assert optional and all(row.model_allowed_in_score == (enabled and state == COUNTING) for row in optional)
+        assert optional and all(row.model_allowed_in_score == (enabled and state == COUNTING and not shadow) for row in optional)
         assert all(row.model_allowed_in_score for row in rows if row.model_name == "baseline" and row.status == "ok")
         stored = pd.read_csv(tmp_path / f"{state}.csv")
-        assert stored.loc[stored.model_name.ne("baseline"), "model_allowed_in_score"].eq(enabled and state == COUNTING).all()
+        assert stored.loc[stored.model_name.ne("baseline"), "model_allowed_in_score"].eq(enabled and state == COUNTING and not shadow).all()
 
 
 @pytest.mark.parametrize("status", ["ok", "failed", "unavailable"])
