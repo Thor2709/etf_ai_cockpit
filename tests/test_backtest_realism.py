@@ -221,10 +221,12 @@ def test_c018_n002_capacity_is_enforced_in_the_vector_backtest(config, prices) -
     assert capped.trade_log["capacity_fill_status"].str.contains("partial_fill|no_fill").any()
     assert (capped.trade_log["unfilled_eur"] > 0).any()
     assert (capped.trade_log["max_days_to_fill"] >= 1).all()
-    # Unfilled orders cut the traded turnover against the unconstrained run.
+    # The first-session rebalance can repair a capacity-limited initial allocation. Compare later
+    # rebalances, where unfilled orders cut the traded turnover against the unconstrained run.
     def traded(report) -> float:
         log = report.trade_log
-        return float(log.loc[log["strategy"] == "equal_weight", "turnover"].sum())
+        after_initial = pd.to_datetime(log["signal_date"]) > report.equity_curves.index[0]
+        return float(log.loc[log["strategy"].eq("equal_weight") & after_initial, "turnover"].sum())
 
     assert traded(capped) < traded(free)
     assert (capped.trade_log["remainder_policy"] == "cancelled_at_session_end").all()
