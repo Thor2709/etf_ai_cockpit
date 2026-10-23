@@ -226,3 +226,39 @@ def test_score_history_persists_resolved_gate_results_with_reasons(monkeypatch, 
     score_backfill.write_backfill_store(tmp_path, history, eligibility, {"execution_allowed": False})
     restored = score_backfill.load_backfill_score_history(tmp_path)
     assert restored["gate_results"].tolist() == history["gate_results"].tolist()
+
+
+def test_configured_equity_certificate_rows_take_native_path_not_generic_scoring(monkeypatch):
+    config = load_config()
+    base = config.universe.etfs[0]
+    ec = base.model_copy(update={"id": "ECX", "instrument_type": "equity_certificate"})
+    config = config.model_copy(update={"universe": config.universe.model_copy(update={"etfs": [*config.universe.etfs, ec]})})
+    seen: list[list[str]] = []
+    row = {"etf_id": "AAA", "total_score": 0.8, "confidence": 0.8, "current_weight": 0.0, "target_weight": 0.2,
+           "hard_band": 0.05, "momentum_20d": 0.1, "momentum_60d": 0.1, "momentum_120d": 0.1, "relative_strength_60d": 0.1,
+           "trend_200": 1.0, "drawdown_60d_max": -0.05, "ewma_vol_ann": 0.1}
+
+    def components(features, *a, **k):
+        seen.append(list(features["etf_id"]))
+        return pd.DataFrame([row])
+
+    def canonical(row_, *a, **k):
+        assert str(row_["etf_id"]) != "ECX"
+        return _canonical()
+
+    monkeypatch.setattr(pipeline, "component_scores", components)
+    monkeypatch.setattr(pipeline, "allocation_frame", lambda *a: pd.DataFrame([{"etf_id": "AAA", "drift": 0.0, "role": "core", "name": "AAA"}]))
+    monkeypatch.setattr(pipeline, "canonical_score_from_signal_row", canonical)
+    monkeypatch.setattr(pipeline, "portfolio_value", lambda *a: 100_000.0)
+    monkeypatch.setattr(pipeline, "estimated_cost_bps", lambda *a: 20.0)
+    monkeypatch.setattr(pipeline, "estimate_execution_cost", lambda *a, **k: SimpleNamespace(
+        total_cost_bps=20.0, model_id="test", data_quality="test", capacity_eur=100_000.0))
+    monkeypatch.setattr(pipeline, "row_components", lambda *a: None)
+    monkeypatch.setattr(pipeline, "explain_signal", lambda *a: ("Review", "Detail"))
+    monkeypatch.setattr(pipeline, "classification_score_state", lambda *a: {"status": "current", "version_id": "t", "invalidation_token": "t"})
+    holdings = pd.DataFrame([{"etf_id": "AAA", "current_weight": 0.0}])
+    kwargs = dict(as_of_date=SIGNAL_DATE, run_id="fix-gate-ec", publish=False)
+    signals = pipeline.generate_signals(config, pd.DataFrame([{"etf_id": "AAA"}, {"etf_id": "ECX"}]), holdings, _report(_metadata()), **kwargs)
+    assert seen == [["AAA"]] and [signal.etf_id for signal in signals] == ["AAA"]
+    # Only ECs configured: nothing is generically scored and nothing raises.
+    assert pipeline.generate_signals(config, pd.DataFrame([{"etf_id": "ECX"}]), holdings, _report(_metadata()), **kwargs) == []

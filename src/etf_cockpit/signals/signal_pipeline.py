@@ -20,7 +20,7 @@ from etf_cockpit.portfolio.costs import estimate_execution_cost, estimated_cost_
 from etf_cockpit.portfolio.holdings import portfolio_value
 from etf_cockpit.portfolio.rebalancing import proposed_new_weight, suggested_trade_value
 from etf_cockpit.signals.actions import advisory_action, apply_gate_result, preliminary_action
-from etf_cockpit.signals.canonical_scoring import canonical_score_from_signal_row
+from etf_cockpit.signals.canonical_scoring import _is_sparebank_ec_asset_type, canonical_score_from_signal_row
 from etf_cockpit.signals.explanations import explain_signal
 from etf_cockpit.signals.gates import evaluate_risk_gates
 from etf_cockpit.signals.scoring import component_scores, row_components
@@ -68,6 +68,13 @@ def generate_signals(
 ) -> list[SignalResult]:
     run_id = run_id or current_run_id("signals")
     signal_date = as_of_date or data_report.as_of_date
+    # Equity certificates (Sparebank ECs) are scored only by the native Sparebank scorecard. Generic scoring
+    # raises for them, and their rows must not enter the cross-sectional components of the other instruments.
+    generic_features = _without_native_sparebank_rows(config, latest_features)
+    if len(generic_features) != len(latest_features):
+        latest_features = generic_features
+        if latest_features.empty:
+            return []
     allocation = allocation_frame(config, holdings)
     scored = component_scores(
         latest_features,
@@ -77,6 +84,7 @@ def generate_signals(
         timesfm_available=timesfm_available,
         forecast_scores=forecast_scores,
     )
+    scored = _without_native_sparebank_rows(config, scored)  # same rule at the scored boundary
     scored = scored.merge(allocation[["etf_id", "drift", "role", "name"]], on="etf_id", how="left")
     scored["cost_bps"] = scored["etf_id"].map(lambda etf_id: estimated_cost_bps(config, str(etf_id)))
     # A missing optional forecast distribution must not suppress the
@@ -530,6 +538,24 @@ def _attach_authority(signal: SignalResult, data_report: DataQualityReport) -> S
     ]
     decision = resolve_authority(research_state_for_legacy_action(signal.action), gates, None)
     return replace(signal, authority_decision=decision)
+
+
+def _without_native_sparebank_rows(config: AppConfig, features: pd.DataFrame) -> pd.DataFrame:
+    """Drop configured or self-declared Sparebank EC rows; they take the native Sparebank path, never generic scoring."""
+
+    if features.empty or "etf_id" not in features.columns:
+        return features
+    by_id = config.universe.by_id()
+    declared = [name for name in ("asset_type", "instrument_type", "instrument_subtype", "capital_class") if name in features.columns]
+
+    def native(row: pd.Series) -> bool:
+        identity = by_id.get(str(row["etf_id"]))
+        return _is_sparebank_ec_asset_type(getattr(identity, "instrument_type", None)) or any(
+            _is_sparebank_ec_asset_type(row[name]) for name in declared
+        )
+
+    mask = features.apply(native, axis=1)
+    return features.loc[~mask].copy() if bool(mask.any()) else features
 
 
 def _valuation_gate(signal: SignalResult) -> tuple[bool, str]:
