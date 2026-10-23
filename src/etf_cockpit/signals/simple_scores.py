@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 import hashlib
 import json
 from functools import lru_cache
@@ -991,6 +991,7 @@ def build_simple_instrument_scores(
         decision_date=decision_as_of,
         excluded_instrument_ids=config.universe.by_id(),
         cyclical_projections=cyclical_projections,
+        decision_time=_analysis_decision_time(reference_decision_time, decision_as_of),
     )
     return rank_and_finalize_scores([*universe_scores, *candidate_scores], prices, metadata)
 
@@ -1754,6 +1755,15 @@ def build_universe_simple_scores(
     backtest_trust = backtest_trust or {}
     crowding_lookup = {row.instrument_id: row for row in (crowding.rows if crowding else ())}
     output: list[SimpleInstrumentScore] = []
+    score_now = datetime.now(timezone.utc)
+
+    def _full_decision_time(signal_date: object) -> datetime | None:
+        # The full cutoff timestamp (never the date-only signal date): as-of runs use their own decision time, live runs
+        # follow the stock-evidence rule (now, or the end of an older price date) so a projection built at that cutoff matches.
+        if as_of_sources is not None:
+            return as_of_sources.decision_time
+        parsed = _parse_date(signal_date)
+        return None if parsed is None else live_decision_time(parsed, score_now)
 
     def _product_lookup_for(signal_date: object) -> tuple[dict[str, dict[str, object]], dict[str, dict[str, list[float]]]]:
         # peers are filtered to each signal's own decision date: a later-dated peer vintage never ranks an earlier decision
@@ -1839,7 +1849,7 @@ def build_universe_simple_scores(
                     stock_evidence_error,
                     cyclical_projection=(cyclical_projections or {}).get(signal.etf_id),
                     instrument_id=signal.etf_id,
-                    decision_time=signal.signal_date,
+                    decision_time=_full_decision_time(signal.signal_date),
                     sector=identity.sector,
                 )
                 if stock_like
@@ -2063,6 +2073,7 @@ def build_candidate_simple_scores(
     decision_date: date | None = None,
     excluded_instrument_ids: Iterable[str] = (),
     cyclical_projections: Mapping[str, object] | None = None,
+    decision_time: datetime | None = None,
 ) -> list[SimpleInstrumentScore]:
     report = candidate_report.copy() if candidate_report is not None else pd.DataFrame()
     forecasts = candidate_forecasts.copy() if candidate_forecasts is not None else pd.DataFrame()
@@ -2096,6 +2107,11 @@ def build_candidate_simple_scores(
         )
     relative_reference = _candidate_relative_reference(source, decision_date)
     volatility_reference = _candidate_volatility_reference(source, decision_date)
+    # Full cutoff timestamp for the cyclical comparison: the caller's, else the live rule for the decision date.
+    _cyclical_decision_time = (
+        decision_time if decision_time is not None
+        else (None if decision_date is None else live_decision_time(decision_date))
+    )
     etf_exposure = _etf_exposure_lookup()
     calibration_by_id = calibration_by_id or {}
     regime = regime or {}
@@ -2173,7 +2189,7 @@ def build_candidate_simple_scores(
             cyclical_components = _cyclical_stock_components(
                 (cyclical_projections or {}).get(instrument_id),
                 instrument_id=instrument_id,
-                decision_time=decision_date,
+                decision_time=_cyclical_decision_time,
                 sector=row.get("sector"),
             )
             if cyclical_components is not None and all(row.status == "OK" for row in cyclical_components):
@@ -5327,6 +5343,20 @@ def _score_10_to_raw(score_10: float | None) -> float | None:
     if score_10 is None:
         return None
     return _clamp((float(score_10) / 5.0) - 1.0)
+
+
+def _analysis_decision_time(value: object, decision_date: date | None) -> datetime | None:
+    """The analysis run's full timezone-aware cutoff, only when it belongs to the scored decision date."""
+
+    try:
+        parsed = pd.Timestamp(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if pd.isna(parsed) or parsed.tzinfo is None:
+        return None
+    if decision_date is not None and parsed.tz_convert("UTC").date() != decision_date:
+        return None
+    return parsed.to_pydatetime()
 
 
 def _parse_date(value: object) -> date | None:
