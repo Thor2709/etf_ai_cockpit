@@ -31,11 +31,12 @@ MAX_RESPONSE_BYTES = 300 * 1024 * 1024
 
 
 def parse_reported_shares(facts: pd.DataFrame, *, source_ref: str) -> list[dict[str, Any]]:
-    """Only named, consolidated, undimensioned outstanding-share instant facts.
+    """Prefer DEI shares; otherwise require matching IFRS outstanding and treasury facts.
 
     Require ``filed`` or registry ``date_added``: imported ``known_at`` alone
     can be acquisition time and does not prove publication. Preserve each filing
-    separately. Weighted averages, issued shares and EPS are ineligible.
+    separately. Conflicting facts and missing treasury shares are unavailable.
+    Weighted averages, issued shares and EPS are ineligible.
     """
     from etf_cockpit.analysis.stock_metrics import as_utc
 
@@ -44,12 +45,25 @@ def parse_reported_shares(facts: pd.DataFrame, *, source_ref: str) -> list[dict[
         facts = facts.loc[facts["dimensions"].map(
             lambda value: value is None or not (pd.api.types.is_scalar(value) and pd.isna(value))
         )]
-    grouped: dict[tuple[str, str, str, str], list[float | None]] = {}
+
+    def fact_text(value: object) -> str:
+        if value is None or (pd.api.types.is_scalar(value) and pd.isna(value)):
+            return ""
+        return str(value)
+
+    grouped: dict[tuple[str, str, str, str], dict[str, list[tuple[Decimal | None, str]]]] = {}
     for fact in facts.to_dict("records"):
-        if (str(fact.get("taxonomy")) != "ifrs-full"
-                or str(fact.get("concept")) != "NumberOfSharesOutstanding"
-                or str(fact.get("consolidation_scope")) != "consolidated"
-                or str(fact.get("unit")) != "shares"):
+        taxonomy = fact_text(fact.get("taxonomy")).casefold()
+        concept = fact_text(fact.get("concept")).split(":")[-1]
+        namespace = fact_text(fact.get("namespace"))
+        dei_namespace = bool(re.fullmatch(r"https?://xbrl\.sec\.gov/dei/\d{4}(?:-\d{2}-\d{2})?", namespace))
+        if concept == "EntityCommonStockSharesOutstanding" and (taxonomy == "dei" or dei_namespace):
+            share_group = "dei"
+        elif taxonomy == "ifrs-full" and concept in {"NumberOfSharesOutstanding", "TreasuryShares"}:
+            share_group = concept
+        else:
+            continue
+        if fact_text(fact.get("consolidation_scope")) != "consolidated" or fact_text(fact.get("unit")) != "shares":
             continue
         dimensions = fact.get("dimensions")
         if dimensions is not None and not (isinstance(dimensions, str) and dimensions in ("", "{}")) and dimensions != {}:
@@ -64,20 +78,52 @@ def parse_reported_shares(facts: pd.DataFrame, *, source_ref: str) -> list[dict[
         published = as_utc(fact.get("filed")) or as_utc(fact.get("date_added"))
         if end is None or known is None or published is None or end.date() > published.date():
             continue
-        value = pd.to_numeric(fact.get("value"), errors="coerce")
-        valid = pd.notna(value) and float("-inf") < value < float("inf") and value > 0 and not isinstance(fact.get("value"), bool)
-        reference = fact.get("source_id")
-        reference = str(reference) if reference is not None and pd.notna(reference) else source_ref
-        key = (end.date().isoformat(), published.isoformat(), max(known, published).isoformat(), reference)
-        grouped.setdefault(key, []).append(float(value) if valid else None)
+        try:
+            value = Decimal(str(fact.get("value")))
+            valid = (
+                not isinstance(fact.get("value"), bool)
+                and value.is_finite()
+                and Decimal(0) <= value <= Decimal(2 ** 53)
+                and value == value.to_integral_value()
+                and (share_group == "TreasuryShares" or value > 0)
+            )
+        except (InvalidOperation, ValueError):
+            valid, value = False, None
+        raw_reference = fact.get("source_id")
+        reference = str(raw_reference) if raw_reference is not None and pd.notna(raw_reference) else source_ref
+        filing = next((
+            str(fact.get(name)).strip()
+            for name in ("filing_version", "accession", "sha256", "source_url")
+            if fact.get(name) is not None and pd.notna(fact.get(name)) and str(fact.get(name)).strip()
+        ), reference)
+        key = (end.date().isoformat(), published.isoformat(), max(known, published).isoformat(), filing)
+        grouped.setdefault(key, {}).setdefault(share_group, []).append((value if valid else None, reference))
     rows = []
-    for (end, published, known, reference), values in sorted(grouped.items()):
-        usable = None not in values and len(set(values)) == 1
+    for (end, published, known, _filing), concepts in sorted(grouped.items()):
+        def agreed(group: str) -> tuple[Decimal | None, str | None]:
+            entries = concepts.get(group, [])
+            values = [value for value, _ in entries]
+            if not values or any(value is None for value in values) or len(set(values)) != 1:
+                return None, None
+            return values[0], next((reference for value, reference in entries if value is not None), None)
+
+        if concepts.get("dei"):
+            shares, reference = agreed("dei")
+        elif concepts.get("NumberOfSharesOutstanding"):
+            outstanding, reference = agreed("NumberOfSharesOutstanding")
+            treasury, _treasury_reference = agreed("TreasuryShares")
+            shares = outstanding - treasury if outstanding is not None and treasury is not None else None
+            if shares is not None and shares <= 0:
+                shares = None
+        else:
+            continue
+        reference = reference or source_ref
+        usable = shares is not None
         rows.append({
             "period_end": end, "period_type": "SHARES", "fiscal_year": int(end[:4]),
             "currency": "", "source": "esef_reported", "source_ref": reference,
             "known_at": known, "available_at": published,
-            "shares_outstanding": values[0] if usable else None,
+            "shares_outstanding": float(shares) if usable else None,
             "value_status": json.dumps({"shares_outstanding": "observed" if usable else "conflicted"}),
         })
     return rows

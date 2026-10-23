@@ -263,12 +263,13 @@ def select_holdings_as_of(frame: pd.DataFrame, instrument_id: str, decision_time
     """
     identity = next((key for key in ("instrument_id", "etf_id") if key in frame), None)
     date_column = next((key for key in ("as_of", "as_of_date") if key in frame), None)
-    if identity is None or date_column is None or "known_at" not in frame:
+    known_at_column = next((key for key in ("known_at", "document_known_at", "ingested_at") if key in frame), None)
+    if identity is None or date_column is None or known_at_column is None:
         return pd.DataFrame()
     cutoff = etf_decision_cutoff(decision_time)
     scoped = frame.loc[frame[identity].astype(str).eq(instrument_id)].copy()
     scoped["as_of"] = pd.to_datetime(scoped[date_column], utc=True, errors="coerce", format="mixed")
-    scoped["known_at"] = pd.to_datetime(scoped["known_at"], utc=True, errors="coerce", format="mixed")
+    scoped["known_at"] = pd.to_datetime(scoped[known_at_column], utc=True, errors="coerce", format="mixed")
     scoped = scoped.loc[scoped["as_of"].le(cutoff) & scoped["known_at"].le(cutoff) & scoped["known_at"].ge(scoped["as_of"])]
     if scoped.empty:
         return scoped
@@ -301,12 +302,22 @@ def holdings_splits(frame: pd.DataFrame) -> dict[str, object]:
     if frame.empty or "weight" not in frame:
         result["reason"] = "holdings_no_dated_source"
         return result
+    date_column = next((key for key in ("as_of", "as_of_date") if key in frame), None)
+    known_at_column = next((key for key in ("known_at", "document_known_at", "ingested_at") if key in frame), None)
+    if date_column is None or known_at_column is None:
+        result["reason"] = "holdings_no_dated_source"
+        return result
+    as_of_values = pd.to_datetime(frame[date_column], utc=True, errors="coerce", format="mixed")
+    known_at_values = pd.to_datetime(frame[known_at_column], utc=True, errors="coerce", format="mixed")
+    if as_of_values.isna().any() or known_at_values.isna().any() or known_at_values.lt(as_of_values).any():
+        result["reason"] = "holdings_no_dated_source"
+        return result
     weights = pd.to_numeric(frame["weight"], errors="coerce")
     total = float(weights.sum())
     if weights.isna().any() or (weights < 0).any() or not math.isfinite(total) or not 0 < total <= 1.01:
         result["reason"] = "holdings_weights_not_usable"
         return result
-    result.update(as_of=str(frame["as_of"].max()), known_at=str(frame["known_at"].max()), disclosed_weight=total)
+    result.update(as_of=str(frame[date_column].max()), known_at=str(frame[known_at_column].max()), disclosed_weight=total)
     for dimension in ("country", "sector"):
         labels = frame.get(dimension, pd.Series("", index=frame.index)).fillna("").astype(str).str.strip()
         labels = labels.mask(labels.str.casefold().isin({"", "unknown", "unknown/unmapped", "unclassified", "nan", "none"}), "Other/unclassified")
@@ -357,8 +368,9 @@ def write_holdings_records(
             raise ValueError(f"Holdings result is not score-eligible; refusing to replace canonical store ({detail}).")
         if "schema_version" not in frame.columns:
             frame.insert(0, "schema_version", 1)
-        _read_existing_holdings(destination)
-        _write_holdings_frame(frame, destination=destination)
+        existing = _read_existing_holdings(destination)
+        merged = _merge_holdings_frame(existing, frame, str(frame["instrument_id"].iloc[0]))
+        _write_holdings_frame(merged, destination=destination)
     return destination
 
 

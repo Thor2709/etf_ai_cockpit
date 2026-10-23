@@ -37,8 +37,12 @@ class _Record:
     context_id, consolidation_scope, context_dimensions = "c1", "consolidated", ()
 
 
+class _TreasuryRecord(_Record):
+    concept, value = "TreasuryShares", "0"
+
+
 def _facts(filed: str | None) -> pd.DataFrame:
-    facts = statement_facts_from_esef([_Record()], instrument_id="XX", source_sha256="a" * 64, known_at="2023-03-30T00:00:00+00:00", published_on=filed)
+    facts = statement_facts_from_esef([_Record(), _TreasuryRecord()], instrument_id="XX", source_sha256="a" * 64, known_at="2023-03-30T00:00:00+00:00", published_on=filed)
     return pd.DataFrame([fact.model_dump() if hasattr(fact, "model_dump") else fact.__dict__ for fact in facts])
 
 
