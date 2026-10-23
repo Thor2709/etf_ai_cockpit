@@ -454,7 +454,7 @@ def test_candidate_without_portfolio_fields_gets_algorithm_scores() -> None:
     assert scores[0].instrument_key == "candidate:ABC"
     assert scores[0].final_score_10 is not None
     assert scores[0].evidence_quality_10 is not None
-    assert scores[0].risk_friction_10 is not None
+    assert scores[0].risk_friction_10 is None
     assert scores[0].valid_component_count >= 4
 
 
