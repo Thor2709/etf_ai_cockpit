@@ -547,7 +547,7 @@ def test_failed_gate_never_enters_a_top_n_or_candidate_sleeve(monkeypatch, tmp_p
         monkeypatch, tmp_path / "cash-only", rows, no_candidates, now + timedelta(seconds=1)
     )
     cash_top_n = next(record for record in cash_result.records if record["bot_family"] == "B1")
-    assert cash_top_n["targets"] == {"cash_weight": 1.0}
+    assert cash_top_n["targets"] == {"VWCE": 1.0}
 
 
 def test_b0_stage_a_target_is_vwce_only_and_captures_price(monkeypatch, tmp_path: Path) -> None:

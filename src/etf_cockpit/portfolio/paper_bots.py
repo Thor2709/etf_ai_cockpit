@@ -178,15 +178,22 @@ def run_paper_bots(
 
     try:
         with TransactionalStore(project_root) as store:
-            baseline_id = _baseline_id(config_hash, str(config["baseline_score_version"]))
-            baseline_record = store.get(BASELINE_ENTITY_TYPE, baseline_id)
+            baseline_id = _baseline_id(
+                config_hash, None if config.get("baseline_score_version_source") else str(config["baseline_score_version"])
+            )
+            baseline_record = _stored_baseline(store, config, config_hash)
             stored_baseline = baseline_record.payload if baseline_record is not None else None
+            if isinstance(stored_baseline, Mapping):
+                # The live policy selects the first comparator only. A later policy is a challenger.
+                config = {**config, "baseline_score_version": stored_baseline.get("baseline_score_version")}
             baseline_error = None
             stored_baseline_usable = False
             if isinstance(stored_baseline, Mapping):
                 stored_known_at = _parse_timestamp(stored_baseline.get("known_at"))
                 if stored_known_at is None:
                     baseline_error = "Pinned baseline known_at is unverifiable."
+                elif stored_known_at > cutoff:
+                    baseline_error = "Pinned baseline is newer than as_of."
                 elif stored_known_at <= cutoff:
                     stored_baseline_usable = bool(
                         stored_baseline.get("config_hash") == config_hash
@@ -351,7 +358,7 @@ def run_paper_bots(
                 if (
                     baseline_payload_to_store is not None
                     and group.lineage_hash == baseline_payload_to_store.get("lineage_hash")
-                    and store.get(BASELINE_ENTITY_TYPE, baseline_id) is None
+                    and baseline_record is None
                 ):
                     writes.append((BASELINE_ENTITY_TYPE, baseline_id, baseline_payload_to_store))
                 try:
@@ -964,8 +971,9 @@ def _build_decision(
                     targets[item[1]] = targets.get(item[1], 0.0) + per_instrument
                 selected_ids = [str(benchmark_spec["instrument_id"]), *(item[1] for item in chosen)]
             else:
-                # DEFAULTS: an empty candidate sleeve is held as cash_weight (never reweighted into VWCE).
-                targets["cash_weight"] = float(spec["sleeve_weight"])
+                # D4: without an active edge the sleeve follows the passive default.
+                targets[str(benchmark_spec["instrument_id"])] += float(spec["sleeve_weight"])
+                allocation_reason = "no_eligible_candidates: VWCE passive default"
                 selected_ids = [str(benchmark_spec["instrument_id"])]
         else:
             return unavailable("Unsupported strategy in bot specification.")
@@ -982,7 +990,9 @@ def _build_decision(
                         "equal weight among the eligible instruments"
                     )
             else:
-                targets = {"cash_weight": 1.0}
+                targets = {str(benchmark_spec["instrument_id"]): 1.0}
+                selected_ids = [str(benchmark_spec["instrument_id"])]
+                allocation_reason = "no_eligible_candidates: VWCE passive default"
             for item in eligible[len(chosen):]:
                 skipped.append({"instrument_id": item[1], "reason": "rank_below_top_n"})
 
@@ -1100,9 +1110,18 @@ def _persist_unavailable(
     try:
         with TransactionalStore(root) as store:
             first_months = _first_decision_months(store, by="bot_family")
+            baseline = _stored_baseline(store, config, config_hash)
+            pinned = baseline.payload if baseline is not None else {}
+            pinned_known = _parse_timestamp(pinned.get("known_at"))
+            if pinned and (pinned_known is None or pinned_known > cutoff
+                           or not _is_sha256(_real_text(pinned.get("lineage_hash")))
+                           or pinned.get("execution_allowed") is not False):
+                raise ValueError("Pinned baseline is unavailable at as_of.")
             for spec in config["bots"]:
-                lineage = None
+                lineage = pinned.get("lineage_hash") if spec["family_id"] in _CADENCE_FAMILIES else None
                 bot_id = _bot_identity(spec, config_hash, lineage)
+                if store.get(MONTH_SLOT_ENTITY_TYPE, _month_slot_id(bot_id, month)) is not None:
+                    continue
                 if not _cadence_due(spec, month, first_months.get(str(spec["family_id"]))):
                     continue
                 record = _unavailable_record(spec, bot_id, config_hash, config, cutoff, month, reason)
@@ -1143,7 +1162,7 @@ def _unavailable_record(
         "score_version": None,
         "source_snapshot_hash": snapshot_hash,
         "snapshot_hash": snapshot_hash,
-        "known_at": known_at,
+        "known_at": known_at or _time_text(cutoff),
         "as_of": _time_text(cutoff),
         "decision_month": month,
         "initial_virtual_cash_eur": float(config["initial_virtual_cash_eur"]),
@@ -1167,8 +1186,21 @@ def _append_unavailable(store: TransactionalStore, record: Mapping[str, Any]) ->
     )
 
 
-def _baseline_id(config_hash: str, score_version: str) -> str:
-    return _sha256_json({"config_hash": config_hash, "baseline_score_version": score_version})
+def _stored_baseline(store: TransactionalStore, config: Mapping[str, Any], config_hash: str) -> Any:
+    if not config.get("baseline_score_version_source"):
+        return store.get(BASELINE_ENTITY_TYPE, _baseline_id(config_hash, str(config["baseline_score_version"])))
+    # Also recognise the former version-keyed records without rewriting immutable history.
+    matches = [record for record in store.list(BASELINE_ENTITY_TYPE) if record.payload.get("config_hash") == config_hash]
+    if len(matches) > 1:
+        raise ValueError("Conflicting pinned score baselines for this bot configuration.")
+    return matches[0] if matches else None
+
+
+def _baseline_id(config_hash: str, score_version: str | None) -> str:
+    material = {"config_hash": config_hash}
+    if score_version is not None:
+        material["baseline_score_version"] = score_version
+    return _sha256_json(material)
 
 
 def _bot_identity(spec: Mapping[str, Any], config_hash: str, lineage_hash: str | None) -> str:
