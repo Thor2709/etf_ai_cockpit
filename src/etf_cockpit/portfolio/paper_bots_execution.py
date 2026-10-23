@@ -93,6 +93,11 @@ class Track:
     plan_type: str
     record_type: str
 
+    @property
+    def failure_type(self) -> str:
+        """Execution failures live beside, never inside, the order-record stream (a retry must not see them)."""
+        return f"{self.record_type}_failure"
+
 
 def forward_track(root: Path) -> Track:
     return Track(
@@ -445,8 +450,8 @@ def _run(
                               "instrument_id": None, "side": "none", "planned_quantity": "0", "target_weight": "0",
                               "reason": "bot execution failure"}
                     failure = _record(context, decision, intent, None, "failed", reason)
-                    if store.get(track.record_type, failure["record_id"]) is None:
-                        _store_record(context, failure)
+                    if store.get(track.failure_type, failure["record_id"]) is None:
+                        store.put_many([(track.failure_type, failure["record_id"], failure)], immutable=True)
                         new_records = [failure]
                     else:
                         new_records = []

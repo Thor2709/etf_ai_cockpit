@@ -121,6 +121,7 @@ def test_historical_report_excludes_future_decisions_records_and_ledger_events(m
     cutoff = datetime(2026, 10, 16, 12, tzinfo=timezone.utc)
     _execute(tmp_path, book, as_of=cutoff)
     before = reports.build_paper_bots_overview(tmp_path, as_of=cutoff, price_book=book)["forward"]
+    template = _records(tmp_path)[0]
     assert before["bots"] and any(bot["metrics"] for bot in before["bots"])
     _execute(tmp_path, book)  # later split fills and their fees enter the same ledger
     with TransactionalStore(tmp_path) as store:
@@ -128,7 +129,7 @@ def test_historical_report_excludes_future_decisions_records_and_ledger_events(m
         future = {**decision, "decision_id": "future-decision", "bot_id": "future-bot", "status": "unavailable",
                   "known_at": None, "as_of": bots._time_text(RUN_AT)}
         store.put_many([(bots.DECISION_ENTITY_TYPE, future["decision_id"], future)], immutable=True)
-        record = {**_records(tmp_path)[0], "record_id": "future-miss", "status": "missed", "fee": "999",
+        record = {**template, "record_id": "future-miss", "status": "missed", "fee": "999",
                   "occurred_at": bots._time_text(RUN_AT), "recorded_at": bots._time_text(RUN_AT)}
         store.put_many([(execution.FORWARD_RECORD_TYPE, record["record_id"], record)], immutable=True)
     after = reports.build_paper_bots_overview(tmp_path, as_of=cutoff, price_book=book)["forward"]
@@ -147,12 +148,14 @@ def test_capped_sell_exits_across_sessions_and_waits_only_for_actual_proceeds(mo
         decision = dict(store.get(bots.DECISION_ENTITY_TYPE, first["decision_id"]).payload)
         exit_time = datetime(2026, 10, 30, 12, tzinfo=timezone.utc)
         exit_decision = {**decision, "decision_id": "exit-decision", "as_of": bots._time_text(exit_time),
-                         "known_at": bots._time_text(exit_time), "decision_month": "2026-11", "targets": {"cash_weight": 1.0},
+                         "known_at": bots._time_text(exit_time), "decision_month": "2026-11",
+                         "targets": {key: value for key, value in decision["targets"].items() if key != "VWCE"} | {"cash_weight": 0.8},
                          "prices_used": {"VWCE": {**decision["prices_used"]["VWCE"], "price_as_of": "2026-10-30"}}}
         store.put_many([(bots.DECISION_ENTITY_TYPE, exit_decision["decision_id"], exit_decision)], immutable=True)
     through = datetime(2026, 11, 9, 12, tzinfo=timezone.utc)
     _execute(tmp_path, book, as_of=through)
-    sales = [r for r in _records(tmp_path) if r["decision_id"] == "exit-decision" and r["status"] == "filled"]
+    sales = [r for r in _records(tmp_path) if r["decision_id"] == "exit-decision" and r["status"] == "filled"
+             and r["instrument_id"] == "VWCE"]
     assert len(sales) >= 3 and all(r["side"] == "sell" for r in sales)
     assert sum(Decimal(r["quantity"]) for r in sales) == Decimal(str(held))
     assert all(Decimal(r["quantity"]) * Decimal(r["fill_price"]) <= 10000 for r in sales)

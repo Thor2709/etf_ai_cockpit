@@ -84,8 +84,10 @@ class _CutoffLedger(PaperLedger):
         self._report_cutoff = cutoff
 
     def _read_events(self) -> list[dict[str, Any]]:
+        # A session fill is known only once its session is complete: the execution run itself never fills the cutoff day.
         return [event for event in super()._read_events()
-                if (stamp := bots._parse_timestamp(event.get("occurred_at"))) is not None and stamp <= self._report_cutoff]
+                if (stamp := bots._parse_timestamp(event.get("occurred_at"))) is not None and stamp <= self._report_cutoff
+                and (event.get("event_type") != "fill_recorded" or stamp.date() < self._report_cutoff.date())]
 
 
 def build_track_report(
@@ -106,6 +108,7 @@ def build_track_report(
         with TransactionalStore(track.store_root, read_only=True) as store:
             decisions = [dict(item.payload) for item in store.list(track.decision_type)]
             records = [dict(item.payload) for item in store.list(track.record_type)]
+            records += [dict(item.payload) for item in store.list(track.failure_type)]
     except (OSError, ValueError, StorageSchemaError):
         return base
     decisions = [item for item in decisions
