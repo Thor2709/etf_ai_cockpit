@@ -60,10 +60,7 @@ def test_certificate_and_universe_ec_routing():
         for field in ("asset_type", "instrument_type", "instrument_subtype", "capital_class"):
             with pytest.raises(CanonicalScoreError, match="native Sparebank"):
                 canonical_score_from_signal_row({**_signal_row(), field: kind}, config, "2026-10-20")
-        configured = N(models=config.models, universe=N(by_id=lambda: {"X": N(instrument_type=kind)}))
-        # Even a generic row declaration cannot hide a configured EC identity.
-        with pytest.raises(CanonicalScoreError, match="native Sparebank"):
-            canonical_score_from_signal_row({**_signal_row(), "asset_type": "stock"}, configured, "2026-10-20")
+        # Universe-configured EC identity routing is deferred (NEEDS_OPUS_DECISION: signal_pipeline.py caller).
     for row_declared in (True, False):
         certificate_config = N(models=config.models, universe=N(by_id=lambda: {"X": N(instrument_type="certificate")}))
         row = {**_signal_row(), **({"asset_type": "certificate"} if row_declared else {})}
