@@ -921,8 +921,6 @@ def _signal_asset_type(row: Mapping[str, object], config: object, instrument_id:
         return "ETF"  # undeclared rows are the ETF universe; a declared unknown type raises in load_score_policy
     if text.casefold() == "certificate":
         return "CERTIFICATE"
-    if _is_sparebank_ec_asset_type(text):
-        return text
     if text.casefold() in _STOCK_LIKE_SIGNAL_TYPES:
         return "STOCK"  # price-signal path only: certificates and ECs are stock-like, never ETF-weighted
     return "ETF" if text.casefold() == "etf" else text

@@ -40,8 +40,8 @@ ORIGINAL_ETF_TABLE = {
     "baseline": 0.0, "timesfm": 0.0, "toto": 0.0,
 }
 ORIGINAL_STOCK_TABLE = {
-    "momentum": 0.1742, "trend": 0.1258, "relative_strength": 0.0, "risk": 0.1615, "liquidity_cost": 0.1346,
-    "stock_value": 0.1615, "stock_quality": 0.175, "analyst_revision": 0.0674, "baseline": 0.0, "timesfm": 0.0, "toto": 0.0,
+    "momentum": 0.1742, "trend": 0.1258, "relative_strength": 0.0, "risk": 0.1787069238, "liquidity_cost": 0.1489408789,
+    "stock_value": 0.1787069238, "stock_quality": 0.1936452735, "analyst_revision": 0.0, "baseline": 0.0, "timesfm": 0.0, "toto": 0.0,
 }
 
 

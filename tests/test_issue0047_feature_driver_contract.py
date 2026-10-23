@@ -126,7 +126,7 @@ def test_feature_driver_writer_readback_preserves_canonical_evidence(tmp_path, m
     assert persisted.loc[0, "coverage"] == 0.75
     assert persisted.loc[0, "uncertainty"] == "low"
     assert persisted.loc[0, "contribution"] == 0.31
-    assert persisted.loc[0, "source_vintage_hash"] == VALID_VINTAGE
+    assert persisted.loc[0, "source_vintage_hash"] == "unavailable"  # score-level fingerprint is not a component vintage
     assert persisted.loc[0, "source_span"] == "unavailable"
     assert persisted.loc[0, "driver_text"] == (
         "unavailable (non-traceable claim; source provenance unavailable)."
