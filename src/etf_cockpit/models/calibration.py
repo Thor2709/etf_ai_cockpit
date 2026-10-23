@@ -213,7 +213,10 @@ def calibrate_forecast_distribution(
     for known_column in known_columns:
         known = pd.to_datetime(history[known_column], errors="coerce", utc=True, format="mixed")
         history[f"_known_{known_column}"] = known
-        history = history.loc[known.notna() & known.le(cutoff)].copy()
+        # Forecast-origin boundary: the row must also have been known by the end of its origin session,
+        # otherwise it may embed outcomes that followed the origin.
+        origin_end = history["forecast_date"] + pd.Timedelta(days=1) - pd.Timedelta(nanoseconds=1)
+        history = history.loc[known.notna() & known.le(cutoff) & known.le(origin_end)].copy()
     history["expected_return"] = pd.to_numeric(history["expected_return"], errors="coerce")
     history["q10_return"] = pd.to_numeric(history["q10_return"], errors="coerce")
     history["q90_return"] = pd.to_numeric(history["q90_return"], errors="coerce")
@@ -589,6 +592,14 @@ def load_forecast_history(directory: Path = FORECASTS_DIR) -> pd.DataFrame:
     return pd.concat(frames, ignore_index=True)
 
 
+def _origin_session_dates(values: pd.Series) -> pd.Series:
+    """Written session date of a forecast origin; a value without an ISO date prefix falls back to its UTC date."""
+
+    written = pd.to_datetime(values.astype(str).str.extract(r"^\s*(\d{4}-\d{2}-\d{2})")[0], errors="coerce")
+    fallback = pd.to_datetime(values, errors="coerce", utc=True, format="mixed").dt.tz_convert(None).dt.normalize()
+    return written.fillna(fallback)
+
+
 def evaluate_forecast_calibration(forecasts: pd.DataFrame, prices: pd.DataFrame) -> pd.DataFrame:
     """Evaluate only forecasts whose target date is present in local prices.
 
@@ -606,9 +617,8 @@ def evaluate_forecast_calibration(forecasts: pd.DataFrame, prices: pd.DataFrame)
     forecast_frame = forecasts.copy()
     forecast_frame["model_name"] = forecast_frame["model_name"].astype(str).str.lower()
     forecast_frame["instrument_id"] = forecast_frame["etf_id"].astype(str)
-    forecast_frame["forecast_date"] = pd.to_datetime(
-        forecast_frame["forecast_date"], errors="coerce", utc=True, format="mixed"
-    ).dt.tz_convert(None).dt.normalize()
+    # Keep the session date as written (same convention as the promotion history), not the UTC date.
+    forecast_frame["forecast_date"] = _origin_session_dates(forecast_frame["forecast_date"])
     forecast_frame["horizon_days"] = pd.to_numeric(forecast_frame["horizon_days"], errors="coerce")
     forecast_frame["expected_return"] = pd.to_numeric(forecast_frame["expected_return"], errors="coerce")
     forecast_frame["q10_return"] = pd.to_numeric(forecast_frame.get("q10_return"), errors="coerce")

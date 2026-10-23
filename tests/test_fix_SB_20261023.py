@@ -132,3 +132,16 @@ def test_scorecard_display_axes_and_anchor_order() -> None:
     allocation = full.axes["capital_allocation"]
     shown = [row for row in allocation["inputs"] if row["value"] is not None]
     assert allocation["coverage"] == pytest.approx(len(shown) / len(allocation["inputs"]))
+
+def test_valuation_withholds_standalone_when_pit_unverified() -> None:
+    # RV-MS-1: a resolved claim without PIT verification must not publish owner figures anywhere.
+    from etf_cockpit.analysis.sparebank.valuation import valuation
+
+    claim = build_claim_state(_teaching_bank(), decision_time=DECISION)
+    assert claim.claim_status == "resolved"
+    for kwargs in ({"pit_verified": False}, {}):
+        section = valuation(claim, price=100.0, assumptions=dict(ASSUMPTIONS), **kwargs)
+        assert section["status"] == "unavailable"
+        assert section["standalone"] == {"status": "unavailable", "reason_code": "OWNER_VALUATION_PIT_UNVERIFIED"}
+        assert section["execution_allowed"] is False
+    assert valuation(claim, price=100.0, assumptions=dict(ASSUMPTIONS), pit_verified=True)["standalone"]["status"] in {"resolved", "partial"}
