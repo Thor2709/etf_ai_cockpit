@@ -114,9 +114,10 @@ def test_complete_pit_stock_and_etf_are_promoted(monkeypatch):
     # authority gate and the canonical engine gates pass on the complete point-in-time evidence.
     assert sorted(gate_id for gate_id, _ in failures) == ["cost", "model_validity", "portfolio_fit"], failures
     assert score.research_promotion_allowed is False
-    assert score.analysis_status == "complete"
+    # A01-F1: failed authority-warning gates resolve to analysis_status "partial" (gate_policy.resolve_authority).
+    assert score.analysis_status == "partial"
     row = run.set_index("instrument_id").loc[stock]
-    assert not bool(row["research_promotion_allowed"]) and row["analysis_status"] == "complete"
+    assert not bool(row["research_promotion_allowed"]) and row["analysis_status"] == "partial"
     # ETF: the PIT holdings now satisfy the exposure/identity/cost critical gates. As-of mode withholds stored
     # forecasts (no known-at), so ETF canonical coverage stays below minimum_coverage 0.50 by design; the gate is
     # not relaxed and the remaining blocker is named.
