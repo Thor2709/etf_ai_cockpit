@@ -95,8 +95,10 @@ def test_new_decision_supersedes_pending_children_at_its_own_time(monkeypatch, t
     assert missed["reason"] == "superseded_by_new_decision"
     assert sum(Decimal(item["quantity"]) for item in fills) + Decimal(missed["planned_quantity"]) == Decimal(_core_intent(tmp_path)["planned_quantity"])
     sells = [item for item in _core(tmp_path, "filled") if item["side"] == "sell"]
-    assert len(sells) == 1 and sells[0]["session"] == "2026-10-19"  # sells still attempt once
-    assert "parent_intent_id" not in sells[0]
+    # A sell capped by the hard order limit now carries its remainder to later sessions (A06-F3): the exit is complete.
+    assert sells and sells[0]["session"] == "2026-10-19" and "parent_intent_id" not in sells[0]
+    assert sum(Decimal(item["quantity"]) for item in sells) == sum(Decimal(item["quantity"]) for item in fills)
+    assert all(Decimal(item["quantity"]) * Decimal(item["fill_price"]) <= 10000 for item in sells)
     assert _execute(tmp_path, book, as_of=_at(30)).appended == 0
 
 

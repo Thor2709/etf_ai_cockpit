@@ -93,6 +93,11 @@ class Track:
     plan_type: str
     record_type: str
 
+    @property
+    def failure_type(self) -> str:
+        """Execution failures live beside, never inside, the order-record stream (a retry must not see them)."""
+        return f"{self.record_type}_failure"
+
 
 def forward_track(root: Path) -> Track:
     return Track(
@@ -133,6 +138,7 @@ class PriceBook:
         self._bars: dict[str, dict[date, dict[str, Any]]] = {}
         self._dates: dict[str, list[date]] = {}
         self._frame = pd.DataFrame()
+        self._per_bar_knowledge = isinstance(frame, pd.DataFrame) and "known_at" in frame.columns
         if not isinstance(frame, pd.DataFrame) or frame.empty:
             self.error = self.error or "Price history is empty."
             return
@@ -146,6 +152,9 @@ class PriceBook:
         if getattr(data["date"].dt, "tz", None) is not None:
             data["date"] = data["date"].dt.tz_convert("UTC").dt.tz_localize(None)
         data["date"] = data["date"].dt.normalize()
+        if self._per_bar_knowledge:
+            # Missing, naive or malformed row timestamps stay unavailable.
+            data["_known_at"] = data["known_at"].map(bots._parse_timestamp)
         data = data.dropna(subset=["date"]).sort_values(["_instrument", "date"], kind="stable")
         if data.duplicated(["_instrument", "date"]).any():
             self.error = "Price history has duplicate instrument sessions."
@@ -161,10 +170,11 @@ class PriceBook:
         path = Path(root) / PRICE_FILE_RELATIVE
         try:
             frame = pd.read_parquet(path)
-            known_at = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
         except (OSError, ValueError) as exc:
             return cls(None, known_at=None, benchmark_id=benchmark_id, error=f"Price history unavailable: {type(exc).__name__}.")
-        return cls(frame, known_at=known_at, benchmark_id=benchmark_id)
+        if "known_at" not in frame.columns:
+            return cls(None, known_at=None, benchmark_id=benchmark_id, error="Per-bar price known_at is unavailable.")
+        return cls(frame, known_at=None, benchmark_id=benchmark_id)
 
     @property
     def sessions(self) -> list[date]:
@@ -183,13 +193,22 @@ class PriceBook:
         index = bisect_right(sessions, day - timedelta(days=1))
         return sessions[index] if index < len(sessions) else None
 
-    def bar(self, instrument_id: str, day: date) -> dict[str, Any] | None:
-        return self._bars.get(str(instrument_id).upper(), {}).get(day)
+    def bar(self, instrument_id: str, day: date, *, known_by: datetime | None = None) -> dict[str, Any] | None:
+        bar = self._bars.get(str(instrument_id).upper(), {}).get(day)
+        if bar is not None and self._per_bar_knowledge:
+            known = bar.get("_known_at")
+            if not isinstance(known, datetime) or pd.isna(known) or (known_by is not None and known > known_by):
+                return None
+        return bar
 
-    def last_bar(self, instrument_id: str, day: date) -> dict[str, Any] | None:
+    def last_bar(self, instrument_id: str, day: date, *, known_by: datetime | None = None) -> dict[str, Any] | None:
         dates = self._dates.get(str(instrument_id).upper(), [])
         index = bisect_right(dates, day)
-        return self._bars[str(instrument_id).upper()][dates[index - 1]] if index else None
+        for candidate in reversed(dates[:index]):
+            bar = self.bar(instrument_id, candidate, known_by=known_by)
+            if bar is not None:
+                return bar
+        return None
 
     def first_price_dates(self) -> dict[str, date]:
         """The first available price session of every instrument (known on that day, never earlier)."""
@@ -206,7 +225,12 @@ class PriceBook:
         frame = self.benchmark_frame()
         if not frame.empty:
             frame = frame.loc[frame["date"].dt.date < cutoff.date()].reset_index(drop=True)
-        known_at = None if self.known_at is None else min(self.known_at, cutoff)
+        if self._per_bar_knowledge and not frame.empty:
+            frame = frame.loc[frame["_known_at"].notna() & (frame["_known_at"] <= cutoff)].reset_index(drop=True)
+            known_at = frame["_known_at"].max() if not frame.empty else None
+        else:
+            # Explicit in-memory books retain the caller's legacy snapshot attestation.
+            known_at = None if self.known_at is None else min(self.known_at, cutoff)
         if self.error is not None or frame.empty or known_at is None:
             reason = self.error or "price_known_at_unavailable_or_no_session_before_the_cutoff"
             return frame, VwceReferenceSeriesCheck("unavailable", (reason,), None, None, len(frame), None, None)
@@ -419,8 +443,18 @@ def _run(
                 try:
                     new_records = _execute_bot(context, bot_id, items)
                 except (PaperLedgerError, OSError, ValueError, KeyError) as exc:
-                    warnings.append(f"Bot {bot_id[:12]} execution stopped: {type(exc).__name__}: {str(exc)[:160]}")
-                    continue
+                    reason = f"Bot {bot_id[:12]} execution stopped: {type(exc).__name__}: {str(exc)[:160]}"
+                    warnings.append(reason)
+                    decision = items[-1]
+                    intent = {"intent_id": _record_id(bot_id, decision["decision_id"], as_of_text, "execution_failure"),
+                              "instrument_id": None, "side": "none", "planned_quantity": "0", "target_weight": "0",
+                              "reason": "bot execution failure"}
+                    failure = _record(context, decision, intent, None, "failed", reason)
+                    if store.get(track.failure_type, failure["record_id"]) is None:
+                        store.put_many([(track.failure_type, failure["record_id"], failure)], immutable=True)
+                        new_records = [failure]
+                    else:
+                        new_records = []
                 appended += len(new_records)
                 records.extend(new_records)
             for bot_id in sorted(decisions):
@@ -560,13 +594,16 @@ def _execute_bot(context: _Context, bot_id: str, decisions: list[dict[str, Any]]
     ledger = PaperLedger(context.track.ledger_root, account_id=account_id_for(bot_id))
     written: list[dict[str, Any]] = []
     for decision_index, decision in enumerate(decisions):
+        existing = context.store.get(context.track.plan_type, str(decision["decision_id"]))
+        if existing is not None and existing.payload.get("terminal") is True:
+            continue
         written.extend(_liquidate_delistings(context, ledger, decision, decision["_known_at"]))
         decision_date = decision["_decided_at"].date()
         usable = [day for day in context.book.sessions_after(decision_date) if day < context.cutoff.date()]
         entry = context.book.first_session_on_or_after(decision_date)
         if not usable or entry is None:
             outage = (context.cutoff.date() - decision_date).days > int(context.config["missed_fill_grace_calendar_days"])
-            if outage and decision.get("strategy") != "benchmark" and entry is not None:
+            if outage and decision.get("strategy") != "benchmark":
                 written.extend(_miss_unplanned(context, ledger, decision, "provider_outage_no_session_data_after_grace"))
             break
         _fund(context, ledger, decision, entry, initial=decision is decisions[0])
@@ -641,8 +678,9 @@ def _liquidate_delistings(context: _Context, ledger: PaperLedger, decision: Mapp
 
 def _fund(context: _Context, ledger: PaperLedger, decision: Mapping[str, Any], entry: date, *, initial: bool) -> None:
     amount = float(decision["initial_virtual_cash_eur"] if initial else decision["monthly_contribution_eur"])
-    flow_at = datetime.combine(entry, time(0, 0), tzinfo=timezone.utc)
-    ledger.open_account(initial_cash=0, cost_policy=context.policy, occurred_at=flow_at - timedelta(minutes=1))
+    # Funding becomes available with the decision, never at an earlier midnight.
+    flow_at = max(decision["_decided_at"], decision["_known_at"])
+    ledger.open_account(initial_cash=0, cost_policy=context.policy, occurred_at=flow_at)
     if amount <= 0:
         return
     flow_id = f"{ledger.account_id}:{'initial' if initial else decision['decision_month']}"
@@ -659,9 +697,18 @@ def _sizing_price(context: _Context, decision: Mapping[str, Any], instrument_id:
     """
 
     captured = decision["prices_used"].get(instrument_id)
-    if isinstance(captured, Mapping) and bots._finite_number(captured.get("price")) and captured.get("price_as_of"):
-        return Decimal(str(captured["price"])), str(captured["price_as_of"])
-    bar = context.book.last_bar(instrument_id, decision_date - timedelta(days=1))
+    if isinstance(captured, Mapping):
+        price = bots._finite_number(captured.get("price"))
+        day_text = bots._date_text(captured.get("price_as_of"))
+        if price is None or price <= 0 or day_text is None:
+            return None
+        day = date.fromisoformat(day_text)
+        if not 0 <= (decision_date - day).days <= int(context.config["sizing_price_max_age_days"]):
+            return None
+        return Decimal(str(price)), day_text
+    default_cutoff = datetime.combine(decision_date, time.max, tzinfo=timezone.utc)
+    known_by = min(decision.get("_known_at", default_cutoff), decision.get("_decided_at", default_cutoff))
+    bar = context.book.last_bar(instrument_id, decision_date - timedelta(days=1), known_by=known_by)
     if bar is None:
         return None
     day = bar["date"].date()
@@ -938,7 +985,8 @@ def _run_intents(
     state: dict[str, dict[str, Any]] = {}
     for intent in plan["intents"]:
         history = _intent_records(context, intent["intent_id"])
-        state[intent["intent_id"]] = {"intent": intent, "final": False, "split": False, "history": history}
+        terminal = any(item.get("session") is None and item.get("status") == "missed" for item in history)
+        state[intent["intent_id"]] = {"intent": intent, "final": terminal, "split": False, "history": history}
     written: list[dict[str, Any]] = []
 
     def save(record: dict[str, Any], entry: dict[str, Any]) -> None:
@@ -955,7 +1003,7 @@ def _run_intents(
             intent = entry["intent"]
             if entry["final"]:
                 continue
-            if intent["side"] == "sell" and index > 0:
+            if intent["side"] == "sell" and index > 0 and not entry["split"]:
                 continue
             if not entry["split"] and index > retries:
                 continue
@@ -970,11 +1018,11 @@ def _run_intents(
                     record = _attempt(
                         context, ledger, decision, intent, session,
                         final_session=index >= (split_sessions - 1 if entry["split"] else min(retries, split_sessions - 1)),
-                        awaits_settlement=any(item['side'] == 'sell' for item in plan['intents']),
+                        awaits_settlement=_awaits_settlement(ledger, _fill_datetime(context.config, session)),
                     )
                 save(record, entry)
             remainder = Decimal(str(record.get("remaining_quantity", "0")))
-            if intent["side"] == "buy" and record["status"] == "filled" and remainder > 0:
+            if record["status"] == "filled" and remainder > 0:
                 entry["split"] = True
                 entry["intent"] = {**intent, "planned_quantity": str(remainder), "parent_intent_id": intent["intent_id"]}
                 if index + 1 >= split_sessions:
@@ -987,9 +1035,29 @@ def _run_intents(
     return written
 
 
+def _awaits_settlement(ledger: PaperLedger, when: datetime) -> bool:
+    """Wait only for proceeds of actual sales that have not reached settlement."""
+    state = ledger._replay(ledger._events_through(when))
+    sales = [fill for fill in state["fills"] if fill["side"] == "sell"
+             and Decimal(str(fill["quantity"])) * Decimal(str(fill["price"])) * Decimal(str(fill["fx_rate"]))
+             > Decimal(str(fill["fee"]))]
+    if not sales:
+        return False
+    lifecycle = ledger._order_lifecycle()
+    return any((settlement := lifecycle.get_intent(fill["order_id"]).settlement_date) is None
+               or settlement > when.date() for fill in sales)
+
+
 def _miss_unplanned(context: _Context, ledger: PaperLedger, decision: Mapping[str, Any], reason: str) -> list[dict[str, Any]]:
     """Log every target of a decision as missed when it cannot even be planned (outage, no sizing price)."""
 
+    plan_id = str(decision["decision_id"])
+    if context.store.get(context.track.plan_type, plan_id) is None:
+        context.store.put_many([(context.track.plan_type, plan_id, {
+            "schema_version": "paper_bot_execution_plan.v1", "plan_id": plan_id, "bot_id": decision["bot_id"],
+            "decision_id": plan_id, "status": "unavailable", "terminal": True, "reason": reason,
+            "intents": [], "execution_allowed": False,
+        })], immutable=True)
     written = []
     for instrument, weight in sorted(decision["targets"].items()):
         if instrument == "cash_weight":
@@ -1022,6 +1090,8 @@ def _record(
         "session": None if session is None else session.isoformat(), "status": status, "reason": reason,
         "quantity": "0", "reference_open": None, "fill_price": None, "fee": "0", "spread_slippage_cost": "0",
         "fill_id": None, "order_id": None, "exec_config_hash": context.exec_hash, "execution_allowed": False,
+        "recorded_at": bots._time_text(context.cutoff),
+        "occurred_at": bots._time_text(intent.get("liquidation_at") or _fill_datetime(context.config, session)) if session else bots._time_text(context.cutoff),
     }
     record.update(fields)
     if intent.get("parent_intent_id"):
@@ -1161,6 +1231,10 @@ def _attempt(
            if intent.get("delisting_day") else context.book.bar(instrument, session))
     if bar is None:
         return miss(f"no_session_data: provider outage, halt or missing bar on {session.isoformat()}")
+    if "known_at" in bar:
+        bar_known = bots._parse_timestamp(bar.get("known_at"))
+        if bar_known is None or bar_known > fill_time:
+            return miss("price_not_known_at_fill_time")
     volume = bots._finite_number(bar.get("volume"))
     if volume is None or volume <= 0:
         return miss(f"zero_volume_session on {session.isoformat()}")
@@ -1233,6 +1307,8 @@ def _attempt(
                     return _record(context, decision, intent, session, "deferred", "waiting for settled cash: " + message[:160])
                 affordable = _floor_lot((Decimal(shortfall.group(1)) - policy.commission) / unit, policy.lot_size)
                 if tries == 0 and affordable >= policy.lot_size and affordable < quantity:
+                    if affordable * unit < Decimal(str(context.config["min_trade_value_eur"])):
+                        return miss("below_min_trade_value_after_cash_reduction")
                     quantity = affordable
                     continue
                 return miss("insufficient_settled_cash after the retry sessions")
@@ -1258,12 +1334,12 @@ def _split_remainder(
     context: _Context, intent: Mapping[str, Any], quantity: Decimal, unit: Decimal, held: Decimal,
 ) -> Decimal:
     """Carry only a hard-order-limit reduction; cash and concentration reductions stay final."""
-    if intent["side"] != "buy":
-        return Decimal("0")
     limit = _limit(context, "max_order_value")
     if limit is None or quantity != _floor_lot(limit / unit, context.policy.lot_size):
         return Decimal("0")
     requested = Decimal(str(intent["planned_quantity"]))
+    if intent["side"] == "sell":
+        return max(Decimal("0"), min(requested, held) - quantity)
     cap = intent.get("max_after_position_value_eur")
     if cap is not None:
         requested = min(requested, _cap_room(Decimal(str(cap)), unit, held, context.policy.lot_size))

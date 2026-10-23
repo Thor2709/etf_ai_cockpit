@@ -76,6 +76,20 @@ def _unavailable(track: str, label: str | None, reason: str) -> dict[str, Any]:
             "bots": [], "execution_allowed": False}
 
 
+class _CutoffLedger(PaperLedger):
+    """Reuse ledger projections over verified events visible to this report only."""
+
+    def __init__(self, root: Path, *, account_id: str, cutoff: datetime) -> None:
+        super().__init__(root, account_id=account_id)
+        self._report_cutoff = cutoff
+
+    def _read_events(self) -> list[dict[str, Any]]:
+        # A session fill is known only once its session is complete: the execution run itself never fills the cutoff day.
+        return [event for event in super()._read_events()
+                if (stamp := bots._parse_timestamp(event.get("occurred_at"))) is not None and stamp <= self._report_cutoff
+                and (event.get("event_type") != "fill_recorded" or stamp.date() < self._report_cutoff.date())]
+
+
 def build_track_report(
     root: Path,
     track: execution.Track,
@@ -94,9 +108,17 @@ def build_track_report(
         with TransactionalStore(track.store_root, read_only=True) as store:
             decisions = [dict(item.payload) for item in store.list(track.decision_type)]
             records = [dict(item.payload) for item in store.list(track.record_type)]
+            records += [dict(item.payload) for item in store.list(track.failure_type)]
     except (OSError, ValueError, StorageSchemaError):
         return base
-    decisions = [item for item in decisions if (bots._parse_timestamp(item.get("known_at")) or cutoff) <= cutoff or item.get("status") != "available"]
+    decisions = [item for item in decisions
+                 if (known := bots._parse_timestamp(item.get("known_at"))) is not None and known <= cutoff
+                 and (decided := bots._parse_timestamp(item.get("as_of"))) is not None and decided <= cutoff]
+    decision_ids = {item.get("decision_id") for item in decisions}
+    records = [item for item in records if item.get("decision_id") in decision_ids
+               and (stamp := bots._parse_timestamp(item.get("occurred_at") or item.get("recorded_at"))) is not None
+               and stamp <= cutoff
+               and ((recorded := bots._parse_timestamp(item.get("recorded_at"))) is None or recorded <= cutoff)]
     if not decisions:
         return base
     if not book.usable:
@@ -150,10 +172,13 @@ def _bot_report(
         "metrics": {}, "uncertainty": _uncertainty(None, None, config), "trade_log": [], "missed_fills": 0,
         "execution_allowed": False,
     }
-    ledger = PaperLedger(track.ledger_root, account_id=execution.account_id_for(bot_id))
-    shadow = PaperLedger(track.ledger_root, account_id=execution.shadow_id_for(bot_id))
+    ledger = _CutoffLedger(track.ledger_root, account_id=execution.account_id_for(bot_id), cutoff=cutoff)
+    shadow = _CutoffLedger(track.ledger_root, account_id=execution.shadow_id_for(bot_id), cutoff=cutoff)
     report["trade_log"] = _trade_log(records, shadow, head)
     report["missed_fills"] = sum(1 for item in records if item.get("status") == "missed")
+    failures = [item for item in records if item.get("status") == "failed"]
+    report["execution_failures"] = len(failures)
+    report["execution_failure_reasons"] = [item.get("reason") for item in failures]
     if through is None or check.status != "available":
         report["reason"] = "VWCE reference series unavailable: " + ", ".join(getattr(check, "reasons", ()) or ("no completed session",))
         return report
@@ -186,8 +211,10 @@ def _bot_report(
         report["benchmark_carry_label"] = f"VWCE mark carried forward on {len(carried)} session(s) without a bar: {', '.join(carried)}"
     report["metrics"] = _metrics(strategy, benchmark, relative, records, shadow, config, ledger=ledger)
     report["uncertainty"] = _uncertainty(strategy, benchmark, config)
-    report["status"] = "available" if relative.status == "available" and not relative.reasons else "partial"
-    report["reason"] = None if report["status"] == "available" else "; ".join(relative.reasons) or "Relative measures are partly unavailable."
+    report["status"] = "available" if relative.status == "available" and not relative.reasons and not failures else "partial"
+    report["reason"] = "; ".join(str(item.get("reason")) for item in failures) if failures else (
+        None if report["status"] == "available" else "; ".join(relative.reasons) or "Relative measures are partly unavailable."
+    )
     return report
 
 
@@ -227,17 +254,10 @@ def _ledger_snapshots(
     known_days = set(days)
     days = sorted(known_days | {day.date() for day in expected_session_dates(days[0], days[-1], "XETR")})
     traded = sorted({str(event["payload"]["instrument_id"]) for event in fills})
-    scale: dict[str, float] = {}
-    first_fill: dict[str, date] = {}
-    for event in fills:
-        first_fill.setdefault(str(event["payload"]["instrument_id"]), pd.Timestamp(event["occurred_at"]).date())
-    for instrument, day in first_fill.items():
-        bar = book.bar(instrument, day)
-        close = bots._finite_number(bar.get("close")) if bar else None
-        adjusted = bots._finite_number(bar.get("adjusted_close")) if bar else None
-        if not close or close <= 0:
-            raise PaperLedgerError(f"No reference bar for the first fill of {instrument}.")
-        scale[instrument] = close / adjusted if adjusted and adjusted > 0 else 1.0
+    fills.sort(key=lambda event: pd.Timestamp(event["occurred_at"]))
+    lots: dict[str, list[list[float | None]]] = {}
+    realised = 0.0
+    fill_index = 0
     stale_limit = int(config["max_stale_mark_sessions"])
     known_text = (cutoff if book.known_at is None else min(book.known_at, cutoff)).isoformat()
     holdings, prices, cash_rows, movements = [], [], [], []
@@ -252,7 +272,35 @@ def _ledger_snapshots(
         state = ledger._replay(daily_events)
         day_end = (pd.Timestamp(day, tz="UTC") + pd.Timedelta(days=1) - pd.Timedelta(microseconds=1)).to_pydatetime()
         rates = EurRateBook(fx_rates, known_by=min(day_end, cutoff))
-        cash_rows.append({"date": day, "cash_value": float(state["cash"])})
+        # Each buy starts on its own raw basis. FIFO sales realise that lot's
+        # accumulated total return, rather than silently discarding it from wealth.
+        while fill_index < len(fills) and pd.Timestamp(fills[fill_index]["occurred_at"]).date() <= day:
+            event = fills[fill_index]
+            fill = event["payload"]
+            instrument = str(fill["instrument_id"])
+            fill_day = pd.Timestamp(event["occurred_at"]).date()
+            bar = book.bar(instrument, fill_day)
+            close = bots._finite_number(bar.get("close")) if bar else None
+            adjusted = bots._finite_number(bar.get("adjusted_close")) if bar else None
+            if close is None or close <= 0:
+                raise PaperLedgerError(f"No reference bar for a fill of {instrument}.")
+            quantity = float(fill["quantity"])
+            instrument_lots = lots.setdefault(instrument, [])
+            if fill["side"] == "buy":
+                instrument_lots.append([quantity, close / adjusted if adjusted and adjusted > 0 else None])
+            else:
+                for lot in instrument_lots:
+                    sold = min(quantity, float(lot[0]))
+                    if sold > 0 and adjusted and adjusted > 0 and lot[1] is not None:
+                        realised += sold * (adjusted * float(lot[1]) - close) * float(fill["fx_rate"])
+                    lot[0] = float(lot[0]) - sold
+                    quantity -= sold
+                    if quantity <= 1e-9:
+                        break
+                if quantity > 1e-9:
+                    raise PaperLedgerError(f"Sale has no matching valuation lot for {instrument}.")
+            fill_index += 1
+        cash_rows.append({"date": day, "cash_value": float(state["cash"]) + realised})
         for instrument in traded:
             position = state["positions"].get(instrument, {})
             quantity = float(position.get("quantity", 0))
@@ -260,7 +308,11 @@ def _ledger_snapshots(
             if quantity == 0:
                 prices.append({"date": day, "instrument_id": instrument, "price": 0.0})
                 continue
-            mark = _mark(book, instrument, day, scale[instrument], stale_limit)
+            active_lots = [lot for lot in lots.get(instrument, []) if float(lot[0]) > 0]
+            marks = [(float(lot[0]), _mark(book, instrument, day, lot[1], stale_limit)) for lot in active_lots]
+            if not math.isclose(sum(q for q, _ in marks), quantity, abs_tol=1e-7):
+                raise PaperLedgerError(f"Ledger quantity differs from valuation lots for {instrument}.")
+            mark = sum(q * value for q, value in marks if value is not None) / quantity if all(value is not None for _, value in marks) else None
             fx = rates.series(str(position.get("currency", "")), [day]).rates.iloc[0]
             if mark is not None and pd.notna(fx):
                 prices.append({"date": day, "instrument_id": instrument, "price": mark * float(fx)})
@@ -283,8 +335,8 @@ def _ledger_snapshots(
     return result
 
 
-def _mark(book: execution.PriceBook, instrument: str, day: date, scale: float, stale_limit: int) -> float | None:
-    """Total-return mark on the first-fill raw basis; a missing bar carries the last mark for a bounded number of sessions."""
+def _mark(book: execution.PriceBook, instrument: str, day: date, scale: float | None, stale_limit: int) -> float | None:
+    """Total-return mark on a lot's raw basis; raw fallback prices are never scaled."""
 
     bar = book.bar(instrument, day)
     if bar is None:
@@ -298,8 +350,11 @@ def _mark(book: execution.PriceBook, instrument: str, day: date, scale: float, s
         if gap > stale_limit:
             return None
         bar = last
-    value = bots._finite_number(bar.get("adjusted_close")) or bots._finite_number(bar.get("close"))
-    return value * scale if value and value > 0 else None
+    adjusted = bots._finite_number(bar.get("adjusted_close"))
+    if scale is not None and adjusted is not None and adjusted > 0:
+        return adjusted * scale
+    value = bots._finite_number(bar.get("close"))
+    return value if value is not None and value > 0 else None
 
 
 def _series_fields(strategy: pd.DataFrame, benchmark: pd.DataFrame) -> dict[str, Any]:
