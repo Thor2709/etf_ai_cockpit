@@ -566,6 +566,8 @@ class OrderLifecycle:
                         raise OrderLifecycleError("A partially filled reconciliation cannot increase the remaining quantity.")
                     no_new_fill = remaining == prior_remaining
                     if no_new_fill:
+                        if not committed_fill:
+                            raise OrderLifecycleError("A no-fill reconciliation requires an existing committed partial fill.")
                         if any(value is not None for value in (fill_id, fill_quantity, fill_price, fill_fee, fill_fx_rate, fill_cash_change)):
                             raise OrderLifecycleError("A no-fill reconciliation cannot include fill evidence.")
                         event_payload.update({

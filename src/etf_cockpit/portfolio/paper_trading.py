@@ -255,7 +255,7 @@ class PaperLedger:
         if not isinstance(as_of, datetime) or as_of.tzinfo is None:
             raise PaperLedgerError("A timezone-aware cash-balance time is required.")
         with self._lock:
-            state = self._replay(self._events_through(as_of))
+            state = self._replay(self._events_through(as_of), as_of=as_of)
             self._require_open(state)
             if str(state["base_currency"]).upper() != currency.upper():
                 raise PaperLedgerError("Paper cash is available only in the account base currency.")
@@ -2201,15 +2201,26 @@ class PaperLedger:
             prior_hash = event_hash
         return events
 
-    def _replay(self, events: list[dict[str, object]]) -> dict[str, object]:
+    def _replay(self, events: list[dict[str, object]], *, as_of: datetime | None = None) -> dict[str, object]:
         try:
-            return self._replay_unchecked(events)
+            return self._replay_unchecked(events, as_of=as_of)
         except PaperLedgerIntegrityError:
             raise
         except (KeyError, TypeError, ValueError, OverflowError) as exc:
             raise PaperLedgerIntegrityError("Paper ledger payload is malformed and cannot be replayed safely.") from exc
 
-    def _replay_unchecked(self, events: list[dict[str, object]]) -> dict[str, object]:
+    def _replay_unchecked(self, events: list[dict[str, object]], *, as_of: datetime | None = None) -> dict[str, object]:
+        # Contributions whose effective time is after their request stay out of spendable cash until
+        # a later event (or the projection time ``as_of``) reaches that effective time.
+        pending_contributions: list[tuple[datetime, str, Decimal]] = []
+
+        def release_pending(moment: datetime) -> None:
+            for item in [item for item in pending_contributions if item[0] <= moment]:
+                pending_contributions.remove(item)
+                state["cash"] += item[2]
+                state["net_external_flows"] += item[2]
+                state["equity_peak"] += float(item[2])
+
         state: dict[str, object] = {
             "opened": False,
             "base_currency": "EUR",
@@ -2241,6 +2252,8 @@ class PaperLedger:
             payload = event["payload"]
             if not isinstance(payload, Mapping):
                 raise PaperLedgerIntegrityError("Paper ledger event payload is not an object.")
+            if pending_contributions:
+                release_pending(_event_time(event))
             if kind == "account_opened":
                 if state["opened"]:
                     raise PaperLedgerIntegrityError("Paper account was opened more than once.")
@@ -2325,6 +2338,10 @@ class PaperLedger:
                 if flow_id in state["external_flows"] or payload["flow_kind"] not in _SHADOW_FLOW_KINDS:
                     raise PaperLedgerIntegrityError("An active external flow is duplicated or invalid.")
                 movement = amount if payload["flow_kind"] == "contribution" else -amount
+                effective_time = pd.Timestamp(payload["effective_at"]).to_pydatetime()
+                if payload["flow_kind"] == "contribution" and effective_time > pd.Timestamp(payload["flow_at"]).to_pydatetime():
+                    pending_contributions.append((effective_time, flow_id, movement))
+                    movement = Decimal("0")
                 state["cash"] += movement
                 state["net_external_flows"] += movement
                 state["equity_peak"] += float(movement)
@@ -2383,6 +2400,8 @@ class PaperLedger:
             if state["orders"][order_id]["status"] == "filled"
             or (state["orders"][order_id]["status"] == "cancelled" and float(state["orders"][order_id]["filled_quantity"]) > 0)
         ]
+        if as_of is not None and pending_contributions:
+            release_pending(as_of.astimezone(timezone.utc))
         return state
 
     @staticmethod

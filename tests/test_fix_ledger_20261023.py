@@ -151,3 +151,23 @@ def test_a07_f8_partial_fills_share_one_commission(tmp_path) -> None:
     other = ledger.accept_proposal(_proposal(source="partial-b"), execution_price=10, fee=2, occurred_at=_day(3))
     with pytest.raises(PaperLedgerError):  # a full commission on a half fill is a double charge
         ledger.record_fill(str(other["order_id"]), quantity=5, price=10, fee=2, reference_price=10, occurred_at=_day(4))
+
+
+def test_rmn_future_effective_contribution_is_not_spendable_until_effective(tmp_path) -> None:
+    ledger = _policy_account(tmp_path)
+    _fund(ledger)
+    ledger.record_external_flow(flow_id="c2", kind="contribution", amount=5_000, flow_at=_day(1),
+                                source_authority="fixture", source_checksum="a" * 64, effective_at=_day(5))
+    assert ledger.cash_balance(account_id="local-paper", currency="EUR", as_of=_day(2)) == Decimal("10000")
+    assert ledger.cash_balance(account_id="local-paper", currency="EUR", as_of=_day(4)) == Decimal("10000")
+    assert ledger.cash_balance(account_id="local-paper", currency="EUR", as_of=_day(5)) == Decimal("15000")
+    assert ledger.snapshot().cash == pytest.approx(10_000)
+    assert ledger.snapshot().pnl == pytest.approx(0.0)
+    # The pending flow cannot fund a withdrawal before it is effective.
+    with pytest.raises(PaperLedgerError):
+        ledger.record_external_flow(flow_id="w2", kind="withdrawal", amount=12_000, flow_at=_day(2),
+                                    source_authority="fixture", source_checksum="a" * 64)
+    later = ledger.record_external_flow(flow_id="w3", kind="withdrawal", amount=1_000, flow_at=_day(6),
+                                        source_authority="fixture", source_checksum="a" * 64)
+    assert later["flow_id"] == "w3"
+    assert ledger.snapshot().cash == pytest.approx(14_000)

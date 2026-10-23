@@ -1012,7 +1012,7 @@ def _run_intents(
             if record is None:
                 record = next(iter(history), None)
             if record is None:
-                if intent["side"] == "buy" and superseded_at is not None and _fill_datetime(context.config, session) >= superseded_at:
+                if (intent["side"] == "buy" or entry["split"]) and superseded_at is not None and _fill_datetime(context.config, session) >= superseded_at:
                     record = _record(context, decision, intent, session, "missed", "superseded_by_new_decision")
                 else:
                     record = _attempt(

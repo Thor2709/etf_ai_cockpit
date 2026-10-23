@@ -79,15 +79,21 @@ def _unavailable(track: str, label: str | None, reason: str) -> dict[str, Any]:
 class _CutoffLedger(PaperLedger):
     """Reuse ledger projections over verified events visible to this report only."""
 
-    def __init__(self, root: Path, *, account_id: str, cutoff: datetime) -> None:
+    def __init__(self, root: Path, *, account_id: str, cutoff: datetime, recorded_fills: Mapping[str, datetime]) -> None:
         super().__init__(root, account_id=account_id)
         self._report_cutoff = cutoff
+        # fill_id -> time the execution record of that fill was stored; a fill without that evidence is never visible.
+        self._recorded_fills = recorded_fills
 
     def _read_events(self) -> list[dict[str, Any]]:
         # A session fill is known only once its session is complete: the execution run itself never fills the cutoff day.
         return [event for event in super()._read_events()
                 if (stamp := bots._parse_timestamp(event.get("occurred_at"))) is not None and stamp <= self._report_cutoff
-                and (event.get("event_type") != "fill_recorded" or stamp.date() < self._report_cutoff.date())]
+                and (event.get("event_type") != "fill_recorded" or (
+                    stamp.date() < self._report_cutoff.date()
+                    and isinstance(event.get("payload"), Mapping)
+                    and (recorded := self._recorded_fills.get(str(event["payload"].get("fill_id")))) is not None
+                    and recorded <= self._report_cutoff))]
 
 
 def build_track_report(
@@ -115,6 +121,12 @@ def build_track_report(
                  if (known := bots._parse_timestamp(item.get("known_at"))) is not None and known <= cutoff
                  and (decided := bots._parse_timestamp(item.get("as_of"))) is not None and decided <= cutoff]
     decision_ids = {item.get("decision_id") for item in decisions}
+    recorded_fills: dict[str, datetime] = {}
+    for item in records:  # immutable storage time of every fill, taken before any cutoff filtering
+        stamp = bots._parse_timestamp(item.get("recorded_at"))
+        if item.get("fill_id") is not None and stamp is not None:
+            key = str(item["fill_id"])
+            recorded_fills[key] = min(stamp, recorded_fills.get(key, stamp))
     records = [item for item in records if item.get("decision_id") in decision_ids
                and (stamp := bots._parse_timestamp(item.get("occurred_at") or item.get("recorded_at"))) is not None
                and stamp <= cutoff
@@ -130,7 +142,7 @@ def build_track_report(
     for item in decisions:
         by_bot.setdefault(str(item.get("bot_id")), []).append(item)
     reports = [
-        _bot_report(root, track, config, cutoff, book, frame, check, through, bot_id, items, [r for r in records if r.get("bot_id") == bot_id])
+        _bot_report(root, track, config, cutoff, book, frame, check, through, bot_id, items, [r for r in records if r.get("bot_id") == bot_id], recorded_fills)
         for bot_id, items in sorted(by_bot.items(), key=lambda pair: (_family_order(pair[1][0]), pair[0]))
     ]
     statuses = {item["status"] for item in reports}
@@ -158,7 +170,7 @@ def _family_order(decision: Mapping[str, Any]) -> tuple[int, str]:
 def _bot_report(
     root: Path, track: execution.Track, config: Mapping[str, Any], cutoff: datetime, book: execution.PriceBook,
     frame: pd.DataFrame, check: Any, through: date | None, bot_id: str, decisions: list[dict[str, Any]],
-    records: list[dict[str, Any]],
+    records: list[dict[str, Any]], recorded_fills: Mapping[str, datetime],
 ) -> dict[str, Any]:
     available = sorted((item for item in decisions if item.get("status") == "available"), key=lambda item: str(item.get("as_of")))
     head = available[-1] if available else sorted(decisions, key=lambda item: str(item.get("as_of")))[-1]
@@ -172,8 +184,8 @@ def _bot_report(
         "metrics": {}, "uncertainty": _uncertainty(None, None, config), "trade_log": [], "missed_fills": 0,
         "execution_allowed": False,
     }
-    ledger = _CutoffLedger(track.ledger_root, account_id=execution.account_id_for(bot_id), cutoff=cutoff)
-    shadow = _CutoffLedger(track.ledger_root, account_id=execution.shadow_id_for(bot_id), cutoff=cutoff)
+    ledger = _CutoffLedger(track.ledger_root, account_id=execution.account_id_for(bot_id), cutoff=cutoff, recorded_fills=recorded_fills)
+    shadow = _CutoffLedger(track.ledger_root, account_id=execution.shadow_id_for(bot_id), cutoff=cutoff, recorded_fills=recorded_fills)
     report["trade_log"] = _trade_log(records, shadow, head)
     report["missed_fills"] = sum(1 for item in records if item.get("status") == "missed")
     failures = [item for item in records if item.get("status") == "failed"]
@@ -279,7 +291,7 @@ def _ledger_snapshots(
             fill = event["payload"]
             instrument = str(fill["instrument_id"])
             fill_day = pd.Timestamp(event["occurred_at"]).date()
-            bar = book.bar(instrument, fill_day)
+            bar = book.bar(instrument, fill_day, known_by=cutoff)
             close = bots._finite_number(bar.get("close")) if bar else None
             adjusted = bots._finite_number(bar.get("adjusted_close")) if bar else None
             if close is None or close <= 0:
@@ -309,7 +321,7 @@ def _ledger_snapshots(
                 prices.append({"date": day, "instrument_id": instrument, "price": 0.0})
                 continue
             active_lots = [lot for lot in lots.get(instrument, []) if float(lot[0]) > 0]
-            marks = [(float(lot[0]), _mark(book, instrument, day, lot[1], stale_limit)) for lot in active_lots]
+            marks = [(float(lot[0]), _mark(book, instrument, day, lot[1], stale_limit, known_by=cutoff)) for lot in active_lots]
             if not math.isclose(sum(q for q, _ in marks), quantity, abs_tol=1e-7):
                 raise PaperLedgerError(f"Ledger quantity differs from valuation lots for {instrument}.")
             mark = sum(q * value for q, value in marks if value is not None) / quantity if all(value is not None for _, value in marks) else None
@@ -335,12 +347,14 @@ def _ledger_snapshots(
     return result
 
 
-def _mark(book: execution.PriceBook, instrument: str, day: date, scale: float | None, stale_limit: int) -> float | None:
+def _mark(
+    book: execution.PriceBook, instrument: str, day: date, scale: float | None, stale_limit: int, *, known_by: datetime | None = None,
+) -> float | None:
     """Total-return mark on a lot's raw basis; raw fallback prices are never scaled."""
 
-    bar = book.bar(instrument, day)
+    bar = book.bar(instrument, day, known_by=known_by)
     if bar is None:
-        last = book.last_bar(instrument, day)
+        last = book.last_bar(instrument, day, known_by=known_by)
         if last is None:
             return None
         gap = max(
