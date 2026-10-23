@@ -5,12 +5,11 @@ from types import SimpleNamespace
 import json
 
 import pandas as pd
-import pytest
 
 from etf_cockpit.application import score_backfill
 from etf_cockpit.core.config import load_config
 from etf_cockpit.core.research_states import ResearchState
-from etf_cockpit.core.types import DataQualityIssue, DataQualityReport
+from etf_cockpit.core.types import DataQualityIssue
 from etf_cockpit.signals import signal_pipeline as pipeline
 from etf_cockpit.signals import simple_scores
 from etf_cockpit.signals.gates import evaluate_risk_gates

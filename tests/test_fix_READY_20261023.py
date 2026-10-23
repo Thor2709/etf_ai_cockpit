@@ -12,7 +12,6 @@ import pandas as pd
 import pytest
 
 from etf_cockpit.application import data_readiness as gate
-from etf_cockpit.data.replay_membership import ListingHistory
 from tests._pit_listing import listed_since
 
 ROOT = Path(__file__).resolve().parents[1]

@@ -11,9 +11,8 @@ import zipfile
 
 from etf_cockpit.data.esef_provider import FilingsXbrlOrgProvider, extract_issuer_shares
 from etf_cockpit.data.lei_isin_map import load_mapping
-from etf_cockpit.data.stoxx600_history import load_history, membership_rows, known_timestamp, SCOPE
+from etf_cockpit.data.stoxx600_history import load_history, membership_rows, SCOPE
 from etf_cockpit.data.universe_membership import membership_frame
-from etf_cockpit.parsers.esef_ixbrl import parse_esef_package
 from scripts.ingest_stoxx600 import (_LocalTransport, _import_memberships, run_issuers,
                                      persist_results, main, _parse_shares_package)
 
