@@ -95,7 +95,9 @@ def test_stock_with_prices_only_gets_partial_score(monkeypatch) -> None:
 
     assert score.final_score_10 is not None
     assert 0.0 < score.score_coverage < 1.0
-    assert {"stock_value", "stock_quality", "analyst_revision"}.issubset(score.missing_components)
+    # D3 (score_engine_v3.yaml): analyst_revision is weight 0.0 until licensed PIT evidence exists, so it is not a headline gap.
+    assert {"stock_value", "stock_quality"}.issubset(score.missing_components)
+    assert "analyst_revision" not in score.missing_components
 
 
 def test_identity_conflict_still_blocks_score() -> None:

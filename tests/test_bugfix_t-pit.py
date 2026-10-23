@@ -297,7 +297,9 @@ def test_p04_n002_forward_benchmark_never_uses_a_row_after_target_date() -> None
     prepared = _prepare_benchmark(benchmark, "date", "adjusted_close")
     no_in_range = prepared.iloc[[0, 2]]
 
-    assert _forward_benchmark_return(prepared, pd.Timestamp("2026-01-01"), pd.Timestamp("2026-01-03")) == pytest.approx(0.01)
+    # RSG review: the benchmark needs a close on the target end date itself (no nearby shorter horizon), so 01-03 has none.
+    assert _forward_benchmark_return(prepared, pd.Timestamp("2026-01-01"), pd.Timestamp("2026-01-02")) == pytest.approx(0.01)
+    assert _forward_benchmark_return(prepared, pd.Timestamp("2026-01-01"), pd.Timestamp("2026-01-03")) is None
     assert _forward_benchmark_return(no_in_range, pd.Timestamp("2026-01-01"), pd.Timestamp("2026-01-03")) is None
 
 
