@@ -372,10 +372,10 @@ def test_authority_flags_are_separate_and_fail_closed() -> None:
     assert gates.evaluate_critical_gates(None, {"identity"}, decision_time=DECISION)[0].reason_code == "ASSET_CLASS_UNMAPPED"
     assert gates.evaluate_critical_gates("ETF", {"identity"}, decision_time=DECISION)[0].passed
     failed = gates.failed_gates(gates.evaluate_critical_gates("ETF", {"identity"}, decision_time=DECISION))
-    assert {r.gate_id for r in failed} == {"cost", "exposure"}
+    assert {r.gate_id for r in failed} == {"cost"}  # D2: absent ETF exposure is non-blocking
 
 
-def test_etf_without_exposure_loses_its_buy_label_but_not_its_score() -> None:
+def test_etf_without_exposure_keeps_its_buy_label_and_score_per_d2() -> None:
     components = [_simple("momentum", 0.9), _simple("trend", 0.9), _simple("relative_strength", 0.9), *_implementation()]
     score = ss.SimpleInstrumentScore(
         instrument_key="etf:ETF1",
@@ -396,7 +396,8 @@ def test_etf_without_exposure_loses_its_buy_label_but_not_its_score() -> None:
         final_action="add_candidate",
     )
     blocked = ss._with_critical_evidence(score)
-    assert blocked.final_label == "insufficient_evidence" and blocked.final_score_10 == 8.0
+    # D2: never-collected ETF exposure is non-blocking, so the label survives and the score stays.
+    assert blocked.final_label == "positive_evidence_candidate" and blocked.final_score_10 == 8.0
     with_exposure = ss._with_critical_evidence(
         ss.SimpleInstrumentScore(**{**score.__dict__, "components": [*components, _simple("etf_exposure", 0.4)]})
     )

@@ -445,6 +445,9 @@ def build_canonical_score(
         insufficient = gates_module.failed_gate_groups(critical_gates)
         for gate in gates_module.failed_gates(critical_gates):
             warnings.append(f"critical_gate:{gate.gate_id}:{gate.reason_code}")
+        for gate in critical_gates:
+            if gate.passed and gate.missing:
+                warnings.append(f"critical_gate_not_available:{gate.gate_id}:{gate.reason_code}")
         if unavailable_reason is not None:
             warnings.append(f"score_unavailable:{unavailable_reason}")
     group_results: dict[str, tuple[float | None, float, list[dict[str, object]], list[dict[str, object]]]] = {}

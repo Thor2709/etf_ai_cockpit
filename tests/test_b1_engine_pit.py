@@ -141,7 +141,14 @@ def test_removing_one_input_blocks_with_the_named_gate(monkeypatch, missing, gat
     else:
         score = observed[instrument]
         assert not score.research_promotion_allowed
-        assert gate in {result.gate_id for result in score.canonical_score.critical_gates if not result.passed}
+        failed = {result.gate_id for result in score.canonical_score.critical_gates if not result.passed}
+        if missing == "holdings":
+            # D2: never-collected ETF exposure is non-blocking but stays visible as a not-available gate.
+            assert gate not in failed
+            exposure = next(r for r in score.canonical_score.critical_gates if r.gate_id == gate)
+            assert exposure.passed and exposure.reason_code == "EVIDENCE_NOT_AVAILABLE_NON_BLOCKING"
+        else:
+            assert gate in failed
 
 
 def test_holdings_vintage_after_decision_stays_unavailable(monkeypatch):
