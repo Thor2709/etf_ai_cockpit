@@ -74,9 +74,12 @@ def test_esef_named_concept_uses_existing_fact_shape_and_rooted_refresh(tmp_path
     base = {"instrument_id": "T", "taxonomy": "ifrs-full", "concept": "NumberOfSharesOutstanding",
             "unit": "shares", "start": None, "end": "2025-12-31", "instant": "2025-12-31",
             "dimensions": "", "consolidation_scope": "consolidated"}
+    treasury = {**base, "concept": "TreasuryShares", "value": 0}
     facts = pd.DataFrame([
         {**base, "value": 1000.0, "known_at": "2026-02-10T12:00:00+00:00", "date_added": "2026-02-10T12:00:00+00:00"},
+        {**treasury, "known_at": "2026-02-10T12:00:00+00:00", "date_added": "2026-02-10T12:00:00+00:00"},
         {**base, "value": 1200.0, "known_at": "2026-04-01T12:00:00+00:00", "filed": "2026-04-01T12:00:00+00:00"},
+        {**treasury, "known_at": "2026-04-01T12:00:00+00:00", "filed": "2026-04-01T12:00:00+00:00"},
         {**base, "value": 9999.0, "known_at": "2026-02-10T12:00:00+00:00", "dimensions": '{"class": "A"}'},
         {**base, "value": 9999.0, "known_at": "2026-02-10T12:00:00+00:00", "concept": "WeightedAverageNumberOfOrdinarySharesOutstandingBasic"},
         {**base, "value": 9999.0, "known_at": None},
@@ -104,7 +107,7 @@ def test_esef_named_concept_uses_existing_fact_shape_and_rooted_refresh(tmp_path
     delayed_rows = esef_provider.parse_reported_shares(delayed, source_ref="test")
     assert delayed_rows[0]["available_at"] == "2026-02-10T12:00:00+00:00"
     assert sm.latest_reported_shares(_periods(delayed_rows), _time("2026-04-01")) is None
-    later_publication = esef_provider.parse_reported_shares(facts.iloc[1:2], source_ref="test")
+    later_publication = esef_provider.parse_reported_shares(facts.iloc[2:4], source_ref="test")
     # Learning an older filing late must not replace a newer published count.
     assert sm.latest_reported_shares(_periods([*delayed_rows, *later_publication]), _time("2026-05-02")).values["shares_outstanding"] == 1200.0
 

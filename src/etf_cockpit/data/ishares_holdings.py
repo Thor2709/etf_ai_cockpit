@@ -125,7 +125,16 @@ def parse_ishares_csv(payload: bytes, *, instrument_id: str, source_url: str,
         raise ValueError("no equity or configured bond holdings")
     # Reuse canonical normalisation to determine completeness, without promoting
     # unmapped positions into score inputs or dropping their diagnostic fields.
-    normalised = normalise_holdings(pd.DataFrame(holdings), instrument_id, as_of, "issuer_csv", today=as_of)
+    equity_weight_total = sum(float(row["weight"]) for row in holdings)
+    disclosed_nav_weight = sum(float(row["weight"]) for row in (*holdings, *other))
+    validation_holdings = pd.DataFrame(holdings).copy()
+    if equity_weight_total > 0 and math.isfinite(disclosed_nav_weight) and disclosed_nav_weight >= 0:
+        # Completeness is measured against the full NAV, including cash and
+        # derivative positions; keep the published security weights unchanged.
+        validation_holdings["weight"] = (
+            validation_holdings["weight"] * disclosed_nav_weight / equity_weight_total
+        )
+    normalised = normalise_holdings(validation_holdings, instrument_id, as_of, "issuer_csv", today=as_of)
     if normalised.completeness == "invalid" or len(normalised.frame) != len(holdings):
         raise ValueError("invalid or duplicate canonical holdings")
     for row in holdings:
