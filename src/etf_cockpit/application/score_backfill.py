@@ -437,6 +437,27 @@ def score_as_of(
         return None, _membership_log(eligibility, snapshot)
     decision_time = datetime(as_of.year, as_of.month, as_of.day, 23, 59, 59, tzinfo=timezone.utc)
     created_at = decision_time.isoformat()
+    # Admission precedes every cross-sectional operation, including features,
+    # baseline forecasts and peer cohorts. Preserve the full input for the log.
+    log_known = known
+    report = validate_prices(known, as_of_date=as_of, min_history_days=MIN_HISTORY_ROWS, block_stale_business_days=MAX_STALE_BUSINESS_DAYS, config=config)
+    basis = eur_basis_prices(
+        known, fx_rates,
+        configured_currency={item.id: item.currency for item in config.universe.etfs},
+        known_by=decision_time,
+    )
+    admission_features = pd.DataFrame()
+    admission_features.attrs["fx_unavailable"] = basis.unavailable
+    admission = _eligibility_log(
+        log_config, as_of, known, report, admission_features, [], excluded, fx_rates, set(), require_score=False,
+    )
+    admitted_ids = set(admission.loc[admission["eligible"], "instrument_id"])
+    config = config.model_copy(update={"universe": config.universe.model_copy(update={
+        "etfs": [item for item in config.universe.etfs if item.id in admitted_ids]
+    })})
+    known = known.loc[known["etf_id"].astype(str).isin(admitted_ids)].copy()
+    if not config.universe.enabled_ids:
+        return None, _membership_log(admission, snapshot)
     inputs_hash = hashlib.sha256((_inputs_hash(config, known, fx_rates, as_of) + snapshot.fingerprint).encode()).hexdigest()
     run_id = f"backfill_{as_of:%Y%m%d}_{inputs_hash[:8]}"
     baselines = _baseline_forecasts(known, as_of, run_id)
@@ -447,7 +468,6 @@ def score_as_of(
         as_of, known, publish=False
     )
     latest = latest_features(features, as_of)
-    report = validate_prices(known, as_of_date=as_of, min_history_days=MIN_HISTORY_ROWS, block_stale_business_days=MAX_STALE_BUSINESS_DAYS, config=config)
     signals = (
         []
         if latest.empty
@@ -500,7 +520,8 @@ def score_as_of(
         backtest_trust={},
     )
     no_lineage = {score.display_id for score in scores if score.canonical_score is None}
-    eligibility = _eligibility_log(log_config, as_of, known, report, features, scores, excluded, fx_rates, no_lineage)
+    features.attrs["fx_unavailable"] = {**basis.unavailable, **features.attrs.get("fx_unavailable", {})}
+    eligibility = _eligibility_log(log_config, as_of, log_known, report, features, scores, excluded, fx_rates, no_lineage)
     eligibility = _membership_log(eligibility, snapshot)
     eligible_ids = set(eligibility.loc[eligibility["eligible"], "instrument_id"])
     ranked = rank_and_finalize_scores([score for score in scores if score.display_id in eligible_ids], known, metadata, news_inventory={})
@@ -556,6 +577,8 @@ def _eligibility_log(
     excluded: Mapping[str, str],
     fx_rates: pd.DataFrame | None,
     no_lineage: set[str],
+    *,
+    require_score: bool = True,
 ) -> pd.DataFrame:
     """Per configured instrument at ``as_of``: eligible or the reason not.
 
@@ -584,12 +607,12 @@ def _eligibility_log(
         elif not rows_by_id.get(instrument_id):
             reasons.append("no_price_history_yet")  # unknown pre-listing = absent
         else:
-            reasons.extend(f"data_quality:{code}" for code in sorted(set(blocking.get(instrument_id, []))))
+            reasons.extend(f"data_quality:{code}" for code in sorted(set([*blocking.get(instrument_id, []), *blocking.get("ALL", [])])))
             if instrument_id in fx_unavailable:
                 reasons.append(f"fx_unavailable: {str(fx_unavailable[instrument_id])[:120]}")
-            if score is None:
+            if require_score and score is None:
                 reasons.append("no_score_produced")
-            elif score.final_score_10 is None:
+            elif require_score and score.final_score_10 is None:
                 reasons.append(f"score_unavailable: {str(score.one_line_reason)[:120]}")
             if instrument_id in no_lineage and score is not None and score.final_score_10 is not None:
                 reasons.append("no_canonical_score: no v3 snapshot lineage (native Sparebank scorecard pending); not replayable")
@@ -662,6 +685,17 @@ def _history_run(
     for column in _BASE_HISTORY_EXTRA:
         frame[column] = frame["instrument_id"].map(board[column])
     frame["research_promotion_allowed"] = frame["research_promotion_allowed"].map(lambda value: value is True)
+    # Persist the resolved policy severities and reasons belonging to each
+    # published score, rather than reconstructing gates from summary flags.
+    gates_by_id = {
+        score.display_id: json.dumps([
+            {"gate_id": gate.gate_id, "passed": gate.passed, "severity": gate.severity.value, "reason": gate.message}
+            for gate in score.authority_decision.gates
+        ], sort_keys=True)
+        if score.authority_decision is not None else "[]"
+        for score in ranked
+    }
+    frame["gate_results"] = frame["instrument_id"].map(gates_by_id)
     unavailable_terms = {
         score.display_id: sorted(
             component.key for component in score.components if component.score_10 is None or str(component.status).casefold() != "ok"

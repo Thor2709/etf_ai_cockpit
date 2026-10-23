@@ -12,6 +12,7 @@ from etf_cockpit.core.logging import append_jsonl
 from etf_cockpit.core.paths import ROOT
 from etf_cockpit.core.scheduler import current_run_id
 from etf_cockpit.core.types import DataQualityReport, SignalResult
+from etf_cockpit.core.values import finite_float_or_none as _finite_float
 from etf_cockpit.data.classification import classification_score_state
 from etf_cockpit.governance.gate_policy import resolve_authority
 from etf_cockpit.portfolio.allocation import allocation_frame
@@ -98,13 +99,21 @@ def generate_signals(
         scored["expected_edge_60d"] = scored["expected_edge_60d"].fillna(fallback_edge)
 
     total_value = portfolio_value(holdings)
-    cash_weight = max(0.0, 1.0 - float(holdings["current_weight"].sum()))
+    holding_weights = pd.to_numeric(holdings["current_weight"], errors="coerce")
+    cash_weight = (
+        max(0.0, 1.0 - float(holding_weights.sum()))
+        if holding_weights.map(lambda value: _finite_float(value) is not None).all()
+        else None
+    )
     # Cash is one shared pool: every candidate that finalises a weight increase reserves it for the proposals
     # evaluated after it (highest score first), so several buys cannot each assume the full cash.
     cash_available = cash_weight
     signals: list[SignalResult] = []
     for _, row in scored.sort_values("total_score", ascending=False).iterrows():
         structure_cap = _structure_cap_for_row(structure_confidence_caps, str(row["etf_id"]))
+        identity = config.universe.by_id().get(str(row["etf_id"]))
+        if identity is not None and identity.instrument_type != "etf":
+            structure_cap = None  # ETF structure evidence is not applicable to stocks.
         structure_provenance = (
             getattr(structure_confidence_caps, "provenance", {}).get(str(row["etf_id"]))
             if isinstance(getattr(structure_confidence_caps, "provenance", {}), Mapping)
@@ -120,10 +129,12 @@ def generate_signals(
             structure_provenance=structure_provenance,
         )
         canonical_total_score = canonical_score.legacy_composite_raw
-        total_score = float(canonical_total_score if canonical_total_score is not None else row["total_score"])
-        current_weight = float(row.get("current_weight") or 0.0)
-        target_weight = float(row.get("target_weight") or 0.0)
-        hard_band = float(row.get("hard_band") or 0.05)
+        total_score = _finite_float(canonical_total_score if canonical_total_score is not None else row.get("total_score"))
+        current_weight = _finite_float(row.get("current_weight"))
+        target_weight = _finite_float(row.get("target_weight"))
+        hard_band = _finite_float(row.get("hard_band"))
+        drift = _finite_float(row.get("drift"))
+        trend_200 = _finite_float(row.get("trend_200"))
         raw_distribution = (
             forecast_distributions.get(str(row["etf_id"]))
             if forecast_distributions is not None
@@ -144,7 +155,7 @@ def generate_signals(
             if isinstance(distribution, Mapping)
             else None
         )
-        base_confidence = float(row["confidence"])
+        base_confidence = _finite_float(row.get("confidence"))
         if forecast_distributions is not None:
             uncertainty = decompose_forecast_uncertainty(
                 distribution,
@@ -166,27 +177,34 @@ def generate_signals(
             else base_confidence
         )
         poor_calibration = isinstance(calibration, Mapping) and calibration.get("poor_calibration") is True
-        if poor_calibration:
+        if poor_calibration and action_confidence is not None:
             # Poor interval calibration must reduce decision authority, not only warn.
             action_confidence *= config.models.forecast_uncertainty.confidence_haircut
+        # An omitted cap is unavailable evidence, not a measured zero cap.
+        # Apply a supplied cap once, to both action policy and published confidence.
+        if structure_cap is not None and action_confidence is not None:
+            action_confidence *= structure_cap
+        action_inputs_available = all(value is not None for value in (
+            total_score, current_weight, target_weight, hard_band, drift, trend_200, action_confidence,
+        ))
         candidate = preliminary_action(
             config,
             total_score=total_score,
             score_distribution=canonical_score.decision_distribution,
             confidence=action_confidence,
             current_weight=current_weight,
-            drift=float(row.get("drift") or 0.0),
+            drift=drift,
             hard_band=hard_band,
-            trend_200=float(row.get("trend_200") or 0.0),
-        )
-        forecast_vol = float(row.get("ewma_vol_ann") or 0.0)
+            trend_200=trend_200,
+        ) if action_inputs_available else "hold"
+        forecast_vol = _finite_float(row.get("ewma_vol_ann"))
         projected_weight = proposed_new_weight(
             current_weight,
             target_weight,
             candidate,
             config.risks.portfolio_limits.max_trade_fraction_of_portfolio,
-            forecast_vol=forecast_vol if forecast_vol > 0 else None,
-        )
+            forecast_vol=forecast_vol if forecast_vol is not None and forecast_vol > 0 else None,
+        ) if action_inputs_available else None
         blocked_by, warnings = evaluate_risk_gates(
             config,
             row,
@@ -196,11 +214,13 @@ def generate_signals(
             cash_weight=cash_available,
             model_disagreement=0.0,
         )
+        if not action_inputs_available:
+            blocked_by = sorted(set([*blocked_by, "signal_inputs_unavailable"]))
         if forecast_distributions is not None:
             uncertainty_reasons = uncertainty_gate_reasons(
                 uncertainty,
                 config.models.forecast_uncertainty,
-                effective_confidence=action_confidence * structure_cap,
+                effective_confidence=action_confidence,
             )
             blocked_by = sorted(set([*blocked_by, *uncertainty_reasons]))
         calibration_reason = None
@@ -209,7 +229,7 @@ def generate_signals(
             warnings = sorted(set([*warnings, "forecast_calibration_poor"]))
         elif isinstance(calibration, Mapping) and calibration.get("status") == "inconclusive":
             warnings = sorted(set([*warnings, "forecast_calibration_inconclusive"]))
-        preliminary_trade_value = suggested_trade_value(total_value, current_weight, projected_weight)
+        preliminary_trade_value = suggested_trade_value(total_value, current_weight, projected_weight) if current_weight is not None else None
         if candidate in {"buy", "add", "trim", "sell"} and preliminary_trade_value is not None:
             if abs(preliminary_trade_value) < config.risks.portfolio_limits.min_trade_value_eur:
                 blocked_by = sorted(set([*blocked_by, "minimum_trade_size"]))
@@ -218,10 +238,10 @@ def generate_signals(
             projected_weight = None
         if projected_weight is not None and final_internal_action in {"buy", "add"}:
             cash_available = max(0.0, cash_available - max(0.0, projected_weight - current_weight))
-        trade_value = suggested_trade_value(total_value, current_weight, projected_weight)
+        trade_value = suggested_trade_value(total_value, current_weight, projected_weight) if current_weight is not None else None
         final_action = advisory_action(final_internal_action)
         if final_action == "no_trade" and not blocked_by:
-            if abs(float(row.get("drift") or 0.0)) <= hard_band:
+            if drift is not None and hard_band is not None and abs(drift) <= hard_band:
                 blocked_by = ["inside_deadband"]
             else:
                 blocked_by = ["no_trade_conservative"]
@@ -238,7 +258,7 @@ def generate_signals(
         explanation_row = row.copy()
         explanation_row["total_score"] = total_score
         # The explanation states the same rounded confidence that is published below.
-        explanation_row["confidence"] = round(action_confidence * structure_cap, 4)
+        explanation_row["confidence"] = round(action_confidence, 4) if action_confidence is not None else None
         reason_short, reason_long = explain_signal(explanation_row, final_action, blocked_by)
         if calibration_reason is not None:
             reason_short = f"{reason_short}; forecast calibration reduced authority"
@@ -264,9 +284,9 @@ def generate_signals(
             if estimated_cost is not None and not isfinite(estimated_cost):
                 estimated_cost = None
         expected_edge_bps = expected_edge * 10_000 if expected_edge is not None else None
-        edge_to_cost_ratio = abs(expected_edge_bps) / estimated_cost if expected_edge_bps is not None and estimated_cost is not None and estimated_cost > 0 else None
-        drift_percent = float(row.get("drift") or 0.0)
-        drift_eur = drift_percent * total_value
+        edge_to_cost_ratio = _edge_to_cost(expected_edge_bps, estimated_cost) if expected_edge_bps is not None and estimated_cost is not None else None
+        drift_percent = drift
+        drift_eur = drift_percent * total_value if drift_percent is not None else None
         cost_stress = _cost_stress_metrics(
             config,
             etf_id=str(row["etf_id"]),
@@ -282,8 +302,8 @@ def generate_signals(
             signal_date=signal_date,
             etf_id=str(row["etf_id"]),
             action=final_action,
-            confidence=round(action_confidence * structure_cap, 4),
-            total_score=round(total_score, 4),
+            confidence=round(action_confidence, 4) if action_confidence is not None else float("nan"),
+            total_score=round(total_score, 4) if total_score is not None else float("nan"),
             components=row_components(row),
             blocked_by=blocked_by,
             warnings=warnings,
@@ -291,7 +311,7 @@ def generate_signals(
             reason_long=reason_long,
             horizon_primary="1-3 months",
             supporting_metrics={
-                "raw_signal_score": float(row["total_score"]),
+                "raw_signal_score": _finite_float(row.get("total_score")),
                 "canonical_attractiveness_10": canonical_score.attractiveness_10,
                 "canonical_expected_return_10": canonical_score.expected_return_10,
                 "canonical_risk_implementation_10": canonical_score.risk_implementation_10,
@@ -310,21 +330,18 @@ def generate_signals(
                 "classification_status": str(classification_state["status"]),
                 "classification_version_id": str(classification_state["version_id"]),
                 "classification_invalidation_hash": str(classification_state["invalidation_token"]),
-                "short_term_alert_score": float(row.get("momentum_20d") or 0.0),
-                "medium_term_signal_score": float(
-                    0.50 * float(row.get("momentum_60d") or 0.0)
-                    + 0.50 * float(row.get("momentum_120d") or 0.0)
-                ),
-                "rebalance_signal": float(row.get("score_rebalance") or 0.0),
-                "risk_signal": float(row.get("score_risk") or 0.0),
-                "toto_score": float(row.get("score_toto") or 0.0),
-                "timesfm_score": float(row.get("score_timesfm") or 0.0),
-                "baseline_score": float(row.get("score_baseline_ml") or 0.0),
-                "momentum_60d": float(row.get("momentum_60d") or 0.0),
-                "momentum_120d": float(row.get("momentum_120d") or 0.0),
-                "trend_200": float(row.get("trend_200") or 0.0),
-                "vol_60d_ann": float(row.get("vol_60d_ann") or 0.0),
-                "drawdown_current": float(row.get("drawdown_current") or 0.0),
+                "short_term_alert_score": _finite_float(row.get("momentum_20d")),
+                "medium_term_signal_score": _medium_term_score(row),
+                "rebalance_signal": _finite_float(row.get("score_rebalance")),
+                "risk_signal": _finite_float(row.get("score_risk")),
+                "toto_score": _finite_float(row.get("score_toto")),
+                "timesfm_score": _finite_float(row.get("score_timesfm")),
+                "baseline_score": _finite_float(row.get("score_baseline_ml")),
+                "momentum_60d": _finite_float(row.get("momentum_60d")),
+                "momentum_120d": _finite_float(row.get("momentum_120d")),
+                "trend_200": trend_200,
+                "vol_60d_ann": _finite_float(row.get("vol_60d_ann")),
+                "drawdown_current": _finite_float(row.get("drawdown_current")),
                 "current_weight": current_weight,
                 "target_weight": target_weight,
                 "drift_eur": drift_eur,
@@ -411,7 +428,7 @@ def _signal_to_json(signal: SignalResult) -> dict[str, object]:
             "run_id": signal.run_id,
             "signal_date": signal.signal_date.isoformat(),
             "etf_id": signal.etf_id,
-            "confidence": signal.confidence if isfinite(signal.confidence) else None,
+            "confidence": _finite_float(signal.confidence),
             "total_score": signal.total_score if isfinite(signal.total_score) else None,
             "blocked_by": signal.blocked_by,
             "warnings": signal.warnings,
@@ -436,15 +453,17 @@ def _attach_authority(signal: SignalResult, data_report: DataQualityReport) -> S
     warning_codes = set(signal.warnings)
     has_dataset_evidence = _has_verified_price_evidence(signal, data_report, etf_issues)
     has_valid_model = _model_validity(signal)
-    risk_blocks = {
-        "portfolio_validation_block",
-        "expected_drawdown_gate",
-        "cash_minimum_breached",
-        "model_disagreement",
-        "edge_below_cost_threshold",
-        "edge_inputs_unavailable",
-    }
     cost_failure_codes = blocked_codes & {"edge_below_cost_threshold", "edge_inputs_unavailable"}
+    portfolio_failure_codes = {
+        code for code in blocked_codes
+        if code in {"portfolio_validation_block", "cash_minimum_breached", "portfolio_inputs_unavailable", "minimum_trade_size"}
+        or code.startswith("projected_weight_above_cap:")
+    }
+    # Every active block must have an authority gate. Cost-only failures are
+    # warnings under policy; deadband/conservative holds are not risk failures.
+    # Unknown block codes conservatively fail risk instead of silently passing.
+    risk_failure_codes = blocked_codes - cost_failure_codes - {"inside_deadband", "no_trade_conservative"}
+    valuation_passed, valuation_reason = _valuation_gate(signal)
     cost_messages = {
         "edge_below_cost_threshold": "Edge is below configured cost threshold",
         "edge_inputs_unavailable": "Edge/cost inputs are unavailable",
@@ -485,13 +504,13 @@ def _attach_authority(signal: SignalResult, data_report: DataQualityReport) -> S
         ),
         GateResult(
             gate_id="risk",
-            passed=not bool(blocked_codes & risk_blocks),
-            message="No blocking risk gate" if not blocked_codes & risk_blocks else "Risk gate blocked",
+            passed=not risk_failure_codes,
+            message="No blocking risk gate" if not risk_failure_codes else "Risk gate blocked: " + ", ".join(sorted(risk_failure_codes)),
         ),
         GateResult(
             gate_id="valuation",
-            passed=False,
-            message="Valuation context is unavailable to signal generation",
+            passed=valuation_passed,
+            message=valuation_reason,
         ),
         GateResult(
             gate_id="signal",
@@ -500,8 +519,8 @@ def _attach_authority(signal: SignalResult, data_report: DataQualityReport) -> S
         ),
         GateResult(
             gate_id="portfolio_fit",
-            passed="portfolio_validation_block" not in blocked_codes,
-            message="Portfolio constraints are available" if "portfolio_validation_block" not in blocked_codes else "Portfolio validation blocked",
+            passed=not portfolio_failure_codes,
+            message="Portfolio constraints are available" if not portfolio_failure_codes else "Portfolio constraints blocked: " + ", ".join(sorted(portfolio_failure_codes)),
         ),
         GateResult(
             gate_id="cost",
@@ -511,6 +530,22 @@ def _attach_authority(signal: SignalResult, data_report: DataQualityReport) -> S
     ]
     decision = resolve_authority(research_state_for_legacy_action(signal.action), gates, None)
     return replace(signal, authority_decision=decision)
+
+
+def _valuation_gate(signal: SignalResult) -> tuple[bool, str]:
+    score = signal.canonical_score
+    if str(getattr(score, "asset_type", "")).upper() == "ETF":
+        return True, "Valuation is not applicable to ETFs"
+    for component in getattr(score, "components", ()):
+        if (
+            component.get("key") == "stock_value"
+            and component.get("score_eligible") is True
+            and str(component.get("status", "")).casefold() == "ok"
+            and str(component.get("freshness_status", "")).casefold() in {"ok", "fresh"}
+            and _finite_float(component.get("raw_metric")) is not None
+        ):
+            return True, "Fresh stock_value evidence is available"
+    return False, "Fresh stock_value evidence is unavailable"
 
 
 def _has_verified_price_evidence(
@@ -603,9 +638,9 @@ def _cost_stress_metrics(
 
 
 def _edge_to_cost(expected_edge_bps: float, cost_bps: float) -> float | None:
-    if cost_bps <= 0:
+    if not isfinite(expected_edge_bps) or not isfinite(cost_bps) or cost_bps <= 0:
         return None
-    return abs(expected_edge_bps) / cost_bps
+    return expected_edge_bps / cost_bps
 
 
 def _technical_expected_edge(scored: pd.DataFrame) -> pd.Series:
@@ -633,13 +668,15 @@ def _primary_horizon_distribution_value(distribution: dict[str, object] | None, 
     return _distribution_value(distribution, key)
 
 
-def _structure_cap_for_row(caps: dict[str, float] | None, etf_id: str) -> float:
-    """Return a bounded, fail-closed evidence cap for a signal row."""
+def _medium_term_score(row: pd.Series) -> float | None:
+    values = [_finite_float(row.get(key)) for key in ("momentum_60d", "momentum_120d")]
+    return None if any(value is None for value in values) else sum(values) / 2
+
+
+def _structure_cap_for_row(caps: dict[str, float] | None, etf_id: str) -> float | None:
+    """Keep withheld/invalid caps unavailable; preserve a supplied numeric zero."""
 
     if not isinstance(caps, dict):
-        return 0.0
-    try:
-        value = float(caps.get(etf_id, 0.0))
-    except (TypeError, ValueError):
-        return 0.0
-    return min(1.0, max(0.0, value)) if isfinite(value) else 0.0
+        return None
+    value = _finite_float(caps.get(etf_id))
+    return min(1.0, max(0.0, value)) if value is not None else None
