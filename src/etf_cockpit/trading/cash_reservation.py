@@ -425,8 +425,11 @@ class CashReservationService:
             raise CashReservationError("The fill account or currency does not match its reservation.")
         if remaining_quantity < 0 or remaining_quantity > original_quantity:
             raise CashReservationError("The remaining fill quantity is outside the original order quantity.")
+        remaining_fee_estimate = (
+            fee_estimate * remaining_quantity / original_quantity if remaining_quantity > 0 else Decimal("0")
+        )
         amount = (
-            self._reservation_amount(remaining_quantity, limit_price, fee_estimate)
+            self._reservation_amount(remaining_quantity, limit_price, remaining_fee_estimate)
             if remaining_quantity > 0 and side == "buy"
             else Decimal("0")
         )
@@ -493,5 +496,5 @@ class CashReservationService:
 
     @staticmethod
     def _reservation_amount(quantity: Decimal, limit_price: Decimal, fee_estimate: Decimal) -> Decimal:
-        # Keep the complete fee estimate until the order finishes or is cancelled.
+        # The caller supplies the fee estimate allocated to the remaining quantity.
         return quantity * limit_price + fee_estimate

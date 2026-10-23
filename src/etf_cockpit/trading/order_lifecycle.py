@@ -544,6 +544,8 @@ class OrderLifecycle:
                 raise OrderTransitionError(f"Cannot reconcile an order to {target.value}.")
             event_payload: dict[str, object] = {"reason": detail, "execution_allowed": False}
             committed_fill = Decimal(str(row[6])) < Decimal(str(row[5]))
+            if target is OrderState.ACKNOWLEDGED and committed_fill:
+                raise OrderLifecycleError("An order with a committed fill cannot be reconciled to ACKNOWLEDGED.")
             if target is OrderState.REJECTED and committed_fill:
                 target = OrderState.PARTIALLY_FILLED if Decimal(str(row[6])) > 0 else OrderState.FILLED
                 event_payload.update({
@@ -558,60 +560,72 @@ class OrderLifecycle:
                     if remaining_quantity is None:
                         raise OrderLifecycleError("A partially filled reconciliation requires remaining_quantity.")
                     remaining = decimal_value(remaining_quantity, "remaining_quantity", non_negative=True)
-                    if remaining >= prior_remaining:
-                        raise OrderLifecycleError("A partially filled reconciliation must reduce the remaining quantity.")
+                    if remaining > prior_remaining:
+                        raise OrderLifecycleError("A partially filled reconciliation cannot increase the remaining quantity.")
+                    no_new_fill = remaining == prior_remaining
+                    if no_new_fill:
+                        if any(value is not None for value in (fill_id, fill_quantity, fill_price, fill_fee, fill_fx_rate, fill_cash_change)):
+                            raise OrderLifecycleError("A no-fill reconciliation cannot include fill evidence.")
+                        event_payload.update({
+                            "remaining_quantity": str(remaining),
+                            "partial_fill_committed": True,
+                            "no_new_fill": True,
+                        })
+                    else:
+                        expected_fill_quantity = prior_remaining - remaining
                     if remaining == 0:
                         target = OrderState.FILLED
                 else:
                     remaining = Decimal("0")
-                expected_fill_quantity = prior_remaining - remaining
-                if any(value is None for value in (fill_id, fill_quantity, fill_price, fill_fee, fill_fx_rate, fill_cash_change)):
-                    raise OrderLifecycleError("A reconciled fill requires complete fill and cash evidence.")
-                identifier = self._required_text(fill_id, "fill_id")
-                filled = decimal_value(fill_quantity, "fill_quantity", positive=True)
-                price = decimal_value(fill_price, "fill_price", positive=True)
-                fee = decimal_value(fill_fee, "fill_fee", non_negative=True)
-                fx = decimal_value(fill_fx_rate, "fill_fx_rate", positive=True)
-                cash_change = decimal_value(fill_cash_change, "fill_cash_change")
-                if filled != expected_fill_quantity:
-                    raise OrderLifecycleError("Reconciled fill quantity does not match the remaining order quantity.")
-                side = str(row[4])
-                gross = filled * price * fx
-                expected_cash_change = -(gross + fee) if side == "buy" else gross - fee
-                if cash_change != expected_cash_change:
-                    raise OrderLifecycleError("Reconciled cash evidence does not match the fill terms.")
-                settlement, warning = self._settlement_at(row[10], row[11], instant)
-                self.reservations.record_fill(
-                    connection,
-                    order_id=order_id,
-                    fill_id=identifier,
-                    remaining_quantity=remaining,
-                    fill_cash_change=cash_change,
-                    side=side,
-                    account_id=str(row[2]),
-                    currency=str(row[3]),
-                    settlement_date=settlement,
-                )
-                self._require_post_fill_buying_power(
-                    connection,
-                    row=row,
-                    fill_id=identifier,
-                    instant=instant,
-                )
-                self._refresh_settlement(connection, order_id, settlement, warning)
-                connection.execute(
-                    "UPDATE order_intents SET remaining_quantity = ? WHERE order_id = ?",
-                    (str(remaining), order_id),
-                )
-                event_payload.update({
-                    "fill_id": identifier,
-                    "fill_quantity": str(filled),
-                    "fill_price": str(price),
-                    "fill_fee": str(fee),
-                    "fill_fx_rate": str(fx),
-                    "fill_cash_change": str(cash_change),
-                    "remaining_quantity": str(remaining),
-                })
+                if target is not OrderState.PARTIALLY_FILLED or not no_new_fill:
+                    expected_fill_quantity = prior_remaining - remaining
+                    if any(value is None for value in (fill_id, fill_quantity, fill_price, fill_fee, fill_fx_rate, fill_cash_change)):
+                        raise OrderLifecycleError("A reconciled fill requires complete fill and cash evidence.")
+                    identifier = self._required_text(fill_id, "fill_id")
+                    filled = decimal_value(fill_quantity, "fill_quantity", positive=True)
+                    price = decimal_value(fill_price, "fill_price", positive=True)
+                    fee = decimal_value(fill_fee, "fill_fee", non_negative=True)
+                    fx = decimal_value(fill_fx_rate, "fill_fx_rate", positive=True)
+                    cash_change = decimal_value(fill_cash_change, "fill_cash_change")
+                    if filled != expected_fill_quantity:
+                        raise OrderLifecycleError("Reconciled fill quantity does not match the remaining order quantity.")
+                    side = str(row[4])
+                    gross = filled * price * fx
+                    expected_cash_change = -(gross + fee) if side == "buy" else gross - fee
+                    if cash_change != expected_cash_change:
+                        raise OrderLifecycleError("Reconciled cash evidence does not match the fill terms.")
+                    settlement, warning = self._settlement_at(row[10], row[11], instant)
+                    self.reservations.record_fill(
+                        connection,
+                        order_id=order_id,
+                        fill_id=identifier,
+                        remaining_quantity=remaining,
+                        fill_cash_change=cash_change,
+                        side=side,
+                        account_id=str(row[2]),
+                        currency=str(row[3]),
+                        settlement_date=settlement,
+                    )
+                    self._require_post_fill_buying_power(
+                        connection,
+                        row=row,
+                        fill_id=identifier,
+                        instant=instant,
+                    )
+                    self._refresh_settlement(connection, order_id, settlement, warning)
+                    connection.execute(
+                        "UPDATE order_intents SET remaining_quantity = ? WHERE order_id = ?",
+                        (str(remaining), order_id),
+                    )
+                    event_payload.update({
+                        "fill_id": identifier,
+                        "fill_quantity": str(filled),
+                        "fill_price": str(price),
+                        "fill_fee": str(fee),
+                        "fill_fx_rate": str(fx),
+                        "fill_cash_change": str(cash_change),
+                        "remaining_quantity": str(remaining),
+                    })
             elif target in {OrderState.CANCELLED, OrderState.REJECTED}:
                 self.reservations.release(connection, order_id)
                 if committed_fill:
@@ -898,25 +912,35 @@ class OrderLifecycle:
         if same and payload.get("requested_state") == OrderState.REJECTED.value:
             same = target is OrderState.REJECTED and existing.state in FILL_STATES
         elif same and target in FILL_STATES:
-            expected = {
-                "fill_id": fill_id,
-                "fill_quantity": fill_quantity,
-                "fill_price": fill_price,
-                "fill_fee": fill_fee,
-                "fill_fx_rate": fill_fx_rate,
-                "fill_cash_change": fill_cash_change,
-            }
-            for name, value in expected.items():
-                if value is None or name not in payload:
-                    same = False
-                elif name == "fill_id":
-                    same = same and str(payload[name]) == str(value).strip()
-                else:
-                    same = same and decimal_value(payload[name], name) == decimal_value(value, name)
-            if target is OrderState.PARTIALLY_FILLED and remaining_quantity is not None:
-                same = same and decimal_value(payload.get("remaining_quantity"), "remaining_quantity") == decimal_value(
-                    remaining_quantity, "remaining_quantity"
-                )
+            no_new_fill = target is OrderState.PARTIALLY_FILLED and all(
+                value is None for value in (fill_id, fill_quantity, fill_price, fill_fee, fill_fx_rate, fill_cash_change)
+            )
+            if no_new_fill:
+                same = same and payload.get("no_new_fill") is True and remaining_quantity is not None
+                if same:
+                    same = decimal_value(payload.get("remaining_quantity"), "remaining_quantity") == decimal_value(
+                        remaining_quantity, "remaining_quantity"
+                    )
+            else:
+                expected = {
+                    "fill_id": fill_id,
+                    "fill_quantity": fill_quantity,
+                    "fill_price": fill_price,
+                    "fill_fee": fill_fee,
+                    "fill_fx_rate": fill_fx_rate,
+                    "fill_cash_change": fill_cash_change,
+                }
+                for name, value in expected.items():
+                    if value is None or name not in payload:
+                        same = False
+                    elif name == "fill_id":
+                        same = same and str(payload[name]) == str(value).strip()
+                    else:
+                        same = same and decimal_value(payload[name], name) == decimal_value(value, name)
+                if target is OrderState.PARTIALLY_FILLED and remaining_quantity is not None:
+                    same = same and decimal_value(payload.get("remaining_quantity"), "remaining_quantity") == decimal_value(
+                        remaining_quantity, "remaining_quantity"
+                    )
             same = same and existing.state in {target, OrderState.FILLED}
         else:
             same = same and existing.state is target
