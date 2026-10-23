@@ -105,7 +105,7 @@ def test_k02a() -> None:
 
 
 def test_k02b() -> None:
-    result = valuation(_claim(), price=150.0, assumptions={"price_to_book": 1.5, "k": 0.10, "cost_of_equity": 0.12, "g": 0.03})
+    result = valuation(_claim(), price=150.0, assumptions={"price_to_book": 1.5, "k": 0.10, "cost_of_equity": 0.12, "g": 0.03}, pit_verified=True)
     assert result["status"] == "unavailable" and result["reason_code"] == "VALUATION_ASSUMPTIONS_INVALID"
     assert result["reverse"]["status"] == "unavailable"
 

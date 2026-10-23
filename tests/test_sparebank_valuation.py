@@ -100,7 +100,7 @@ def test_suite_valuation_assembles_four_state_recovery_policy_irr_and_decision_p
         "irr": {"price": 90, "cash_flows": (10, 110)},
         "decision_price": {"value": 100, "hurdle": 0.08, "years": 1, "exit_cost": 0.005},
     }
-    result = valuation(_claim(), price=90, assumptions=assumptions)
+    result = valuation(_claim(), price=90, assumptions=assumptions, pit_verified=True)
     assert result["status"] == "resolved"
     assert result["four_state"]["value"] == pytest.approx(97)
     assert result["marketability"]["without_marketability"] == pytest.approx(95)
@@ -108,4 +108,4 @@ def test_suite_valuation_assembles_four_state_recovery_policy_irr_and_decision_p
     assert result["irr"]["irr"] is not None
     assert result["decision_price"]["price"] == pytest.approx(92.1296296)
     assert result["timestamp"] == assumptions["timestamp"]
-    assert valuation(_claim(), price=110, assumptions=assumptions)["four_state"]["value"] == result["four_state"]["value"]
+    assert valuation(_claim(), price=110, assumptions=assumptions, pit_verified=True)["four_state"]["value"] == result["four_state"]["value"]

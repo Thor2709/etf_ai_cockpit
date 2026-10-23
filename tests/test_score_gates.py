@@ -290,19 +290,19 @@ def _teaching_bank() -> dict[str, object]:
 def test_sparebank_without_confirmed_eierbrok_has_no_certified_valuation() -> None:
     confirmed = _teaching_bank()
     confirmed["facts"]["eierbrok"] = {"available": True, "value": 0.4}
-    certified = valuation(build_claim_state(confirmed), price=100)
+    certified = valuation(build_claim_state(confirmed), price=100, pit_verified=True)
     assert certified["certified"] is True and certified["certification"]["gate_id"] == "owner_claim"
 
     unconfirmed = copy.deepcopy(_teaching_bank())
     del unconfirmed["facts"]["eierbrok"]
-    result = valuation(build_claim_state(unconfirmed), price=100)
+    result = valuation(build_claim_state(unconfirmed), price=100, pit_verified=True)
     assert result["certified"] is False
     assert result["certification"]["reason_code"] == "OWNER_CLAIM_NOT_CONFIRMED"
     assert result["execution_allowed"] is False
 
     invalid = _teaching_bank()
     invalid["facts"]["eierbrok"] = {"available": True, "value": 1.7}
-    assert valuation(build_claim_state(invalid), price=100)["certified"] is False
+    assert valuation(build_claim_state(invalid), price=100, pit_verified=True)["certified"] is False
 
 
 def test_bank_gates_require_capital_and_owner_claim() -> None:
