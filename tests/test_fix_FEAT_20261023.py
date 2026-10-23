@@ -234,3 +234,49 @@ def test_a04_f8_candidate_rows_without_known_at_stay_unavailable() -> None:
     known = no_known_at.assign(known_at="2024-01-02")
     assert _candidate_pct_above_sma200(known, decision_time="2024-01-03") == 1.0
     assert _candidate_pct_above_sma200(known, decision_time="2024-01-02") is None  # same-day date-only boundary
+
+
+# --- RV-SG review findings (feature store, economics) --------------------------------------------
+def test_rv_sg_6_benchmark_origin_uses_the_revision_known_at_the_decision() -> None:
+    benchmark = pd.DataFrame(
+        {
+            "date": ["2026-01-01", "2026-01-01", "2026-01-02", "2026-01-02"],
+            "adjusted_close": [100.0, 200.0, 110.0, 110.0],
+            "known_at": ["2026-01-01 18:00", "2026-01-04 09:00", "2026-01-02 18:00", "2026-01-02 18:00"],
+        }
+    )
+    decision, end = pd.Timestamp("2026-01-01 23:00"), pd.Timestamp("2026-01-02")
+    prepared = _prepare_benchmark(benchmark, "date", "adjusted_close")
+    # The 200.0 revision was learned after the decision: the origin stays 100.0.
+    assert _forward_benchmark_return(prepared, decision, end) == pytest.approx(0.10)
+    shuffled = _prepare_benchmark(benchmark.iloc[::-1].reset_index(drop=True), "date", "adjusted_close")
+    assert _forward_benchmark_return(shuffled, decision, end) == pytest.approx(0.10)  # input order is irrelevant
+    unknown = benchmark.assign(known_at="2026-01-04")  # nothing known at the decision: unavailable, not the revised close
+    assert _forward_benchmark_return(_prepare_benchmark(unknown, "date", "adjusted_close"), decision, end) is None
+
+
+def test_rv_sg_6_build_targets_excess_return_ignores_a_benchmark_revised_after_the_decision(tmp_path) -> None:
+    store = LocalFeatureStore(tmp_path)
+    store.register_target(TargetDefinition("ex1", 1, kind="excess_return"))
+    prices = pd.DataFrame({"etf_id": "A", "date": pd.to_datetime(["2026-01-01", "2026-01-02"]), "adjusted_close": [100.0, 120.0]})
+    benchmark = pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2026-01-01", "2026-01-01", "2026-01-02"]),
+            "adjusted_close": [100.0, 400.0, 110.0],
+            "known_at": pd.to_datetime(["2026-01-01 18:00", "2026-01-09 09:00", "2026-01-02 18:00"]),
+        }
+    )
+    targets = store.build_targets(prices, ["2026-01-01 23:00"], benchmark_prices=benchmark)
+    assert targets.loc[0, "ex1"] == pytest.approx(0.20 - 0.10)
+
+
+def test_rv_sg_7_liquidity_volatility_keeps_missing_adjusted_close_unavailable() -> None:
+    config = load_config()
+    gap = _history()
+    gap.loc[gap.index[-30], "adjusted_close"] = np.nan  # positive close, missing adjusted close
+    report = calculate_etf_liquidity(config, gap, "VWCE")
+    adjusted = pd.to_numeric(gap["adjusted_close"], errors="coerce")
+    expected = adjusted.pct_change(fill_method=None).dropna().tail(60).std()
+    zero_filled = adjusted.pct_change(fill_method="pad").dropna().tail(60).std()
+    assert expected != pytest.approx(zero_filled)
+    assert report.daily_volatility == pytest.approx(expected)

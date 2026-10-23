@@ -33,7 +33,7 @@ def _inputs() -> gate.ReadinessInputs:
     ids = [*ETFS, *STOCKS]
     kind = {key: "ETF" for key in ETFS} | {key: "Stock" for key in STOCKS}
     prices = pd.DataFrame(
-        [{"etf_id": key, "date": day, "currency": "USD" if key == "STK3" else "EUR", "source": "yfinance"} for key in ids for day in DAYS]
+        [{"etf_id": key, "date": day, "adjusted_close": 100.0, "close": 100.0, "currency": "USD" if key == "STK3" else "EUR", "source": "yfinance"} for key in ids for day in DAYS]
     )
     history = pd.DataFrame(
         [
@@ -154,3 +154,75 @@ def test_cli_exits_non_zero_without_stores_and_writes_nothing(tmp_path: Path) ->
     bad = subprocess.run([sys.executable, str(ROOT / "scripts" / "data_readiness.py"), "--root", str(tmp_path), "--start", "2024-02-23", "--end", "2024-01-01"],
                          capture_output=True, text=True, timeout=300, cwd=ROOT, check=False)
     assert bad.returncode == 2
+
+
+# --- RV-SG review findings (readiness gate) ------------------------------------------------------
+def test_rv_sg_1_currency_is_resolved_as_of_each_decision_date() -> None:
+    inputs = _inputs()
+    later = inputs.prices["etf_id"].eq("STK3") & (inputs.prices["date"] > DAYS[20])
+    inputs.prices.loc[later, "currency"] = "EUR"  # quoted in USD at the early decision dates, EUR afterwards
+    inputs.fx = pd.DataFrame()  # no USD rate at all
+    report = _evaluate(inputs)
+    assert not report.dates[0].checks["fx"].passed and any("USD_to_EUR" in label for label in report.dates[0].checks["fx"].gaps)
+    assert report.dates[-1].checks["fx"].passed  # EUR later: no USD rate needed
+    inputs = _inputs()
+    inputs.prices.loc[inputs.prices["etf_id"].eq("STK3") & inputs.prices["date"].eq(DAYS[0]), "currency"] = "EUR"
+    inputs.prices = pd.concat([inputs.prices, inputs.prices.loc[inputs.prices["etf_id"].eq("STK3") & inputs.prices["date"].eq(DAYS[0])].assign(currency="USD")])
+    assert "STK3" in _evaluate(inputs).dates[0].checks["fx"].gaps["currency_unknown"]  # same-date conflict
+
+
+def test_rv_sg_2_price_rows_need_a_positive_finite_price() -> None:
+    for bad in (None, 0.0, float("inf"), -1.0):
+        inputs = _inputs()
+        rows = inputs.prices["etf_id"].eq("STK1") & (inputs.prices["date"] > DAYS[10])
+        inputs.prices.loc[rows, ["adjusted_close", "close"]] = bad
+        report = _evaluate(inputs)
+        assert "STK1" in report.dates[-1].checks["prices"].gaps["no_recent_price"], bad
+    inputs = _inputs()
+    inputs.prices = inputs.prices.drop(columns=["adjusted_close", "close"])  # no price values stored: unavailable
+    assert not _evaluate(inputs).passed
+    inputs = _inputs()
+    inputs.prices.loc[inputs.prices["etf_id"].eq("VWCE") & inputs.prices["date"].isin(DAYS[1:5]), "adjusted_close"] = float("nan")
+    assert not _evaluate(inputs).interval["benchmark_sessions"].passed
+
+
+def test_rv_sg_3_missing_benchmark_row_cannot_remove_a_scheduled_decision_date() -> None:
+    days = [day.date() for day in pd.bdate_range("2023-01-02", periods=201)]
+    inputs = _inputs()
+    keys = inputs.prices["etf_id"].unique()
+    inputs.prices = pd.DataFrame(
+        [{"etf_id": key, "date": day, "adjusted_close": 100.0, "close": 100.0, "currency": "USD" if key == "STK3" else "EUR", "source": "yfinance"} for key in keys for day in days]
+    )
+    inputs.prices = inputs.prices.loc[~(inputs.prices["etf_id"].eq("VWCE") & inputs.prices["date"].eq(days[5]))]  # 1 of 201 benchmark rows
+    inputs.history = inputs.history.loc[inputs.history["as_of_date"].ne(days[5].isoformat())]
+    inputs.fx = pd.DataFrame({"as_of_date": days, "base_currency": "USD", "quote_currency": "EUR", "rate": 0.9, "source": "yfinance", "ingested_at": "2022-12-29T00:00:00+00:00"})
+    report = gate.evaluate_readiness(inputs, days[0], days[-1], _thresholds(), every=5)
+    assert days[5].isoformat() in [item.day for item in report.dates]  # still scheduled, though its benchmark row is missing
+    assert not report.interval["decision_dates"].passed and not report.passed
+
+
+def test_rv_sg_4_null_or_malformed_family_metadata_is_incomplete() -> None:
+    for column, value in (("pit_terms_unavailable", float("nan")), ("missing_components", None), ("pit_terms_unavailable", 7), ("freshness_status", float("nan"))):
+        inputs = _inputs()
+        inputs.history[column] = inputs.history[column].astype(object)
+        inputs.history.loc[inputs.history["instrument_id"].isin(["STK1", "STK2"]), column] = value
+        report = _evaluate(inputs)
+        assert _failed(report) == {"family_completeness"}, column
+        assert report.dates[0].checks["family_completeness"].gaps["metadata_unavailable"] == ("STK1", "STK2")
+
+
+def test_rv_sg_5_universe_counts_distinct_instruments_and_finite_scores() -> None:
+    inputs = _inputs()
+    dup = inputs.history.loc[inputs.history["instrument_id"].eq("STK1")].copy()
+    inputs.history = pd.concat([inputs.history, dup, dup], ignore_index=True)  # exact duplicates collapse
+    assert _evaluate(inputs).passed
+    assert not _evaluate(inputs, replace(_thresholds(), min_scoreable_stocks=4)).passed  # a duplicated row adds no stock
+    inputs = _inputs()
+    conflict = inputs.history.loc[inputs.history["instrument_id"].eq("STK1")].copy()
+    conflict["final_combined_score_10"] = 7.0
+    inputs.history = pd.concat([inputs.history, conflict], ignore_index=True)
+    check = _evaluate(inputs).dates[0].checks["universe_counts"]
+    assert not check.passed and check.counts["scoreable_stocks"] == 2 and "conflicting" in check.detail
+    inputs = _inputs()
+    inputs.history.loc[inputs.history["instrument_id"].eq("STK2"), "final_combined_score_10"] = float("inf")
+    assert _evaluate(inputs).dates[0].checks["universe_counts"].counts["scoreable_stocks"] == 2

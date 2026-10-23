@@ -454,7 +454,7 @@ def calculate_etf_liquidity(
     gaps = ((opening / previous_close) - 1.0).abs().where(previous_close.gt(0)).dropna()
     gap_risk = _finite(gaps.quantile(0.95) * 10_000.0) if not gaps.empty else None
     adjusted = pd.to_numeric(frame.get("adjusted_close", close), errors="coerce")
-    returns = adjusted.pct_change().dropna()
+    returns = adjusted.pct_change(fill_method=None).dropna()
     volatility = _finite(returns.tail(60).std()) if len(returns) >= 2 else None
     zero_days = int((recent_volume <= 0).sum())
     zero_rate = zero_days / len(recent_volume) if len(recent_volume) else None

@@ -28,7 +28,7 @@ import numpy as np
 import pandas as pd
 import yaml
 
-from etf_cockpit.application.score_backfill import CALENDAR_INSTRUMENT_ID, session_dates
+from etf_cockpit.application.score_backfill import CALENDAR_INSTRUMENT_ID
 from etf_cockpit.core.paths import CONFIG_DIR
 from etf_cockpit.data.duckdb_store import SYNTHETIC_PRICE_SOURCES, load_prices
 from etf_cockpit.data.fx_data import EurRateBook, load_fx_rates, major_currency
@@ -264,8 +264,10 @@ def evaluate_readiness(
     if end < start:
         raise ValueError("end must not be before start")
     cadence = thresholds.decision_cadence_sessions if every is None else int(every)
+    if cadence < 1:
+        raise ValueError("every must be at least 1 session")
     context = _Context(inputs, thresholds)
-    days = session_dates(context.prices, start, end, every=cadence) if context.prices_usable else []
+    days = context.schedule(start, end)[::cadence] if context.prices_usable else []
     dates = tuple(_evaluate_date(day, context) for day in days)
     interval = {
         "decision_dates": _decision_dates_check(days, context, start, end),
@@ -281,17 +283,28 @@ class _Context:
         self.inputs = inputs
         self.thresholds = thresholds
         self.prices = _clean_prices(inputs.prices)
-        self.prices_usable = not self.prices.empty
+        self.price_column = _price_column(self.prices)
+        self.prices_usable = not self.prices.empty and self.price_column is not None
+        if self.prices_usable:
+            self.prices = self.prices.assign(__usable=_usable_prices(self.prices[self.price_column]))
+        self.usable = self.prices.loc[self.prices["__usable"]] if self.prices_usable else self.prices
         self.history = _by_day(inputs.history)
         self.eligibility = _by_day(inputs.eligibility)
         self.price_dates: dict[str, np.ndarray] = {}
-        self.currency: dict[str, str] = {}
+        # instrument -> (sorted unique dates, currencies quoted on each date): currency is resolved as of each decision date.
+        self.currency_rows: dict[str, tuple[np.ndarray, list[frozenset[str]]]] = {}
         if self.prices_usable:
-            for instrument, group in self.prices.groupby("etf_id", sort=False):
+            for instrument, group in self.usable.groupby("etf_id", sort=False):
                 self.price_dates[str(instrument)] = np.unique(np.array(group["date"].tolist(), dtype="datetime64[D]"))
             if "currency" in self.prices.columns:
-                last = self.prices.dropna(subset=["currency"]).drop_duplicates("etf_id", keep="last")
-                self.currency = {str(key): str(value).strip() for key, value in zip(last["etf_id"], last["currency"]) if str(value).strip()}
+                quoted = self.prices.dropna(subset=["currency"])
+                for instrument, group in quoted.groupby("etf_id", sort=False):
+                    by_day: dict[Any, set[str]] = {}
+                    for day, value in zip(group["date"], group["currency"]):
+                        if str(value).strip():
+                            by_day.setdefault(day, set()).add(str(value).strip())
+                    ordered = sorted(by_day)
+                    self.currency_rows[str(instrument)] = (np.array(ordered, dtype="datetime64[D]"), [frozenset(by_day[day]) for day in ordered])
         self.weighted: dict[str, tuple[str, ...]] = {}
         self.weight_error: str | None = None
         try:
@@ -299,6 +312,29 @@ class _Context:
                 self.weighted[policy] = tuple(sorted(key for key, value in headline_evidence_weights(policy).items() if value > 0))
         except Exception as exc:  # the score policy must be readable; never assume which families carry weight
             self.weight_error = f"headline weights unavailable ({type(exc).__name__})"
+
+    def currency_at(self, key: str, day: date) -> str | None:
+        """The quote currency on the latest row dated on or before ``day``; rows after ``day`` are never used, a conflict is unknown."""
+
+        entry = self.currency_rows.get(key)
+        if entry is None:
+            return None
+        position = int(np.searchsorted(entry[0], np.datetime64(day, "D"), side="right"))
+        if position == 0 or len(entry[1][position - 1]) != 1:
+            return None
+        return next(iter(entry[1][position - 1]))
+
+    def schedule(self, start: date, end: date) -> list[date]:
+        """Expected sessions in ``[start, end]``, independent of benchmark rows: a date quoted by a strict majority of the
+        instruments, or by the benchmark. A session whose benchmark row is missing therefore stays scheduled (and fails)."""
+
+        window = self.prices.loc[(self.prices["date"] >= start) & (self.prices["date"] <= end)]
+        if window.empty:
+            return []
+        total = window["etf_id"].nunique()
+        per_day = window.groupby("date")["etf_id"].nunique()
+        benchmark = set(window.loc[window["etf_id"].eq(CALENDAR_INSTRUMENT_ID), "date"])
+        return sorted(day for day, count in per_day.items() if count * 2 > total or day in benchmark)
 
     def reason(self, name: str, default: str) -> str:
         reason = self.inputs.unavailable.get(name)
@@ -314,6 +350,20 @@ def _clean_prices(prices: pd.DataFrame) -> pd.DataFrame:
     frame = frame.assign(date=pd.to_datetime(frame["date"], errors="coerce").dt.date).dropna(subset=["date"])
     frame = frame.assign(etf_id=frame["etf_id"].astype(str))
     return frame.reset_index(drop=True)
+
+
+def _price_column(prices: pd.DataFrame) -> str | None:
+    """The price the scores use: ``adjusted_close`` when stored, else ``close``; none stored means prices are unavailable."""
+
+    for name in ("adjusted_close", "close"):
+        if name in prices.columns:
+            return name
+    return None
+
+
+def _usable_prices(values: pd.Series) -> pd.Series:
+    numeric = pd.to_numeric(values, errors="coerce")
+    return numeric.notna() & np.isfinite(numeric.fillna(0.0)) & numeric.gt(0)
 
 
 def _by_day(frame: pd.DataFrame) -> dict[str, pd.DataFrame]:
@@ -385,8 +435,18 @@ def _membership_check(day: date, admitted: list[str], log: pd.DataFrame, context
 def _counts_check(run: pd.DataFrame, admitted: list[str], thresholds: ReadinessThresholds) -> CheckResult:
     if not {"instrument_id", "asset_type", "final_combined_score_10"}.issubset(run.columns):
         return _fail("unavailable: score rows lack instrument_id, asset_type or final_combined_score_10")
-    scoreable = run.loc[run["instrument_id"].astype(str).isin(admitted) & pd.to_numeric(run["final_combined_score_10"], errors="coerce").notna()]
-    kind = scoreable["asset_type"].astype(str).str.strip().str.casefold()
+    rows = run.loc[run["instrument_id"].astype(str).isin(admitted), ["instrument_id", "asset_type", "final_combined_score_10"]].copy()
+    rows["instrument_id"] = rows["instrument_id"].astype(str)
+    score = pd.to_numeric(rows["final_combined_score_10"], errors="coerce").astype(float)
+    rows["score"] = score.where(np.isfinite(score))
+    rows["kind"] = rows["asset_type"].astype(str).str.strip().str.casefold()
+    # One instrument is one row: exact duplicates collapse, conflicting duplicates are rejected (never counted).
+    distinct = rows.groupby("instrument_id").agg(
+        n_kind=("kind", "nunique"), n_score=("score", lambda s: s.dropna().nunique()), n_null=("score", lambda s: int(s.isna().sum())), n=("score", "size")
+    )
+    conflicting = distinct.index[(distinct["n_kind"] > 1) | (distinct["n_score"] > 1) | ((distinct["n_null"] > 0) & (distinct["n_null"] < distinct["n"]))]
+    scoreable = rows.loc[rows["score"].notna() & ~rows["instrument_id"].isin(conflicting)].drop_duplicates("instrument_id")
+    kind = scoreable["kind"]
     stocks = int(kind.isin(thresholds.stock_count_asset_types).sum())
     etfs = int(kind.isin(thresholds.etf_count_asset_types).sum())
     problems = []
@@ -395,6 +455,8 @@ def _counts_check(run: pd.DataFrame, admitted: list[str], thresholds: ReadinessT
     if etfs < thresholds.min_scoreable_etfs:
         problems.append(f"etfs {etfs}<{thresholds.min_scoreable_etfs}")
     counts = {"scoreable_stocks": stocks, "scoreable_etfs": etfs}
+    if len(conflicting):
+        problems.append(f"{len(conflicting)} instruments with conflicting duplicate score rows")
     if problems:
         return CheckResult(False, "; ".join(problems), counts=counts)
     return CheckResult(True, f"stocks {stocks}, etfs {etfs}", counts=counts)
@@ -413,6 +475,7 @@ def _family_check(run: pd.DataFrame, admitted: list[str], context: _Context, cap
     not_fresh: list[str] = []
     unclassified: list[str] = []
     not_scored: list[str] = []
+    unavailable_metadata: list[str] = []
     complete = 0
     for key in admitted:
         if key not in rows.index:
@@ -424,7 +487,11 @@ def _family_check(run: pd.DataFrame, admitted: list[str], context: _Context, cap
         if policy is None:
             unclassified.append(key)
             continue
-        absent = {part for column in ("pit_terms_unavailable", "missing_components") for part in str(row[column] or "").split("|") if part.strip()}
+        fields = [row[column] for column in ("pit_terms_unavailable", "missing_components")]
+        if not all(isinstance(value, str) for value in fields) or not isinstance(row["freshness_status"], str):
+            unavailable_metadata.append(key)  # null or malformed availability metadata is unavailable, never apparent completeness
+            continue
+        absent = {part for value in fields for part in value.split("|") if part.strip()}
         missing = [family for family in context.weighted[policy] if family in absent]
         for family in missing:
             missing_by_family.setdefault(f"missing:{family}", []).append(key)
@@ -435,7 +502,7 @@ def _family_check(run: pd.DataFrame, admitted: list[str], context: _Context, cap
             complete += 1
     share = complete / len(admitted)
     gaps: dict[str, list[str]] = dict(missing_by_family)
-    for label, ids in (("not_fresh", not_fresh), ("unclassified_asset_type", unclassified), ("not_scored", not_scored)):
+    for label, ids in (("not_fresh", not_fresh), ("unclassified_asset_type", unclassified), ("not_scored", not_scored), ("metadata_unavailable", unavailable_metadata)):
         if ids:
             gaps[label] = ids
     detail = f"{complete}/{len(admitted)} admitted complete and fresh ({share:.1%}, need {thresholds.min_family_complete_share:.0%})"
@@ -462,7 +529,7 @@ def _fx_check(day: date, admitted: list[str], context: _Context, cap: int) -> Ch
     foreign: dict[str, list[str]] = {}
     unknown: list[str] = []
     for key in admitted:
-        currency = context.currency.get(key)
+        currency = context.currency_at(key, day)
         major = major_currency(currency) if currency else None
         if major is None:
             unknown.append(key)
@@ -514,16 +581,21 @@ def _decision_dates_check(days: list[date], context: _Context, start: date, end:
     if not days:
         reason = context.reason("prices", f"no {CALENDAR_INSTRUMENT_ID} benchmark session between {start} and {end}")
         return _fail(reason)
+    if not context.prices_usable:
+        return _fail(context.reason("prices", "unavailable: no stored prices"))
+    benchmark = set(context.usable.loc[context.usable["etf_id"].eq(CALENDAR_INSTRUMENT_ID), "date"])
+    missing = [day.isoformat() for day in days if day not in benchmark]
+    if missing:
+        return _fail(f"{len(missing)} scheduled decision dates have no usable {CALENDAR_INSTRUMENT_ID} price (e.g. {', '.join(missing[:3])})")
     return CheckResult(True, f"{len(days)} decision dates")
 
 
 def _benchmark_sessions_check(context: _Context, start: date, end: date) -> CheckResult:
     if not context.prices_usable:
         return _fail(context.reason("prices", "unavailable: no stored prices"))
-    frame = context.prices
-    window = frame.loc[(frame["date"] >= start) & (frame["date"] <= end)]
-    sessions = set(window["date"])
-    benchmark = set(window.loc[window["etf_id"].eq(CALENDAR_INSTRUMENT_ID), "date"])
+    sessions = set(context.schedule(start, end))
+    window = context.usable.loc[(context.usable["date"] >= start) & (context.usable["date"] <= end)]
+    benchmark = set(window.loc[window["etf_id"].eq(CALENDAR_INSTRUMENT_ID), "date"]) & sessions
     if not sessions:
         return _fail("unavailable: no price session in the interval")
     share = len(benchmark) / len(sessions)
