@@ -467,7 +467,7 @@ def normalise_valuation_assumptions(
     return result
 
 
-def valuation(claim: ECClaimState | Mapping[str, object], *, price: float | None = None, assumptions: Mapping[str, object] | None = None, pit_verified: bool = True) -> dict[str, object]:
+def valuation(claim: ECClaimState | Mapping[str, object], *, price: float | None = None, assumptions: Mapping[str, object] | None = None, pit_verified: bool = False) -> dict[str, object]:
     """Build the explicit valuation section used by the suite entry point.
 
     ``pit_verified=False`` (claim ``known_at`` not shown to precede the decision time) withholds every owner value.
@@ -476,8 +476,9 @@ def valuation(claim: ECClaimState | Mapping[str, object], *, price: float | None
     certification = _certification(claim)
     claim_status = claim.get("claim_status") if isinstance(claim, Mapping) else getattr(claim, "claim_status", None)
     if claim_status != "resolved" or not pit_verified:
-        standalone = owner_valuation(claim, price=price, allow_partial=False)
         unavailable = {"status": "unavailable", "reason_code": "OWNER_VALUATION_CLAIM_NOT_RESOLVED" if claim_status != "resolved" else "OWNER_VALUATION_PIT_UNVERIFIED"}
+        # A claim not proven point-in-time must not leak owner figures through the standalone section.
+        standalone = owner_valuation(claim, price=price, allow_partial=False) if pit_verified else dict(unavailable)
         return {
             "status": "unavailable",
             "standalone": standalone,

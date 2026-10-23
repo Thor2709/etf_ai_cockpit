@@ -253,3 +253,35 @@ def test_fractional_horizon_rejected() -> None:
     scoreable = _scoreable_forecast_rows(forecasts)
 
     assert scoreable["horizon_days"].tolist() == [60]
+
+def test_calibration_offset_forecast_uses_written_session_return() -> None:
+    # RV-MS-2: 2024-01-02T20:00-05:00 is the 2 January session; its 5-session return is Jan 2 -> Jan 9 (102/100).
+    dates = pd.bdate_range("2024-01-02", periods=9)
+    prices = pd.DataFrame({"etf_id": "AAA", "date": dates, "adjusted_close": [100.0, 110.0, 99.0, 100.0, 101.0, 102.0, 130.0, 90.0, 95.0]})
+    forecasts = pd.DataFrame([{
+        "model_name": "baseline", "etf_id": "AAA", "forecast_date": "2024-01-02T20:00:00-05:00",
+        "horizon_days": 5, "expected_return": float(np.log(102.0 / 100.0)), "target_id": "adj_close_log_return_5d",
+        "q10_return": -0.5, "q90_return": 0.5, "status": "ok", "model_allowed_in_score": True,
+    }])
+
+    row = evaluate_forecast_calibration(forecasts, prices).iloc[0]
+
+    assert row["matured_forecasts"] == 1
+    assert row["oos_mase"] == 0.0
+    assert row["oos_directional_accuracy"] == 1.0
+
+
+def test_calibration_rejects_forecast_known_after_origin_session() -> None:
+    # RV-MS-3: created after the origin session (but before maturity) is not origin-time evidence.
+    prices = _calibration_prices()
+    forecasts = _calibration_history(prices, 7)
+    forecasts["known_at"] = forecasts["created_at"]
+    late = prices.loc[2, "date"] + pd.Timedelta(days=1)
+    forecasts.loc[2, ["created_at", "known_at"]] = [late, late]
+
+    result = calibrate_forecast_distribution(
+        forecasts, prices, _calibration_distribution(), instrument_id="AAA",
+        decision_time=prices.loc[10, "date"], settings={"minimum_matured_samples": 2, "coverage_tolerance": 0.05},
+    )
+
+    assert result["conformal_calibration"]["sample_count"] == 6
