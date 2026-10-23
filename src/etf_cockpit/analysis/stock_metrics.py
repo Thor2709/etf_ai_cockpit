@@ -109,7 +109,9 @@ class Period:
         """A finite number whose explicit evidence state allows use (stale, invalid, partial, conflicted... do not)."""
 
         explicit = str(self.value_status.get(name) or "")
-        return _finite(self.values.get(name)) is not None and (not explicit or explicit in USABLE_STATUSES)
+        return (_finite(self.values.get(name)) is not None
+                and (not explicit or explicit in USABLE_STATUSES)
+                and self.status_of(name) in USABLE_STATUSES)
 
     def has(self, *names: str) -> bool:
         return all(self.usable(name) for name in names)
@@ -117,6 +119,8 @@ class Period:
     def blocked_state(self, name: str) -> str | None:
         """The explicit non-usable state of a field (number or not), else None."""
 
+        if str(self.values.get(f"__currency_{name}") or "") == "currency_mismatch":
+            return "conflicted"
         explicit = str(self.value_status.get(name) or "")
         if explicit and explicit not in USABLE_STATUSES:
             return explicit
@@ -243,10 +247,19 @@ def flow_window(
     quarters: int = 4,
     span_days: tuple[int, int] = (240, 300),
 ) -> Window | None:
-    """TTM window (4 consecutive quarters carrying every field) else the latest FY carrying them."""
+    """Select the latest TTM/FY basis first, then require every field to be usable.
 
-    quarterly = [p for p in periods if p.period_type == "Q" and p.has(*fields)]
-    quarterly.sort(key=lambda item: item.period_end, reverse=True)
+    Incomplete quarterly history can use FY; an unusable selected window cannot
+    fall back to an older window or skip an intervening invalid quarter.
+    """
+
+    quarterly_by_end = {
+        p.period_end: p for p in sorted(
+            (p for p in periods if p.period_type == "Q"),
+            key=lambda p: (p.known_at, p.source, p.source_ref),
+        )
+    }
+    quarterly = sorted(quarterly_by_end.values(), key=lambda p: p.period_end, reverse=True)
     ttm: Window | None = None
     if len(quarterly) >= quarters:
         chosen = quarterly[:quarters]
@@ -256,12 +269,11 @@ def flow_window(
         currencies = {p.currency for p in ordered}
         if all(55 <= gap <= 130 for gap in gaps) and span_days[0] <= span <= span_days[1] and len(currencies) == 1:
             ttm = Window("TTM", ordered[-1].period_end, tuple(ordered), ordered[-1].currency, max(p.known_at for p in ordered))
-    annual = [p for p in periods if p.period_type == "FY" and p.has(*fields)]
-    annual.sort(key=lambda item: item.period_end, reverse=True)
+    annual = [p for p in periods if p.period_type == "FY"]
+    annual.sort(key=lambda item: (item.period_end, item.known_at), reverse=True)
     fiscal = Window("FY", annual[0].period_end, (annual[0],), annual[0].currency, annual[0].known_at) if annual else None
-    if ttm and (fiscal is None or ttm.end >= fiscal.end):
-        return ttm
-    return fiscal
+    selected = ttm if ttm and (fiscal is None or ttm.end >= fiscal.end) else fiscal
+    return selected if selected and all(p.has(*fields) for p in selected.periods) else None
 
 
 def window_sum(window: Window, name: str) -> float | None:
@@ -276,20 +288,20 @@ def source_label(window: Window) -> str:
 
 
 def balance_near(periods: Sequence[Period], target: date, names: Sequence[str], *, tolerance_days: int = 40) -> Period | None:
-    """The period (any type) closest to ``target`` that reports every name, within the tolerance.
+    """The statement period closest to ``target``, within the tolerance.
 
     The nearest reporting period decides: if its evidence state is not usable the result is None, an
     older or farther balance never stands in for it.
     """
 
-    best: Period | None = None
-    best_gap = tolerance_days + 1
-    for period in periods:
-        if not period.has_numeric(*names):
-            continue
-        gap = abs((period.period_end - target).days)
-        if gap < best_gap:
-            best, best_gap = period, gap
+    # Share-count publications are not balance-sheet reporting periods.
+    best = min(
+        (p for p in periods if p.period_type != "SHARES"
+         and abs((p.period_end - target).days) <= tolerance_days),
+        key=lambda p: (abs((p.period_end - target).days), -p.known_at.timestamp(),
+                       p.period_type != "FY", p.source, p.source_ref),
+        default=None,
+    )
     return best if best is not None and best.has(*names) else None
 
 
@@ -300,10 +312,11 @@ def opening_balance(periods: Sequence[Period], window_end: date, names: Sequence
 
 
 def latest_balance(periods: Sequence[Period], names: Sequence[str]) -> Period | None:
-    """Latest period reporting every name; a latest period whose state is not usable yields None (no older fallback)."""
+    """Latest statement period; unusable or missing fields yield None without older fallback."""
 
-    candidates = [period for period in periods if period.has_numeric(*names)]
-    latest = max(candidates, key=lambda item: (item.period_end, item.period_type == "FY"), default=None)
+    candidates = [period for period in periods if period.period_type != "SHARES"]
+    latest = max(candidates, key=lambda item: (item.period_end, item.known_at, item.period_type == "FY",
+                                              item.source, item.source_ref), default=None)
     return latest if latest is not None and latest.has(*names) else None
 
 
@@ -313,14 +326,16 @@ def latest_reported_shares(periods: Sequence[Period], decision_time: datetime) -
     Only explicit reported-share provenance qualifies. A derived count, provider
     snapshot or ambiguous latest filing fails closed without an older fallback.
     """
-    candidates = [p for p in periods if p.source_of("shares_outstanding") in ("sec_dei", "esef_reported")
+    candidates = [p for p in periods if (p.period_type == "SHARES" or "shares_outstanding" in p.values
+                                        or "shares_outstanding" in p.value_status)
                   and p.known_at <= decision_time and (p.available_at or p.known_at) <= decision_time
                   and p.period_end <= (p.available_at or p.known_at).date()]
     if not candidates:
         return None
     latest_key = max((p.available_at or p.known_at, p.period_end) for p in candidates)
     latest = [p for p in candidates if (p.available_at or p.known_at, p.period_end) == latest_key]
-    if any(p.status_of("shares_outstanding") != "observed" or not p.has("shares_outstanding")
+    if any(p.source_of("shares_outstanding") not in ("sec_dei", "esef_reported")
+           or p.status_of("shares_outstanding") != "observed" or not p.has("shares_outstanding")
            or p.values["shares_outstanding"] <= 0 for p in latest):
         return None
     return latest[0] if len({p.values["shares_outstanding"] for p in latest}) == 1 else None
@@ -354,6 +369,7 @@ def to_currency(
     ``currency_mismatch``. Minor units (GBp) are scaled to the major unit first.
     """
 
+    amount = _finite(amount)
     if amount is None:
         return None, "amount_unavailable"
     major, factor = minor_unit(source_currency, minor_units)
@@ -375,7 +391,8 @@ def to_currency(
 
 def roe(net_income_parent: float | None, equity_open: float | None, equity_close: float | None) -> Metric:
     key, label, formula = "roe", "Return on equity", "net_income / equity"
-    if net_income_parent is None or equity_close is None:
+    if (_finite(net_income_parent) is None or _finite(equity_close) is None
+            or (equity_open is not None and _finite(equity_open) is None)):
         return _unavailable(key, label, "needs net income to parent and closing parent equity", formula=formula)
     if equity_close <= 0:
         return _not_meaningful(key, label, "closing parent equity was zero or negative", formula=formula)
@@ -385,7 +402,7 @@ def roe(net_income_parent: float | None, equity_open: float | None, equity_close
 def effective_tax_rate(income_tax: float | None, pretax_income: float | None) -> float | None:
     """Tax / pretax income clamped to 0..40 %; a non-positive pretax income gives 0 (no tax shield assumed)."""
 
-    if income_tax is None or pretax_income is None:
+    if _finite(income_tax) is None or _finite(pretax_income) is None:
         return None
     if pretax_income <= 0:
         return 0.0
@@ -393,7 +410,7 @@ def effective_tax_rate(income_tax: float | None, pretax_income: float | None) ->
 
 
 def nopat(ebit: float | None, tax_rate: float | None) -> float | None:
-    if ebit is None or tax_rate is None:
+    if _finite(ebit) is None or _finite(tax_rate) is None:
         return None
     return ebit * (1.0 - tax_rate)
 
@@ -401,7 +418,8 @@ def nopat(ebit: float | None, tax_rate: float | None) -> float | None:
 def invested_capital(equity: float | None, ib_debt: float | None, lease: float | None, cash: float | None) -> float | None:
     """equity + interest-bearing debt + leases (when reported) - cash and short-term investments."""
 
-    if equity is None or ib_debt is None or cash is None:
+    if (_finite(equity) is None or _finite(ib_debt) is None or _finite(cash) is None
+            or (lease is not None and _finite(lease) is None)):
         return None
     return equity + ib_debt + (lease or 0.0) - cash
 
@@ -409,7 +427,8 @@ def invested_capital(equity: float | None, ib_debt: float | None, lease: float |
 def roic(nopat_value: float | None, capital_open: float | None, capital_close: float | None) -> Metric:
     key, label = "roic", "Return on invested capital"
     formula = "NOPAT / invested_capital"
-    if nopat_value is None or capital_close is None:
+    if (_finite(nopat_value) is None or _finite(capital_close) is None
+            or (capital_open is not None and _finite(capital_open) is None)):
         return _unavailable(key, label, "needs NOPAT and closing invested capital", formula=formula)
     if capital_close <= 0:
         return _not_meaningful(key, label, "closing invested capital is zero or negative", formula=formula)
@@ -421,7 +440,7 @@ def roic(nopat_value: float | None, capital_open: float | None, capital_close: f
 
 def margin(key: str, label: str, item: float | None, revenue: float | None) -> Metric:
     formula = f"{label.lower()} / revenue over the same window"
-    if item is None or revenue is None:
+    if _finite(item) is None or _finite(revenue) is None:
         return _unavailable(key, label, "needs the item and revenue in the same window", formula=formula)
     if revenue <= 0:
         return _not_meaningful(key, label, "revenue is zero or negative", formula=formula)
@@ -431,26 +450,27 @@ def margin(key: str, label: str, item: float | None, revenue: float | None) -> M
 def free_cash_flow(cfo: float | None, capex: float | None) -> float | None:
     """Cash from operations - capex, where capex is the (positive) outflow for PP&E and intangibles."""
 
-    if cfo is None or capex is None:
+    if _finite(cfo) is None or _finite(capex) is None:
         return None
     return cfo - abs(capex)
 
 
 def net_debt(ib_debt: float | None, lease: float | None, cash: float | None) -> float | None:
-    if ib_debt is None or cash is None:
+    if (_finite(ib_debt) is None or _finite(cash) is None
+            or (lease is not None and _finite(lease) is None)):
         return None
     return ib_debt + (lease or 0.0) - cash
 
 
 def ebitda(ebit: float | None, da: float | None) -> float | None:
-    if ebit is None or da is None:
+    if _finite(ebit) is None or _finite(da) is None:
         return None
     return ebit + abs(da)
 
 
 def net_debt_to_ebitda(net_debt_value: float | None, ebitda_value: float | None) -> Metric:
     key, label, formula = "net_debt_to_ebitda", "Net debt / EBITDA", "net debt / (EBIT + D&A) over the window"
-    if net_debt_value is None or ebitda_value is None:
+    if _finite(net_debt_value) is None or _finite(ebitda_value) is None:
         return _unavailable(key, label, "needs net debt and EBIT plus D&A", formula=formula, unit="multiple")
     if ebitda_value <= 0:
         return _not_meaningful(key, label, "EBITDA is zero or negative", formula=formula, unit="multiple")
@@ -459,7 +479,7 @@ def net_debt_to_ebitda(net_debt_value: float | None, ebitda_value: float | None)
 
 def debt_to_equity(ib_debt: float | None, equity_parent: float | None) -> Metric:
     key, label, formula = "debt_to_equity", "Debt / equity", "interest-bearing debt / parent equity"
-    if ib_debt is None or equity_parent is None:
+    if _finite(ib_debt) is None or _finite(equity_parent) is None:
         return _unavailable(key, label, "needs interest-bearing debt and parent equity", formula=formula, unit="multiple")
     if equity_parent <= 0:
         return _not_meaningful(key, label, "parent equity is zero or negative", formula=formula, unit="multiple")
@@ -467,13 +487,14 @@ def debt_to_equity(ib_debt: float | None, equity_parent: float | None) -> Metric
 
 
 def market_cap(price: float | None, shares: float | None) -> float | None:
-    if price is None or shares is None or price <= 0 or shares <= 0:
+    if _finite(price) is None or _finite(shares) is None or price <= 0 or shares <= 0:
         return None
     return price * shares
 
 
 def enterprise_value(mcap: float | None, net_debt_value: float | None, minority: float | None) -> float | None:
-    if mcap is None or net_debt_value is None:
+    if (_finite(mcap) is None or _finite(net_debt_value) is None
+            or (minority is not None and _finite(minority) is None)):
         return None
     return mcap + net_debt_value + (minority or 0.0)
 
@@ -481,7 +502,7 @@ def enterprise_value(mcap: float | None, net_debt_value: float | None, minority:
 def multiple(key: str, label: str, numerator: float | None, denominator: float | None, *, formula: str, denominator_name: str) -> Metric:
     """numerator / denominator where a non-positive denominator is a loss/negative base, never a negative multiple."""
 
-    if numerator is None or denominator is None:
+    if _finite(numerator) is None or _finite(denominator) is None:
         return _unavailable(key, label, f"needs {denominator_name} and the numerator in one currency", formula=formula, unit="multiple")
     if denominator <= 0:
         return _not_meaningful(key, label, f"not meaningful (loss): {denominator_name} is zero or negative", formula=formula, unit="multiple")
@@ -491,7 +512,7 @@ def multiple(key: str, label: str, numerator: float | None, denominator: float |
 
 
 def yield_of(key: str, label: str, amount: float | None, mcap: float | None, *, formula: str) -> Metric:
-    if amount is None or mcap is None:
+    if _finite(amount) is None or _finite(mcap) is None:
         return _unavailable(key, label, "needs the amount and market cap", formula=formula)
     if mcap <= 0:
         return _unavailable(key, label, "market cap is not positive", formula=formula)
@@ -500,14 +521,14 @@ def yield_of(key: str, label: str, amount: float | None, mcap: float | None, *, 
 
 def dividend_yield(dividends_per_share_12m: float | None, price: float | None) -> Metric:
     key, label, formula = "dividend_yield", "Dividend yield", "dividends per share paid over the trailing 12 months / price"
-    if dividends_per_share_12m is None or price is None or price <= 0:
+    if _finite(dividends_per_share_12m) is None or _finite(price) is None or price <= 0:
         return _unavailable(key, label, "needs dividends per share (12 months) and a price", formula=formula)
     return Metric(key, label, dividends_per_share_12m / price, "ratio", OK, formula=formula)
 
 
 def cagr(start: float | None, end: float | None, years: float, *, key: str, label: str) -> Metric:
     formula = f"(end / start)^(1 / {years:g} years) - 1"
-    if start is None or end is None or years <= 0:
+    if _finite(start) is None or _finite(end) is None or _finite(years) is None or years <= 0:
         return _unavailable(key, label, "needs the first and last value of the window", formula=formula)
     if start <= 0 or end <= 0:
         return _not_meaningful(key, label, "start or end value is zero or negative", formula=formula)
@@ -517,7 +538,7 @@ def cagr(start: float | None, end: float | None, years: float, *, key: str, labe
 def percentile_rank(history: Sequence[float], current: float | None) -> float | None:
     """Share of historical observations at or below ``current`` (0 cheapest .. 1 dearest)."""
 
-    if current is None:
+    if _finite(current) is None:
         return None
     values = [v for v in (_finite(item) for item in history) if v is not None]
     if not values:
@@ -542,11 +563,11 @@ def implied_growth_from_pe(pe: float | None, payout: float | None, cost_of_equit
     """
 
     key, label, formula = "implied_growth_pe", "Implied growth (P/E)", "g = (r * P/E - payout) / (P/E + payout), from trailing P/E = payout * (1 + g) / (r - g)"
-    if cost_of_equity is None:
+    if _finite(cost_of_equity) is None:
         return _unavailable(key, label, "cost of equity is not configured (configs/stock_fundamentals_v1.yaml valuation.cost_of_equity)", formula=formula)
-    if pe is None:
+    if _finite(pe) is None:
         return _unavailable(key, label, "needs a meaningful P/E", formula=formula)
-    if payout is None or payout <= 0:
+    if _finite(payout) is None or payout <= 0:
         return _unavailable(key, label, "needs a positive payout ratio (dividends / net income)", formula=formula)
     if cost_of_equity <= -1.0 or pe <= 0:
         return _not_meaningful(key, label, "cost of equity or P/E is outside the valid Gordon range", formula=formula)
@@ -577,12 +598,14 @@ def implied_growth_from_dcf(
 
     key, label = "implied_growth_dcf", "Implied growth (2-stage DCF)"
     formula = f"g such that sum FCF(1+g)^t/(1+r)^t over {stage1_years} years + terminal value = market cap"
-    if cost_of_equity is None or terminal_growth is None:
-        missing = "cost of equity" if cost_of_equity is None else "terminal growth"
+    if _finite(cost_of_equity) is None or _finite(terminal_growth) is None:
+        missing = "cost of equity" if _finite(cost_of_equity) is None else "terminal growth"
         return _unavailable(key, label, f"{missing} is not configured (configs/stock_fundamentals_v1.yaml valuation)", formula=formula)
+    if isinstance(stage1_years, bool) or not isinstance(stage1_years, int) or stage1_years <= 0:
+        return _unavailable(key, label, "stage-1 years must be a positive integer", formula=formula)
     if terminal_growth >= cost_of_equity or terminal_growth <= -1.0 or cost_of_equity <= -1.0:
         return _unavailable(key, label, "terminal growth must be above -100 % and below the cost of equity", formula=formula)
-    if mcap is None or fcf is None:
+    if _finite(mcap) is None or _finite(fcf) is None:
         return _unavailable(key, label, "needs market cap and free cash flow", formula=formula)
     if fcf <= 0 or mcap <= 0:
         return _not_meaningful(key, label, "free cash flow or market cap is zero or negative", formula=formula)
@@ -717,7 +740,7 @@ def anomaly_guards(
 
 def accruals_ratio(net_income: float | None, cfo: float | None, average_assets: float | None) -> Metric:
     key, label, formula = "accruals", "Accruals ratio", "(net income - CFO) / average total assets"
-    if net_income is None or cfo is None or average_assets is None:
+    if _finite(net_income) is None or _finite(cfo) is None or _finite(average_assets) is None:
         return _unavailable(key, label, "needs net income, CFO and total assets", formula=formula)
     if average_assets <= 0:
         return _not_meaningful(key, label, "total assets are zero or negative", formula=formula)
@@ -726,7 +749,7 @@ def accruals_ratio(net_income: float | None, cfo: float | None, average_assets: 
 
 def cash_conversion(cfo: float | None, net_income: float | None) -> Metric:
     key, label, formula = "cash_conversion", "Cash conversion", "CFO / net income to parent"
-    if cfo is None or net_income is None:
+    if _finite(cfo) is None or _finite(net_income) is None:
         return _unavailable(key, label, "needs CFO and net income", formula=formula)
     if net_income <= 0:
         return _not_meaningful(key, label, "not meaningful (loss): net income is zero or negative", formula=formula)
@@ -735,7 +758,7 @@ def cash_conversion(cfo: float | None, net_income: float | None) -> Metric:
 
 def interest_cover(ebit: float | None, interest_expense: float | None) -> Metric:
     key, label, formula = "interest_cover", "Interest cover", "EBIT / interest expense"
-    if ebit is None or interest_expense is None:
+    if _finite(ebit) is None or _finite(interest_expense) is None:
         return _unavailable(key, label, "needs EBIT and interest expense", formula=formula, unit="multiple")
     if abs(interest_expense) <= 0:
         return _not_meaningful(key, label, "interest expense is zero: no cover multiple", formula=formula, unit="multiple")
@@ -744,7 +767,7 @@ def interest_cover(ebit: float | None, interest_expense: float | None) -> Metric
 
 def dilution(shares_open: float | None, shares_close: float | None) -> Metric:
     key, label, formula = "dilution", "Share dilution", "closing shares / opening shares - 1"
-    if shares_open is None or shares_close is None:
+    if _finite(shares_open) is None or _finite(shares_close) is None:
         return _unavailable(key, label, "needs the opening and closing share count", formula=formula)
     if shares_open <= 0 or shares_close <= 0:
         return _not_meaningful(key, label, "share count is zero or negative", formula=formula)
@@ -761,7 +784,8 @@ def price_shares_consistency(
     """price x shares against an independent market cap; ``None`` when there is nothing to compare."""
 
     cap = market_cap(price, shares)
-    if cap is None or provider_market_cap is None or provider_market_cap <= 0:
+    if (cap is None or _finite(provider_market_cap) is None or provider_market_cap <= 0
+            or _finite(tolerance) is None or tolerance < 0):
         return None, None
     ratio = cap / provider_market_cap
     if 1.0 / (1.0 + tolerance) <= ratio <= 1.0 + tolerance:

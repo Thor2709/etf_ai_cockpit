@@ -722,47 +722,47 @@ def _aggregate_fundamentals(
     weighted_roic = 0.0
     for economic in economic_rows:
         key = str(economic["identity"])
-        holdings_for_key = holdings_by_key.get(key, [])
-        holding_keys = {key}
-        for holding in holdings_for_key:
-            holding_keys.add(holding.identity)
+        # Resolve each listing separately: different listing prices can produce
+        # different P/Es for one issuer without contradictory evidence.
+        for holding in holdings_by_key.get(key, []):
+            holding_keys = {key, holding.identity}
             if holding.issuer:
                 holding_keys.add(holding.issuer)
             if holding.company:
                 holding_keys.add(holding.company)
-        holding_keys = {value.casefold() for value in holding_keys}
-        holding_identities = {holding.identity.casefold() for holding in holdings_for_key}
-        matches = [row for row in rows if _fundamental_matches(row, holding_keys, holding_identities)]
-        if not matches:
-            continue
-        matches.sort(key=_vintage_sort_key)
-        weight = float(economic["weight"])
-        # P/E and ROIC are dimensionless: neither a reporting/listing currency difference nor a missing
-        # currency excludes them. Each metric uses its own latest vintage that actually reports it, so a
-        # newer record without the other metric never suppresses it.
-        pe_row, pe_conflict = _latest_metric_row(matches, "pe_ratio")
-        roic_row, roic_conflict = _latest_metric_row(matches, "roic")
-        if pe_conflict:
-            limitations.append(f"Conflicting same-vintage constituent P/E evidence was excluded for {key}.")
-        if roic_conflict:
-            limitations.append(f"Conflicting same-vintage constituent ROIC evidence was excluded for {key}.")
-        pe = _finite_number(pe_row.get("pe_ratio")) if pe_row is not None else None
-        if pe is not None:
-            if pe == 0:
-                limitations.append(f"Zero P/E evidence was excluded to avoid division by zero for {key}.")
-            else:
-                yld = 1.0 / pe
-                if math.isfinite(yld):
-                    pe_covered += weight
-                    weighted_yield += weight * yld
-                    selected_metrics["pe_ratio"].append((weight, pe, key, pe_row))
+            holding_keys = {value.casefold() for value in holding_keys}
+            holding_identities = {holding.identity.casefold()}
+            matches = [row for row in rows if _fundamental_matches(row, holding_keys, holding_identities)]
+            if not matches:
+                continue
+            matches.sort(key=_vintage_sort_key)
+            weight = float(holding.weight)
+            # P/E and ROIC are dimensionless; reporting/listing currencies do
+            # not exclude them. Keep listing identity in contributor lineage.
+            listing = holding.identity
+            pe_row, pe_conflict = _latest_metric_row(matches, "pe_ratio")
+            roic_row, roic_conflict = _latest_metric_row(matches, "roic")
+            if pe_conflict:
+                limitations.append(f"Conflicting same-vintage constituent P/E evidence was excluded for {listing}.")
+            if roic_conflict:
+                limitations.append(f"Conflicting same-vintage constituent ROIC evidence was excluded for {listing}.")
+            pe = _finite_number(pe_row.get("pe_ratio")) if pe_row is not None else None
+            if pe is not None:
+                if pe == 0:
+                    limitations.append(f"Zero P/E evidence was excluded to avoid division by zero for {listing}.")
                 else:
-                    limitations.append(f"Nonfinite earnings yield was excluded for {key}.")
-        roic = _finite_number(roic_row.get("roic")) if roic_row is not None else None
-        if roic is not None:
-            roic_covered += weight
-            weighted_roic += weight * roic
-            selected_metrics["roic"].append((weight, roic, key, roic_row))
+                    yld = 1.0 / pe
+                    if math.isfinite(yld):
+                        pe_covered += weight
+                        weighted_yield += weight * yld
+                        selected_metrics["pe_ratio"].append((weight, pe, listing, pe_row))
+                    else:
+                        limitations.append(f"Nonfinite earnings yield was excluded for {listing}.")
+            roic = _finite_number(roic_row.get("roic")) if roic_row is not None else None
+            if roic is not None:
+                roic_covered += weight
+                weighted_roic += weight * roic
+                selected_metrics["roic"].append((weight, roic, listing, roic_row))
 
     empty_coverage["pe_ratio"] = {
         "covered_weight": round(pe_covered, 12),
