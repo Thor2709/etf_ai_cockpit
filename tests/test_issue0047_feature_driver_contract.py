@@ -354,14 +354,9 @@ def test_object_path_replaces_causal_claims_with_deterministic_bound_claim() -> 
     row = build_feature_drivers([score]).iloc[0]
 
     claim = deterministic_driver_claim("momentum", 8.0)
-    assert row["driver_text"] == claim
-    assert row["claim_hash"] == claim_binding_hash(
-        claim,
-        VALID_VINTAGE,
-        "prices.parquet#2026-07-10",
-        "vendor_unofficial",
-    )
-    assert row["source_vintage_hash"] == VALID_VINTAGE
+    assert row["driver_text"] == "unavailable (non-traceable claim; source provenance unavailable)."
+    assert row["claim_hash"] == "unavailable"
+    assert row["source_vintage_hash"] == "unavailable"  # instrument fingerprint is not a component vintage
 
 
 def test_peer_percentile_does_not_mix_vintages() -> None:

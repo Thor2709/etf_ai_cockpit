@@ -8,12 +8,6 @@ from etf_cockpit.core.values import finite_float_or_none as _finite_float
 from etf_cockpit.portfolio.risk import projected_weight_allowed
 
 
-# Owner decision 2026-10-11: these block codes describe one instrument's own
-# evidence and block only that instrument (via its own issue code below). Every
-# other block, including unknown future codes, still blocks the whole portfolio.
-INSTRUMENT_SCOPED_BLOCK_CODES = frozenset({"insufficient_history"})
-
-
 def evaluate_risk_gates(
     config: AppConfig,
     row: pd.Series,
@@ -21,7 +15,7 @@ def evaluate_risk_gates(
     *,
     candidate_action: str,
     projected_weight: float | None,
-    cash_weight: float,
+    cash_weight: float | None,
     model_disagreement: float = 0.0,
 ) -> tuple[list[str], list[str]]:
     etf_id = str(row["etf_id"])
@@ -29,7 +23,7 @@ def evaluate_risk_gates(
     warnings: list[str] = []
 
     if any(
-        issue.severity == "block" and issue.code not in INSTRUMENT_SCOPED_BLOCK_CODES
+        issue.severity == "block" and issue.etf_id == "ALL"
         for issue in data_report.issues
     ):
         blocked.append("portfolio_validation_block")
@@ -60,16 +54,22 @@ def evaluate_risk_gates(
         cost_bps = _finite_float(row.get("cost_bps"))
         if expected_edge is None or cost_bps is None or cost_bps < 0:
             blocked.append("edge_inputs_unavailable")
-        elif abs(expected_edge) < config.risks.portfolio_limits.min_edge_to_cost_ratio * cost_bps / 10_000:
+        elif (expected_edge if candidate_action in {"buy", "add"} else abs(expected_edge)) < config.risks.portfolio_limits.min_edge_to_cost_ratio * cost_bps / 10_000:
             blocked.append("edge_below_cost_threshold")
 
-    if candidate_action in {"buy", "add"} and projected_weight is not None:
-        ok, reason = projected_weight_allowed(config, etf_id, projected_weight)
-        if not ok and reason:
-            blocked.append(reason)
-        projected_cash = cash_weight - max(0.0, projected_weight - float(row.get("current_weight") or 0.0))
-        if projected_cash < config.risks.portfolio_limits.cash_min_weight:
-            blocked.append("cash_minimum_breached")
+    if candidate_action in {"buy", "add"}:
+        current_weight = _finite_float(row.get("current_weight"))
+        projected_weight = _finite_float(projected_weight)
+        cash_weight = _finite_float(cash_weight)
+        if current_weight is None or projected_weight is None or cash_weight is None:
+            blocked.append("portfolio_inputs_unavailable")
+        else:
+            ok, reason = projected_weight_allowed(config, etf_id, projected_weight)
+            if not ok and reason:
+                blocked.append(reason)
+            projected_cash = cash_weight - max(0.0, projected_weight - current_weight)
+            if projected_cash < config.risks.portfolio_limits.cash_min_weight:
+                blocked.append("cash_minimum_breached")
 
     if model_disagreement > 0.80:
         blocked.append("model_disagreement")

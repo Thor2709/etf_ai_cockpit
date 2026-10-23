@@ -140,7 +140,7 @@ def test_legacy_migration_composite_omits_missing_components_instead_of_neutrali
         legacy_component_weights={"momentum": 0.5, "trend": 0.5},
     )
 
-    assert score.legacy_composite_raw == 0.8
+    assert score.legacy_composite_raw is None  # D11: one available weighted family is insufficient
     assert score.decision_distribution["attractiveness"] is not None
 
 
