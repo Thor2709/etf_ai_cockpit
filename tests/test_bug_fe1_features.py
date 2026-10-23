@@ -221,7 +221,9 @@ def test_sma_breadth_forward_fill_is_bounded_by_default_and_loosened_only_on_req
     assert loose["configured_pct_above_sma200"] == pytest.approx(2 / 3, abs=1e-3)  # explicit opt-out counts stale B
 
 
-def test_portfolio_fit_default_forward_fill_is_bounded(bound_benchmark) -> None:
+def test_portfolio_fit_never_forward_fills_returns(bound_benchmark) -> None:
+    # A04-F2: the forward fill no longer feeds returns, so B's 60 stale sessions add no fabricated
+    # 0.0-return observations whatever the fill limit is.
     days = pd.bdate_range("2025-01-01", periods=260)
     rng = np.random.default_rng(11)
     rows = []
@@ -234,7 +236,10 @@ def test_portfolio_fit_default_forward_fill_is_bounded(bound_benchmark) -> None:
     prices = pd.DataFrame(rows)
     bounded = build_portfolio_fit_lookup(prices, benchmark_id="BENCH")
     unbounded = build_portfolio_fit_lookup(prices, benchmark_id="BENCH", max_forward_fill=None)
-    assert bounded["B"]["correlation_to_benchmark"] != unbounded["B"]["correlation_to_benchmark"]
+    assert bounded["B"]["correlation_to_benchmark"] == unbounded["B"]["correlation_to_benchmark"]
+    panel = prices.pivot(index="date", columns="etf_id", values="adjusted_close")
+    real = pd.concat([panel["B"].dropna().pct_change(), panel["BENCH"].pct_change()], axis=1).iloc[-252:].dropna()
+    assert bounded["B"]["correlation_to_benchmark"] == pytest.approx(real.iloc[:, 0].corr(real.iloc[:, 1]), abs=1e-4)
 
 
 def test_price_snapshot_with_conflicting_equal_timestamp_prices_has_no_binding() -> None:

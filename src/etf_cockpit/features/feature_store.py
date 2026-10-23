@@ -20,6 +20,7 @@ from typing import Literal
 
 import pandas as pd
 
+from etf_cockpit.core.pandas_values import bool_like_or_none
 from etf_cockpit.data.local_storage import TransactionalStore
 
 
@@ -35,6 +36,9 @@ TargetKind = Literal["forward_return", "excess_return", "drawdown", "max_drawdow
 _OUTCOME_COLUMN = re.compile(r"(^|[_.:-])(target|label|future|outcome|fwd|forward[_.:-](return|ret|excess|drawdown|label|target))([_.:-]|$)", re.IGNORECASE)
 _IDENTIFIER = re.compile(r"^[A-Za-z0-9_.:-]{1,120}$")
 _ENTITY_COLUMNS = ("etf_id", "instrument_id", "entity_id")
+# Calendar days the benchmark end close may precede the target end date (exchange holidays); the same
+# bound as the feature pipeline's benchmark as-of join.
+_BENCHMARK_END_MAX_GAP_DAYS = 5
 _ENTITY_TYPE = "feature.definition"
 _TARGET_TYPE = "feature.target"
 
@@ -252,7 +256,8 @@ class LocalFeatureStore:
         entity_column = entity_column or _first_column(prices, _ENTITY_COLUMNS)
         if entity_column is None or date_column not in prices.columns or price_column not in prices.columns:
             raise FeatureStoreError(f"prices require an entity, {date_column!r} and adjusted prices")
-        if "is_adjusted" in prices.columns and not prices["is_adjusted"].fillna(False).all():
+        if "is_adjusted" in prices.columns and not prices["is_adjusted"].map(bool_like_or_none).eq(True).all():
+            # Strict parse: only true-like values count as adjusted ("False"/"0"/"no" strings are not truthy).
             raise FeatureStoreError("unadjusted prices cannot be used for targets")
         definitions = self._selected_targets(target_ids)
         if not definitions:
@@ -263,14 +268,36 @@ class LocalFeatureStore:
         source["__price"] = pd.to_numeric(source[price_column], errors="coerce")
         benchmark = _prepare_benchmark(benchmark_prices, date_column, price_column) if benchmark_prices is not None else None
         rows: list[dict[str, object]] = []
+        availability_column = next((name for name in ("available_at", "known_at") if name in source.columns), None)
+        if availability_column is not None:
+            source["__known"] = _available_timestamps(source[availability_column])
         for entity, group in source.groupby(entity_column, sort=True):
-            group = group.sort_values(["__date", "__price"], kind="stable").dropna(subset=["__price"]).reset_index(drop=True)  # equal-date revisions resolve by price, not input order
+            group = group.dropna(subset=["__price"])
+            if availability_column is not None:
+                # Latest known revision wins; price only breaks an exact known_at tie deterministically.
+                ordered = group.sort_values(["__date", "__known", "__price"], kind="stable", na_position="first")
+            else:
+                ordered = group.sort_values(["__date", "__price"], kind="stable")  # no known_at: equal-date revisions resolve by price, not input order
+            # One row per date: a duplicate revision must not shift the positional horizon indexing.
+            group = ordered.drop_duplicates("__date", keep="last").reset_index(drop=True)
+            if availability_column is not None:
+                # The decision-time price must have been KNOWN at the decision; later outcomes are not filtered.
+                origin_rows = ordered.dropna(subset=["__known"])
             for decision in decisions:
-                current = group[group["__date"] <= decision].tail(1)
-                if current.empty:
-                    continue
-                current_row = current.iloc[0]
-                current_position = int(current.index[-1])
+                if availability_column is not None:
+                    known_rows = origin_rows[(origin_rows["__date"] <= decision) & (origin_rows["__known"] <= decision)]
+                    if known_rows.empty:
+                        continue
+                    origin_date = known_rows["__date"].max()
+                    current_row = known_rows[known_rows["__date"] == origin_date].iloc[-1]
+                    matches = group.index[group["__date"] == origin_date]
+                    current_position = int(matches[-1])
+                else:
+                    current = group[group["__date"] <= decision].tail(1)
+                    if current.empty:
+                        continue
+                    current_row = current.iloc[0]
+                    current_position = int(current.index[-1])
                 current_price = float(current_row["__price"])
                 output: dict[str, object] = {entity_column: str(entity), "decision_time": decision.date().isoformat()}
                 for definition in definitions:
@@ -533,7 +560,13 @@ def _prepare_benchmark(frame: pd.DataFrame, date_column: str, price_column: str)
 
 def _forward_benchmark_return(frame: pd.DataFrame, start: pd.Timestamp, end: pd.Timestamp) -> float | None:
     left = frame[frame["__date"] <= start].tail(1)
-    right = frame[frame["__date"].gt(start) & frame["__date"].le(end)].tail(1)
+    # The benchmark end close must sit at the target's own end date (at most a holiday gap before it,
+    # never after it): a close from a much shorter horizon is not comparable with the target return.
+    right = frame[
+        frame["__date"].gt(start)
+        & frame["__date"].le(end)
+        & frame["__date"].ge(end - pd.Timedelta(days=_BENCHMARK_END_MAX_GAP_DAYS))
+    ].tail(1)
     if left.empty or right.empty or float(left.iloc[0]["__price"]) == 0:
         return None
     return float(right.iloc[0]["__price"]) / float(left.iloc[0]["__price"]) - 1.0

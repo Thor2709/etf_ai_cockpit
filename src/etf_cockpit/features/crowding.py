@@ -7,6 +7,7 @@ from typing import Any, Mapping
 import pandas as pd
 
 from etf_cockpit.core.values import finite_float_or_none as _safe_float
+from etf_cockpit.features.regime import per_series_returns
 
 
 @dataclass(frozen=True)
@@ -90,7 +91,9 @@ def build_correlation_clusters(
         if frame.empty:
             return _unavailable(window, "No adjusted-price observations exist on or before the requested as_of.")
     frame = frame.tail(window)
-    returns = frame.pct_change(fill_method=None)
+    # Returns per instrument on its own non-null closes: a holiday of one listing neither drops the
+    # next return of the others nor nullifies a pair (A04-F6).
+    returns = per_series_returns(frame)
     min_pair_samples = max(20, min(60, window - 1))
     corr = returns.corr(min_periods=min_pair_samples)
     if corr.empty or len(returns) < min_pair_samples or corr.dropna(how="all").shape[1] < 2:

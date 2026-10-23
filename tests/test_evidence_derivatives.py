@@ -4,7 +4,12 @@ import numpy as np
 import pandas as pd
 
 from etf_cockpit.portfolio.benchmark_reference import resolve_canonical_reference
-from etf_cockpit.features.regime import build_benchmark_attribution_lookup, build_market_regime, build_portfolio_fit_lookup
+from etf_cockpit.features.regime import (
+    build_benchmark_attribution_lookup,
+    build_market_regime,
+    build_portfolio_fit_lookup,
+    per_series_returns,
+)
 from etf_cockpit.models.calibration import calibration_lookup, evaluate_forecast_calibration
 from etf_cockpit.signals.strategy_templates import strategy_template_labels, template_description
 from etf_cockpit.portfolio.benchmark_reference_contract import (
@@ -312,7 +317,9 @@ def test_sparse_price_compatibility_bounds_regime_and_portfolio_forward_fill_but
         metadata={"ALT": {"sector": "Technology"}, "PEER": {"sector": "Technology"}},
     )
     pivot = regime_prices.pivot(index="date", columns="etf_id", values="adjusted_close").sort_index()
-    forward_filled_returns = pivot.ffill(limit=5).pct_change(fill_method=None)  # default bound: 5 sessions (C004)
+    # A04-F2: returns come from each instrument's own unfilled closes (the fill only feeds levels),
+    # so the 30-session ALT gap adds no fabricated 0.0-return observations.
+    forward_filled_returns = per_series_returns(pivot)
     expected_regime_volatility = float(
         forward_filled_returns.tail(60).std(skipna=True).median() * np.sqrt(252)
     )
