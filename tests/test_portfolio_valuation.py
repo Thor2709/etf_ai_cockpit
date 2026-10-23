@@ -8,7 +8,7 @@ from etf_cockpit.application.portfolio_valuation import (
     load_portfolio_valuation_history,
     save_portfolio_valuation_history,
 )
-from etf_cockpit.portfolio.valuation import calculate_money_weighted_return, link_time_weighted_return
+from etf_cockpit.portfolio.valuation import calculate_money_weighted_return, expected_session_dates, link_time_weighted_return
 
 
 def _history(
@@ -86,9 +86,23 @@ def test_dividend_coupon_fee_tax_internal_accounting() -> None:
     assert snapshots.iloc[3]["taxes"] == 1.0
 
 
+def _daily_session_history(
+    marks: dict[str, float], *, events: dict[str, tuple[str, float]] | None = None
+) -> pd.DataFrame:
+    """Complete daily-session snapshots (PORT audit 20261023: MWR needs every expected session); price steps on mark dates."""
+    first, last = pd.Timestamp(min(marks)), pd.Timestamp(max(marks))
+    sessions = expected_session_dates(first, last)
+    price, prices = 0.0, []
+    for day in sessions:
+        price = marks.get(day.strftime("%Y-%m-%d"), price)
+        prices.append(price)
+    named = {pd.Timestamp(day): value for day, value in (events or {}).items()}
+    event_rows = [(int(sessions.get_loc(day)), kind, amount) for day, (kind, amount) in named.items()]
+    return _history(sessions, prices=prices, cash=[0.0] * len(sessions), events=event_rows)
+
+
 def test_sub_year_mwr_deannualisation_and_dietz_fallback() -> None:
-    dates = [pd.Timestamp("2026-01-01"), pd.Timestamp("2026-07-01")]
-    subyear = _history(dates, prices=[100.0, 110.0], cash=[0.0, 0.0])
+    subyear = _daily_session_history({"2026-01-02": 100.0, "2026-07-01": 110.0})
     xirr_result = calculate_money_weighted_return(subyear)
 
     assert xirr_result["method"] == "xirr_deannualized_period_return"
@@ -96,12 +110,9 @@ def test_sub_year_mwr_deannualisation_and_dietz_fallback() -> None:
     assert xirr_result["annualized_xirr"] > xirr_result["value"]
     assert "de-annualised" in str(xirr_result["label"])
 
-    fallback_dates = pd.to_datetime(["2026-01-01", "2026-02-01", "2026-03-01", "2026-04-01"])
-    fallback = _history(
-        fallback_dates,
-        prices=[100.0, 250.0, 200.0, 320.0],
-        cash=[0.0, 0.0, 0.0, 0.0],
-        events=[(1, "withdrawal", 150.0), (2, "contribution", 120.0)],
+    fallback = _daily_session_history(
+        {"2026-01-02": 100.0, "2026-02-02": 250.0, "2026-03-02": 200.0, "2026-04-01": 320.0},
+        events={"2026-02-02": ("withdrawal", 150.0), "2026-03-02": ("contribution", 120.0)},
     )
     dietz_result = calculate_money_weighted_return(fallback)
 
