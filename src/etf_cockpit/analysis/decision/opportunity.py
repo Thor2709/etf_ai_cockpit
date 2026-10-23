@@ -229,8 +229,14 @@ def build_opportunity_results(
         if len(values) >= policy.minimum_peer_support
     }
 
-    benchmark_values = {
+    raw_benchmarks = {
         instrument: _benchmark_scores(state)
+        for instrument, state in states.items()
+        if state["rankable"]
+    }
+    factor_scales = _factor_scales(raw_benchmarks, policy.minimum_universe_support)
+    benchmark_values = {
+        instrument: _benchmark_scores(state, factor_scales)
         for instrument, state in states.items()
         if state["rankable"]
     }
@@ -906,8 +912,15 @@ def _candidate_domains(
     candidate: Mapping[str, object], assessment: object
 ) -> tuple[object, ...]:
     values: list[object] = []
+    supplied = False
     for key in ("underwriting_domains", "domain_slots"):
         current = candidate.get(key)
+        if isinstance(current, (tuple, list)):
+            values.extend(current)
+            supplied = supplied or bool(current)
+    if not supplied:
+        # Vehicle domains of the assessment load independently of the exposure domains below.
+        current = _member(assessment, "domain_slots", ())
         if isinstance(current, (tuple, list)):
             values.extend(current)
     valuation = candidate.get("valuation_domain")
@@ -918,10 +931,6 @@ def _candidate_domains(
     )
     if isinstance(exposure, (tuple, list)):
         values.extend(exposure)
-    if not values:
-        current = _member(assessment, "domain_slots", ())
-        if isinstance(current, (tuple, list)):
-            values.extend(current)
     return tuple(values)
 
 
@@ -962,7 +971,65 @@ def _drivers(candidate: Mapping[str, object], assessment: object) -> tuple[Decis
     return tuple(result)
 
 
-def _benchmark_scores(state: Mapping[str, object]) -> dict[str, float | None]:
+_STANDARDIZED_FACTORS = ("M", "R", "G")
+
+
+def _factor_scales(
+    raw_scores: Mapping[str, Mapping[str, float | None]], minimum_support: int
+) -> dict[str, tuple[float, float]]:
+    """Cohort (mean, population std) for each raw momentum/risk/growth score.
+
+    A factor with fewer than ``max(2, minimum_support)`` finite values has no scale and stays
+    unavailable (never zero-filled) in the composite rankers. Zero dispersion keeps its scale
+    (std 0.0): every present value is exactly the cohort mean, so its z-score is 0.0 and adds
+    the same constant to every candidate.
+    """
+
+    scales: dict[str, tuple[float, float]] = {}
+    for name in _STANDARDIZED_FACTORS:
+        values = [
+            value
+            for scores in raw_scores.values()
+            if (value := _finite(scores.get(name))) is not None
+        ]
+        if len(values) < max(2, minimum_support):
+            continue
+        mean = math.fsum(values) / len(values)
+        std = math.sqrt(math.fsum((value - mean) ** 2 for value in values) / len(values))
+        if math.isfinite(std):
+            scales[name] = (mean, std)
+    return scales
+
+
+def _standardized(
+    value: float | None, scale: tuple[float, float] | None
+) -> float | None:
+    if value is None or scale is None:
+        return None
+    mean, std = scale
+    return 0.0 if std == 0.0 else (value - mean) / std
+
+
+def _exposure_baseline(candidate: Mapping[str, object], assessment: object) -> float | None:
+    exposure = _finite(candidate.get("exposure_z_score"))
+    if exposure is not None:
+        return exposure
+    for item in _member(assessment, "opportunity_slots", ()) or ():
+        if str(_member(item, "opportunity", "")) == "Exposure Opportunity Rank":
+            return _finite(_member(item, "score"))
+    return None
+
+
+def _benchmark_scores(
+    state: Mapping[str, object],
+    factor_scales: Mapping[str, tuple[float, float]] | None = None,
+) -> dict[str, float | None]:
+    """Raw benchmark inputs plus z-scored M/R/G (``*_z``) used by the composite rankers.
+
+    Q and V are already z-scores; momentum, risk and growth are raw v3 scores and enter
+    QVM / five_factor only after standardisation against the cohort (``factor_scales``).
+    """
+
     candidate = state["candidate"]
     assert isinstance(candidate, Mapping)
     assessment = state.get("assessment")
@@ -989,15 +1056,22 @@ def _benchmark_scores(state: Mapping[str, object]) -> dict[str, float | None]:
         "equity",
         "equity_certificate",
     }
+    if v is None and not is_stock:
+        # ETF valuation fallback: the exposure z-score / "Exposure Opportunity Rank" slot.
+        v = _exposure_baseline(candidate, assessment)
     g = _canonical_factor(signal, "growth") if is_stock else None
     canonical = _member(signal, "canonical_score")
     v3 = _finite(_member(canonical, "legacy_composite_raw"))
+    scales = factor_scales or {}
+    m_z = _standardized(m, scales.get("M"))
+    r_z = _standardized(r, scales.get("R"))
+    g_z = _standardized(g, scales.get("G"))
     qv = None if q is None or v is None else (q + v) / 2.0
-    qvm = None if q is None or v is None or m is None else (q + v + m) / 3.0
+    qvm = None if q is None or v is None or m_z is None else (q + v + m_z) / 3.0
     five = (
         None
-        if any(value is None for value in (v, g, q, m, r))
-        else (float(v) + float(g) + float(q) + float(m) + float(r)) / 5.0
+        if any(value is None for value in (v, g_z, q, m_z, r_z))
+        else (float(v) + float(g_z) + float(q) + float(m_z) + float(r_z)) / 5.0
     )
     return {
         "v3": v3,
@@ -1006,6 +1080,9 @@ def _benchmark_scores(state: Mapping[str, object]) -> dict[str, float | None]:
         "M": m,
         "R": r,
         "G": g,
+        "M_z": m_z,
+        "R_z": r_z,
+        "G_z": g_z,
         "QV": qv,
         "QVM": qvm,
         "five_factor": five,
@@ -1020,8 +1097,8 @@ def _benchmark_reason(name: str, scores: Mapping[str, object]) -> str:
         "M": ("M",),
         "R": ("R",),
         "QV": ("Q", "V"),
-        "QVM": ("Q", "V", "M"),
-        "five_factor": ("V", "G", "Q", "M", "R"),
+        "QVM": ("Q", "V", "M_z"),
+        "five_factor": ("V", "G_z", "Q", "M_z", "R_z"),
     }[name]
     missing = [key for key in required if _finite(scores.get(key)) is None]
     return "UNAVAILABLE_INPUTS:" + ",".join(missing) if missing else "UNAVAILABLE"
