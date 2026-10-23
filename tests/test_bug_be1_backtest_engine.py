@@ -208,8 +208,8 @@ def test_c017_n002_signals_see_drifted_holdings_not_the_stale_target(monkeypatch
     target = np.array([0.5, 0.5])  # shipped targets are all zero: equal-weight fallback
     drifted = target * np.array([1.0, 2.0])
     drifted = drifted / drifted.sum()
-    # The first rebalance (index 230) follows the doubling at 225: the held mix has drifted from the target.
-    held = seen[0].set_index("etf_id")["current_weight"]
+    # The scheduled rebalance (index 230) follows the initial index-220 rebalance and the doubling at 225.
+    held = seen[1].set_index("etf_id")["current_weight"]
     assert float(held[ids[1]]) == pytest.approx(float(drifted[1]), rel=1e-6)
     assert float(held[ids[1]]) != pytest.approx(float(target[1]), rel=1e-3)
 
