@@ -106,8 +106,9 @@ def test_justified_pb_and_reverse_valuation_goldens() -> None:
     assert bc.justified_price_to_book(0.12, 0.11, 0.03) == pytest.approx(1.125)
     # p. 15, eq. 1.25: ROE = COE gives one times book.
     assert bc.justified_price_to_book(0.10, 0.10, 0.03) == pytest.approx(1.0)
-    # g = b ROE (eq. 5.20) cannot exceed ROE: a 2 % ROE cannot sustain 3 % growth, so the stable value is floored at zero.
-    assert bc.justified_price_to_book(0.02, 0.10, 0.03) == pytest.approx(0.0)
+    # g = b ROE (eq. 5.20) cannot exceed ROE: a 2 % ROE cannot sustain 3 % growth, so there is no stable value (A17-F4).
+    assert bc.justified_price_to_book(0.02, 0.10, 0.03) is None
+    assert bc.justified_price_to_book(0.03, 0.10, 0.03) is None
     assert bc.justified_price_to_book(-0.01, 0.10, 0.03) is None
     assert bc.justified_price_to_book(0.12, 0.03, 0.03) is None
     # p. 111, eq. 5.35: Romerike 1.18x at 10 % COE and 3 % growth implies about 11.3 % ROE.

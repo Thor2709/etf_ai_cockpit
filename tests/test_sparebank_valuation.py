@@ -61,7 +61,7 @@ def test_reverse_golden():
 def test_capital_release_and_buyback_accretion():
     release = capital_release(100, 9.90, 10, 0.20)
     assert release["earnings_after"] == pytest.approx(9.70)
-    assert release["operating_value"] == pytest.approx(110)
+    assert release["operating_value"] == pytest.approx(90)  # released capital leaves the book (A17-F5)
     buyback = buyback_accretion(100, 120, 10, 2, 9)
     assert buyback["book_accretion"] > 0
     assert buyback["intrinsic_accretion_eligible"]
@@ -104,7 +104,7 @@ def test_suite_valuation_assembles_four_state_recovery_policy_irr_and_decision_p
     assert result["status"] == "resolved"
     assert result["four_state"]["value"] == pytest.approx(97)
     assert result["marketability"]["without_marketability"] == pytest.approx(95)
-    assert result["capital_policy"]["operating_value"] == pytest.approx(110)
+    assert result["capital_policy"]["operating_value"] == pytest.approx(90)
     assert result["irr"]["irr"] is not None
     assert result["decision_price"]["price"] == pytest.approx(92.1296296)
     assert result["timestamp"] == assumptions["timestamp"]

@@ -156,7 +156,8 @@ def build_claim_state(
     if _invalid_unit_scale(values):
         reasons.append("CLAIM_UNIT_SCALE_INVALID")
     periods = set()
-    for name in (*_OWNER_FACTS, "owner_attributable_book", "ec_attributable_result",
+    # Every dated fact enters the period check: the ownerless pools and the reported eierbrok too (A17-F7).
+    for name in (*_OWNER_FACTS, *_SELF_FACTS, "eierbrok", "owner_attributable_book", "ec_attributable_result",
                  "period_end_ec_count", "outstanding_ec_count", "registered_ec_count",
                  "treasury_ec_count", "weighted_average_ec_count"):
         if _fact_number(values, name) is None:
@@ -449,20 +450,32 @@ def analyse_sparebank_ec(
     from .bank_economics import build_bank_economics, owner_normalisation
     from .events import analyse_events
     from .valuation import normalise_valuation_assumptions, valuation
-    from .scorecard import build_sparebank_scorecard
+    from .scorecard import _pit_check, build_sparebank_scorecard
     assumptions = normalise_valuation_assumptions(dict(valuation_assumptions or {}))
-    bank_economics = owner_normalisation(
-        build_bank_economics(bank_economics_evidence, bank_metrics=bank_metrics),
-        claim,
-        sustainable_roe_assumption=assumptions.get("sustainable_roe"),
-        assumption_source=str(assumptions.get("assumption_source") or "") or None,
-    )
+    # Owner normalisation and valuation need a resolved claim whose known_at is verified <= decision_time (A17-F2).
+    pit_verified = _pit_check(claim.known_at, decision_time)[0] is True
+    claim_usable = claim.claim_status == "resolved" and pit_verified
+    base_economics = build_bank_economics(bank_economics_evidence, bank_metrics=bank_metrics)
+    if claim_usable:
+        bank_economics = owner_normalisation(
+            base_economics,
+            claim,
+            sustainable_roe_assumption=assumptions.get("sustainable_roe"),
+            assumption_source=str(assumptions.get("assumption_source") or "") or None,
+        )
+    else:
+        key = "normalised_roe_minus_cost_of_equity_pp"
+        bank_economics = replace(
+            base_economics,
+            normalised={"reported_roe": None, "normalised_roe": None, "status": "unavailable", "reason_code": "OWNER_CLAIM_NOT_RESOLVED_OR_PIT_UNVERIFIED", "missing_components": ()},
+            reasons={**base_economics.reasons, key: "Needs a resolved owner claim known at or before the decision time."},
+        )
     event_analysis = analyse_events(events, decision_time=decision_time)
     # The sustainable ROE of the owner claim feeds the justified-value and reverse-valuation models once.
     sustainable = bank_economics.normalised.get("normalised_roe") if isinstance(bank_economics.normalised, Mapping) else None
     if sustainable is not None:
         assumptions.setdefault("sustainable_roe", sustainable)
-    valuation_section = valuation(claim, price=price, assumptions=assumptions)
+    valuation_section = valuation(claim, price=price, assumptions=assumptions, pit_verified=pit_verified)
     analysis = SparebankAnalysis(
         contract=CONTRACT_ID,
         routing=routed,
