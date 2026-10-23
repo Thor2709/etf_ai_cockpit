@@ -32,6 +32,7 @@ REASON_COVERAGE = "insufficient_coverage"
 GATE_REASON_STALE = "CRITICAL_EVIDENCE_STALE"
 GATE_REASON_INVALID = "CRITICAL_EVIDENCE_INVALID"
 GATE_REASON_UNMAPPED = "ASSET_CLASS_UNMAPPED"
+GATE_REASON_NOT_AVAILABLE = "EVIDENCE_NOT_AVAILABLE_NON_BLOCKING"
 
 
 class CriticalEvidenceError(ValueError):
@@ -44,6 +45,7 @@ class GateDefinition:
     evidence_any_of: tuple[str, ...]
     group: str | None = None
     max_age_days: int | None = None  # None = static metadata without an age limit
+    blocking_when_missing: bool = True  # False: never-collected evidence passes visibly; present stale/invalid still fails
 
 
 @dataclass(frozen=True)
@@ -82,9 +84,16 @@ def _policy_for_content(content: bytes) -> CriticalEvidencePolicy:
                 max_age = raw["max_age_days"]
                 if max_age is not None and (isinstance(max_age, bool) or int(max_age) != max_age or int(max_age) < 1):
                     raise CriticalEvidenceError(f"gate {gate_id} max_age_days must be a positive integer or null")
+                blocking = raw.get("blocking_when_missing", True)
+                if not isinstance(blocking, bool):
+                    raise CriticalEvidenceError(f"gate {gate_id} blocking_when_missing must be a boolean")
                 definitions.append(
                     GateDefinition(
-                        str(gate_id), evidence, None if group is None else str(group), None if max_age is None else int(max_age)
+                        str(gate_id),
+                        evidence,
+                        None if group is None else str(group),
+                        None if max_age is None else int(max_age),
+                        blocking,
                     )
                 )
             gates[str(asset_class).upper()] = tuple(definitions)
@@ -216,6 +225,12 @@ def evaluate_critical_gates(
         states = [_evidence_state(definition, present[item], decision) for item in definition.evidence_any_of if item in present]
         if "fresh" in states:
             results.append(CriticalGateResult(definition.gate_id, "PASS", (), "EVIDENCE_PRESENT", definition.group))
+            continue
+        if not states and not definition.blocking_when_missing:
+            # Owner decision D2: evidence never collected is non-blocking but stays visible (missing lists the ids).
+            results.append(
+                CriticalGateResult(definition.gate_id, "PASS", definition.evidence_any_of, GATE_REASON_NOT_AVAILABLE, definition.group)
+            )
             continue
         reason = GATE_REASON_STALE if "stale" in states else GATE_REASON_INVALID if states else "CRITICAL_EVIDENCE_MISSING"
         results.append(
