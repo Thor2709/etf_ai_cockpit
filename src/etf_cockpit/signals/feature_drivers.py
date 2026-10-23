@@ -194,8 +194,10 @@ def _as_frame(scores: pd.DataFrame | Iterable[Any]) -> pd.DataFrame:
                     "driver_text": getattr(component, "why", ""),
                     "source_id": getattr(component, "source_id", ""),
                     "source_span": canonical_row.get("source_span", getattr(component, "source_span", getattr(component, "exact_source_span", "unavailable"))),
-                    "source_vintage_hash": getattr(canonical, "source_vintage_hash", None) or canonical_row.get("source_vintage_hash", "unavailable"),
-                    "as_of_date": getattr(component, "as_of_date", getattr(score, "latest_date", getattr(canonical, "decision_time", ""))),
+                    # A score-level fingerprint cannot replace a source vintage.
+                    "source_vintage_hash": canonical_row.get("source_vintage_hash") or getattr(component, "source_vintage_hash", None),
+                    "as_of_date": getattr(component, "as_of_date", None) or getattr(score, "latest_date", None) or getattr(canonical, "decision_time", ""),
+                    "decision_time": getattr(canonical, "decision_time", None),
                     "freshness_status": getattr(component, "freshness_status", "unknown"),
                     "peer_group": canonical_row.get("peer_group", getattr(component, "peer_group", "unavailable")),
                     "peer_percentile": canonical_row.get("peer_percentile", getattr(component, "peer_percentile", None)),
@@ -302,13 +304,13 @@ def _score_cutoff_time(row: pd.Series) -> pd.Timestamp | None:
     for column in ("decision_time", "decision_at"):
         if column not in row.index or not _has_value(row.get(column)):
             continue
-        parsed = _parse_canonical_time(row.get(column))
+        parsed = _parse_canonical_time(row.get(column), end_of_day=True)
         if parsed is None:
             return None
         decisions.append(parsed)
     if decisions and any(value != decisions[0] for value in decisions[1:]):
         return None
-    cutoff = decisions[0] if decisions else as_of
+    cutoff = decisions[0] if decisions else _parse_canonical_time(row.get("as_of_date"), end_of_day=True)
     return cutoff if cutoff >= as_of else None
 
 
@@ -739,14 +741,16 @@ def _canonical_cohort_time(value: object) -> str:
     return timestamp.isoformat().replace("+00:00", "Z")
 
 
-def _parse_canonical_time(value: object) -> pd.Timestamp | None:
+def _parse_canonical_time(value: object, *, end_of_day: bool = False) -> pd.Timestamp | None:
     if isinstance(value, bool) or not isinstance(value, (str, date, datetime, pd.Timestamp)):
         return None
+    date_only = isinstance(value, date) and not isinstance(value, (datetime, pd.Timestamp))
     if isinstance(value, str):
         text = value.strip()
         if not text:
             return None
         if _DATE_ONLY_RE.fullmatch(text):
+            date_only = True
             try:
                 date.fromisoformat(text)
             except ValueError:
@@ -762,7 +766,13 @@ def _parse_canonical_time(value: object) -> pd.Timestamp | None:
         timestamp = pd.to_datetime(value, errors="coerce", utc=True)
     except (TypeError, ValueError, OverflowError):
         return None
-    return timestamp if isinstance(timestamp, pd.Timestamp) and not pd.isna(timestamp) else None
+    if not isinstance(timestamp, pd.Timestamp) or pd.isna(timestamp):
+        return None
+    # Only cutoffs expand to end of day. Evidence dates remain at the start
+    # of their day so intraday knowledge chronology is checked correctly.
+    if end_of_day and date_only:
+        timestamp += pd.Timedelta(days=1) - pd.Timedelta(nanoseconds=1)
+    return timestamp
 
 
 def _source_vintage_hash(value: object) -> str:

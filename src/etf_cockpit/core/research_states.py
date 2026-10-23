@@ -254,6 +254,8 @@ def normalise_analysis_status(value: object, *, fallback: AnalysisStatus = "unav
 def resolve_research_state(
     components: Sequence[ScoreComponent | object],
     decision: AuthorityDecision,
+    *,
+    asset_type: str = "ETF",
 ) -> ResearchState:
     """Resolve a public state without allowing unavailable evidence to promote it.
 
@@ -276,24 +278,34 @@ def resolve_research_state(
     if typed_decision.analysis_status == "unavailable":
         return ResearchState.NOT_SCOREABLE
 
-    if any(
-        _component_status(component)
-        in {"blocked", "blocker", "failed", "unavailable", "invalid", "n/a", "na"}
-        for component in component_list
-    ):
-        return ResearchState.NOT_SCOREABLE
-
     # Task 2 is a compatibility seam: only an already-resolved positive gate
     # may reach a public candidate.  Task 3 owns how this flag is established.
     if typed_decision.research_state is ResearchState.RESEARCH_CANDIDATE:
         if typed_decision.analysis_status != "complete" or not typed_decision.research_promotion_allowed:
             return ResearchState.NOT_SCOREABLE
-        if any(not gate.passed or gate.severity is GateSeverity.BLOCKER for gate in typed_decision.gates):
+        if any(not gate.passed for gate in typed_decision.gates):
             return ResearchState.NOT_SCOREABLE
+        # Completeness concerns only the headline evidence families. Disabled
+        # models and diagnostic zero-weight families cannot veto promotion.
+        from etf_cockpit.signals.canonical_scoring import headline_weights_for_components, resolve_policy_asset_type
+
+        weights = headline_weights_for_components(resolve_policy_asset_type(asset_type), asset_type, component_list)
+        required = [
+            component for component in component_list
+            if weights.get(str(getattr(component, "key", "")), 0.0) > 0
+            and not _component_is_model_only(component)
+        ]
+        if any(
+            _component_status(component) != "ok" or _component_score(component) is None
+            for component in required
+        ):
+            return ResearchState.NOT_SCOREABLE
+    else:
+        return typed_decision.research_state
 
     usable = [
         component
-        for component in component_list
+        for component in required
         if _component_status(component) == "ok"
         and not _component_is_model_only(component)
         and _component_score(component) is not None
