@@ -421,13 +421,13 @@ def test_listed_bank_without_capital_evidence_loses_its_buy_label() -> None:
 
 def test_sparebank_ec_generic_score_needs_confirmed_owner_claim_and_capital(monkeypatch: pytest.MonkeyPatch) -> None:
     ec = ss.SimpleInstrumentScore(**{**_strong_stock(with_solvency=True).__dict__, "asset_type": "Equity certificate"})
-    monkeypatch.setattr(ss, "latest_sparebank_scores", lambda: {})
+    monkeypatch.setattr(ss, "latest_sparebank_scores", lambda **_: {})
     assert ss._with_critical_evidence(ec).final_label == "insufficient_evidence"  # no stored native row
     partial = {"ACME": {"final_combined_score_10": 6.0, "missing_components": "owner_claim_integrity|capital_liquidity_resilience"}}
-    monkeypatch.setattr(ss, "latest_sparebank_scores", lambda: partial)
+    monkeypatch.setattr(ss, "latest_sparebank_scores", lambda **_: partial)
     assert ss._with_critical_evidence(ec).final_label == "insufficient_evidence"  # claim unresolved
     covered = {"ACME": {"final_combined_score_10": 6.0, "missing_components": "marketability", "data_as_of_date": "2026-10-09"}}
-    monkeypatch.setattr(ss, "latest_sparebank_scores", lambda: covered)
+    monkeypatch.setattr(ss, "latest_sparebank_scores", lambda **_: covered)
     assert ss._with_critical_evidence(ec).final_label == "strong_evidence_candidate"
 
 

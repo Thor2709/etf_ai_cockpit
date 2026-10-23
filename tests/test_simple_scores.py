@@ -454,7 +454,7 @@ def test_candidate_without_portfolio_fields_gets_algorithm_scores() -> None:
     assert scores[0].instrument_key == "candidate:ABC"
     assert scores[0].final_score_10 is not None
     assert scores[0].evidence_quality_10 is not None
-    assert scores[0].risk_friction_10 is not None
+    assert scores[0].risk_friction_10 is None
     assert scores[0].valid_component_count >= 4
 
 
@@ -763,6 +763,9 @@ def test_scoreboard_binds_classification_token_and_reader_invalidates_stale_scor
                 # #939: solvency and owner-claim evidence keep the attractiveness group evaluable.
                 "market_cap": 5_000_000_000.0,
                 "debt_to_equity": 40.0,
+                # Adjustment counts are explicit: missing counts now fail closed (cap data quality at 2.0).
+                "missing_adjusted_close": 0,
+                "non_adjusted_count": 0,
                 "blocked_by": "",
             }
         ]
@@ -785,8 +788,16 @@ def test_scoreboard_binds_classification_token_and_reader_invalidates_stale_scor
             as_of_date="2026-07-10",
             freshness_status="ok",
             score_role=role,
+            # Critical evidence is read only from eligible components (A01-F2): the held solvency and owner-claim
+            # inputs ride on eligible, dated value/quality components.
+            inputs_used={"stock_value": ("market_cap",), "stock_quality": ("debt_to_equity",)}.get(key, ()),
+            input_as_of_dates=(
+                {"stock_value": (("market_cap", "2026-07-10"),), "stock_quality": (("debt_to_equity", "2026-07-10"),)}
+            ).get(key, ()),
         )
         for key, role in (
+            ("stock_value", "evidence"),
+            ("stock_quality", "evidence"),
             ("momentum", "evidence"),
             ("trend", "evidence"),
             ("relative_strength", "evidence"),

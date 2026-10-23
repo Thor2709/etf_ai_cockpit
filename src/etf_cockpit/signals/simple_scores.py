@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 import hashlib
 import json
 from functools import lru_cache
@@ -794,7 +794,7 @@ def _generate_missing_price_signals(
     decision_date = max(frame["date"])
     signal_dates = [parsed for signal in signals if (parsed := _parse_date(signal.signal_date)) is not None]
     if signal_dates:
-        decision_date = min(decision_date, min(signal_dates))
+        decision_date = min(decision_date, max(signal_dates))
     frame = frame.loc[frame["date"] <= decision_date]
     failures: dict[str, str] = {}
     for instrument_id in missing_ids:
@@ -885,7 +885,7 @@ def build_simple_instrument_scores(
     request_identity = configured_forecast_request_identity(config)
     if reference_identity is None:
         # Relative score consumers must not accept a legacy forecast frame.
-        forecasts = forecasts.iloc[0:0].copy() if "source_file" in forecasts.columns else forecasts
+        forecasts = forecasts.iloc[0:0].copy()
     else:
         forecasts = filter_forecasts_for_universe(
             forecasts,
@@ -981,6 +981,7 @@ def build_simple_instrument_scores(
         backtest_trust=backtest_trust,
         missing_signal_reasons=missing_signal_reasons,
         cyclical_projections=cyclical_projections,
+        decision_time=_analysis_decision_time(reference_decision_time, decision_as_of),
     )
     candidate_scores = build_candidate_simple_scores(
         candidate_report,
@@ -991,6 +992,7 @@ def build_simple_instrument_scores(
         decision_date=decision_as_of,
         excluded_instrument_ids=config.universe.by_id(),
         cyclical_projections=cyclical_projections,
+        decision_time=_analysis_decision_time(reference_decision_time, decision_as_of),
     )
     return rank_and_finalize_scores([*universe_scores, *candidate_scores], prices, metadata)
 
@@ -1008,11 +1010,18 @@ def rank_and_finalize_scores(
     news inventory carries no point-in-time view.
     """
 
+    identity_conflicts = _identity_conflict_reasons(score.display_id for score in scores)
+    scores = [
+        _with_critical_evidence(
+            _with_classification_dependency(_with_identity_conflict(score, identity_conflicts.get(score.display_id)))
+        )
+        for score in scores
+    ]
     scores = sorted(
         scores,
         key=lambda item: (
             item.final_score_10 is None,
-            -(item.final_score_10 or -1.0),
+            -item.final_score_10 if item.final_score_10 is not None else 1.0,
             _is_sparebank_ec_asset_type(item.asset_type),
             item.display_id,
         ),
@@ -1023,7 +1032,7 @@ def rank_and_finalize_scores(
     ranked_instruments = [
         score.display_id
         for score in scores
-        if not _is_sparebank_ec_asset_type(score.asset_type)
+        if score.final_score_10 is not None and not _is_sparebank_ec_asset_type(score.asset_type)
     ][:10]
     ranked_crowding = build_correlation_clusters(
         prices,
@@ -1034,32 +1043,20 @@ def rank_and_finalize_scores(
     ranked_crowding_lookup = {row.instrument_id: row for row in ranked_crowding.rows}
     news_lookup = _news_inventory_lookup() if news_inventory is None else news_inventory
     ordinary_ranks = {score.display_id: index for index, score in enumerate(
-        (score for score in scores if not _is_sparebank_ec_asset_type(score.asset_type)), start=1
+        (score for score in scores if score.final_score_10 is not None and not _is_sparebank_ec_asset_type(score.asset_type)), start=1
     )}
     ranked = [
         replace(
             score,
-            rank=None if _is_sparebank_ec_asset_type(score.asset_type) else ordinary_ranks[score.display_id],
-            score_rank=None if _is_sparebank_ec_asset_type(score.asset_type) else ordinary_ranks[score.display_id],
+            rank=ordinary_ranks.get(score.display_id),
+            score_rank=ordinary_ranks.get(score.display_id),
             news_inventory=news_lookup.get(score.display_id),
             forecast_status=_forecast_status_for_components(score.components),
             **_crowding_fields_for_score(ranked_crowding_lookup.get(score.display_id)),
         )
         for score in scores
     ]
-    identity_conflicts = _identity_conflict_reasons(score.display_id for score in ranked)
-    return [
-        _with_canonical_score(
-            _attach_authority(
-                _with_critical_evidence(
-                    _with_classification_dependency(
-                        _with_identity_conflict(score, identity_conflicts.get(score.display_id))
-                    )
-                )
-            )
-        )
-        for score in ranked
-    ]
+    return [_attach_authority(score) for score in ranked]
 
 
 def _identity_projection_conflict_reason(projection: Mapping[str, object]) -> str | None:
@@ -1111,6 +1108,7 @@ def _with_identity_conflict(
     score: SimpleInstrumentScore,
     reason: str | None,
 ) -> SimpleInstrumentScore:
+    reason = reason or score.identity_conflict_reason
     if not reason or _is_sparebank_ec_asset_type(score.asset_type):
         return score
     return replace(
@@ -1125,6 +1123,15 @@ def _with_identity_conflict(
         one_line_reason=reason,
         final_label="manual_review",
         final_action="manual_review",
+        canonical_score=None,
+        score_band_low=None,
+        score_band_high=None,
+        label_stable=None,
+        score_band_basis=None,
+        legacy_action="manual_review",
+        research_state=ResearchState.MANUAL_REVIEW,
+        internal_intent=InternalSignalIntent.NONE,
+        authority_decision=None,
         warnings=list(dict.fromkeys([*score.warnings, reason])),
         identity_conflict_reason=reason,
     )
@@ -1161,14 +1168,14 @@ def _business_model_for_sector(sector: object) -> str | None:
     return "bank" if str(sector or "").strip().casefold() in _BANK_SECTORS else None
 
 
-def _sparebank_evidence_ids(display_id: str) -> dict[str, str | None]:
+def _sparebank_evidence_ids(display_id: str, *, decision_time: object) -> dict[str, str | None]:
     """Capital and owner-claim evidence ids (with the native row's as-of date) a Sparebank EC holds.
 
     A fully covered axis is the only proof: the owner-claim axis is partial until the eierbrøk is resolved, and the
     capital axis is partial until its CET1 inputs exist. No stored native row means no evidence (fails closed).
     """
 
-    row = latest_sparebank_scores().get(str(display_id))
+    row = latest_sparebank_scores(decision_time=decision_time).get(str(display_id))
     if row is None or row.get("final_combined_score_10") is None:
         return {}
     missing = {part for part in str(row.get("missing_components") or "").split("|") if part}
@@ -1194,8 +1201,9 @@ def _critical_evidence_dated(score: SimpleInstrumentScore) -> dict[str, str | No
             held[item] = as_of
 
     for component in score.components:
-        if component.score_eligible:
-            add(component.key, component.as_of_date)
+        if not component.score_eligible:
+            continue
+        add(component.key, component.as_of_date)
         for item in component.inputs_used:
             add(item, dict(component.input_as_of_dates).get(item, component.as_of_date))
         for item, as_of in component.input_as_of_dates:
@@ -1203,7 +1211,7 @@ def _critical_evidence_dated(score: SimpleInstrumentScore) -> dict[str, str | No
     if str(score.isin or "").strip() or str(score.yahoo_symbol or "").strip():
         add("identity", None)
     if _is_sparebank_ec_asset_type(score.asset_type):
-        for item, as_of in _sparebank_evidence_ids(score.display_id).items():
+        for item, as_of in _sparebank_evidence_ids(score.display_id, decision_time=score.latest_date).items():
             add(item, as_of)
     return held
 
@@ -1263,8 +1271,7 @@ def _with_critical_evidence(score: SimpleInstrumentScore) -> SimpleInstrumentSco
 
 def _with_canonical_score(score: SimpleInstrumentScore) -> SimpleInstrumentScore:
     if (
-        score.canonical_score is not None
-        or score.identity_conflict_reason is not None
+        score.identity_conflict_reason is not None
         or _is_sparebank_ec_asset_type(score.asset_type)
     ):
         return score
@@ -1383,10 +1390,10 @@ def _attach_authority(score: SimpleInstrumentScore) -> SimpleInstrumentScore:
     )
     warning_text = " ".join(score.warnings).casefold()
     gates = [
-        GateResult(gate_id="identity", passed=bool(score.display_id.strip()), message="Instrument identity is present"),
+        GateResult(gate_id="identity", passed=bool(score.display_id.strip()) and score.identity_conflict_reason is None, message="Instrument identity is present and unconflicted"),
         GateResult(
             gate_id="data_quality",
-            passed=not any(token in warning_text for token in ("data", "stale", "missing")),
+            passed=not any(token in warning_text for token in ("data", "stale", "missing", "insufficient_12m_history")),
             message="Score data has no blocking warning",
         ),
         GateResult(
@@ -1396,31 +1403,34 @@ def _attach_authority(score: SimpleInstrumentScore) -> SimpleInstrumentScore:
         ),
         GateResult(
             gate_id="model_validity",
-            passed=score.final_score_10 is not None and score.backtest_validity != "not_evaluated",
+            passed=score.final_score_10 is not None and score.backtest_validity == "usable_low_authority",
             message="Score and backtest validity are explicit",
         ),
         GateResult(
             gate_id="risk",
-            passed=not any(token in warning_text for token in ("risk", "drawdown", "concentration")),
+            passed=not any(token in warning_text for token in ("risk", "drawdown", "concentration", "volatility")),
             message="No blocking risk warning",
         ),
         GateResult(
             gate_id="valuation",
-            passed=any(
-                component.key in {"stock_value", "etf_exposure"} and component.score_10 is not None
+            passed=score.asset_type.casefold() == "etf" or is_certificate_without_fundamentals(score.asset_type, score.components) or any(
+                component.key in {"stock_value", "etf_product_quality"} and component.score_eligible
                 for component in score.components
             ),
-            message="Valuation context is available",
+            message="Valuation context is available or not applicable (ETF/plain certificate)",
         ),
         GateResult(gate_id="signal", passed=not bool(score.warnings), message="No score warnings"),
         GateResult(
             gate_id="portfolio_fit",
-            passed=score.portfolio_fit_label != "Portfolio fit not evaluated",
+            passed=_safe_float(score.portfolio_fit_score_10) is not None,
             message="Portfolio fit is evaluated",
         ),
         GateResult(
             gate_id="cost",
-            passed=score.edge_to_cost_ratio is not None,
+            passed=(
+                (edge := _safe_float(score.net_expected_edge_bps)) is not None and edge > 0.0
+                and (ratio := _safe_float(score.edge_to_cost_ratio)) is not None and ratio >= 1.0
+            ),
             message="Edge-to-cost context is available",
         ),
     ]
@@ -1697,12 +1707,30 @@ def build_universe_simple_scores(
     missing_signal_reasons: Mapping[str, str] | None = None,
     cyclical_projections: Mapping[str, object] | None = None,
     fx_rates: pd.DataFrame | None = None,
+    decision_time: datetime | None = None,
 ) -> list[SimpleInstrumentScore]:
     raw_forecast_scores = forecast_component_maps(forecasts)
     return_distributions = forecast_return_distributions(forecasts)
     if as_of_sources is not None and as_of_sources.expected_return_distributions is not None:
         return_distributions = as_of_sources.expected_return_distributions
     forecast_details = forecast_score_details(forecasts)
+    stock_decision_time = decision_time if as_of_sources is None else as_of_sources.decision_time
+    # Each instrument's price lookups share its own signal cutoff. The explicit
+    # historical decision time is an additional upper bound, including intraday.
+    if not prices.empty and "date" in prices and "etf_id" in prices:
+        signal_cutoffs: dict[str, date | None] = {}
+        for signal in signals:
+            signal_cutoffs.setdefault(str(signal.etf_id), _parse_date(signal.signal_date))
+        default_cutoff = max((day for day in signal_cutoffs.values() if day is not None), default=None)
+        dates = pd.to_datetime(prices["date"], errors="coerce", utc=True)
+        cutoffs = prices["etf_id"].astype(str).map(lambda key: signal_cutoffs.get(key, default_cutoff))
+        known = dates.notna() & pd.Series(
+            [day is not None and (cutoff is None or day <= cutoff) for day, cutoff in zip(dates.dt.date, cutoffs)],
+            index=prices.index,
+        )
+        if stock_decision_time is not None:
+            known &= dates <= pd.to_datetime(stock_decision_time, utc=True)
+        prices = prices.loc[known].copy()
     latest_prices = _latest_price_lookup(prices)
     price_quality = _price_quality_lookup(prices)
     liquidity = _price_liquidity_lookup(
@@ -1718,7 +1746,7 @@ def build_universe_simple_scores(
     kid_records = {} if as_of_sources is not None else _kid_record_lookup()
     product_lookups: dict[date | None, tuple[dict[str, dict[str, object]], dict[str, dict[str, list[float]]]]] = {}
     stock_evidence, stock_evidence_error = _stock_evidence_lookup(
-        config, signals, prices, decision_time=None if as_of_sources is None else as_of_sources.decision_time
+        config, signals, prices, decision_time=stock_decision_time
     )
     symbol_map = yfinance_symbol_map_from_config(config)
     etf_lookup = config.universe.by_id()
@@ -1730,6 +1758,18 @@ def build_universe_simple_scores(
     backtest_trust = backtest_trust or {}
     crowding_lookup = {row.instrument_id: row for row in (crowding.rows if crowding else ())}
     output: list[SimpleInstrumentScore] = []
+    score_now = datetime.now(timezone.utc)
+
+    def _full_decision_time(signal: SignalResult) -> datetime | None:
+        # The full cutoff timestamp (never the date-only signal date): as-of runs use their own decision time, live runs
+        # follow the stock-evidence rule (now, or the end of an older price date) so a projection built at that cutoff matches.
+        if stock_decision_time is not None:
+            return stock_decision_time
+        evidence_time = getattr(stock_evidence.get(signal.etf_id), "decision_time", None)
+        if evidence_time is not None:
+            return evidence_time
+        parsed = _parse_date(signal.signal_date)
+        return None if parsed is None else live_decision_time(parsed, score_now)
 
     def _product_lookup_for(signal_date: object) -> tuple[dict[str, dict[str, object]], dict[str, dict[str, list[float]]]]:
         # peers are filtered to each signal's own decision date: a later-dated peer vintage never ranks an earlier decision
@@ -1815,7 +1855,7 @@ def build_universe_simple_scores(
                     stock_evidence_error,
                     cyclical_projection=(cyclical_projections or {}).get(signal.etf_id),
                     instrument_id=signal.etf_id,
-                    decision_time=signal.signal_date,
+                    decision_time=_full_decision_time(signal),
                     sector=identity.sector,
                 )
                 if stock_like
@@ -2039,6 +2079,7 @@ def build_candidate_simple_scores(
     decision_date: date | None = None,
     excluded_instrument_ids: Iterable[str] = (),
     cyclical_projections: Mapping[str, object] | None = None,
+    decision_time: datetime | None = None,
 ) -> list[SimpleInstrumentScore]:
     report = candidate_report.copy() if candidate_report is not None else pd.DataFrame()
     forecasts = candidate_forecasts.copy() if candidate_forecasts is not None else pd.DataFrame()
@@ -2072,6 +2113,12 @@ def build_candidate_simple_scores(
         )
     relative_reference = _candidate_relative_reference(source, decision_date)
     volatility_reference = _candidate_volatility_reference(source, decision_date)
+    # Preserve a supplied intraday cutoff. Date-only callers retain the conservative
+    # start-of-day UTC cutoff used by the adapter's existing contract.
+    _cyclical_decision_time = (
+        decision_time if decision_time is not None
+        else (None if decision_date is None else datetime.combine(decision_date, datetime.min.time(), timezone.utc))
+    )
     etf_exposure = _etf_exposure_lookup()
     calibration_by_id = calibration_by_id or {}
     regime = regime or {}
@@ -2149,7 +2196,7 @@ def build_candidate_simple_scores(
             cyclical_components = _cyclical_stock_components(
                 (cyclical_projections or {}).get(instrument_id),
                 instrument_id=instrument_id,
-                decision_time=decision_date,
+                decision_time=_cyclical_decision_time,
                 sector=row.get("sector"),
             )
             if cyclical_components is not None and all(row.status == "OK" for row in cyclical_components):
@@ -2662,6 +2709,7 @@ def _attach_component_provenance(
 ) -> list[SimpleScoreComponent]:
     clean_date = _noneable_str(as_of_date)
     freshness = _component_freshness_status(clean_date, decision_date)
+    price_keys = {"data_quality", "momentum", "trend", "risk", "relative_strength", "liquidity_cost"}
 
     def component_freshness(component: SimpleScoreComponent) -> str:
         # Evidence carrying its own date must itself be known at the decision
@@ -2672,12 +2720,12 @@ def _attach_component_provenance(
             return "unavailable"
         if component.freshness_status:
             return component.freshness_status
-        return freshness
+        return freshness if component.key in price_keys else "unknown"
 
     return [
         replace(
             component,
-            as_of_date=component.as_of_date or clean_date,
+            as_of_date=component.as_of_date or (clean_date if component.key in price_keys else None),
             freshness_status=component_freshness(component),
         )
         for component in components
@@ -2775,14 +2823,14 @@ def _candidate_volatility_reference(frame: pd.DataFrame, decision_date: date | N
     return float(values.median()) if not values.empty else None
 
 
-def _candidate_relative_reference(frame: pd.DataFrame, decision_date: date | None = None) -> float | None:
+def _candidate_relative_reference(frame: pd.DataFrame, decision_date: date | None = None) -> tuple[str, float] | None:
     frame = _candidate_known_peers(frame, decision_date)
     for column in ("return_6m", "return_12m", "return_3m"):
         if column not in frame:
             continue
         values = pd.to_numeric(frame[column], errors="coerce").dropna()
         if not values.empty:
-            return float(values.median())
+            return column, float(values.median())
     return None
 
 
@@ -2802,8 +2850,8 @@ def _candidate_data_quality_component(row: pd.Series, warnings: list[str], decis
     raw, why = _data_quality_raw_and_reason(
         latest_date=str(row.get("latest_date") or ""),
         rows=_safe_float(row.get("rows")),
-        missing_adjusted=0.0,
-        non_adjusted_count=0.0,
+        missing_adjusted=_safe_float(row.get("missing_adjusted_close")),
+        non_adjusted_count=_safe_float(row.get("non_adjusted_count")),
         warnings=warnings,
         decision_date=decision_date,
     )
@@ -2842,7 +2890,7 @@ def _data_quality_raw_and_reason(
     elif rows < 252:
         score -= 2.0
         reason.append("Less than one trading year of price history is available.")
-    if (missing_adjusted or 0) > 0 or (non_adjusted_count or 0) > 0:
+    if missing_adjusted is None or non_adjusted_count is None or missing_adjusted > 0 or non_adjusted_count > 0:
         score = min(score, 2.0)
         reason.append("Adjusted close is missing or not marked adjusted for at least one row.")
     hard_warning_tokens = {"missing_price_data", "missing_latest_price", "insufficient_12m_history", "stale_price"}
@@ -3063,6 +3111,17 @@ def _etf_product_quality_component(
     kid_record = inputs.get("kid_record")
     as_of = _noneable_str(inputs.get("as_of_date"))
     source_id = _noneable_str(inputs.get("source_id")) or COMPONENT_SOURCE_IDS["etf_product_quality"]
+    # KID cost has its own date; it cannot vouch for the configured product metrics.
+    metrics_present = (
+        any(_safe_float(inputs.get(key)) is not None for key in ("ter", "tracking_difference", "premium_discount_bps"))
+        or _structure_bucket(inputs.get("structure")) is not None
+    )
+    metric_freshness = _evidence_age_status(as_of, decision_date, int(policy["max_age_days"]))
+    if metrics_present and metric_freshness != "ok":
+        return _product_quality_unavailable(
+            f"{label}: product metric vintage is {metric_freshness}; every scored metric must be fresh at the decision date.",
+            as_of_date=as_of, freshness_status=metric_freshness,
+        )
     if ter is not None and not 0.0 <= ter <= 0.10:
         notes.append(f"TER {ter} is outside 0-10% as a decimal fraction and is treated as missing")
         ter = None
@@ -3120,6 +3179,8 @@ def _etf_product_quality_component(
         return _product_quality_unavailable(f"{label}: no weighted metric could be scored.")
     score_10 = round(_clamp_score_10(sum(scores[key] * weight for key, weight in used.items()) / total), 1)
     freshness = _evidence_age_status(as_of, decision_date, int(policy["max_age_days"]))
+    if freshness != "ok":
+        return _product_quality_unavailable(f"{label}: cost evidence is {freshness}.", as_of_date=as_of, freshness_status=freshness)
     component = _optional_score_component("etf_product_quality", score_10, f"{label}: " + "; ".join(notes) + ".", authority="medium")
     if component.score_10 is None:
         return _product_quality_unavailable(component.why)
@@ -3427,6 +3488,8 @@ def _etf_exposure_component(
             "Yahoo fund holdings are unavailable for this ETF, so exposure is not included in the evidence score and quality is reduced slightly."
         )
     vintage = _noneable_str(info.get("as_of_date"))
+    # Quarterly holdings receive a conservative 120-calendar-day validity window.
+    freshness = _evidence_age_status(vintage, decision_date, 120)
     if decision_date is not None:
         vintage_date = _parse_date(vintage)
         if vintage_date is None or vintage_date > decision_date:
@@ -3447,7 +3510,8 @@ def _etf_exposure_component(
     count = int(_safe_float(info.get("holding_count")) or 0)
     top10_penalty = min(top_weight / 0.60, 1.0) * 4.0
     largest_penalty = min(largest / 0.15, 1.0) * 3.0
-    partial_penalty = 1.0 if top_weight < 0.50 else 0.0
+    total_weight = _safe_float(info.get("total_weight_sum"))
+    partial_penalty = 1.0 if total_weight is None or total_weight < 0.50 else 0.0
     score = _clamp_score_10(10.0 - top10_penalty - largest_penalty - partial_penalty)
     why = (
         f"Yahoo exposes {count} top-holding rows. Top available holdings sum to {top_weight:.1%}; "
@@ -3456,6 +3520,7 @@ def _etf_exposure_component(
     return replace(
         _component("etf_exposure", _score_10_to_raw(score), why, authority="medium", role="risk_friction"),
         as_of_date=vintage,
+        freshness_status=freshness,
     )
 
 
@@ -3532,7 +3597,7 @@ def _stock_fundamental_components(
             # from the generic fundamentals, and the 6-input quality detail does not apply (completeness stays partial).
             held = _critical_evidence_ids(evidence)
             cyclical = [
-                replace(row, inputs_used=held, input_as_of_dates=_leverage_evidence_dates(evidence))
+                replace(row, inputs_used=held, input_as_of_dates=_metric_evidence_dates(evidence, _DATED_FUNDAMENTAL_IDS))
                 if row.key == "stock_quality" else row for row in cyclical
             ]
         return [*cyclical, revision]
@@ -3550,15 +3615,22 @@ def _stock_fundamental_components(
         base = _optional_score_component(key, part.score_10, part.why, authority=authority)
         inputs = {}
         if key in {"stock_value", "stock_quality"}:
+            dated = _metric_evidence_dates(evidence, _DATED_FUNDAMENTAL_IDS)
+            used = tuple(
+                item for item in _used_input_keys(part)
+                if item not in _DATED_FUNDAMENTAL_IDS or item in dict(dated)
+            )
             inputs = {
                 "inputs_used": (
-                    _used_input_keys(part) + _owner_claim_ids(evidence) + _capital_ids(evidence)
-                    if key == "stock_value" else tuple(
-                        item for item in _used_input_keys(part)
-                        if item not in _LEVERAGE_METRIC_IDS or item in dict(_leverage_evidence_dates(evidence))
+                    tuple(dict.fromkeys(used + _owner_claim_ids(evidence) + _capital_ids(evidence)))
+                    if key == "stock_value" else used
+                ),
+                "input_as_of_dates": tuple(
+                    (name, as_of) for name, as_of in dated
+                    if name in used or name in (
+                        {"market_cap", "cet1_ratio", "total_capital_ratio"} if key == "stock_value" else _LEVERAGE_METRIC_IDS
                     )
                 ),
-                "input_as_of_dates": _leverage_evidence_dates(evidence) if key == "stock_quality" else (),
                 "inputs_configured": (
                     tuple(str(getattr(item, "key", "")) for item in (getattr(part, "inputs", ()) or ()))
                     if key == "stock_quality"
@@ -3604,20 +3676,13 @@ def _headline_weights_for_components(
 
 
 def _owner_claim_ids(evidence: object) -> tuple[str, ...]:
-    metrics = getattr(evidence, "metrics", None)
-    market_cap = metrics.get("market_cap") if isinstance(metrics, Mapping) else None
-    return ("market_cap",) if market_cap is not None and getattr(market_cap, "available", False) is True else ()
+    return tuple(key for key, _ in _metric_evidence_dates(evidence, ("market_cap",)))
 
 
 def _capital_ids(evidence: object) -> tuple[str, ...]:
     """Bank capital ratios (CET1 / total capital) when the stock evidence reports them as available."""
 
-    metrics = getattr(evidence, "metrics", None)
-    if not isinstance(metrics, Mapping):
-        return ()
-    return tuple(
-        name for name in ("cet1_ratio", "total_capital_ratio") if getattr(metrics.get(name), "available", False) is True
-    )
+    return tuple(key for key, _ in _metric_evidence_dates(evidence, ("cet1_ratio", "total_capital_ratio")))
 
 
 def _used_input_keys(part: object) -> tuple[str, ...]:
@@ -3628,16 +3693,23 @@ def _critical_evidence_ids(evidence: object) -> tuple[str, ...]:
     """Solvency/leverage and owner-claim evidence ids the generic fundamentals actually hold."""
 
     quality = getattr(evidence, "components", {}).get("stock_quality")
-    used = tuple(key for key in _used_input_keys(quality) if key not in _LEVERAGE_METRIC_IDS)
+    used = tuple(key for key in _used_input_keys(quality) if key not in _DATED_FUNDAMENTAL_IDS)
     leverage = tuple(key for key, _ in _leverage_evidence_dates(evidence))
     return tuple(dict.fromkeys(used + leverage + _owner_claim_ids(evidence) + _capital_ids(evidence)))
 
 
 _LEVERAGE_METRIC_IDS = ("debt_to_equity", "interest_coverage", "net_debt_to_ebitda")
+_DATED_FUNDAMENTAL_IDS = (*_LEVERAGE_METRIC_IDS, "market_cap", "cet1_ratio", "total_capital_ratio")
 
 
 def _leverage_evidence_dates(evidence: object) -> tuple[tuple[str, str], ...]:
     """Solvency does not need a peer score; its own dated metric must still be fresh."""
+
+    return _metric_evidence_dates(evidence, _LEVERAGE_METRIC_IDS)
+
+
+def _metric_evidence_dates(evidence: object, keys: tuple[str, ...]) -> tuple[tuple[str, str], ...]:
+    """Critical fundamentals retain their own vintage; the existing 456-day annual limit applies."""
 
     metrics = getattr(evidence, "metrics", None)
     if not isinstance(metrics, Mapping):
@@ -3645,7 +3717,7 @@ def _leverage_evidence_dates(evidence: object) -> tuple[tuple[str, str], ...]:
     decision = _parse_date(getattr(evidence, "decision_time", None))
     return tuple(
         (key, str(metric.as_of))
-        for key in _LEVERAGE_METRIC_IDS
+        for key in keys
         if (metric := metrics.get(key)) is not None
         and getattr(metric, "available", False) is True
         and _evidence_age_status(getattr(metric, "as_of", None), decision, 456) == "ok"
@@ -3894,6 +3966,8 @@ def _risk_friction_score(components: list[SimpleScoreComponent], *, warnings: li
         (component.score_10 for component in components if component.key == "liquidity_cost" and component.score_eligible),
         None,
     )
+    if risk is None or liquidity is None:
+        return None
     # FPQ: ETF concentration is a risk term. A scored etf_exposure (low score = concentrated) joins the friction mix; without it
     # the former 0.60/0.40 mix is unchanged (missing holdings are never zero-filled, the data_quality missing penalty still applies).
     exposure = next((c.score_10 for c in components if c.key == "etf_exposure" and c.score_eligible), None)
@@ -4696,6 +4770,9 @@ def _backtest_trust_info(lookup: dict[str, dict[str, object]], instrument_id: st
     if not strategy:
         return {"score": None, "label": "Backtest trust pending: run the backtest to evaluate this method."}
     score = _safe_float(strategy.get("score"))
+    if score is None:
+        return {"score": None, "label": "Backtest trust unavailable: no finite strategy score."}
+    score = round(_clamp_score_10(score - 1.0), 1)
     label = _backtest_label(
         score or 0.0,
         str(strategy.get("quality") or "low"),
@@ -4765,17 +4842,14 @@ def _candidate_risk_raw(row: pd.Series, volatility_reference: float | None) -> f
     return _clamp((volatility_reference - vol) / volatility_reference)
 
 
-def _candidate_relative_strength_raw(row: pd.Series, reference: float | None) -> float | None:
+def _candidate_relative_strength_raw(row: pd.Series, reference: tuple[str, float] | None) -> float | None:
     if reference is None:
         return None
-    value = _safe_float(row.get("return_6m"))
-    if value is None:
-        value = _safe_float(row.get("return_12m"))
-    if value is None:
-        value = _safe_float(row.get("return_3m"))
+    column, median = reference
+    value = _safe_float(row.get(column))
     if value is None:
         return None
-    return _clamp(tanh((value - reference) / 0.15))
+    return _clamp(tanh((value - median) / 0.15))
 
 
 def _candidate_momentum_why(row: pd.Series) -> str:
@@ -4796,10 +4870,13 @@ def _candidate_risk_why(row: pd.Series) -> str:
     return f"Current drawdown {_fmt_pct(row.get('current_drawdown'))}; 60-day annualised volatility {_fmt_pct(row.get('volatility_60d_ann'))}."
 
 
-def _candidate_relative_strength_why(row: pd.Series, reference: float | None) -> str:
+def _candidate_relative_strength_why(row: pd.Series, reference: tuple[str, float] | None) -> str:
     if reference is None:
         return "No candidate peer return reference is available."
-    return f"Compares this candidate's 6m/12m return with the candidate-list median of {_fmt_pct(reference)}."
+    column, median = reference
+    if _safe_float(row.get(column)) is None:
+        return f"Candidate {column} is unavailable; the peer reference uses that same horizon."
+    return f"Compares this candidate's {column} with the candidate-list median of {_fmt_pct(median)}."
 
 
 def _candidate_value_why(row: pd.Series) -> str:
@@ -4855,14 +4932,14 @@ def _price_quality_lookup(prices: pd.DataFrame) -> dict[str, dict[str, object]]:
     if "adjusted_close" not in frame:
         frame["adjusted_close"] = pd.NA
     if "is_adjusted" not in frame:
-        frame["is_adjusted"] = True
+        frame["is_adjusted"] = pd.NA
     output: dict[str, dict[str, object]] = {}
     for etf_id, group in frame.groupby("etf_id", sort=False):
         output[str(etf_id)] = {
             "date": group["date"].max().date().isoformat() if group["date"].notna().any() else "",
             "rows": int(group["adjusted_close"].notna().sum()),
             "missing_adjusted_close": int(group["adjusted_close"].isna().sum()),
-            "non_adjusted_count": int((group["is_adjusted"].astype(str).str.lower() == "false").sum()),
+            "non_adjusted_count": int(group["is_adjusted"].map(lambda value: _bool_like(value) is not True).sum()),
         }
     return output
 
@@ -5060,6 +5137,7 @@ def _etf_exposure_lookup(
         output[str(etf_id)] = {
             "holding_count": int(len(weights)),
             "top_weight_sum": float(weights.head(10).sum()),
+            "total_weight_sum": float(weights.sum()),
             "largest_weight": float(weights.iloc[0]) if not weights.empty else None,
             "as_of_date": vintage,
         }
@@ -5275,6 +5353,20 @@ def _score_10_to_raw(score_10: float | None) -> float | None:
     if score_10 is None:
         return None
     return _clamp((float(score_10) / 5.0) - 1.0)
+
+
+def _analysis_decision_time(value: object, decision_date: date | None) -> datetime | None:
+    """The analysis run's full timezone-aware cutoff, only when it belongs to the scored decision date."""
+
+    try:
+        parsed = pd.Timestamp(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if pd.isna(parsed) or parsed.tzinfo is None:
+        return None
+    if decision_date is not None and parsed.tz_convert("UTC").date() != decision_date:
+        return None
+    return parsed.to_pydatetime()
 
 
 def _parse_date(value: object) -> date | None:
