@@ -648,10 +648,9 @@ def _liquidity_gate(config: AppConfig, known: pd.DataFrame, fx_rates: pd.DataFra
         window, fx_rates, configured_currency={item.id: str(item.currency or "EUR") for item in config.universe.etfs},
         known_by=datetime(as_of.year, as_of.month, as_of.day, 23, 59, 59, tzinfo=timezone.utc),
     ).frame
-    local = pd.to_numeric(eur["adjusted_close_local"], errors="coerce")
-    rate = pd.to_numeric(eur["adjusted_close"], errors="coerce") / local
     volume = pd.to_numeric(eur["volume"], errors="coerce")
-    value = pd.to_numeric(eur["close"], errors="coerce") * volume * rate
+    # eur_basis_prices already converts ``close`` to EUR with the same-session rate; converting again would apply the rate twice.
+    value = pd.to_numeric(eur["close"], errors="coerce") * volume
     failures: dict[str, str] = {}
     for instrument_id, index in eur.groupby(eur["etf_id"].astype(str)).groups.items():
         if len(index) < LIQUIDITY_WINDOW_SESSIONS:

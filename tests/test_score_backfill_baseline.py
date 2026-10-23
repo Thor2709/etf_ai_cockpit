@@ -116,7 +116,9 @@ def test_existing_friction_and_cost_gate_consume_baseline_without_changing_other
         assert missing.friction_status == "unavailable" and missing.edge_to_cost_ratio is None
         gates = {gate.gate_id: gate for gate in actual.authority_decision.gates}
         old_gates = {gate.gate_id: gate for gate in missing.authority_decision.gates}
-        assert gates["cost"].passed is True and old_gates["cost"].passed is False
+        # SCORE lane (a9c677b7): the cost gate needs net edge > 0 and edge/cost >= 1, so synthetic negative-edge rows fail it.
+        cost_passes = actual.net_expected_edge_bps > 0.0 and actual.edge_to_cost_ratio >= 1.0
+        assert gates["cost"].passed is cost_passes and old_gates["cost"].passed is False
         for gate in ("valuation", "model_validity"):
             assert gates[gate] == old_gates[gate]
         assert actual.canonical_score == missing.canonical_score
