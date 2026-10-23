@@ -236,3 +236,11 @@ def test_dei_shares_preserve_publication_and_reject_class_or_split_conflicts():
     _, periods = periods_for_payload(payload)
     assert sm.latest_reported_shares(periods, DECISION) is None
     assert not evidence(periods).metrics["market_cap"].available
+
+
+def test_fetch_edgar_leaves_shares_rows_to_the_provider_so_refresh_stores_each_filing_once():
+    payload = {"facts": {"us-gaap": {"Revenues": concept(fact(1000.0, start="2025-01-01"))},
+                         "dei": {"EntityCommonStockSharesOutstanding": concept(
+                             fact(10.0, end="2026-02-01"), unit="shares")}}}
+    result = sources.fetch_edgar("1", CONFIG, user_agent="t t@t.invalid", fetch=lambda _u, _a: payload, sleep=lambda _s: None)
+    assert result.rows and all(row["period_type"] != "SHARES" for row in result.rows)

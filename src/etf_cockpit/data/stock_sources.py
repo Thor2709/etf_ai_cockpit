@@ -734,7 +734,10 @@ def fetch_edgar(
         result.status = "error"
         result.reason = f"SEC EDGAR companyfacts request for CIK {cik} failed: {str(exc)[:120]}"
         return result
-    result.rows = parse_edgar_companyfacts(payload, config, source_ref=f"sec_edgar:CIK{str(cik).zfill(10)}")
+    # SHARES publications are owned by sec_edgar_provider.parse_reported_shares (accession-level);
+    # keeping the parser's copy here would store every filing twice (one canonical path).
+    result.rows = [row for row in parse_edgar_companyfacts(payload, config, source_ref=f"sec_edgar:CIK{str(cik).zfill(10)}")
+                   if row.get("period_type") != "SHARES"]
     result.snapshot = {"source": "sec_edgar", "entity": payload.get("entityName"), "cik": str(cik).zfill(10)}
     if not result.rows:
         result.status = "no_statements"
