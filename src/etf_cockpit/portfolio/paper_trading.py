@@ -214,7 +214,7 @@ class PaperLedger:
         if kind not in _SHADOW_FLOW_KINDS or not isinstance(flow_at, datetime) or flow_at.tzinfo is None:
             raise PaperLedgerError("External flows require a supported kind and aware effective time.")
         effective = effective_at or flow_at
-        if effective.tzinfo is None or effective < flow_at or (kind == "contribution" and effective != flow_at):
+        if effective.tzinfo is None or effective < flow_at:
             raise PaperLedgerError("Active flow effective time must be aware and cannot precede its request.")
         payload = {"flow_id": _clean_id(flow_id, "flow_id"), "flow_kind": kind,
                    "amount": str(_decimal_number(amount, "amount", positive=True)), "flow_at": _timestamp(flow_at), "effective_at": _timestamp(effective),
@@ -522,16 +522,16 @@ class PaperLedger:
             )
         return Decimal("1")
 
-    @staticmethod
     def _position_fx(
-        fx_rate: Decimal | None, instrument_id: str, state: Mapping[str, object]
+        self, fx_rate: Decimal | None, instrument_id: str, state: Mapping[str, object]
     ) -> Decimal:
-        """Return the explicit FX rate; the implicit 1 is allowed only for a base-currency (or absent) position."""
+        """Resolve quote currency even before the first fill; foreign quotes require explicit FX."""
 
         positions = state["positions"]
         assert isinstance(positions, Mapping)
         position = positions.get(instrument_id)
-        currency = str(position["currency"]) if isinstance(position, Mapping) and position.get("currency") else str(state["base_currency"])
+        currency = (str(position["currency"]) if isinstance(position, Mapping) and position.get("currency")
+                    else self._quote_currency({}, instrument_id, None, state))
         return PaperLedger._resolve_fx(fx_rate, currency, state)
 
     @staticmethod
@@ -861,7 +861,8 @@ class PaperLedger:
                     Decimal(1) if str(order["currency"]).upper() == base_currency
                     else _decimal_number(order.get("fx_rate"), "fx_rate", positive=True)
                 )
-                if (fill_quantity_decimal % policy.lot_size != 0 or fill_fee_decimal != policy.commission
+                expected_fee = policy.commission * fill_quantity_decimal / _decimal_number(order["quantity"], "quantity", positive=True)
+                if (fill_quantity_decimal % policy.lot_size != 0 or fill_fee_decimal != expected_fee
                         or fill_fx_decimal != expected_fx or base_currency != "EUR"):
                     raise PaperLedgerError("The active fill conflicts with the canonical cost, FX or lot policy.")
                 if reference_price is None:
@@ -1044,8 +1045,8 @@ class PaperLedger:
     ) -> dict[str, object]:
         """Mature one filled proposal against adjusted-price, benchmark and cash evidence.
 
-        Entry and exit are compared on one basis: fills are restated for every split recorded after them
-        (the adjusted close is on the post-split basis) and the exit is converted with ``exit_fx_rate``.
+        Fills are restated only for splits effective between the fill and maturity. Recorded cash dividends
+        in that interval are included at their evidenced FX; the exit is converted with ``exit_fx_rate``.
         Fills with a non-unit FX rate require ``exit_fx_rate``; without it maturation is blocked.
         """
 
@@ -1091,25 +1092,32 @@ class PaperLedger:
                     last_fill_at = fill_time if last_fill_at is None else max(last_fill_at, fill_time)
             if exit_fx is None and any(_decimal_number(item.get("fx_rate", 1.0), "fx_rate") != 1 for item in order_fills):
                 raise PaperLedgerError("Exit FX evidence (exit_fx_rate) is required to mature an outcome with converted fills.")
-            # Restate each fill for the splits recorded after it so entry and exit share the adjusted-price basis.
+            matured_at = datetime.fromisoformat(_timestamp(occurred_at))
+            # Effective times, rather than append order, determine each fill's split and dividend entitlement.
             instrument = str(order["instrument_id"]).upper()
             split_factor: dict[str, float] = {}
-            for event in events:
-                event_payload = event.get("payload")
-                if not isinstance(event_payload, Mapping):
-                    continue
-                if event.get("event_type") == "fill_recorded" and event_payload.get("order_id") == order.get("order_id"):
-                    split_factor[str(event_payload["fill_id"])] = 1.0
-                elif event.get("event_type") == "corporate_action" and str(event_payload.get("instrument_id", "")).upper() == instrument:
-                    for fill_key in split_factor:
-                        split_factor[fill_key] *= float(event_payload["split_ratio"])
+            fill_times = {str(event["payload"]["fill_id"]): _event_time(event) for event in events
+                          if event["event_type"] == "fill_recorded" and event["payload"].get("order_id") == order.get("order_id")}
+            actions = sorted((event for event in events if event["event_type"] == "corporate_action"
+                              and str(event["payload"].get("instrument_id", "")).upper() == instrument), key=_event_time)
+            dividends = 0.0
+            for fill in order_fills:
+                fill_key = str(fill["fill_id"])
+                factor = 1.0
+                for action in actions:
+                    if fill_times[fill_key] < _event_time(action) <= matured_at:
+                        terms = action["payload"]
+                        dividends += (float(fill["quantity"]) * factor * float(terms["cash_dividend_per_unit"])
+                                      * float(terms.get("fx_rate", 1.0)))
+                        factor *= float(terms["split_ratio"])
+                split_factor[fill_key] = factor
             quantity = sum(float(item["quantity"]) * split_factor.get(str(item["fill_id"]), 1.0) for item in order_fills)
             entry_value = sum(float(item["quantity"]) * float(item["price"]) * float(item.get("fx_rate", 1.0)) for item in order_fills)
             fees = sum(float(item.get("fee", 0.0)) for item in order_fills)
             entry_price = entry_value / quantity
             exit_value_price = exit_price * (1.0 if exit_fx is None else exit_fx)
             direction = 1.0 if order.get("side") == "buy" else -1.0
-            gross_return = direction * (exit_value_price - entry_price) / entry_price
+            gross_return = direction * (exit_value_price * quantity + dividends - entry_value) / entry_value
             cost_return = fees / entry_value if entry_value else 0.0
             net_return = gross_return - cost_return
             outcome_id = "outcome_" + _digest(
@@ -1143,7 +1151,6 @@ class PaperLedger:
                     "A paper outcome requires a fully filled order; later fills would make it stale."
                 )
             assert last_fill_at is not None
-            matured_at = datetime.fromisoformat(_timestamp(occurred_at))
             if matured_at < last_fill_at + timedelta(days=horizon_days):
                 raise PaperLedgerError(
                     f"The {horizon_days}-day horizon has not elapsed since the last fill at {last_fill_at.isoformat()}."
@@ -1158,6 +1165,7 @@ class PaperLedger:
                 "entry_price": round(entry_price, 8),
                 "adjusted_close": exit_price,
                 "fees": round(fees, 8),
+                "cash_dividends": round(dividends, 8),
                 "gross_return": round(gross_return, 12),
                 "net_return": round(net_return, 12),
                 "benchmark_return": benchmark,
@@ -1291,6 +1299,8 @@ class PaperLedger:
                 "position_marked",
                 {
                     "instrument_id": mark_id,
+                    "currency": (str(state["positions"][mark_id]["currency"])
+                                 if mark_id in state["positions"] else self._quote_currency({}, mark_id, None, state)),
                     "price": price,
                     "fx_rate": fx,
                     "price_basis": "adjusted_close",
@@ -2181,6 +2191,7 @@ class PaperLedger:
             "base_currency": "EUR",
             "initial_cash": Decimal("0"),
             "cash": Decimal("0"),
+            "net_external_flows": Decimal("0"),
             "equity_peak": 0.0,
             "orders": {},
             "rejections": {},
@@ -2289,7 +2300,10 @@ class PaperLedger:
                 amount = _decimal_number(payload["amount"], "amount", positive=True)
                 if flow_id in state["external_flows"] or payload["flow_kind"] not in _SHADOW_FLOW_KINDS:
                     raise PaperLedgerIntegrityError("An active external flow is duplicated or invalid.")
-                state["cash"] += amount if payload["flow_kind"] == "contribution" else -amount
+                movement = amount if payload["flow_kind"] == "contribution" else -amount
+                state["cash"] += movement
+                state["net_external_flows"] += movement
+                state["equity_peak"] += float(movement)
                 if state["cash"] < 0:
                     raise PaperLedgerIntegrityError("An active external flow overdrew cash.")
                 state["external_flows"][flow_id] = dict(payload)
@@ -2311,9 +2325,10 @@ class PaperLedger:
                 instrument_id = str(payload["instrument_id"])
                 positions = state["positions"]
                 assert isinstance(positions, dict)
-                position = positions.setdefault(instrument_id, {"quantity": 0.0, "average_cost": 0.0, "realised_pnl": 0.0, "currency": state["base_currency"]})
+                position = positions.setdefault(instrument_id, {"quantity": 0.0, "average_cost": 0.0, "realised_pnl": 0.0, "currency": payload.get("currency")})
                 position["mark_price"] = float(payload["price"])
                 position["mark_fx_rate"] = float(payload["fx_rate"])
+                position["mark_at"] = _event_time(event)
                 try:
                     _provenance(payload.get("source_authority"), payload.get("source_checksum"))
                 except PaperLedgerError as exc:
@@ -2371,6 +2386,11 @@ class PaperLedger:
         if order["side"] == "buy":
             state["cash"] = state["cash"] - value_decimal - fee_decimal
             old_quantity = float(position["quantity"])
+            position["currency"] = order["currency"]
+            if old_quantity <= 1e-8:
+                position.pop("mark_price", None)
+                position.pop("mark_fx_rate", None)
+                position.pop("mark_at", None)
             total_cost = old_quantity * float(position["average_cost"]) + value + fee
             position["quantity"] = old_quantity + quantity
             position["average_cost"] = total_cost / position["quantity"]
@@ -2397,8 +2417,9 @@ class PaperLedger:
             timeline = state["timeline"]
             assert isinstance(timeline, dict)
             timeline.setdefault(instrument_id, []).append(
-                (occurred_at, "fill", quantity if order["side"] == "buy" else -quantity)
+                (occurred_at, "fill", dict(payload))
             )
+            timeline[instrument_id].sort(key=lambda item: item[0])
         fills = state["fills"]
         assert isinstance(fills, list)
         if any(str(item.get("fill_id")) == str(payload.get("fill_id")) for item in fills if isinstance(item, Mapping)):
@@ -2424,6 +2445,9 @@ class PaperLedger:
             raise PaperLedgerIntegrityError("A shadow flow used a different cost policy than the account.")
         _provenance(payload.get("source_authority"), payload.get("source_checksum"))
         amount = _decimal_number(payload["amount"], "amount", positive=True)
+        movement = amount if kind == "contribution" else -amount
+        state["net_external_flows"] += movement
+        state["equity_peak"] += float(movement)
         quantity = _decimal_number(payload["quantity"], "quantity", non_negative=True)
         price = _decimal_number(payload["price"], "price", positive=True)
         fx = _decimal_number(payload["fx_rate"], "fx_rate", positive=True)
@@ -2468,31 +2492,50 @@ class PaperLedger:
         position = positions.get(instrument_id)
         if position is None:
             return
-        ratio = float(payload["split_ratio"])
-        dividend = _decimal_number(payload["cash_dividend_per_unit"], "cash_dividend_per_unit", non_negative=True)
         timeline = state["timeline"]
         assert isinstance(timeline, dict)
         history = timeline.setdefault(instrument_id, [])
-        if occurred_at is None:
-            entitled = float(position["quantity"])
-        else:
-            # Entitlement is the share count held at the ex-date (the event time), not the count held when
-            # the action happens to be recorded.
-            entitled = 0.0
-            for moment, kind, amount in history:
-                if moment <= occurred_at:
-                    entitled = entitled * amount if kind == "split" else entitled + amount
-            entitled = max(entitled, 0.0)
-            history.append((occurred_at, "split", ratio))
-        position["quantity"] = float(position["quantity"]) * ratio
-        position["average_cost"] = float(position["average_cost"]) / ratio
-        if position.get("mark_price") is not None:
-            position["mark_price"] = float(position["mark_price"]) / ratio
-        state["cash"] = state["cash"] + (
-            Decimal(str(entitled))
-            * dividend
-            * _decimal_number(payload.get("fx_rate", 1.0), "fx_rate", positive=True)
-        )
+        assert occurred_at is not None
+        history.append((occurred_at, "action", dict(payload)))
+        history.sort(key=lambda item: item[0])
+        # Rebuild only this instrument's inventory in effective-time order. A late split changes the
+        # pre-ex-date units, never later buys; replaying costs also handles sales after the ex-date.
+        quantity, cost, realised = 0.0, 0.0, 0.0
+        order_pnls: dict[str, float] = {}
+        dividends = Decimal("0")
+        for _, kind, terms in history:
+            if kind == "action":
+                dividends += (Decimal(str(quantity))
+                              * _decimal_number(terms["cash_dividend_per_unit"], "cash_dividend_per_unit", non_negative=True)
+                              * _decimal_number(terms.get("fx_rate", 1.0), "fx_rate", positive=True))
+                quantity *= float(terms["split_ratio"])
+            else:
+                units = float(terms["quantity"])
+                value = units * float(terms["price"]) * float(terms["fx_rate"])
+                fee = float(terms["fee"])
+                if terms["side"] == "buy":
+                    quantity += units
+                    cost += value + fee
+                else:
+                    if units > quantity + 1e-8:
+                        raise PaperLedgerIntegrityError("A corporate action leaves a historical sale exceeding its position.")
+                    sold_cost = units * cost / quantity
+                    pnl = value - fee - sold_cost
+                    realised += pnl
+                    order_id = str(terms.get("order_id", ""))
+                    if order_id:
+                        order_pnls[order_id] = order_pnls.get(order_id, 0.0) + pnl
+                    cost -= sold_cost
+                    quantity -= units
+        state["cash"] += dividends - position.get("corporate_action_cash", Decimal("0"))
+        position["corporate_action_cash"] = dividends
+        position["quantity"] = quantity
+        position["average_cost"] = cost / quantity if quantity > 1e-8 else 0.0
+        position["realised_pnl"] = realised
+        state["order_pnls"].update(order_pnls)
+        if (position.get("mark_price") is not None
+                and position.get("mark_at", occurred_at) < occurred_at):
+            position["mark_price"] = float(position["mark_price"]) / float(payload["split_ratio"])
 
     @staticmethod
     def _require_open(state: Mapping[str, object]) -> None:
@@ -2628,13 +2671,13 @@ class PaperLedger:
         # A nonzero position without a mark has an unknown value: equity, P&L and drawdown are unavailable,
         # never a total that silently counts the holding as zero.
         equity = None if unmarked else cash + market_value
-        pnl = None if equity is None else equity - initial_cash
+        pnl = None if equity is None else equity - initial_cash - float(state["net_external_flows"])
         trade_pnls = [float(value) for value in state["trade_pnls"]]
         wins = [value for value in trade_pnls if value > 0]
         losses = [value for value in trade_pnls if value < 0]
         win_rate = None if not trade_pnls else len(wins) / len(trade_pnls)
         payoff_ratio = None if not wins or not losses else sum(wins) / abs(sum(losses))
-        peak = max(initial_cash, float(state.get("equity_peak", initial_cash)))
+        peak = float(state.get("equity_peak", initial_cash))
         drawdown = None if equity is None or peak <= 0 else (equity - peak) / peak
         try:
             from etf_cockpit.trading.incidents import IncidentJournal
