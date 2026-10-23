@@ -213,17 +213,17 @@ def construct_cohort(
     relevant = [item for item in observations if item.metric == metric]
     eligible_by_instrument: dict[str, list[PeerObservation]] = {}
     for item in relevant:
-        if item.instrument_id != item.context.instrument_id:
-            exclusions[item.instrument_id] = "classification_identity_mismatch"
-            continue
-        reason = _exclusion_reason(
-            item, effective, decision, comparison_scope=scope
-        )
-        if reason is not None:
-            exclusions[item.instrument_id] = reason
-            continue
-        if item.instrument_id == target.instrument_id:
-            exclusions[item.instrument_id] = "target_instrument"
+        # Only visibility filters precede revision selection. A known retraction,
+        # inactive listing or invalid classification must supersede its old value.
+        try:
+            if _time(item.known_at) > decision:
+                exclusions[item.instrument_id] = "future_known"
+                continue
+            if _time(item.effective_at) > effective:
+                exclusions[item.instrument_id] = "future_effective"
+                continue
+        except PeerCohortError:
+            exclusions[item.instrument_id] = "invalid_timestamp"
             continue
         eligible_by_instrument.setdefault(item.instrument_id, []).append(item)
     eligible_items = (
@@ -241,7 +241,17 @@ def construct_cohort(
                 _observation_hash(row),
             ),
         )
-        candidates.append(selected_revision)
+        reason = _exclusion_reason(
+            selected_revision, effective, decision, comparison_scope=scope
+        )
+        if selected_revision.instrument_id != selected_revision.context.instrument_id:
+            reason = "classification_identity_mismatch"
+        elif selected_revision.instrument_id == target.instrument_id:
+            reason = "target_instrument"
+        if reason is None:
+            candidates.append(selected_revision)
+        else:
+            exclusions[instrument_id] = reason
         for stale in revisions:
             if stale is not selected_revision:
                 exclusions[f"{instrument_id}@revision:{stale.revision}"] = (
@@ -489,7 +499,7 @@ def normalize_peer_metric(
         None if target_value is None else transform(float(target_value)),
         transformed,
         applicable=applicable,
-        parent_percentile=parent_percentile,
+        parent_percentile=1.0 - parent_percentile if reverse else parent_percentile,
         shrinkage_strength=shrinkage_strength,
         bootstrap_seed=bootstrap_seed,
         bootstrap_samples=bootstrap_samples,
@@ -1044,8 +1054,10 @@ def _observation_hash(item: PeerObservation) -> str:
     payload = {
         "instrument_id": item.instrument_id,
         "metric": item.metric,
-        "value": item.value,
-        "weight": item.weight,
+        # Invalid numeric revisions still participate in supersession. Encode
+        # their tie-break deterministically without non-standard JSON numbers.
+        "value": item.value if item.value is None or _finite(item.value) else str(item.value),
+        "weight": item.weight if _finite(item.weight) else str(item.weight),
         "effective_at": _iso(_time(item.effective_at)),
         "known_at": _iso(_time(item.known_at)),
         "revision": item.revision,
