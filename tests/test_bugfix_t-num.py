@@ -371,7 +371,8 @@ def test_p05_n004(tmp_path: Path) -> None:
         execution_price=10.0,
         quantity_delta=-3.0,
         fx_rate=1.0,
-        positions={"VWCE": {"quantity": 1.0, "average_cost": 10.0}},
+        # TRADE audit: position FX is no longer defaulted to 1 (fail closed), so the fixture states it.
+        positions={"VWCE": {"quantity": 1.0, "average_cost": 10.0, "mark_fx_rate": 1.0}},
         open_orders={},
         paper_events=[],
         path="paper",
