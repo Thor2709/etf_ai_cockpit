@@ -109,10 +109,10 @@ def test_complete_pit_stock_and_etf_are_promoted(monkeypatch):
     assert run is not None and len(run) == 5
     score = observed[stock]
     failures = [(gate.gate_id, gate.message) for gate in score.authority_decision.gates if not gate.passed]
-    # A01-F1: the authority gates now fail on pending states. As-of mode withholds stored forecasts (no known-at), so
-    # backtest validity, portfolio fit and edge-to-cost stay unevaluated and the stock is not promoted; every other
-    # authority gate and the canonical engine gates pass on the complete point-in-time evidence.
-    assert sorted(gate_id for gate_id, _ in failures) == ["cost", "model_validity", "portfolio_fit"], failures
+    # A01-F1: the authority gates fail on pending states. As-of mode withholds stored forecasts (no known-at), so
+    # edge-to-cost stays unevaluated and the stock is not promoted. Owner gate decision 2026-10-23: backtest validity
+    # is not applicable to this deterministic family and portfolio fit is not a research-promotion gate.
+    assert sorted(gate_id for gate_id, _ in failures) == ["cost"], failures
     assert score.research_promotion_allowed is False
     # A01-F1: failed authority-warning gates resolve to analysis_status "partial" (gate_policy.resolve_authority).
     assert score.analysis_status == "partial"

@@ -1376,6 +1376,11 @@ def _forecast_status_for_components(components: Iterable[SimpleScoreComponent]) 
     return "partial" if valid else "unavailable"
 
 
+# Informational price notices (validation.py) that stay visible but do not fail the signal gate: an 8-robust-sigma day
+# anywhere in the 312-session lookback and a zero-volume session are data context, not a missing or contradicted signal.
+NON_MATERIAL_SIGNAL_WARNINGS = frozenset({"return_outlier", "zero_volume"})
+
+
 def _attach_authority(score: SimpleInstrumentScore) -> SimpleInstrumentScore:
     """Publish the same typed authority envelope on scoreboard release rows."""
 
@@ -1389,6 +1394,12 @@ def _attach_authority(score: SimpleInstrumentScore) -> SimpleInstrumentScore:
         for component in score.components
     )
     warning_text = " ".join(score.warnings).casefold()
+    # Deterministic family: no optional model (TimesFM/Toto) contributes a score, so there is no model claim to backtest.
+    deterministic = not any(
+        component.key in {"timesfm", "toto"} and component.score_10 is not None for component in score.components
+    )
+    # Fail closed: every warning is material unless it is a listed informational price notice.
+    material_warnings = [warning for warning in score.warnings if warning not in NON_MATERIAL_SIGNAL_WARNINGS]
     gates = [
         GateResult(gate_id="identity", passed=bool(score.display_id.strip()) and score.identity_conflict_reason is None, message="Instrument identity is present and unconflicted"),
         GateResult(
@@ -1403,8 +1414,15 @@ def _attach_authority(score: SimpleInstrumentScore) -> SimpleInstrumentScore:
         ),
         GateResult(
             gate_id="model_validity",
-            passed=score.final_score_10 is not None and score.backtest_validity == "usable_low_authority",
-            message="Score and backtest validity are explicit",
+            passed=score.final_score_10 is not None and (
+                score.backtest_validity == "usable_low_authority"
+                or (deterministic and score.backtest_validity == "unverified_backtest")
+            ),
+            message=(
+                "Deterministic score family: no model claim, backtest validity not applicable"
+                if deterministic and score.backtest_validity == "unverified_backtest"
+                else "Score and backtest validity are explicit"
+            ),
         ),
         GateResult(
             gate_id="risk",
@@ -1419,11 +1437,21 @@ def _attach_authority(score: SimpleInstrumentScore) -> SimpleInstrumentScore:
             ),
             message="Valuation context is available or not applicable (ETF/plain certificate)",
         ),
-        GateResult(gate_id="signal", passed=not bool(score.warnings), message="No score warnings"),
+        GateResult(
+            gate_id="signal",
+            passed=not material_warnings,
+            message="No material score warnings" if not material_warnings else f"Material score warnings: {', '.join(material_warnings)}",
+        ),
+        # Research promotion is per instrument; portfolio fit is enforced later by the portfolio/bot caps, so an
+        # unevaluated fit stays visible in the label but does not fail the research gate.
         GateResult(
             gate_id="portfolio_fit",
-            passed=_safe_float(score.portfolio_fit_score_10) is not None,
-            message="Portfolio fit is evaluated",
+            passed=True,
+            message=(
+                "Portfolio fit is evaluated"
+                if _safe_float(score.portfolio_fit_score_10) is not None
+                else "Portfolio fit not evaluated: not applicable at research promotion; portfolio caps apply at review"
+            ),
         ),
         GateResult(
             gate_id="cost",

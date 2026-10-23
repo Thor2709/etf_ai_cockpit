@@ -64,8 +64,11 @@ def test_attach_authority_failed_predicates():
         ("cost", {"net_expected_edge_bps": -100.0, "edge_to_cost_ratio": -2.0}),
         ("cost", {"net_expected_edge_bps": 0.0}),
         ("cost", {"edge_to_cost_ratio": 0.9}),
-        ("portfolio_fit", {"portfolio_fit_score_10": None, "portfolio_fit_label": "Portfolio fit pending"}),
-        ("model_validity", {"backtest_validity": "unverified_backtest"}),
+        # Owner gate decision 2026-10-23: an unverified backtest is not applicable to a deterministic family, but a
+        # measured weak backtest or an unverified backtest behind a TimesFM/Toto score still fails model_validity.
+        ("model_validity", {"backtest_validity": "weak_or_low_quality"}),
+        ("model_validity", {"backtest_validity": "unverified_backtest", "components": [*baseline.components, _component("timesfm")]}),
+        ("signal", {"warnings": ["signal_inputs_unavailable"]}),
         ("risk", {"warnings": ["high_60d_volatility"]}),
         ("data_quality", {"warnings": ["insufficient_12m_history"]}),
         ("valuation", {"components": [_component("stock_value", status="N/A")]}),
@@ -77,6 +80,24 @@ def test_attach_authority_failed_predicates():
     for asset_type in ("ETF", "Certificate"):
         result = s._attach_authority(replace(baseline, asset_type=asset_type, components=[_component("momentum")]))
         assert next(g for g in result.authority_decision.gates if g.gate_id == "valuation").passed
+
+
+def test_owner_gate_decisions_20261023():
+    """Owner 2026-10-23: deterministic families skip backtest validity, portfolio fit is not a research-promotion
+    gate, and only material warnings fail the signal gate (unknown warnings stay material)."""
+    baseline = _score()
+    def gate(score, gate_id):
+        return next(g for g in s._attach_authority(score).authority_decision.gates if g.gate_id == gate_id)
+    assert gate(replace(baseline, backtest_validity="unverified_backtest"), "model_validity").passed
+    assert not gate(replace(baseline, backtest_validity="unverified_backtest", final_score_10=None), "model_validity").passed
+    assert not gate(replace(baseline, backtest_validity="not_backtested_candidate"), "model_validity").passed
+    unfit = replace(baseline, portfolio_fit_score_10=None, portfolio_fit_label="Portfolio fit pending")
+    assert gate(unfit, "portfolio_fit").passed and "not applicable" in gate(unfit, "portfolio_fit").message
+    assert gate(replace(baseline, warnings=["return_outlier", "zero_volume"]), "signal").passed
+    for warning in ("critical_evidence_insufficient", "some_new_warning_code"):
+        assert not gate(replace(baseline, warnings=["return_outlier", warning]), "signal").passed, warning
+    result = s._attach_authority(replace(baseline, warnings=["zero_volume"]))
+    assert result.execution_allowed is False
 
 
 def test_ineligible_fundamentals_fail_critical_gate():
