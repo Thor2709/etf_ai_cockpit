@@ -310,13 +310,18 @@ def _days(start: str, end: str) -> int:
     return (date.fromisoformat(end) - date.fromisoformat(start)).days
 
 
-def parse_edgar_companyfacts(payload: Mapping[str, Any], config: Mapping[str, Any], *, source_ref: str) -> list[dict[str, Any]]:
+def parse_edgar_companyfacts(payload: Mapping[str, Any], config: Mapping[str, Any], *, source_ref: str,
+                            preselected_vintage: bool = False) -> list[dict[str, Any]]:
     """Discrete quarters, fiscal years and balance sheets as originally filed (known_at = filing date).
 
     Cash-flow items are cumulative within the fiscal year in 10-Q filings, so every flow field is
     differenced along its cumulative chain (same start date): Q2 = H1 - Q1, Q3 = 9M - H1, Q4 = FY - 9M.
     A value is taken from the earliest filing that reported it (as originally reported); later
     restatements never overwrite what was known earlier.
+
+    ``preselected_vintage`` maps an already PIT-selected snapshot, including late
+    restatements and comparatives. The caller must select visible facts first and
+    stamp the resulting rows with that snapshot's filing knowledge time.
     """
 
     concepts = {**IDENTITY_SEC_CONCEPTS, **(config.get("sec_edgar_concepts", {}) or {})}
@@ -338,6 +343,8 @@ def parse_edgar_companyfacts(payload: Mapping[str, Any], config: Mapping[str, An
                     filing_ends[key] = max(end, filing_ends.get(key, end))
 
     def original(end: str, filed: str, fact: Mapping[str, Any]) -> bool:
+        if preselected_vintage:
+            return end <= filed
         latest = filing_ends.get((filed, str(fact.get("accn") or "")), end)
         return end == latest and 0 <= _days(end, filed) <= max_lag
     selected_flow_concepts: dict[tuple[str, str, str], str] = {}

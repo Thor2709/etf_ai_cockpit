@@ -104,6 +104,8 @@ def _numeric_only_reviewed_report() -> pd.DataFrame:
         {"field_name": "fund_name", "value": "ETF One", "source_page": 1, "candidate_pages": [1], "confidence": "high", "status": "extracted"},
         {"field_name": "isin", "value": "IE00TEST0001", "source_page": 1, "candidate_pages": [1], "confidence": "high", "status": "extracted"},
         {"field_name": "document_date", "value": document_date, "source_page": 1, "candidate_pages": [1], "confidence": "high", "status": "extracted"},
+        {"field_name": "reporting_period_end", "value": document_date, "source_page": 1, "candidate_pages": [1], "confidence": "high", "status": "extracted"},
+        {"field_name": "legal_structure", "value": "UCITS", "source_page": 1, "candidate_pages": [1], "confidence": "high", "status": "extracted"},
     ]
     evidence.extend(
         {"field_name": field, "value": value, "unit": unit, "source_page": 4,

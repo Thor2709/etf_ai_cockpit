@@ -3,6 +3,8 @@
 from copy import deepcopy
 from dataclasses import replace
 from datetime import date, datetime, timezone
+import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import pandas as pd
@@ -12,6 +14,7 @@ from etf_cockpit.analysis import stock_metrics as sm
 from etf_cockpit.analysis.stock_evidence import MarketInputs, build_stock_evidence
 from etf_cockpit.data import stock_fundamentals as store
 from etf_cockpit.data import stock_sources as sources
+from etf_cockpit.data.sec_pit_facts import select_facts
 
 
 CONFIG = store.load_stock_config()
@@ -40,6 +43,39 @@ def fact(value, *, end="2025-12-31", filed="2026-02-10", start=None):
 
 def concept(*facts, unit="EUR"):
     return {"units": {unit: list(facts)}}
+
+
+def test_preselected_restatement_keeps_original_and_filing_known_at():
+    fixtures = Path(__file__).parent / "fixtures" / "univ1_sp500"
+    payload = json.loads((fixtures / "CIK9000000001.json").read_text(encoding="utf-8"))
+    submissions = json.loads((fixtures / "submissions_9000000001.json").read_text(encoding="utf-8"))
+    specs = {"us-gaap:Revenues": {"unit": "USD", "kind": "duration"}}
+    vintages = []
+    for stamp, expected in (("2021-02-20T05:00:00+00:00", 100),
+                            ("2021-05-03T16:00:00+00:00", 110)):
+        selected = select_facts(payload, stamp, specs=specs, submissions=submissions, derive_q4=False)
+        annual = next(item for item in selected if item["fp"] == "FY")
+        assert annual["known_at"] == stamp and annual["val"] == expected
+        visible = {"facts": {"us-gaap": {"Revenues": concept(
+            *({key: item[key] for key in ("start", "end", "filed", "accn", "fp", "val")}
+              for item in selected), unit="USD")}}}
+        mapped = sources.parse_edgar_companyfacts(
+            visible, CONFIG, source_ref=str(fixtures / "CIK9000000001.json"), preselected_vintage=True)
+        fy = next(row for row in mapped if row["period_type"] == "FY")
+        assert fy["revenue"] == expected
+        vintages.append({**fy, "instrument_id": "synthetic-instrument-a", "known_at": stamp, "available_at": stamp})
+
+    frame = pd.DataFrame(vintages, columns=store.PERIOD_COLUMNS)
+    periods = store.periods_for("synthetic-instrument-a", frame, ["sec_edgar"])
+    assert [p.values["revenue"] for p in periods] == [100, 110]
+    assert [p.known_at.isoformat() for p in periods] == frame["known_at"].tolist()
+    for decision, expected in (("2021-02-20T04:59:59+00:00", None),
+                               ("2021-03-01T12:00:00+00:00", 100),
+                               ("2021-05-03T15:59:59+00:00", 100),
+                               ("2021-05-03T16:00:00+00:00", 110),
+                               ("2021-06-01T12:00:00+00:00", 110)):
+        known = sm.known_periods(periods, datetime.fromisoformat(decision))
+        assert (known[-1].values["revenue"] if known else None) == expected
 
 
 def test_r1_f1_roic_uses_reported_cash_without_inventing_short_term_investments():
