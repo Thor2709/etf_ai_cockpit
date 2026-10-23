@@ -15,7 +15,7 @@ from typing import Iterable, Mapping
 import numpy as np
 import pandas as pd
 
-from etf_cockpit.features.regime import build_market_regime
+from etf_cockpit.features.regime import build_market_regime, per_series_returns
 from etf_cockpit.portfolio.benchmark_reference import (
     clip_to_decision_window,
     unavailable_reference_projection,
@@ -120,14 +120,15 @@ def build_macro_context(
     pivot = frame.pivot_table(index="date", columns="etf_id", values="adjusted_close", aggfunc="last").sort_index()
     pivot = pivot.reindex(sorted(pivot.columns), axis=1)
     latest_date = pivot.index.max()
-    filled = pivot.ffill(limit=5)
-    latest_day = filled.iloc[-1]
-    returns = filled.pct_change(fill_method=None)
+    # Returns and the regime panel use the UNFILLED closes: a forward fill would fabricate 0.0 returns
+    # and make a stale benchmark look fresh to the regime staleness gate (A04-F1).
+    latest_day = pivot.ffill(limit=5).iloc[-1]  # a level only, never a return input
+    returns = per_series_returns(pivot)
     metadata = _metadata_by_id(instruments)
     proxy_rows = [_proxy_summary(name, pivot, returns, metadata, freshness_as_of) for name in _PROXY_KEYWORDS]
     breadth = _breadth_summary(pivot, freshness_as_of)
     volatility = _volatility_summary(returns, freshness_as_of)
-    regime_frame = filled.rename_axis("date").stack(future_stack=True).rename("adjusted_close").reset_index()
+    regime_frame = pivot.rename_axis("date").stack(future_stack=True).dropna().rename("adjusted_close").reset_index()
     regime_frame.columns = ["date", "etf_id", "adjusted_close"]
     regime = build_market_regime(
         regime_frame,

@@ -24,6 +24,9 @@ from etf_cockpit.portfolio.benchmark_reference import clip_to_decision_window
 MAX_BENCHMARK_STALENESS_DAYS = 5
 # Sessions a stale close may be carried forward before the instrument drops out of breadth/fit (C004).
 DEFAULT_MAX_FORWARD_FILL = 5
+# A peer-group return is only averaged on dates where at least this share of the peers has a return of
+# its own (A04-F6): one missing peer never nullifies the group row and a lone survivor never stands for it.
+MIN_PEER_RETURN_COVERAGE = 0.5
 
 
 def build_market_regime(
@@ -66,14 +69,16 @@ def build_market_regime(
             "The benchmark close is stale relative to the price panel; regime scoring is unavailable.",
             benchmark_reference=reference,
         )
+    # The forward fill carries LEVELS only (latest close, SMA, drawdown); returns come from the
+    # unfilled per-instrument prices so a missing close never becomes a fabricated 0.0 return.
     filled = pivot.ffill(limit=max_forward_fill)
     latest = filled.iloc[-1]
     sma200 = filled.rolling(200, min_periods=160).mean().iloc[-1]
     valid = latest.notna() & sma200.notna()
     above = (latest[valid] > sma200[valid]).dropna()
-    configured_pct_above = float(above.mean()) if not above.empty else 0.0
+    # No instrument with a valid SMA200 means breadth is unavailable (None), never 0% above.
+    configured_pct_above = float(above.mean()) if not above.empty else None
     benchmark = pivot[benchmark_id].dropna()
-    benchmark_above_sma200 = bool(latest.get(benchmark_id, np.nan) > sma200.get(benchmark_id, np.nan))
     benchmark_return_60d = _horizon_return(benchmark, 60)
     benchmark_return_120d = _horizon_return(benchmark, 120)
     if benchmark_return_60d is None or benchmark_return_120d is None:
@@ -81,7 +86,15 @@ def build_market_regime(
             "Benchmark return evidence is unavailable for the required 60/120-session regime horizons.",
             benchmark_reference=reference,
         )
-    returns = filled.pct_change(fill_method=None)
+    benchmark_latest = latest.get(benchmark_id, np.nan)
+    benchmark_sma200 = sma200.get(benchmark_id, np.nan)
+    if pd.isna(benchmark_latest) or pd.isna(benchmark_sma200):
+        return _empty_regime(
+            "Benchmark SMA200 evidence is unavailable (fewer than 160 benchmark closes); regime scoring is unavailable.",
+            benchmark_reference=reference,
+        )
+    benchmark_above_sma200 = bool(benchmark_latest > benchmark_sma200)
+    returns = per_series_returns(pivot)
     median_vol_60d = float(returns.tail(60).std(skipna=True).median() * np.sqrt(252)) if len(returns) >= 60 else None
     drawdowns = filled / filled.cummax() - 1.0
     median_drawdown = float(drawdowns.iloc[-1].median(skipna=True))
@@ -89,6 +102,11 @@ def build_market_regime(
         candidate_report,
         decision_time=_reference_decision_time(reference),
     )
+    if configured_pct_above is None and candidate_pct_above is None:
+        return _empty_regime(
+            "Breadth evidence (share of instruments above SMA200) is unavailable; regime scoring is unavailable.",
+            benchmark_reference=reference,
+        )
     combined_pct_above = _weighted_available(
         [
             (configured_pct_above, 0.75),
@@ -117,7 +135,7 @@ def build_market_regime(
         "benchmark_return_120d": benchmark_return_120d,
         "benchmark_reference": reference,
         "execution_allowed": False,
-        "configured_pct_above_sma200": round(configured_pct_above, 4),
+        "configured_pct_above_sma200": None if configured_pct_above is None else round(configured_pct_above, 4),
         "candidate_pct_above_sma200": None if candidate_pct_above is None else round(candidate_pct_above, 4),
         "combined_pct_above_sma200": round(combined_pct_above, 4),
         "median_volatility_60d_ann": None if median_vol_60d is None else round(median_vol_60d, 4),
@@ -145,7 +163,7 @@ def build_portfolio_fit_lookup(
         return {}
     frame["date"] = pd.to_datetime(frame["date"], errors="coerce")
     frame["adjusted_close"] = pd.to_numeric(frame["adjusted_close"], errors="coerce")
-    pivot = frame.dropna(subset=["date", "adjusted_close"]).pivot(index="date", columns="etf_id", values="adjusted_close").sort_index().ffill(limit=max_forward_fill)
+    pivot = frame.dropna(subset=["date", "adjusted_close"]).pivot(index="date", columns="etf_id", values="adjusted_close").sort_index()
     if pivot.shape[1] < 2:
         return {
             str(item): _unavailable_fit("not enough clean instruments", reference)
@@ -161,7 +179,8 @@ def build_portfolio_fit_lookup(
             )
             for item in pivot.columns
         }
-    returns = pivot.pct_change(fill_method=None).tail(252).dropna(how="all")
+    # Returns from each instrument's own unfilled closes: holiday gaps add no fake overlap observations.
+    returns = per_series_returns(pivot).tail(252).dropna(how="all")
     benchmark = returns[benchmark_id].dropna()
     output: dict[str, dict[str, object]] = {}
     for instrument_id in pivot.columns:
@@ -236,7 +255,7 @@ def build_benchmark_attribution_lookup(
             )
             for item in attribution_ids
         }
-    returns = pivot.pct_change(fill_method=None).dropna(how="all")
+    returns = per_series_returns(pivot).dropna(how="all")
     benchmark_returns = returns[benchmark_id].dropna()
     output: dict[str, dict[str, object]] = {}
     metadata = metadata or {}
@@ -490,7 +509,8 @@ def _candidate_pct_above_sma200(
     if candidate_report is None or candidate_report.empty or "sma200_signal" not in candidate_report:
         return None
     frame = candidate_report.copy()
-    decision = _parse_authority_timestamp(decision_time)
+    # Date-only decision times use the same end-of-day semantics as the candidate dates below.
+    decision = _parse_authority_timestamp(decision_time, date_only_end_of_day=True)
     if decision is None:
         return None
     values: list[bool] = []
@@ -512,10 +532,11 @@ def _candidate_pct_above_sma200(
             or observation is None
             or not observation_valid
             or not knowledge_valid
+            or known_at is None
             or provenance is None
         ):
             continue
-        if observation >= decision or (known_at is not None and known_at >= decision):
+        if observation >= decision or known_at >= decision:
             continue
         values.append(signal)
     if not values:
@@ -592,6 +613,21 @@ def _candidate_provenance(row: pd.Series) -> str | None:
     return None
 
 
+def per_series_returns(prices: pd.DataFrame) -> pd.DataFrame:
+    """Simple returns per column on that column's own non-null, positive closes (canonical path).
+
+    Nothing is forward-filled: a missing or holiday close yields no return on that date and the next
+    observed close carries the multi-session return. No 0.0 return is fabricated and a holiday of one
+    instrument does not drop the next return of the others.
+    """
+
+    columns: dict[object, pd.Series] = {}
+    for column in prices.columns:
+        series = pd.to_numeric(prices[column], errors="coerce").dropna()
+        columns[column] = series[series > 0].pct_change(fill_method=None)
+    return pd.DataFrame(columns, index=prices.index).reindex(columns=prices.columns)
+
+
 def _horizon_return(series: pd.Series, days: int) -> float | None:
     clean = series.dropna().astype(float)
     if len(clean) <= days:
@@ -666,7 +702,9 @@ def _peer_attribution_result(
     peers = [str(peer) for peer in peer_member_ids if str(peer) in returns.columns and str(peer) != instrument_id]
     if not peers:
         return {f"{prefix}_attribution_status": "N/A", f"{prefix}_sample_size": 0}
-    peer_returns = returns[peers].mean(axis=1, skipna=False).rename(prefix)
+    peer_frame = returns[peers]
+    required = max(1, int(np.ceil(MIN_PEER_RETURN_COVERAGE * len(peers))))
+    peer_returns = peer_frame.mean(axis=1, skipna=True).where(peer_frame.notna().sum(axis=1) >= required).rename(prefix)
     instrument = returns[instrument_id].rename("instrument")
     joined = pd.concat([instrument, peer_returns], axis=1, join="inner").dropna().tail(window)
     if len(joined) < 3:
