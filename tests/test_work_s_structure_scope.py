@@ -129,7 +129,7 @@ def test_signal_pipeline_removes_only_the_non_fund_structure_block(monkeypatch):
     for signal in uncapped:
         assert "forecast_confidence_below_threshold" not in signal.blocked_by
     for signal in previous:
-        assert "forecast_confidence_below_threshold" in signal.blocked_by
+        assert ("forecast_confidence_below_threshold" in signal.blocked_by) == (signal.etf_id in ids[2:])
     # Equity certificates take the native Sparebank path: generic signals never score them.
     assert config.universe.etfs[1].id not in by_id
     for item in config.universe.etfs[:1]:

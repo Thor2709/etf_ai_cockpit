@@ -120,8 +120,8 @@ def generate_signals(
     for _, row in scored.sort_values("total_score", ascending=False).iterrows():
         structure_cap = _structure_cap_for_row(structure_confidence_caps, str(row["etf_id"]))
         identity = config.universe.by_id().get(str(row["etf_id"]))
-        if identity is not None and identity.instrument_type != "etf":
-            structure_cap = None  # ETF structure evidence is not applicable to stocks.
+        if identity is not None and identity.instrument_type in {"stock", "equity_certificate"}:
+            structure_cap = None  # These are the explicit non-fund types in structure_cap_scope.
         structure_provenance = (
             getattr(structure_confidence_caps, "provenance", {}).get(str(row["etf_id"]))
             if isinstance(getattr(structure_confidence_caps, "provenance", {}), Mapping)
@@ -672,10 +672,13 @@ def _edge_to_cost(expected_edge_bps: float, cost_bps: float) -> float | None:
 def _technical_expected_edge(scored: pd.DataFrame) -> pd.Series:
     """Keep the deterministic action baseline separate from return estimates."""
 
+    inputs = scored[["momentum_60d", "momentum_120d", "relative_strength_60d"]].apply(
+        pd.to_numeric, errors="coerce"
+    ).replace([float("inf"), float("-inf")], float("nan"))
     return (
-        0.50 * scored["momentum_60d"]
-        + 0.25 * scored["momentum_120d"]
-        + 0.25 * scored["relative_strength_60d"]
+        0.50 * inputs["momentum_60d"]
+        + 0.25 * inputs["momentum_120d"]
+        + 0.25 * inputs["relative_strength_60d"]
     ).clip(-0.30, 0.30)
 
 

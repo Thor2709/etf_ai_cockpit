@@ -12,6 +12,7 @@ from etf_cockpit.core.config import load_config
 from etf_cockpit.core.research_states import ResearchState
 from etf_cockpit.core.types import DataQualityIssue, DataQualityReport
 from etf_cockpit.signals import signal_pipeline as pipeline
+from etf_cockpit.signals import simple_scores
 from etf_cockpit.signals.gates import evaluate_risk_gates
 from tests._pit_listing import verified_listing_history  # noqa: F401
 from tests.test_bug_fc3_gates_calibration import SIGNAL_DATE, _metadata, _report, _signal
@@ -76,19 +77,6 @@ def test_valuation_uses_fresh_stock_value_and_is_not_applicable_to_etfs():
         assert decision.execution_allowed is False
 
 
-def test_block_scope_depends_on_all_not_issue_code():
-    config = load_config()
-    for code in ("insufficient_history", "invalid_ohlc", "stale_data", "unknown_block"):
-        for scope in ("AAA", "BBB", "ALL"):
-            report = DataQualityReport(SIGNAL_DATE, [DataQualityIssue(scope, "block", code, "test")])
-            blocked, _ = evaluate_risk_gates(
-                config, pd.Series({"etf_id": "AAA"}), report,
-                candidate_action="hold", projected_weight=None, cash_weight=1.0,
-            )
-            assert ("portfolio_validation_block" in blocked) == (scope == "ALL")
-            assert (code in blocked) == (scope in {"AAA", "ALL"})
-
-
 def test_negative_edge_cannot_clear_buy_cost_threshold_or_publish_positive_ratio():
     config = load_config()
     for action in ("buy", "add"):
@@ -134,10 +122,31 @@ def test_nan_signal_inputs_remain_unavailable_and_cannot_create_a_weight(monkeyp
             _report(), candidate_action="buy", projected_weight=0.1, cash_weight=0.05,
         )
         assert "portfolio_inputs_unavailable" in blocked
+        for key in ("momentum_60d", "momentum_120d", "relative_strength_60d"):
+            signal = _generate(monkeypatch, changes={key: missing})
+            assert signal.supporting_metrics["expected_edge_bps"] is None
+            assert "edge_inputs_unavailable" in signal.blocked_by
+            assert signal.suggested_new_weight is None
+            assert signal.execution_allowed is False
 
 
-def test_authority_routes_cost_warnings_and_all_active_risk_and_limit_codes():
+def test_authority_routes_scoped_issues_cost_warnings_and_all_active_risk_and_limit_codes():
     signal = _signal(action="buy", canonical_score=_canonical())
+    config = load_config()
+    for code in ("insufficient_history", "invalid_ohlc", "stale_data", "unknown_block"):
+        for scope in ("AAA", "BBB", "ALL"):
+            report = _report(_metadata(), issues=[DataQualityIssue(scope, "block", code, "test")])
+            blocked, _ = evaluate_risk_gates(
+                config, pd.Series({"etf_id": "AAA"}), report,
+                candidate_action="hold", projected_weight=None, cash_weight=1.0,
+            )
+            assert ("portfolio_validation_block" in blocked) == (scope == "ALL")
+            assert (code in blocked) == (scope in {"AAA", "ALL"})
+            decision = pipeline._attach_authority(replace(signal, blocked_by=blocked), report).authority_decision
+            gates = {gate.gate_id: gate for gate in decision.gates}
+            assert gates["risk"].passed is (scope == "BBB")
+            assert gates["data_quality"].passed is (scope == "BBB")
+            assert decision.research_promotion_allowed is (scope == "BBB")
     codes = (
         "edge_below_cost_threshold", "edge_inputs_unavailable", "expected_drawdown_unavailable",
         "trend_evidence_unavailable", "below_sma_200", "projected_weight_above_cap:5.0%",
@@ -145,6 +154,7 @@ def test_authority_routes_cost_warnings_and_all_active_risk_and_limit_codes():
         "minimum_trade_size", "forecast_uncertainty_config_missing", "forecast_uncertainty_unavailable",
         "forecast_uncertainty_config_invalid", "forecast_model_disagreement",
         "forecast_confidence_below_threshold", "forecast_stale", "unknown_block",
+        "signal_inputs_unavailable", "expected_drawdown_gate", "model_disagreement",
     )
     for code in codes:
         decision = pipeline._attach_authority(replace(signal, blocked_by=[code]), _report(_metadata())).authority_decision
@@ -262,3 +272,21 @@ def test_configured_equity_certificate_rows_take_native_path_not_generic_scoring
     assert seen == [["AAA"]] and [signal.etf_id for signal in signals] == ["AAA"]
     # Only ECs configured: nothing is generically scored and nothing raises.
     assert pipeline.generate_signals(config, pd.DataFrame([{"etf_id": "ECX"}]), holdings, _report(_metadata()), **kwargs) == []
+    # The downstream scoreboard routes the configured EC with no generic signal to its native scorecard.
+    native_config = config.model_copy(update={"universe": config.universe.model_copy(update={"etfs": [ec]})})
+    cutoffs = []
+
+    def native_rows(*, decision_time=None):
+        cutoffs.append(decision_time)
+        return {"ECX": {"final_combined_score_10": 8.0, "coverage": 1.0, "data_as_of_date": SIGNAL_DATE.isoformat()}}
+
+    monkeypatch.setattr(simple_scores, "latest_sparebank_scores", native_rows)
+    prices = pd.DataFrame([{"etf_id": "ECX", "date": SIGNAL_DATE, "adjusted_close": 100.0}])
+    native = simple_scores.build_universe_simple_scores(
+        native_config, [], pd.DataFrame(), prices,
+        as_of_sources=simple_scores.AsOfScoreSources(decision_time=SIGNAL_DATE),
+    )
+    assert len(native) == 1 and native[0].display_id == "ECX"
+    assert native[0].final_score_10 == 8.0 and native[0].analysis_tier == "sparebanken"
+    assert native[0].canonical_score is None and native[0].execution_allowed is False
+    assert cutoffs == [SIGNAL_DATE.isoformat()]

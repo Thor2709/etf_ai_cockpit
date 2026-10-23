@@ -198,12 +198,12 @@ def test_missing_solvency_turns_a_buy_label_into_insufficient_evidence_and_keeps
 # 2. Coverage shrink cannot pass a gate.
 def test_coverage_shrink_cannot_pass_a_gate() -> None:
     blocked = ss._with_canonical_score(ss._with_critical_evidence(_strong_stock(with_solvency=False)))
-    assert blocked.score_coverage < 1.0
+    assert blocked.score_coverage == 1.0  # D2: every positive-weight family is present; solvency still fails.
     shown = apply_missing_data_penalty(blocked)
     values = score_display_values(shown)
     assert values["research_score_10"] == 8.9
-    assert values["display_adjusted_score_10"] == shown.final_score_10 != 8.9
-    assert 0.0 < values["evidence_coverage"] < 1.0
+    assert values["display_adjusted_score_10"] == shown.final_score_10 == 8.9
+    assert values["evidence_coverage"] == 1.0
     assert values["gate_failed"] is True and values["buy_eligible"] is False
     assert shown.final_label == "insufficient_evidence" and shown.final_action == "manual_review"
     assert "not a confidence or probability" in shown.one_line_reason
