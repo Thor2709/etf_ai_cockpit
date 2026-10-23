@@ -12,7 +12,7 @@ from bisect import bisect_right
 from collections import defaultdict, deque
 from collections.abc import Iterator
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from enum import StrEnum
 import hashlib
@@ -724,12 +724,12 @@ def is_canonical_adjustment_result(value: object) -> bool:
 
 
 def _applied_date(action: CorporateAction, convention: str) -> pd.Timestamp:
-    """Date an action takes effect in a series: splits always on the ex-date, cash per convention."""
+    """Use the ex-date except for cash-only actions under the payable-date convention."""
 
-    if action.action_type == CorporateActionType.SPLIT.value or convention == "reinvest_on_ex_date":
-        value = action.event_at
-    else:
+    if convention == "cash_on_payable_date" and action.ratio is None:
         value = action.payable_at or action.event_at
+    else:
+        value = action.event_at
     return pd.Timestamp(_utc(value, "action_event_at")).normalize()
 
 
@@ -798,7 +798,9 @@ def _duplicate_rows_disagree(
         if column in {"date", "close", "raw_close", "known_at"}:
             continue
         values = frame[column]
-        first = values.groupby(keys, dropna=False, sort=False).transform("first")
+        first = values.groupby(keys, dropna=False, sort=False).transform(
+            lambda group: group.iloc[0]
+        )
         numeric = pd.to_numeric(values, errors="coerce")
         first_numeric = pd.to_numeric(first, errors="coerce")
         if numeric.notna().sum() == values.notna().sum() and first_numeric.notna().sum() == first.notna().sum():
@@ -823,8 +825,11 @@ def apply_total_return_adjustments(
     """Derive adjusted and total-return series without modifying raw prices.
 
     Price return (split/quantity adjusted, cash excluded) and total return (cash
-    included) are separate columns.  A conflict or unusable action makes only
-    the affected basis NaN; ``raw_close`` is always retained.
+    included) are separate columns. ``adjusted_close`` stays total-return based;
+    ``applied_ratio`` is split-only for share-count reconciliation. A conflict
+    or unusable action makes only the affected basis NaN; ``raw_close`` remains.
+    When candles have no ``known_at``, action visibility uses the UTC start of
+    each candle date as a conservative knowledge cutoff.
     """
 
     if prices is not None:
@@ -929,11 +934,14 @@ def apply_total_return_adjustments(
     if frame["raw_close"].iloc[0] <= 0 or (len(frame) > 1 and frame["raw_close"].iloc[:-1].le(0).any()):
         raise MarketAdjustmentError("raw prices contain invalid dates or non-finite/non-positive close values")
 
-    # Out-of-range actions cannot affect any return of this series: ignore with a note.
+    # Resolve before filtering so conflicting provider vintages cannot disappear
+    # merely because one candidate falls outside this price range.
     first_day = pd.Timestamp(frame["date"].iloc[0]).normalize()
     last_day = pd.Timestamp(frame["date"].iloc[-1]).normalize()
+    resolved = _resolve_actions(actions, discrepancy_tolerance)
+    warnings.extend(resolved.warnings)
     in_range: list[CorporateAction] = []
-    for action in actions:
+    for action in resolved.selected:
         applied = _applied_date(action, convention)
         if applied <= first_day:
             warnings.append(f"ignored_out_of_range_action:{action.action_id}:not_after_first_candle")
@@ -942,14 +950,12 @@ def apply_total_return_adjustments(
         else:
             in_range.append(action)
 
-    resolved = _resolve_actions(in_range, discrepancy_tolerance)
-    warnings.extend(resolved.warnings)
     price_blocked = any(item.ratio is not None for group in resolved.conflicts for item in group)
     total_blocked = bool(resolved.conflicts)
     status = "quarantined" if resolved.conflicts else "available"
 
     events: dict[pd.Timestamp, list[CorporateAction]] = defaultdict(list)
-    for action in resolved.selected:
+    for action in in_range:
         events[_applied_date(action, convention)].append(action)
     candle_dates = {pd.Timestamp(value).normalize() for value in frame["date"]}
     for event_date, event_actions in events.items():
@@ -1008,7 +1014,16 @@ def apply_total_return_adjustments(
             action_ids.append("")
             continue
         reference_close = float(frame.loc[vintage_paths[index][-2], "raw_close"])
-        day_actions = events.get(row_day, [])
+        row_known_at = (
+            pd.to_datetime(frame.loc[index, "known_at"], errors="coerce", utc=True)
+            if "known_at" in frame.columns
+            else row_day
+        )
+        day_actions = [
+            action
+            for action in events.get(row_day, [])
+            if pd.Timestamp(action.known_at) <= row_known_at
+        ]
         quantity_factor = math.prod(item.quantity_factor for item in day_actions)
         net_cash = sum(item.net_cash_amount for item in day_actions)
         income_cash = sum(item.net_cash_amount for item in day_actions if item.cash_flow_classification == "investment_income")
@@ -1050,7 +1065,13 @@ def apply_total_return_adjustments(
 
     price_result: float | None = float(frame["price_return_index"].iloc[-1]) / 100.0 - 1.0
     total_result: float | None = float(frame["total_return_index"].iloc[-1]) / 100.0 - 1.0
-    income_result: float | None = float(sum(value for value, final in zip(income, day_is_final, strict=True) if final)) / first_raw
+    cumulative_quantity = 1.0
+    scaled_income = 0.0
+    for value, quantity, final in zip(income, quantities, day_is_final, strict=True):
+        if final:
+            cumulative_quantity *= quantity
+            scaled_income += value * cumulative_quantity
+    income_result: float | None = scaled_income / first_raw
     if price_blocked:
         for column in ("price_return", "price_return_index", "price_adjusted_close", "quantity_factor"):
             frame[column] = math.nan
@@ -1070,8 +1091,10 @@ def apply_total_return_adjustments(
             price_result,
             income_result,
             total_result,
-            action_ids=tuple(sorted({item.action_id for item in resolved.selected})),
-            applied_ratio=math.prod(item.quantity_factor for item in resolved.selected if item.action_type == "split"),
+            action_ids=tuple(sorted({item.action_id for item in in_range})),
+            # Share-count reconciliation is split-only; return indices above
+            # retain their total-return basis.
+            applied_ratio=math.prod(item.quantity_factor for item in in_range if item.action_type == "split"),
         )
     )
 
@@ -1300,8 +1323,8 @@ def derive_fx_cross(
     target = _utc(target_value, "valuation_at")
     if base == quote:
         return FXRateResult("available", 1.0, base, quote, target, (), (), (base,), "reference")
-    edges: dict[str, list[tuple[str, float, tuple[FXObservation, ...], str]]] = defaultdict(list)
-    pairs = {(item.base_currency, item.quote_currency) for item in observations}
+    edges: dict[str, list[tuple[str, float, tuple[FXObservation, ...], str, int, bool]]] = defaultdict(list)
+    pairs = sorted({(item.base_currency, item.quote_currency) for item in observations})
     discrepancies: list[str] = []
     for left, right in pairs:
         dated = _dated_candidates([item for item in observations if item.base_currency == left and item.quote_currency == right], target_value, decision_time, max_age_days)
@@ -1309,8 +1332,18 @@ def derive_fx_cross(
         discrepancies.extend(f"{left}/{right}:{error}" for error in errors)
         if rate is None or label is None:
             continue
-        edges[left].append((right, rate, selected, label))
-        edges[right].append((left, 1.0 / rate, selected, label))
+        rank = min(_authority_rank(item.authority) for item in selected)
+        edges[left].append((right, rate, selected, label, rank, False))
+        edges[right].append((left, 1.0 / rate, selected, label, rank, True))
+    for neighbours in edges.values():
+        neighbours.sort(
+            key=lambda item: (
+                item[0],
+                item[4],
+                item[5],
+                tuple(source.source_id for source in item[2]),
+            )
+        )
     requested_pair_conflicts = {
         f"{base}/{quote}:conflicted_fx_sources",
         f"{quote}/{base}:conflicted_fx_sources",
@@ -1320,32 +1353,71 @@ def derive_fx_cross(
     if discrepancies and not edges:
         return FXRateResult("quarantined" if any("conflicted" in item for item in discrepancies) else "unavailable", None, base, quote, target, (), (), (), None, tuple(sorted(discrepancies)))
 
-    paths: list[tuple[float, tuple[str, ...], tuple[FXObservation, ...], str]] = []
-    queue: deque[tuple[str, float, tuple[str, ...], tuple[FXObservation, ...], str]] = deque([(base, 1.0, (base,), (), "executable")])
+    paths: list[
+        tuple[float, tuple[str, ...], tuple[FXObservation, ...], str, int, int, date]
+    ] = []
+    queue: deque[
+        tuple[str, float, tuple[str, ...], tuple[FXObservation, ...], str, int, int]
+    ] = deque([(base, 1.0, (base,), (), "executable", 0, 0)])
     while queue:
-        currency, rate, path, used, label = queue.popleft()
+        currency, rate, path, used, label, authority_rank, inverse_count = queue.popleft()
         if len(path) > 4:
             continue
-        for neighbour, edge_rate, sources, edge_label in edges.get(currency, []):
+        for neighbour, edge_rate, sources, edge_label, edge_rank, inverted in edges.get(currency, []):
             if neighbour in path:
                 continue
             next_path = (*path, neighbour)
             next_used = (*used, *sources)
+            valuation_dates = {
+                pd.Timestamp(item.valuation_at).date() for item in next_used
+            }
+            if len(valuation_dates) != 1:
+                continue
+            valuation_date = next(iter(valuation_dates))
             next_label = "executable" if label == edge_label == "executable" else "reference" if "reference" in {label, edge_label} else "indicative"
             try:
                 next_rate = _fx_rate_float(rate * edge_rate)
             except MarketAdjustmentError:
                 return FXRateResult("unavailable", None, base, quote, target, (), (), (), None, ("fx_cross_rate_out_of_supported_range",))
+            next_authority_rank = authority_rank + edge_rank
+            next_inverse_count = inverse_count + int(inverted)
             if neighbour == quote:
-                paths.append((next_rate, next_path, next_used, next_label))
+                paths.append((
+                    next_rate,
+                    next_path,
+                    next_used,
+                    next_label,
+                    next_authority_rank,
+                    next_inverse_count,
+                    valuation_date,
+                ))
             else:
-                queue.append((neighbour, next_rate, next_path, next_used, next_label))
+                queue.append((
+                    neighbour,
+                    next_rate,
+                    next_path,
+                    next_used,
+                    next_label,
+                    next_authority_rank,
+                    next_inverse_count,
+                ))
     if not paths:
         status = "quarantined" if any("conflicted" in item for item in discrepancies) else "unavailable"
         return FXRateResult(status, None, base, quote, target, (), (), (), None, tuple(sorted(set(discrepancies or ["missing_or_stale_fx"]))))
-    # Every enumerated path must agree: a longer path is still evidence about the same pair.
-    comparable = paths
-    chosen = sorted(comparable, key=lambda item: (len(item[1]), item[1]))[0]
+    # Compare only paths built from the latest common valuation date. A stale
+    # leg cannot quarantine a fresh direct quote.
+    latest_valuation_date = max(item[6] for item in paths)
+    comparable = [item for item in paths if item[6] == latest_valuation_date]
+    chosen = sorted(
+        comparable,
+        key=lambda item: (
+            len(item[1]),
+            item[4],
+            item[5],
+            item[1],
+            tuple(source.source_id for source in item[2]),
+        ),
+    )[0]
     if any(not math.isclose(item[0], chosen[0], rel_tol=tolerance, abs_tol=0.0) for item in comparable if item is not chosen):
         return FXRateResult("quarantined", None, base, quote, target, (), (), (), None, ("triangular_inconsistency",))
     used = chosen[2]

@@ -637,7 +637,11 @@ class MarketCalendarService:
     ) -> bool:
         cutoff = knowledge_cutoff or datetime.combine(value, time.max, UTC)
         context = ClockContext.at(cutoff)
-        if self._identity_reason(listing, context) is not None:
+        if value < listing.valid_from or (
+            listing.valid_to is not None and value >= listing.valid_to
+        ):
+            raise MarketClockError("business-day calendar is uncertified")
+        if context.knowledge_cutoff < listing.known_at.astimezone(UTC):
             raise MarketClockError("business-day calendar is uncertified")
         calendar = self._calendar(listing, value)
         if calendar is None:
