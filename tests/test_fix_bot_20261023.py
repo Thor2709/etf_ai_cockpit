@@ -1,6 +1,6 @@
 """FIX-BOT: bounded regressions for the verified A06 and RA-BOTS paths."""
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
 from types import SimpleNamespace
 
@@ -215,3 +215,67 @@ def test_cash_shortfall_cannot_reduce_a_buy_below_five_hundred_euro(monkeypatch,
     record = execution._attempt(context, ledger, decision, intent, date(2026, 10, 15), final_session=True, awaits_settlement=False)
     assert record["status"] == "missed" and record["reason"] == "below_min_trade_value_after_cash_reduction"
     assert record["quantity"] == "0" and len(attempts) == 1
+
+
+def _known_book(rows: list[tuple[date, float, str]]) -> execution.PriceBook:
+    frame = pd.DataFrame([{"instrument_id": "VWCE", "date": day, "close": close, "adjusted_close": close, "known_at": known}
+                          for day, close, known in rows])
+    return execution.PriceBook(frame, known_at=None)
+
+
+def test_rmn_strategy_valuation_ignores_bars_published_after_the_cutoff(tmp_path):
+    cutoff = datetime(2026, 10, 16, 12, tzinfo=timezone.utc)
+    days = [date(2026, 10, 14), date(2026, 10, 15)]
+    events = [{"event_type": "external_flow_recorded", "occurred_at": "2026-10-14T08:00:00Z",
+               "payload": {"effective_at": "2026-10-14T08:00:00Z", "flow_kind": "contribution", "amount": "4000"}},
+              {"event_type": "fill_recorded", "occurred_at": "2026-10-14T09:30:00Z",
+               "payload": {"instrument_id": "VWCE", "side": "buy", "quantity": "10", "fee": "0", "fx_rate": "1"}}]
+    ledger = SimpleNamespace(_read_events=lambda: events, account_id="rmn-fixture",
+                             _replay=lambda selected: {"positions": {"VWCE": {"quantity": 10, "currency": "EUR"}}, "cash": 3000})
+    late = _known_book([(days[0], 100.0, "2026-10-14T18:00:00Z"), (days[1], 200.0, "2026-10-20T18:00:00Z")])
+    values = reports._ledger_snapshots(ledger, late, {"max_stale_mark_sessions": 5}, cutoff, days, None, root=tmp_path)
+    assert values["total_value"].tolist() == pytest.approx([4000.0, 4000.0])  # the 200 bar is unknown at the cutoff
+    assert reports._mark(late, "VWCE", days[1], None, 5, known_by=cutoff) == 100.0
+    assert reports._mark(late, "VWCE", days[1], None, 5) == 200.0  # the uncut lookup is the look-ahead being closed
+    unknown_fill = _known_book([(days[0], 100.0, "2026-10-20T18:00:00Z"), (days[1], 100.0, "2026-10-20T18:00:00Z")])
+    with pytest.raises(PaperLedgerError, match="No reference bar"):
+        reports._ledger_snapshots(ledger, unknown_fill, {"max_stale_mark_sessions": 5}, cutoff, days, None, root=tmp_path)
+
+
+def test_rmn_report_ledger_hides_fills_recorded_after_the_cutoff_or_without_recording_evidence(monkeypatch, tmp_path):
+    cutoff = datetime(2026, 10, 16, 12, tzinfo=timezone.utc)
+    events = [{"event_type": "account_opened", "occurred_at": "2026-10-14T08:00:00Z", "payload": {}},
+              {"event_type": "fill_recorded", "occurred_at": "2026-10-14T09:30:00Z", "payload": {"fill_id": "f1"}}]
+    monkeypatch.setattr(PaperLedger, "_read_events", lambda self: list(events))
+
+    def visible(recorded):
+        ledger = reports._CutoffLedger(tmp_path, account_id="rmn", cutoff=cutoff, recorded_fills=recorded)
+        return [event["event_type"] for event in ledger._read_events()]
+    assert visible({"f1": cutoff + timedelta(hours=1)}) == ["account_opened"]  # a later run appended an earlier-dated fill
+    assert visible({}) == ["account_opened"]  # no recording evidence fails closed
+    assert visible({"f1": cutoff - timedelta(hours=1)}) == ["account_opened", "fill_recorded"]
+
+
+def test_rmn_superseded_split_sell_remainder_is_missed_not_continued(monkeypatch):
+    sessions = [date(2026, 10, 14), date(2026, 10, 15), date(2026, 10, 16)]
+    config = {"max_buy_retry_sessions": 0, "max_order_split_sessions": 3, "_fill_time": time(9, 30)}
+    context = SimpleNamespace(config=config, by_intent={"": []}, store=SimpleNamespace(put_many=lambda *a, **k: None),
+                              track=SimpleNamespace(record_type="rec", name="forward", label="Forward"), exec_hash="h",
+                              cutoff=datetime(2026, 10, 20, tzinfo=timezone.utc))
+    decision = {"bot_id": "b", "bot_family": "B1", "decision_id": "d", "decision_month": "2026-10"}
+    intent = {"intent_id": "liquidate", "instrument_id": "AAA", "side": "sell", "planned_quantity": "10",
+              "target_weight": "0", "reason": "exit"}
+    attempts = []
+
+    def attempt(ctx, ledger, dec, item, session, **kwargs):
+        attempts.append(session)
+        return execution._record(ctx, dec, item, session, "filled", None, quantity="5", remaining_quantity="5")
+    monkeypatch.setattr(execution, "_attempt", attempt)
+    monkeypatch.setattr(execution, "_liquidate_delistings", lambda *a, **k: [])
+    monkeypatch.setattr(execution, "_awaits_settlement", lambda *a, **k: False)
+    superseded_at = datetime(2026, 10, 15, 9, 30, tzinfo=timezone.utc)
+    written = execution._run_intents(context, None, decision, {"status": "planned", "intents": [intent]}, sessions,
+                                     superseded_at=superseded_at)
+    assert attempts == [sessions[0]]  # the old liquidation no longer sells once superseded
+    assert [(item["status"], item["session"]) for item in written] == [("filled", "2026-10-14"), ("missed", "2026-10-15")]
+    assert written[-1]["reason"] == "superseded_by_new_decision" and written[-1]["planned_quantity"] == "5"

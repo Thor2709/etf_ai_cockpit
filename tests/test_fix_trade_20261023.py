@@ -290,3 +290,23 @@ def test_eur_cost_forecast_is_not_subtracted_from_usd_realised_cost() -> None:
     ):
         record = TCACalculator().calculate(fill, order, cost_forecast=forecast)
         assert record.estimated_total_cost is None
+
+
+def test_rmn_no_fill_reconciliation_requires_an_existing_committed_partial_fill(tmp_path: Path) -> None:
+    lifecycle = OrderLifecycle(tmp_path / "orders.sqlite3", _CashSource(Decimal("1000")))
+    at = datetime(2026, 9, 30, 10, tzinfo=timezone.utc)
+    lifecycle.reserve_order(
+        account_id="account-1", order_id="order-unfilled", idempotency_key="request-unfilled", currency="EUR",
+        side="buy", quantity=Decimal("10"), limit_price=Decimal("10"), venue="XETRA", instrument_type="etf", occurred_at=at,
+    )
+    lifecycle.transition("order-unfilled", OrderState.ACKNOWLEDGED, event_key="ack-unfilled", occurred_at=at)
+    lifecycle.transition("order-unfilled", OrderState.UNKNOWN, event_key="unknown-unfilled", occurred_at=at)
+    lifecycle.transition("order-unfilled", OrderState.RECONCILIATION_REQUIRED, event_key="needs-unfilled", occurred_at=at)
+
+    with pytest.raises(OrderLifecycleError, match="committed partial fill"):
+        lifecycle.reconcile(
+            "order-unfilled", OrderState.PARTIALLY_FILLED, event_key="invent-partial",
+            reason="No fill evidence exists.", remaining_quantity=Decimal("10"), occurred_at=at,
+        )
+    assert lifecycle.get_state("order-unfilled") is OrderState.RECONCILIATION_REQUIRED
+    assert len(lifecycle.fill_events()) == 0
