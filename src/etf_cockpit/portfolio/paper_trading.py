@@ -666,13 +666,24 @@ class PaperLedger:
         fx_rate: Decimal,
         occurred_at: datetime | None,
     ):
+        # Unmarked inventory has an evidenced base-currency acquisition cost,
+        # not a quote-currency market mark. Use that basis only for exposure;
+        # valuation continues to report the holding as unmarked/unavailable.
+        positions = {
+            instrument: (
+                {**position, "mark_price": position["average_cost"], "mark_fx_rate": Decimal("1")}
+                if position.get("mark_price") is None and position.get("average_cost") is not None
+                else position
+            )
+            for instrument, position in state["positions"].items()
+        }
         try:
             return PreTradeControls(self.root, account_id=self.account_id).evaluate_order(
                 proposal,
                 execution_price=execution_price,
                 quantity_delta=quantity_delta,
                 fx_rate=fx_rate,
-                positions=state["positions"],
+                positions=positions,
                 open_orders=state["orders"],
                 paper_events=events,
                 path="paper",

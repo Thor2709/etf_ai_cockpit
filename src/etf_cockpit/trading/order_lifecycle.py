@@ -93,7 +93,9 @@ ALLOWED_TRANSITIONS: Mapping[OrderState, frozenset[OrderState]] = {
         {OrderState.PARTIALLY_FILLED, OrderState.FILLED, OrderState.CANCELLED, OrderState.UNKNOWN}
     ),
     OrderState.UNKNOWN: frozenset({OrderState.RECONCILIATION_REQUIRED}),
-    OrderState.RECONCILIATION_REQUIRED: frozenset(),
+    # A repeated reconciliation request records the ongoing hold; it cannot
+    # restore an actionable state or release any reservation.
+    OrderState.RECONCILIATION_REQUIRED: frozenset({OrderState.RECONCILIATION_REQUIRED}),
     OrderState.FILLED: frozenset(),
     OrderState.CANCELLED: frozenset(),
     OrderState.REJECTED: frozenset(),
@@ -964,7 +966,7 @@ class OrderLifecycle:
             return existing
         row = self._order_row(connection, order_id)
         current = OrderState(row[9])
-        if current in {OrderState.UNKNOWN, OrderState.RECONCILIATION_REQUIRED}:
+        if current in {OrderState.UNKNOWN, OrderState.RECONCILIATION_REQUIRED} and target is not OrderState.RECONCILIATION_REQUIRED:
             raise OrderTransitionError("Unknown order state blocks further transitions until reconciliation completes.")
         self._ensure_transition(current, target)
         event = self._append_event(

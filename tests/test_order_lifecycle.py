@@ -133,7 +133,7 @@ def test_partial_fill_keeps_exact_decimal_residual_reservation(tmp_path: Path) -
         account_id="account-1",
         currency="EUR",
         as_of=datetime(2026, 9, 30, 10, 0, 1, tzinfo=timezone.utc),
-    ) == Decimal("899.85")
+    ) == Decimal("899.95")  # A16-F1..F7: 1000 - 39.90 filled debit - 60.15 residual buffer.
 
 
 def test_partial_fill_unsettled_debit_requires_posting_on_settlement_date(tmp_path: Path) -> None:
@@ -159,12 +159,12 @@ def test_partial_fill_unsettled_debit_requires_posting_on_settlement_date(tmp_pa
         account_id="account-1",
         currency="EUR",
         as_of=datetime(2026, 9, 30, 10, 0, 1, tzinfo=timezone.utc),
-    ) == Decimal("899.85")
+    ) == Decimal("899.95")  # A16-F1..F7: only the remaining quantity retains the fee buffer.
     assert lifecycle.available_buying_power(
         account_id="account-1",
         currency="EUR",
         as_of=datetime(2026, 10, 2, 0, tzinfo=timezone.utc),
-    ) == Decimal("899.85")
+    ) == Decimal("899.95")  # A16-F1..F7: settlement does not restore the spent fee buffer.
 
 
 def test_fill_cannot_consume_cash_reserved_for_another_order(tmp_path: Path) -> None:

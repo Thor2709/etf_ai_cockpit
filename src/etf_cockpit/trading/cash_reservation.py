@@ -311,7 +311,8 @@ class CashReservationService:
             ).fetchall()
         except sqlite3.OperationalError as exc:
             raise CashReservationError(unavailable + "lifecycle journal is missing.") from exc
-        remaining = decimal_value(row[3], "original quantity", positive=True)
+        original_quantity = decimal_value(row[3], "original quantity", positive=True)
+        remaining = original_quantity
         if row[8] not in {"buy", "sell"} or remaining != decimal_value(row[10], "intent quantity", positive=True):
             raise CashReservationError(unavailable + "intent terms conflict.")
         price = decimal_value(row[4], "limit price", non_negative=True)
@@ -353,7 +354,8 @@ class CashReservationService:
                 active = remaining > 0
             if state in {"CANCELLED", "REJECTED"}:
                 active = False
-            amount = self._reservation_amount(remaining, price, fee) if active and row[8] == "buy" else Decimal("0")
+            remaining_fee = fee * remaining / original_quantity if remaining > 0 else Decimal("0")
+            amount = self._reservation_amount(remaining, price, remaining_fee) if active and row[8] == "buy" else Decimal("0")
             if instant <= cutoff:
                 amount_at_cutoff = amount
             prior, previous_time = state, instant

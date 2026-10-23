@@ -89,6 +89,7 @@ class FxRateSnapshot:
     staleness_status: str
     available: bool
     reason: str | None
+    execution_allowed: Literal[False] = False
 
 
 @dataclass(frozen=True)

@@ -22,6 +22,7 @@ from etf_cockpit.portfolio.valuation import (
     SNAPSHOT_COLUMNS,
     build_daily_portfolio_snapshots,
     calculate_money_weighted_return,
+    expected_session_dates,
     link_time_weighted_return,
 )
 
@@ -181,7 +182,9 @@ def test_d105_n003_short_period_xirr_finds_the_wide_root() -> None:
     annual = 1.91796
     days = 31
     period_return = (1.0 + annual) ** (days / 365.0) - 1.0
-    snapshots = _frame(["2026-01-05", "2026-02-05"], [100.0, 100.0 * (1.0 + period_return)])
+    # A08-F1..F8 (PORT): MWR now requires every expected session, even with no flows.
+    dates = expected_session_dates("2026-01-05", "2026-02-05")
+    snapshots = _frame(dates, np.linspace(100.0, 100.0 * (1.0 + period_return), len(dates)).tolist())
     result = calculate_money_weighted_return(snapshots)
     assert result["method"] == "xirr_deannualized_period_return"
     assert result["annualized_xirr"] == pytest.approx(annual, abs=1e-6)
@@ -189,8 +192,10 @@ def test_d105_n003_short_period_xirr_finds_the_wide_root() -> None:
 
 
 def test_c2_n004_xirr_tolerance_is_scale_invariant() -> None:
-    small = calculate_money_weighted_return(_frame(["2026-01-05", "2026-07-06"], [1e-9, 1.1e-9]))
-    large = calculate_money_weighted_return(_frame(["2026-01-05", "2026-07-06"], [1e9, 1.1e9]))
+    # A08-F1..F8 (PORT): supply complete session coverage to exercise the XIRR solver.
+    dates = expected_session_dates("2026-01-05", "2026-07-06")
+    small = calculate_money_weighted_return(_frame(dates, np.linspace(1e-9, 1.1e-9, len(dates)).tolist()))
+    large = calculate_money_weighted_return(_frame(dates, np.linspace(1e9, 1.1e9, len(dates)).tolist()))
     assert small["method"] == large["method"] == "xirr_deannualized_period_return"
     assert small["value"] == pytest.approx(0.1, abs=1e-8)
     assert small["value"] == pytest.approx(large["value"], abs=1e-8)
@@ -227,7 +232,9 @@ def test_c2_n002_invested_capital_does_not_move_with_fx_without_a_contribution()
     snapshots = _frame(dates, [100.0, 100.0, 100.0], capital=[100.0, 100.0, 100.0])
     fx = pd.DataFrame(
         [
-            {"as_of_date": day, "base_currency": "EUR", "quote_currency": "USD", "rate": rate, "source": "ECB", "ingested_at": "2025-12-01T09:00:00Z"}
+            # A12-F1..F8 (PX): quotes cannot be available before their quote date;
+            # each valuation uses evidence known before its date-only cutoff.
+            {"as_of_date": (pd.Timestamp(day) - pd.Timedelta(days=1)).date(), "base_currency": "EUR", "quote_currency": "USD", "rate": rate, "source": "ECB", "ingested_at": (pd.Timestamp(day, tz="UTC") - pd.Timedelta(hours=6)).isoformat()}
             for day, rate in zip(dates, [1.10, 1.20, 1.30], strict=True)
         ]
     )
