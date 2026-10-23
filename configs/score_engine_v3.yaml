@@ -4,9 +4,10 @@ formula_version: score-engine-v3.3.0
 # (attractiveness, headline_evidence, action_composite; per asset class). relative_strength stays a displayed/research
 # feature but carries weight 0 while one global anchor is used (a single subtracted anchor cannot change ranks, B-01).
 # FPQ (v3.3.0): ETF headline etf_exposure weight 0 (risk role); risk/liquidity_cost rescaled x0.70/0.4941 (momentum+trend stay 0.30).
-# Weight freed by the cap went proportionally to the non-price families; a model that is unavailable never has its
-# weight moved to momentum/trend (ensemble.effective_ensemble_weights), and the price-derived baseline_ml fallback is
-# a labelled heuristic that carries no weight.
+# D3: STOCK analyst_revision disabled until licensed PIT evidence exists. As with FPQ, keep momentum+trend at
+# 0.30 and rescale the other non-price headline families x0.70/0.6326, pro rata (rounded to 10 decimals).
+# D11: action composites rescale over available positive-weight families; fewer than two is unavailable.
+# The price-derived baseline_ml fallback is a labelled heuristic that carries no weight.
 horizons:
   primary: 1-3 months
 asset_policies:
@@ -58,11 +59,11 @@ asset_policies:
       momentum: 0.1742
       trend: 0.1258
       relative_strength: 0.0
-      risk: 0.1615
-      liquidity_cost: 0.1346
-      stock_value: 0.1615
-      stock_quality: 0.175
-      analyst_revision: 0.0674
+      risk: 0.1787069238
+      liquidity_cost: 0.1489408789
+      stock_value: 0.1787069238
+      stock_quality: 0.1936452735
+      analyst_revision: 0.0
       baseline: 0.0
       timesfm: 0.0
       toto: 0.0
