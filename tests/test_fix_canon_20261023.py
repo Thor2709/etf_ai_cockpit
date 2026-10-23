@@ -60,7 +60,11 @@ def test_certificate_and_universe_ec_routing():
         for field in ("asset_type", "instrument_type", "instrument_subtype", "capital_class"):
             with pytest.raises(CanonicalScoreError, match="native Sparebank"):
                 canonical_score_from_signal_row({**_signal_row(), field: kind}, config, "2026-10-20")
-        # Universe-configured EC identity routing is deferred (NEEDS_OPUS_DECISION: signal_pipeline.py caller).
+        ec_config = N(models=config.models, universe=N(by_id=lambda: {"X": N(instrument_type=kind)}))
+        for declared in (None, "stock", "etf", "certificate"):
+            row = {**_signal_row(), **({"asset_type": declared} if declared else {})}
+            with pytest.raises(CanonicalScoreError, match="native Sparebank"):
+                canonical_score_from_signal_row(row, ec_config, "2026-10-20")
     for row_declared in (True, False):
         certificate_config = N(models=config.models, universe=N(by_id=lambda: {"X": N(instrument_type="certificate")}))
         row = {**_signal_row(), **({"asset_type": "certificate"} if row_declared else {})}
@@ -159,7 +163,10 @@ def test_signal_result_preserves_blocked_intent_and_unavailable_status():
     for blocked in (
         replace(signal, authority_decision=decision, internal_intent=InternalSignalIntent.NONE),
         replace(signal, blocked_by=["stale_data"], internal_intent=InternalSignalIntent.NONE, analysis_status="unavailable"),
+        replace(signal, status="blocked", internal_intent=InternalSignalIntent.NONE, analysis_status="unavailable"),
         replace(signal, status="failed", internal_intent=InternalSignalIntent.NONE, analysis_status="unavailable"),
+        replace(signal, research_state=ResearchState.NOT_SCOREABLE, internal_intent=InternalSignalIntent.NONE, analysis_status="unavailable"),
+        replace(signal, research_state=ResearchState.NEEDS_EVIDENCE, internal_intent=InternalSignalIntent.NONE, analysis_status="unavailable"),
     ):
         assert blocked.internal_intent is InternalSignalIntent.NONE
         assert blocked.analysis_status == "unavailable"

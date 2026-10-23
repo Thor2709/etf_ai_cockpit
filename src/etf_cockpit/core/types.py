@@ -176,9 +176,10 @@ class SignalResult:
             object.__setattr__(self, "portfolio_review_allowed", False)
         object.__setattr__(self, "execution_allowed", False)
         intent_blocked = bool(self.blocked_by) or self.status in {"blocked", "failed"} or (
+            self.research_state not in {ResearchState.RESEARCH_CANDIDATE, ResearchState.HOLD_REVIEW, ResearchState.AVOID}
+        ) or (
             self.authority_decision is not None and (
-                self.research_state not in {ResearchState.RESEARCH_CANDIDATE, ResearchState.HOLD_REVIEW, ResearchState.AVOID}
-                or any(not gate.passed for gate in self.authority_decision.gates)
+                any(not gate.passed for gate in self.authority_decision.gates)
                 or (self.research_state is ResearchState.RESEARCH_CANDIDATE and not self.research_promotion_allowed)
             )
         )
@@ -186,7 +187,7 @@ class SignalResult:
             object.__setattr__(self, "internal_intent", InternalSignalIntent.NONE)
         elif self.internal_intent is InternalSignalIntent.NONE:
             object.__setattr__(self, "internal_intent", internal_intent_for_legacy_action(self.action))
-        if self.authority_decision is None and valid_analysis_status and self.analysis_status == "unavailable" and not self.blocked_by and self.status not in {"blocked", "failed"}:
+        if self.authority_decision is None and valid_analysis_status and self.analysis_status == "unavailable" and not intent_blocked:
             derived: AnalysisStatus = "partial" if self.blocked_by or self.warnings else "complete"
             object.__setattr__(self, "analysis_status", derived)
 

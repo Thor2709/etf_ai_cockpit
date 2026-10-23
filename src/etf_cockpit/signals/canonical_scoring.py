@@ -682,12 +682,13 @@ def canonical_score_from_signal_row(
     structure_provenance: Mapping[str, object] | None = None,
 ) -> CanonicalScore:
     instrument_id = str(row.get("etf_id") or row.get("instrument_id") or "unknown")
-    # A03-F2 (universe-configured EC half) is deferred: generate_signals (signal_pipeline.py, outside this lane's
-    # write set) scores every configured instrument here, so raising for a configured EC would abort the snapshot.
+    universe = getattr(config, "universe", None)
+    lookup = getattr(universe, "by_id", None)
+    identity = lookup().get(instrument_id) if callable(lookup) else None
     if any(
         _is_sparebank_ec_asset_type(row.get(name))
         for name in ("asset_type", "instrument_type", "instrument_subtype", "capital_class")
-    ):
+    ) or _is_sparebank_ec_asset_type(getattr(identity, "instrument_type", None)):
         raise CanonicalScoreError("EC instruments must use the native Sparebank scorecard")
     freshness = row.get("price_freshness")
     price_freshness = str(freshness).strip().casefold() if freshness is not None else "unknown"
