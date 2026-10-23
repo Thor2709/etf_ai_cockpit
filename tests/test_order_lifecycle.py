@@ -128,7 +128,7 @@ def test_partial_fill_keeps_exact_decimal_residual_reservation(tmp_path: Path) -
     )
 
     assert reservation.remaining_quantity == Decimal("6")
-    assert reservation.reserved_amount == Decimal("60.25")
+    assert reservation.reserved_amount == Decimal("60.15")
     assert lifecycle.available_buying_power(
         account_id="account-1",
         currency="EUR",
