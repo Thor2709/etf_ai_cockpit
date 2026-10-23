@@ -222,6 +222,30 @@ def test_membership_store_point_in_time_and_resume(tmp_path):
     pd.testing.assert_frame_equal(at_announcement, membership_frame(SCOPE, "2024-03-02T00:00:00Z", root=tmp_path))
 
 
+def test_complete_snapshots_keep_stricter_contract_than_partial_announcements(tmp_path):
+    from etf_cockpit.data.universe_membership import MembershipCaptureError, import_licensed_history
+
+    identities = {SAP: "synthetic-sap", RETAINED: "synthetic-retained", DELETED: "synthetic-deleted"}
+    rows = membership_rows(history(), identities)
+    announced_exit = next(row for row in rows if row["valid_to"] is not None)
+    assert announced_exit["valid_to"] > announced_exit["known_at"][:10]
+    # A11-F2: announcements are not complete observed snapshots.
+    with pytest.raises(MembershipCaptureError, match="after known_at"):
+        import_licensed_history([{**announced_exit, "snapshot_complete": True}],
+                                source="synthetic", licence_ref="synthetic", root=tmp_path)
+    _import_memberships(rows, source="synthetic", licence_ref="synthetic", root=tmp_path)
+    before = membership_frame(SCOPE, "2024-03-02T00:00:00Z", root=tmp_path)
+    assert set(before.instrument_id) == {"synthetic-sap", "synthetic-deleted"}
+    # A complete revision replaces the entire day's partial history atomically.
+    complete = {**announced_exit, "instrument_id": "synthetic-retained", "valid_to": None,
+                "known_at": "2024-04-02T00:00:00Z", "snapshot_complete": True}
+    import_licensed_history([complete], source="synthetic", licence_ref="synthetic", root=tmp_path)
+    after = membership_frame(SCOPE, complete["known_at"], root=tmp_path)
+    same_day = after[after.snapshot_date == complete["snapshot_date"]]
+    assert set(same_day.instrument_id) == {"synthetic-retained"}
+    pd.testing.assert_frame_equal(before, membership_frame(SCOPE, "2024-03-02T00:00:00Z", root=tmp_path))
+
+
 def test_config_is_research_only():
     config = yaml.safe_load(Path("configs/stoxx600_universe_v1.yaml").read_text())
     assert config["execution_allowed"] is False

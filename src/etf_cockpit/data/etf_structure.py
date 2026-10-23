@@ -1098,7 +1098,7 @@ def _supplemental_candidates(
         source_id = _text(row.get("document_source_id")) or _text(row.get("registered_source_id")) or _text(row.get("source_id"))
         registered = registry_by_id.get(source_id or "")
         document_type = _text(row.get("document_type")) or default_document_type
-        page = _page(row.get("page", row.get("source_page", row.get("document_page"))))
+        page = _page(row.get("page")) or _page(row.get("source_page")) or _page(row.get("document_page"))
         value_text = _text(row.get("value"))
         row_checksum = _agreed_alias(
             row, ("source_sha256", "sha256", "checksum", "document_checksum"), _text

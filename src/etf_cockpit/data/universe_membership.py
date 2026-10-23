@@ -253,13 +253,15 @@ def membership_frame(
             "FROM licensed_history WHERE scope=? ORDER BY snapshot_date, known_at, history_id",
             (scope,),
         ).fetchall()
-        # A correction replaces the entire day's imported snapshot.  Wait until
-        # every row in that import is known before exposing any of its members.
+        # Complete snapshots replace a day's membership atomically. Incomplete
+        # imports are interval announcements, revised independently per member.
         batches: dict[tuple[str, int], list[tuple[object, ...]]] = {}
         for row in licensed:
             batches.setdefault((str(row[5]), int(row[7])), []).append(row)
         latest_batch: dict[str, tuple[str, int]] = {}
         for (day, import_id), rows in batches.items():
+            if not all(bool(row[6]) for row in rows):
+                continue
             known_at = max(str(row[4]) for row in rows)
             if known_at <= cutoff:
                 latest_batch[day] = max(latest_batch.get(day, ("", -1)), (known_at, import_id))
@@ -267,9 +269,17 @@ def membership_frame(
         unavailable_days: set[str] = set()
         for row in licensed:
             snapshot_date = str(row[5])
-            if snapshot_date in self_days or int(row[7]) != latest_batch.get(snapshot_date, ("", -1))[1]:
+            if snapshot_date in self_days:
                 continue
-            if any(str(value) > str(row[4])[:10] for value in (row[2], row[3], row[5]) if value is not None):
+            if not bool(row[6]) and snapshot_date in latest_batch:
+                # A complete observation supersedes partial interval imports
+                # for the same day, including members absent from that snapshot.
+                continue
+            if bool(row[6]) and int(row[7]) != latest_batch.get(snapshot_date, ("", -1))[1]:
+                continue
+            if not bool(row[6]) and str(row[4]) > cutoff:
+                continue
+            if bool(row[6]) and any(str(value) > str(row[4])[:10] for value in (row[2], row[3], row[5]) if value is not None):
                 unavailable_days.add(snapshot_date)
                 continue
             latest_licensed[(snapshot_date, str(row[1]).casefold())] = row
@@ -282,7 +292,7 @@ def membership_frame(
                         "instrument_id": row[1],
                         "valid_from": row[2],
                         "valid_to": row[3],
-                        "known_at": latest_batch[snapshot_date][0],
+                        "known_at": latest_batch[snapshot_date][0] if bool(row[6]) else row[4],
                         "snapshot_date": row[5],
                         "snapshot_complete": bool(row[6]),
                     }
@@ -406,7 +416,10 @@ def import_licensed_history(
             }
         )
     for row in prepared:
-        if any(str(row[key]) > str(row["known_at"])[:10] for key in ("valid_from", "snapshot_date", "valid_to") if row[key] is not None):
+        # An observed complete snapshot cannot precede its observation date.
+        # An incomplete history can contain an announced future entry or exit;
+        # its actual announcement remains the visibility boundary.
+        if row["complete"] and any(str(row[key]) > str(row["known_at"])[:10] for key in ("valid_from", "snapshot_date", "valid_to") if row[key] is not None):
             raise MembershipCaptureError("licensed interval and snapshot dates must not be after known_at")
     if not prepared:
         raise MembershipCaptureError("licensed history payload is empty")
@@ -421,9 +434,10 @@ def import_licensed_history(
     try:
         connection.execute("BEGIN IMMEDIATE")
         previous_by_day = {
-            (str(row["scope"]), str(row["snapshot_date"])): connection.execute(
-                "SELECT MAX(known_at) FROM licensed_history WHERE scope=? AND snapshot_date=?",
-                (row["scope"], row["snapshot_date"]),
+            (str(row["scope"]), str(row["snapshot_date"]), str(row["instrument_id"]).casefold()): connection.execute(
+                "SELECT MAX(known_at) FROM licensed_history WHERE scope=? AND snapshot_date=? AND complete=? "
+                "AND (? OR LOWER(instrument_id)=LOWER(?))",
+                (row["scope"], row["snapshot_date"], int(row["complete"]), int(row["complete"]), row["instrument_id"]),
             ).fetchone()[0]
             for row in prepared
         }
@@ -441,7 +455,7 @@ def import_licensed_history(
             if self_capture is not None:
                 skipped_count += 1
                 continue
-            existing = previous_by_day[(str(row["scope"]), str(row["snapshot_date"]))]
+            existing = previous_by_day[(str(row["scope"]), str(row["snapshot_date"]), str(row["instrument_id"]).casefold())]
             if existing is not None and str(row["known_at"]) <= str(existing):
                 raise MembershipCaptureError(
                     "a licensed correction requires a later source known_at revision"
@@ -544,7 +558,7 @@ def _record_capture(
             (scope,),
         ).fetchone()[0]
         if previous_snapshot_date is not None and snapshot_date < str(previous_snapshot_date):
-            raise MembershipCaptureError("capture snapshot_date must not move backwards within its declared scope")
+            raise MembershipCaptureError("backdated capture snapshot_date must not move backwards within its declared scope")
         active = _latest_intervals(connection, scope, timestamp, "self")
         # Listing IDs are compared case-normalised so a case-only change is not a close/open.
         open_by_instrument = {

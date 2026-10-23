@@ -107,16 +107,24 @@ def test_r1_f7_stale_balance_and_current_flows_cannot_form_fresh_ratios():
     current = replace(current, values={k: v for k, v in current.values.items()
                                       if k not in ("ib_debt", "minority_interest", "cash_sti", "lease_liabilities")})
     ev = evidence([old, current])
-    assert ev.metrics["net_debt"].as_of == "2022-12-31"
-    assert ev.metrics["ev"].as_of == "2022-12-31"
-    for key in ("net_debt_to_ebitda", "ebit_ev_yield", "ev_ebit", "ev_sales"):
+    # A10-F4: missing latest balance fields block older fallback altogether.
+    assert ev.metrics["net_debt"].as_of is None
+    assert ev.metrics["ev"].as_of is None
+    for key in ("net_debt", "ev", "net_debt_to_ebitda", "ebit_ev_yield", "ev_ebit", "ev_sales"):
         assert not ev.metrics[key].available
-    # Within the tolerance, keep the older leg's date rather than freshening it.
-    near = replace(old, period_end=date(2025, 12, 1))
+    # R1-F7: a stale balance remains dated for display when it is the latest
+    # statement, and cannot feed a fresh valuation or leverage ratio.
+    stale = evidence([old])
+    assert stale.metrics["net_debt"].as_of == stale.metrics["ev"].as_of == "2022-12-31"
+    for key in ("net_debt_to_ebitda", "ebit_ev_yield", "ev_ebit", "ev_sales"):
+        assert not stale.metrics[key].available
+    # R1-F7 with A10-F4: a newer balance can join the latest FY flows,
+    # retaining the older flow leg's date within the allowed tolerance.
+    near = replace(old, period_end=date(2026, 1, 1), period_type="Q", known_at=current.known_at)
     ev = evidence([near, current])
     for key in ("net_debt_to_ebitda", "ebit_ev_yield", "ev_ebit", "ev_sales"):
-        assert ev.metrics[key].available and ev.metrics[key].as_of == "2025-12-01"
-    far = replace(near, period_end=date(2025, 10, 1))
+        assert ev.metrics[key].available and ev.metrics[key].as_of == "2025-12-31"
+    far = replace(near, period_end=date(2026, 3, 1), known_at=DECISION)
     assert not evidence([far, current]).metrics["ev_ebit"].available
 
 

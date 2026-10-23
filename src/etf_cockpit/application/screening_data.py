@@ -37,7 +37,11 @@ def build_screen_rows(snapshot: Any, fundamentals: pd.DataFrame) -> pd.DataFrame
 
     fundamentals = fundamentals.copy() if isinstance(fundamentals, pd.DataFrame) else pd.DataFrame()
     if "instrument_id" in fundamentals.columns:
-        fundamentals = latest_fundamental_rows(fundamentals).set_index("instrument_id")
+        cutoff = _as_of_date(snapshot)
+        fundamentals = (
+            latest_fundamental_rows(fundamentals, decision_time=cutoff).set_index("instrument_id")
+            if cutoff is not None else pd.DataFrame()
+        )
     else:
         fundamentals = pd.DataFrame()
     signals = {str(signal.etf_id): signal for signal in getattr(snapshot, "signals", ())}

@@ -400,13 +400,23 @@ def test_tied_cover_page_share_counts_are_not_chosen_by_insertion_order(flip) ->
     row = _fy_row(_fy(revenue, cover[::-1] if flip else cover))
 
     assert "shares_outstanding" not in row  # ambiguous tie is unavailable, never an arbitrary pick
+    # R1-F2: also check the actual share publication, rather than only FY.
+    publications = sources.parse_edgar_companyfacts(_fy(revenue, cover), CONFIG, source_ref="t")
+    shares = next(item for item in publications if item["period_type"] == "SHARES")
+    assert "shares_outstanding" not in shares
+    assert json.loads(shares["value_status"])["shares_outstanding"] == "conflicted"
 
 
 def test_agreeing_cover_page_share_counts_are_still_used() -> None:
     revenue = {"Revenues": [{"start": "2025-01-01", "end": "2025-12-31", "val": 500.0, "filed": "2026-02-10"}]}
     cover = [{"end": "2026-02-05", "val": 100.0, "filed": "2026-02-10"}, {"end": "2026-02-05", "val": 100.0, "filed": "2026-02-10"}]
 
-    assert _fy_row(_fy(revenue, cover))["shares_outstanding"] == 100.0
+    # R1-F2: DEI shares retain their publication instant, separate from FY.
+    rows = sources.parse_edgar_companyfacts(_fy(revenue, cover), CONFIG, source_ref="fixture")
+    shares = next(row for row in rows if row["period_type"] == "SHARES")
+    assert "shares_outstanding" not in next(row for row in rows if row["period_type"] == "FY")
+    assert shares["shares_outstanding"] == 100.0
+    assert shares["period_end"] == "2026-02-05" and shares["known_at"] == "2026-02-10"
 
 
 def test_lower_priority_revenue_concept_filed_earlier_is_not_suppressed() -> None:
@@ -435,7 +445,12 @@ def test_malformed_filed_in_companyfacts_never_wins_earliest_filed_choice(bad_fi
     row = _fy_row(payload)
 
     assert row["revenue"] == 480.0
-    assert row["shares_outstanding"] == 100.0
+    # R1-F2: malformed publications cannot win the separate DEI share row.
+    rows = sources.parse_edgar_companyfacts(payload, CONFIG, source_ref="fixture")
+    shares = next(row for row in rows if row["period_type"] == "SHARES")
+    assert "shares_outstanding" not in row
+    assert shares["shares_outstanding"] == 100.0
+    assert shares["known_at"] == "2026-02-10"
 
 
 def test_same_day_amendment_leaves_exactly_one_canonical_fact(tmp_path) -> None:
