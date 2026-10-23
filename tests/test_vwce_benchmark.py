@@ -42,7 +42,7 @@ ACTIVE_CLOSES = [100.0, 100.0, 103.0, 109.0, 112.0, 113.0, 111.0, 109.0, 108.0, 
 
 
 def _series(closes: list[float] = VWCE_CLOSES, **extra: object) -> pd.DataFrame:
-    frame = pd.DataFrame({"date": SESSIONS, "close": closes, "adjusted_close": closes,
+    frame = pd.DataFrame({"date": SESSIONS, "open": closes, "close": closes, "adjusted_close": closes,
                           "provider_symbol": "VWCE.DE", "source": "yfinance", "currency": "EUR",
                           "is_adjusted": True, "stock_splits": 0, "dividends": 0, "capital_gains": 0})
     for name, value in extra.items():

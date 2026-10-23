@@ -1694,8 +1694,9 @@ class PaperLedger:
         """Mirror one external flow of the active account into the benchmark shadow account.
 
         The cash enters at the first session on or after the flow date and buys (contribution) or sells
-        (withdrawal) the benchmark at the close of the first session strictly after the flow date, so no
-        same-day close is used. Costs and lot policy come from ``cost_policy``, which must equal the policy the
+        (withdrawal) the benchmark at the OPEN of the first session strictly after the flow date (like every
+        other paper fill), so no same-day price is used; a series without an ``open`` column is refused.
+        Costs and lot policy come from ``cost_policy``, which must equal the policy the
         account was opened with. The price series must have passed the VWCE series contract; otherwise nothing
         is recorded. A re-submitted ``flow_id`` with identical terms returns the recorded flow.
         """
@@ -1724,10 +1725,14 @@ class PaperLedger:
             raise PaperLedgerError("No eligible benchmark session exists after the flow date yet.")
         if executed.date() >= cutoff.astimezone(timezone.utc).date():
             raise PaperLedgerError("Benchmark execution close is unavailable at the decision cutoff.")
+        if "open" not in prices.columns:
+            raise PaperLedgerError("Benchmark session open is unavailable: the price series has no open column.")
         close = prices.loc[sessions == executed, "close"]
-        if len(close) != 1:
+        opened = prices.loc[sessions == executed, "open"]
+        if len(close) != 1 or len(opened) != 1:
             raise PaperLedgerError("The benchmark session price is missing or ambiguous.")
         close_price = _decimal_number(close.iloc[0], "close", positive=True)
+        open_price = _decimal_number(opened.iloc[0], "open", positive=True)
         checksum = series_check.source_hash
         prefix_hash = _shadow_prefix_hash(prices, executed)
         with self._lock, self._file_lock():
@@ -1764,7 +1769,9 @@ class PaperLedger:
             prior = list(state["shadow_flows"].values())
             if any(pd.Timestamp(item["executed_session"]) >= entry for item in prior):
                 raise PaperLedgerError("Overlapping or backdated shadow execution chronology is unsupported.")
-            active_entry = pd.Timestamp(active_flow["effective_at"]).tz_convert("UTC").tz_localize(None).normalize()
+            active_effective_day = pd.Timestamp(active_flow["effective_at"]).tz_convert("UTC").tz_localize(None).normalize()
+            # A flow effective on a non-session day (weekend, holiday) enters at the first session on or after it.
+            active_entry = sessions[sessions >= active_effective_day].min()
             if kind == "withdrawal" and active_entry == executed:
                 entry = executed
             elif active_entry != entry:
@@ -1776,9 +1783,9 @@ class PaperLedger:
             adverse = policy.adverse_bps / Decimal(10000)
             cash = state["cash"]
             units = state["shadow_units"]
-            side, quantity, price, fee = "none", Decimal("0"), close_price, Decimal("0")
+            side, quantity, price, fee = "none", Decimal("0"), open_price, Decimal("0")
             if kind == "contribution":
-                price = close_price * (Decimal(1) + adverse)
+                price = open_price * (Decimal(1) + adverse)
                 budget = amount_decimal - policy.commission
                 if budget > 0:
                     lots = (budget / (price * fx) / policy.lot_size).to_integral_value(rounding=ROUND_FLOOR)
@@ -1788,7 +1795,7 @@ class PaperLedger:
                 else:
                     quantity = Decimal("0")
             elif cash < amount_decimal:
-                price = close_price * (Decimal(1) - adverse)
+                price = open_price * (Decimal(1) - adverse)
                 needed = amount_decimal - cash + policy.commission
                 lots = (needed / (price * fx) / policy.lot_size).to_integral_value(rounding=ROUND_CEILING)
                 quantity = lots * policy.lot_size
@@ -1805,6 +1812,7 @@ class PaperLedger:
                 "flow_at": _timestamp(flow_at),
                 "entry_session": entry.date().isoformat(),
                 "executed_session": executed.date().isoformat(),
+                "executed_open": str(open_price),
                 "executed_close": str(close_price),
                 "prefix_hash": prefix_hash,
                 "instrument_id": shadow["instrument_id"],
@@ -1860,11 +1868,16 @@ class PaperLedger:
             executed_day = pd.Timestamp(str(flow["executed_session"]))
             recorded_close = flow.get("executed_close")
             current = prices.loc[sessions == executed_day, "close"]
+            recorded_open = flow.get("executed_open")
+            current_open = prices.loc[sessions == executed_day, "open"] if "open" in prices.columns else None
             if (
                 not flow.get("prefix_hash")
                 or recorded_close is None
                 or len(current) != 1
                 or _decimal_number(current.iloc[0], "close", positive=True) != Decimal(str(recorded_close))
+                or (recorded_open is not None and (
+                    current_open is None or len(current_open) != 1
+                    or _decimal_number(current_open.iloc[0], "open", positive=True) != Decimal(str(recorded_open))))
                 or _shadow_prefix_hash(prices, executed_day) != flow["prefix_hash"]
             ):
                 raise PaperLedgerError(f"historical_price_revised:{flow['flow_id']}")
