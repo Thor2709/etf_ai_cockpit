@@ -16,11 +16,13 @@ from etf_cockpit.models.distribution_store import QUANTILE_FIELDS, QUANTILE_LEVE
 CALIBRATION_COLUMNS = [
     "instrument_id",
     "model_name",
+    "horizon_days",
     "evaluated_forecasts",
     "matured_forecasts",
     "oos_mase",
     "oos_directional_accuracy",
     "q10_q90_coverage",
+    "grade_coverage",
     "calibration_score_10",
     "calibration_status",
     "calibration_label",
@@ -210,6 +212,7 @@ def calibrate_forecast_distribution(
     # when its origin and outcome dates precede it (backfills, late reruns); an unreadable stamp fails closed.
     for known_column in known_columns:
         known = pd.to_datetime(history[known_column], errors="coerce", utc=True, format="mixed")
+        history[f"_known_{known_column}"] = known
         history = history.loc[known.notna() & known.le(cutoff)].copy()
     history["expected_return"] = pd.to_numeric(history["expected_return"], errors="coerce")
     history["q10_return"] = pd.to_numeric(history["q10_return"], errors="coerce")
@@ -243,6 +246,10 @@ def calibrate_forecast_distribution(
             continue
         target_day = price_dates[origin + int(horizon)]
         if not target_day < decision_day:
+            continue
+        # Prices expose a date-only maturity boundary, so timestamps after its normalized
+        # session boundary are not proven available at maturity.
+        if any(pd.Timestamp(row[f"_known_{column}"]) > target_day for column in known_columns):
             continue
         if stale_prices[origin] or stale_prices[origin + int(horizon)]:
             continue
@@ -599,7 +606,9 @@ def evaluate_forecast_calibration(forecasts: pd.DataFrame, prices: pd.DataFrame)
     forecast_frame = forecasts.copy()
     forecast_frame["model_name"] = forecast_frame["model_name"].astype(str).str.lower()
     forecast_frame["instrument_id"] = forecast_frame["etf_id"].astype(str)
-    forecast_frame["forecast_date"] = pd.to_datetime(forecast_frame["forecast_date"], errors="coerce")
+    forecast_frame["forecast_date"] = pd.to_datetime(
+        forecast_frame["forecast_date"], errors="coerce", utc=True, format="mixed"
+    ).dt.tz_convert(None).dt.normalize()
     forecast_frame["horizon_days"] = pd.to_numeric(forecast_frame["horizon_days"], errors="coerce")
     forecast_frame["expected_return"] = pd.to_numeric(forecast_frame["expected_return"], errors="coerce")
     forecast_frame["q10_return"] = pd.to_numeric(forecast_frame.get("q10_return"), errors="coerce")
@@ -612,14 +621,16 @@ def evaluate_forecast_calibration(forecasts: pd.DataFrame, prices: pd.DataFrame)
         (forecast_frame["status"].astype(str).str.lower() == "ok")
         & allowed
         & forecast_frame["forecast_date"].notna()
-        & forecast_frame["horizon_days"].map(lambda value: _whole_positive_horizon(value))
+        & forecast_frame["horizon_days"].map(_whole_positive_horizon)
         & forecast_frame["expected_return"].notna()
     ].copy()
     if forecast_frame.empty:
         return pd.DataFrame(columns=CALIBRATION_COLUMNS)
 
     price_frame = prices.copy()
-    price_frame["date"] = pd.to_datetime(price_frame["date"], errors="coerce")
+    price_frame["date"] = pd.to_datetime(
+        price_frame["date"], errors="coerce", utc=True, format="mixed"
+    ).dt.tz_convert(None).dt.normalize()
     price_frame["adjusted_close"] = pd.to_numeric(price_frame["adjusted_close"], errors="coerce")
     price_frame = price_frame.dropna(subset=["date", "adjusted_close"])
     pivots = {
@@ -628,10 +639,12 @@ def evaluate_forecast_calibration(forecasts: pd.DataFrame, prices: pd.DataFrame)
     }
 
     rows: list[dict[str, object]] = []
-    for (instrument_id, model_name), group in forecast_frame.groupby(["instrument_id", "model_name"], sort=False):
+    for (instrument_id, model_name, horizon_days), group in forecast_frame.groupby(
+        ["instrument_id", "model_name", "horizon_days"], sort=False
+    ):
         series = pivots.get(str(instrument_id))
         if series is None or len(series) < 5:
-            rows.append(_pending_row(str(instrument_id), str(model_name), len(group), "no_price_history"))
+            rows.append(_pending_row(str(instrument_id), str(model_name), int(horizon_days), len(group), "no_price_history"))
             continue
         matured: list[dict[str, float]] = []
         for _, forecast in group.iterrows():
@@ -655,7 +668,7 @@ def evaluate_forecast_calibration(forecasts: pd.DataFrame, prices: pd.DataFrame)
                 }
             )
         if not matured:
-            rows.append(_pending_row(str(instrument_id), str(model_name), len(group), "pending_no_matured_forecasts"))
+            rows.append(_pending_row(str(instrument_id), str(model_name), int(horizon_days), len(group), "pending_no_matured_forecasts"))
             continue
         eval_frame = pd.DataFrame(matured)
         scale = _mase_scale(series, int(round(float(eval_frame["horizon_days"].median()))))
@@ -671,11 +684,13 @@ def evaluate_forecast_calibration(forecasts: pd.DataFrame, prices: pd.DataFrame)
             {
                 "instrument_id": str(instrument_id),
                 "model_name": str(model_name),
+                "horizon_days": int(horizon_days),
                 "evaluated_forecasts": int(len(group)),
                 "matured_forecasts": int(len(eval_frame)),
                 "oos_mase": None if mase is None else round(mase, 4),
                 "oos_directional_accuracy": round(directional, 4),
                 "q10_q90_coverage": None if coverage is None else round(coverage, 4),
+                "grade_coverage": None if grade_coverage is None else round(grade_coverage, 4),
                 "calibration_score_10": score,
                 "calibration_status": status,
                 "calibration_label": label,
@@ -768,15 +783,19 @@ def _mase_scale(series: pd.Series, horizon_days: int) -> float:
     return max(float(returns.mean()), 1e-9)
 
 
-def _pending_row(instrument_id: str, model_name: str, evaluated: int, status: str) -> dict[str, object]:
+def _pending_row(
+    instrument_id: str, model_name: str, horizon_days: int, evaluated: int, status: str
+) -> dict[str, object]:
     return {
         "instrument_id": instrument_id,
         "model_name": model_name,
+        "horizon_days": int(horizon_days),
         "evaluated_forecasts": int(evaluated),
         "matured_forecasts": 0,
         "oos_mase": None,
         "oos_directional_accuracy": None,
         "q10_q90_coverage": None,
+        "grade_coverage": None,
         "calibration_score_10": None,
         "calibration_status": status,
         "calibration_label": "Calibration pending: wait until forecast horizons mature against later yfinance prices.",
@@ -934,8 +953,8 @@ def probability_admission(
 ) -> dict[str, object]:
     """Admit a probability for display only after out-of-sample chronological calibration.
 
-    ``frame`` needs ``forecast_date``, ``probability`` (P(up)) and ``outcome`` (0/1) of matured
-    forecasts. Dates are split into ``folds`` contiguous chronological folds. Every fold after the
+    ``frame`` needs ``forecast_date``, ``target_date``, ``probability`` (P(up)) and ``outcome`` (0/1)
+    of matured forecasts. Dates are split into ``folds`` contiguous chronological folds. Every fold after the
     first must beat the base rate known before it (the frequency of earlier folds; the first fold is
     only a warm-up) on Brier score, and every fold's reliability gap (weighted mean absolute bin gap)
     must stay within ``MAX_RELIABILITY_GAP``. Anything else is ``unavailable`` with the reason.
@@ -944,14 +963,19 @@ def probability_admission(
     def unavailable(reason: str, details: list[dict[str, object]] | None = None) -> dict[str, object]:
         return {"status": PROBABILITY_UNAVAILABLE, "reason": reason, "folds": details or []}
 
-    if not {"forecast_date", "probability", "outcome"}.issubset(frame.columns):
-        return unavailable("forecast_date, probability and outcome columns are required")
-    data = frame[["forecast_date", "probability", "outcome"]].copy()
+    if not {"forecast_date", "target_date", "probability", "outcome"}.issubset(frame.columns):
+        return unavailable("forecast_date, target_date, probability and outcome columns are required")
+    data = frame[["forecast_date", "target_date", "probability", "outcome"]].copy()
     data["forecast_date"] = pd.to_datetime(data["forecast_date"], errors="coerce", utc=True).dt.normalize()
+    data["target_date"] = pd.to_datetime(data["target_date"], errors="coerce", utc=True).dt.normalize()
     data["probability"] = pd.to_numeric(data["probability"], errors="coerce")
     data["outcome"] = pd.to_numeric(data["outcome"], errors="coerce")
-    data = data.dropna()
-    data = data[data["probability"].between(0, 1) & data["outcome"].isin([0, 1])].sort_values("forecast_date")
+    data = data.dropna(subset=["forecast_date", "target_date", "probability", "outcome"])
+    data = data[
+        data["target_date"].ge(data["forecast_date"])
+        & data["probability"].between(0, 1)
+        & data["outcome"].isin([0, 1])
+    ].sort_values("forecast_date")
     dates = sorted(data["forecast_date"].unique())
     if folds < 2 or len(dates) < folds * minimum_dates_per_fold:
         return unavailable(f"at least {folds * minimum_dates_per_fold} distinct forecast dates are required")
@@ -959,7 +983,7 @@ def probability_admission(
     for index, fold_dates in enumerate(np.array_split(np.arange(len(dates)), folds)):
         first, last = dates[int(fold_dates[0])], dates[int(fold_dates[-1])]
         fold = data[(data["forecast_date"] >= first) & (data["forecast_date"] <= last)]
-        prior = data[data["forecast_date"] < first]
+        prior = data[(data["forecast_date"] < first) & data["target_date"].lt(first)]
         brier = float(((fold["probability"] - fold["outcome"]) ** 2).mean())
         clipped = fold["probability"].clip(1e-6, 1 - 1e-6)
         log_loss = float(-(fold["outcome"] * np.log(clipped) + (1 - fold["outcome"]) * np.log(1 - clipped)).mean())
@@ -972,12 +996,15 @@ def probability_admission(
         details.append({
             "fold": index,
             "forecasts": int(len(fold)),
+            "prior_matured_forecasts": int(len(prior)),
             "effective_dates": int(len(fold_dates)),
             "brier": brier,
             "base_rate_brier": None if base_rate is None else float(((base_rate - fold["outcome"]) ** 2).mean()),
             "log_loss": log_loss,
             "reliability_gap": float(gap_sum / len(fold)),
         })
+        if index > 0 and prior.empty:
+            return unavailable(f"fold {index} has no prior matured outcomes", details)
     for detail in details:
         base_brier = detail["base_rate_brier"]
         if base_brier is not None and not float(detail["brier"]) < float(base_brier):
@@ -1041,36 +1068,43 @@ def horizon_calibration_scores(frame: pd.DataFrame, *, minimum_dates: int = MIN_
     data["horizon_days"] = pd.to_numeric(data["horizon_days"], errors="coerce")
     data["actual"] = pd.to_numeric(data["actual"], errors="coerce")
     data = data.dropna(subset=["forecast_date", "horizon_days", "actual"])
+    data = data.loc[data["horizon_days"].map(_whole_positive_horizon)].copy()
+    if data.empty:
+        return pd.DataFrame(columns=columns)
     levels = [(level / 100.0, field) for level, field in zip(QUANTILE_LEVELS, QUANTILE_FIELDS) if field in data]
     rows: list[dict[str, object]] = []
-    for horizon, group in data.groupby(data["horizon_days"].astype(int), sort=True):
-        required = ["actual", "q10_return", "q50_return", "q90_return", "probability"]
+    for horizon, group in data.groupby("horizon_days", sort=True):
+        required = ["actual", "q10_return", "q50_return", "q90_return"]
         complete = group.reindex(columns=required).apply(pd.to_numeric, errors="coerce")
-        valid = np.isfinite(complete).all(axis=1) & complete["probability"].between(0, 1)
+        valid = np.isfinite(complete).all(axis=1)
         valid &= complete["q10_return"].le(complete["q50_return"]) & complete["q50_return"].le(complete["q90_return"])
         effective_dates = int(group.loc[valid, "forecast_date"].nunique())
-        actual = group["actual"].to_numpy(dtype=float)
+        valid_group = group.loc[valid]
+        actual = complete.loc[valid, "actual"].to_numpy(dtype=float)
         losses = []
         for level, field in levels:
-            predicted = pd.to_numeric(group[field], errors="coerce").to_numpy(dtype=float)
-            losses.append(pd.Series(np.where(np.isnan(predicted), np.nan, _pinball(actual, predicted, level)), index=group.index))
-        pinball_series = pd.concat(losses, axis=1).mean(axis=1, skipna=True) if losses else pd.Series(np.nan, index=group.index)
-        pinball, pinball_se = _date_clustered_mean(pinball_series, group["forecast_date"])
-        nan_series = pd.Series(np.nan, index=group.index)
-        low = pd.to_numeric(group["q10_return"], errors="coerce") if "q10_return" in group else nan_series
-        high = pd.to_numeric(group["q90_return"], errors="coerce") if "q90_return" in group else nan_series
-        interval = low.notna() & high.notna()
-        covered = ((group["actual"] >= low) & (group["actual"] <= high)).astype(float).where(interval)
-        coverage, coverage_se = _date_clustered_mean(covered, group["forecast_date"])
-        sharpness, _ = _date_clustered_mean((high - low).where(interval), group["forecast_date"])
+            predicted = pd.to_numeric(valid_group[field], errors="coerce").to_numpy(dtype=float)
+            losses.append(pd.Series(_pinball(actual, predicted, level), index=valid_group.index))
+        pinball_series = pd.concat(losses, axis=1).mean(axis=1, skipna=True) if losses else pd.Series(dtype=float)
+        pinball, pinball_se = _date_clustered_mean(pinball_series, valid_group["forecast_date"])
+        low = complete.loc[valid, "q10_return"]
+        high = complete.loc[valid, "q90_return"]
+        covered = ((complete.loc[valid, "actual"] >= low) & (complete.loc[valid, "actual"] <= high)).astype(float)
+        coverage, coverage_se = _date_clustered_mean(covered, valid_group["forecast_date"])
+        sharpness, _ = _date_clustered_mean(high - low, valid_group["forecast_date"])
         brier = brier_se = None
         if "probability" in group:
-            probability = pd.to_numeric(group["probability"], errors="coerce")
-            probability = probability.where(probability.between(0, 1))
-            brier, brier_se = _date_clustered_mean((probability - (group["actual"] > 0).astype(float)) ** 2, group["forecast_date"])
+            probability = pd.to_numeric(valid_group["probability"], errors="coerce")
+            probability_valid = probability.between(0, 1)
+            if probability_valid.any():
+                probability = probability.loc[probability_valid]
+                outcome = (complete.loc[probability.index, "actual"] > 0).astype(float)
+                brier, brier_se = _date_clustered_mean(
+                    (probability - outcome) ** 2, valid_group.loc[probability.index, "forecast_date"]
+                )
         rows.append({
             "horizon_days": int(horizon),
-            "forecasts": int(len(group)),
+            "forecasts": int(valid.sum()),
             "effective_dates": effective_dates,
             "pinball": pinball,
             "pinball_se": pinball_se,
@@ -1080,6 +1114,6 @@ def horizon_calibration_scores(frame: pd.DataFrame, *, minimum_dates: int = MIN_
             "coverage_80": coverage,
             "coverage_se": coverage_se,
             "sharpness_80": sharpness,
-            "status": ("ok" if effective_dates >= minimum_dates and all(_finite_number(value) is not None for value in (pinball, coverage, sharpness, brier)) else "insufficient_effective_dates"),
+            "status": ("ok" if effective_dates >= minimum_dates and all(_finite_number(value) is not None for value in (pinball, coverage, sharpness)) else "insufficient_effective_dates"),
         })
     return pd.DataFrame(rows, columns=columns)
