@@ -404,6 +404,7 @@ def owner_normalisation(
             "adjustments": (),
             "missing_components": (),
         }
+        normalised["provenance"] = {"normalised_roe": str(normalised["assumption_source"])}
         reasons.pop(key, None)
         return replace(bank, normalised=normalised, reasons=reasons)
 
@@ -472,6 +473,9 @@ def owner_normalisation(
         else:
             reasons[key] = "Sustainable ROE unavailable; missing bridge inputs: " + ", ".join(missing_components) + "."
         return replace(bank, normalised=normalised, reasons=reasons)
+    claim_source = " | ".join(str(item) for item in (getattr(claim, "source_id", None), getattr(claim, "revision_id", None)) if item)
+    if claim_source:
+        normalised["provenance"] = {"normalised_roe": f"{claim_source} | owner normalisation bridge (EC-attributable result, owner capital, filed impairment losses)"}
     reasons.pop(key, None)
     return replace(bank, normalised=normalised, reasons=reasons, calculation_ids=tuple(dict.fromkeys((*bank.calculation_ids, "normalisation_bridge"))))
 
@@ -530,7 +534,7 @@ def build_bank_economics(evidence: Mapping[str, object] | None = None, *, bank_m
         resilience["cet1_ratio"] = cet1_ratio
         cet1_provenance = merged.get("cet1_ratio_provenance")
         if cet1_provenance is not None:
-            resilience["provenance"] = {"cet1_ratio": cet1_provenance}
+            resilience.setdefault("provenance", {})["cet1_ratio"] = cet1_provenance  # merge, never overwrite headroom_pp (A17-F1)
     credit_input = dict(merged.get("credit")) if isinstance(merged.get("credit"), Mapping) else None
     if credit_input is None:
         credit_aliases = ("opening_stage3", "new_stage3", "cured_stage3", "repaid_stage3", "written_off_stage3", "closing_stage3", "opening_allowance", "allowance_expense", "allowance_releases", "allowance_used_writeoffs", "closing_allowance", "loans_open", "loans_close", "stage2_open", "stage2_close")

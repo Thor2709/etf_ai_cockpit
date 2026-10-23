@@ -137,6 +137,9 @@ def build_sparebank_scorecard(
             # Only bank-metric numeric evidence must carry its own provenance; events, market and valuation
             # inputs have other source contracts.
             missing_provenance = value is not None and source is None and str(row.get("source") or "").startswith("bank_economics.")
+            # Hard gates read the numeric evidence as it is: a breached floor never escapes because its
+            # provenance did not resolve (A17-F1); the displayed/rated value is still withheld.
+            raw_values[str(row["id"])] = value
             if missing_provenance:
                 value = None
             scored = not bool(row.get("display_only"))
@@ -157,14 +160,23 @@ def build_sparebank_scorecard(
                 source_locator=source,
             )
             rated_inputs.append(row)
-            raw_values[str(row["id"])] = value
         scored_inputs = [row for row in rated_inputs if row["scored"]]
         available = [row for row in scored_inputs if row["rating_10"] is not None]
         defined_count = len(scored_inputs)
-        coverage = len(available) / defined_count if defined_count else 0.0
+        display_available = [row for row in rated_inputs if row["value"] is not None]
+        # An axis shown but not scored reports the coverage of its display inputs; an axis with no inputs at all
+        # has nothing to cover (A17-F8).
+        coverage = (
+            len(available) / defined_count if defined_count
+            else len(display_available) / len(rated_inputs) if rated_inputs
+            else 0.0
+        )
         rating = None if not available else round(sum(float(row["rating_10"]) for row in available) / len(available), 6)
         axis.update(
-            status="UNAVAILABLE" if not available else "partial" if coverage < 1.0 else "rated",
+            status=(
+                ("shown" if coverage >= 1.0 else "partial") if not defined_count and display_available
+                else "UNAVAILABLE" if not available else "partial" if coverage < 1.0 else "rated"
+            ),
             rating_10=rating,
             coverage=coverage,
             inputs=tuple(rated_inputs),
@@ -185,8 +197,9 @@ def build_sparebank_scorecard(
             axis["partial_reason"] = "kompensasjonsfond not reported"
         axes[str(axis_id)] = axis
 
-    coverage_values = [float(_field(axis, "coverage", 0.0)) for axis in axes.values()]
-    overall_coverage = sum(coverage_values) / len(selected.axes) if selected.axes else 0.0
+    covered_axes = {axis_id: axis for axis_id, axis in axes.items() if axis.get("inputs")}
+    coverage_values = [float(_field(axis, "coverage", 0.0)) for axis in covered_axes.values()]
+    overall_coverage = sum(coverage_values) / len(covered_axes) if covered_axes else 0.0
     weights = _axis_weights(selected)
     total_weight = sum(weights.values())
     composite_coverage = (
@@ -195,7 +208,7 @@ def build_sparebank_scorecard(
         else 0.0
     )
     missing_axes = tuple(
-        axis_id for axis_id, axis in axes.items()
+        axis_id for axis_id, axis in covered_axes.items()
         if float(_field(axis, "coverage", 0.0)) < 1.0
     )
     critical_axes = tuple(axis_id for axis_id, definition in selected.axes.items() if definition.get("critical"))
@@ -231,12 +244,18 @@ def build_sparebank_scorecard(
     for gate_name, reason in (
         ("unresolved_claim", "OWNER_CLAIM_UNRESOLVED"),
         ("failed_pit_check", "PIT_CHECK_FAILED"),
+        ("failed_pit_check", "PIT_CHECK_UNVERIFIED"),
         ("invalid_valuation_denominator", "INVALID_VALUATION_DENOMINATOR"),
     ):
         cap = _number(gates.get(gate_name))
         if cap is not None and reason in reasons:
             caps.append((cap, reason))
     selected_cap = min((cap for cap, _ in caps), default=None)
+    if pit_status is False:
+        # Claim evidence known after the decision time is look-ahead and never produces a rated composite (A17-F2).
+        # Unresolved or unverifiable (no decision time) claims stay flag-only by the owner decision of 2026-10-09
+        # (hard_gates: flag_only; tests/test_sparebank_partial_composite.py).
+        before_cap = None
     final_composite = None if before_cap is None else round(min(before_cap, selected_cap) if selected_cap is not None else before_cap, 6)
     gate_reasons = tuple(dict.fromkeys((*reasons, *(reason for _, reason in caps))))
     scorecard_status = "complete" if final_composite is not None and composite_coverage == 1.0 else "partial"
@@ -476,6 +495,21 @@ def _input_source(rule: Mapping[str, object], context: Mapping[str, object]) -> 
             if dependencies and all(provenance.get(key) for key in dependencies):
                 for key in dependencies:
                     add(provenance[key])
+    if not citations and path.startswith("bank_economics."):
+        # Derived metrics resolve from the inputs they are computed from; every input must be cited (A17-F1).
+        derived_from = {
+            "surplus_cet1_nok": (("resilience", "headroom_pp"), ("reported", "rwa_nok")),
+            "stage_3_coverage": (("credit", "stage_3_allowance"), ("credit", "stage_3_exposure")),
+            "payout_symmetry_gap": (("reported", "owner_payout_rate"), ("reported", "ownerless_payout_rate")),
+        }.get(leaf, ())
+        found = []
+        for section, key in derived_from:
+            section_value = _field(_field(context, "bank_economics", {}), section, {})
+            section_provenance = _field(section_value, "provenance", {})
+            found.append(section_provenance.get(key) if isinstance(section_provenance, Mapping) else None)
+        if derived_from and all(found):
+            for item in found:
+                add(item)
     if path.startswith("claim_state."):
         provenance = _field(context.get("claim_state"), "provenance", {})
         if isinstance(provenance, Mapping):
@@ -544,9 +578,11 @@ def _number(value: object) -> float | None:
 def _rating(value: float, anchors: object) -> float:
     points = sorted(
         ((_number(_field(anchor, "value")), _number(_field(anchor, "rating"))) for anchor in anchors),
-        key=lambda pair: float(pair[1] if pair[1] is not None else 0.0),
+        key=lambda pair: float(pair[0] if pair[0] is not None else 0.0),
     )
     valid = [(float(x), float(y)) for x, y in points if x is not None and y is not None]
+    if len({x for x, _ in valid}) != len(valid):
+        raise SparebankScorecardError("scorecard anchors need distinct values")
     if len(valid) < 2:
         raise SparebankScorecardError("scorecard input needs at least two finite anchors")
     low_x = min(valid, key=lambda point: point[0])
