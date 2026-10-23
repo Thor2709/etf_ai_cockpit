@@ -148,7 +148,7 @@ def _period_rows(payload: dict, selected: list[dict], config: dict, stamp: str, 
         if fact["start"]:
             raw["start"] = fact["start"]
         units.setdefault(fact["unit"], []).append(raw)
-    rows = parse_edgar_companyfacts(visible, config, source_ref=reference)
+    rows = parse_edgar_companyfacts(visible, config, source_ref=reference, preselected_vintage=True)
     for row in rows:
         row.update(known_at=stamp, available_at=stamp)
     shares = {}
