@@ -159,8 +159,10 @@ def test_service_never_invents_or_interpolates_sessions_without_calendar(monkeyp
         seen["series"] = series
         return []
     monkeypatch.setattr(TimesFMAdapter, "forecast_series", forecast)
-    ForecastService(load_config())._run_timesfm_forecasts(pivot, ["AAA"], [1], DAY, "work-w-test")
-    pd.testing.assert_series_equal(seen["series"], series)
+    service_rows = ForecastService(load_config())._run_timesfm_forecasts(pivot, ["AAA"], [1], DAY, "work-w-test")
+    assert service_rows and all(row.status == "unavailable" for row in service_rows)
+    assert all(row.reason_unavailable == "sparse_adjusted_price_session_history" for row in service_rows)
+    assert "series" not in seen
     # An absent date is a non-session: never invented as a gap, never disables the model.
     absent = _timesfm_price_series(_pivot(rows.drop(index=2)), "AAA", DAY)
     assert len(absent) == 4 and not absent.isna().any()
