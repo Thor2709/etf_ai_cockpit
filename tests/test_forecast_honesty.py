@@ -154,17 +154,24 @@ def test_probability_admission_requires_chronological_out_of_sample_evidence() -
     dates = pd.bdate_range("2025-01-01", periods=60)
     probability = rng.uniform(0.05, 0.95, len(dates))
     noisy = pd.DataFrame({
-        "forecast_date": dates, "probability": probability, "outcome": (rng.uniform(size=len(dates)) < probability).astype(int),
+        "forecast_date": dates, "target_date": dates + pd.Timedelta(days=1),
+        "probability": probability, "outcome": (rng.uniform(size=len(dates)) < probability).astype(int),
     })
     refused = probability_admission(noisy)  # seeded noise: reliable in no fold sequence, so never admitted
     assert refused["status"] == "unavailable" and refused["reason"] == "fold 1 reliability gap exceeds 0.1"
     assert len(refused["folds"]) == 3 and max(float(fold["reliability_gap"]) for fold in refused["folds"]) > 0.1
     # Sharp, correct probabilities beat the earlier-fold base rate in every fold and stay reliable.
     outcome = (np.arange(len(dates)) % 3 == 0).astype(int)
-    informative = pd.DataFrame({"forecast_date": dates, "probability": np.where(outcome == 1, 0.95, 0.05), "outcome": outcome})
+    informative = pd.DataFrame({
+        "forecast_date": dates, "target_date": dates + pd.Timedelta(days=1),
+        "probability": np.where(outcome == 1, 0.95, 0.05), "outcome": outcome,
+    })
     admitted = probability_admission(informative)
     assert admitted["status"] == "calibrated" and admitted["reason"] is None and len(admitted["folds"]) == 3
-    constant = pd.DataFrame({"forecast_date": dates, "probability": 0.9, "outcome": (np.arange(len(dates)) % 2)})
+    constant = pd.DataFrame({
+        "forecast_date": dates, "target_date": dates + pd.Timedelta(days=1),
+        "probability": 0.9, "outcome": (np.arange(len(dates)) % 2),
+    })
     assert probability_admission(constant)["status"] == "unavailable"
     short = informative.head(6)
     assert probability_admission(short)["status"] == "unavailable"
