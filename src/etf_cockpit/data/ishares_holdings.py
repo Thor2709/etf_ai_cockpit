@@ -52,7 +52,10 @@ def next_known_at(as_of: date, listing: ListingCalendarEvidence,
     return datetime.combine(day, time.min, UTC)
 
 
-def _number(text: str) -> float:
+def _number(text: str, *, optional: bool = False) -> float | None:
+    """Parse a holdings number; blank is None (unavailable, never 0) only when optional."""
+    if optional and text == "":
+        return None
     if not re.fullmatch(r"[+-]?(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d+)?", text):
         raise ValueError("missing or malformed numeric holding")
     try:
@@ -107,7 +110,8 @@ def parse_ishares_csv(payload: bytes, *, instrument_id: str, source_url: str,
         asset = raw["Asset Class"]
         if asset not in {"Equity", *bond_asset_classes, *OTHER_CLASSES} or not raw["Name"]:
             raise ValueError("unverified asset class or missing security")
-        numbers = {key: _number(raw[key]) for key in COLUMNS[4:9]}
+        # Market Value, Notional Value, Shares and Price may be blank (unavailable -> None).
+        numbers = {key: _number(raw[key], optional=key != "Weight (%)") for key in COLUMNS[4:9]}
         weight = numbers["Weight (%)"] / 100
         if asset not in OTHER_CLASSES and not 0 <= weight <= 1:
             raise ValueError("invalid security weight")

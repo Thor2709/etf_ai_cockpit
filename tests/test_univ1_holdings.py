@@ -237,3 +237,26 @@ def test_politeness_spaces_starts_and_transport_shape(monkeypatch):
     fetch_csv(URL, "Mozilla/5.0")
     fetch_csv(URL, "Mozilla/5.0")
     assert starts == [10.0, 11.0]
+
+
+def _blank_fields(raw: bytes) -> bytes:
+    return raw.replace(b'"8,344,104,027.00",98.00,"8,344,104,027.00","1,234.00",12.50', b',98.00,,,')
+
+
+def test_blank_value_fields_parse_as_none_not_zero(listing):
+    row = parse_ishares_csv(_blank_fields(FIXTURE.read_bytes()), **options(listing))["holdings"][0]
+    assert row["weight"] == .98
+    assert (row["market_value"], row["notional_value"], row["shares"], row["price"]) == (None, None, None, None)
+
+
+def test_blank_weight_still_rejected(listing):
+    raw = FIXTURE.read_bytes().replace(b",98.00,", b",,")
+    with pytest.raises(ValueError):
+        parse_ishares_csv(raw, **options(listing))
+
+
+def test_blank_values_keep_isin_unavailable_and_unscored(listing):
+    parsed = parse_ishares_csv(_blank_fields(FIXTURE.read_bytes()), **options(listing))
+    assert parsed["holdings"][0]["market_value"] is None
+    assert parsed["holdings"][0]["isin_unavailable"] is True
+    assert parsed["holdings"][0]["score_eligible"] is False
