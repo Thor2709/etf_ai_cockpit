@@ -5,6 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 import importlib
 import inspect
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -288,6 +289,23 @@ def test_server_lists_tools_without_sdk_and_fails_clearly_when_starting_without_
     names = {spec.name for spec in list_tools(profile="core", tiers=("read",))}
     assert {"cockpit_status", "job_status"} <= names
 
+    _assert_server_without_sdk()
+
+
+@pytest.mark.parametrize("pythonpath", [None, "src"])
+def test_server_without_sdk_subprocess_resolves_checkout_source(
+    pythonpath: str | None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    if pythonpath is None:
+        monkeypatch.delenv("PYTHONPATH", raising=False)
+    else:
+        monkeypatch.setenv("PYTHONPATH", pythonpath)
+    monkeypatch.chdir(tmp_path)
+
+    _assert_server_without_sdk()
+
+
+def _assert_server_without_sdk() -> None:
     code = dedent("""
         import builtins
         import sys
@@ -309,7 +327,13 @@ def test_server_lists_tools_without_sdk_and_fails_clearly_when_starting_without_
             raise AssertionError("server started without the SDK")
         print("disabled-safe")
     """)
-    result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
+    environment = dict(os.environ)
+    # Pytest's source-path setup is not inherited by a fresh Python process.
+    source_root = str(Path(__file__).resolve().parents[2] / "src")
+    environment["PYTHONPATH"] = os.pathsep.join(filter(None, (source_root, environment.get("PYTHONPATH"))))
+    result = subprocess.run(
+        [sys.executable, "-c", code], env=environment, capture_output=True, text=True, check=True
+    )
     assert result.stdout.strip() == "disabled-safe"
 
 
