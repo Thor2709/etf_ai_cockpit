@@ -8,7 +8,8 @@ Scoreboard publication defaults to ``<root>/data/derived/scoreboard.parquet``.
 The snapshot builder defaults to ``build_snapshot`` and the data service to
 ``DataService``; UI publication scope defaults to a no-op for headless callers.
 Action IDs default to ``headless_refresh`` and ``headless_rescore``. Missing
-snapshots, missing data-quality reports, and blocked reports fail closed.
+snapshots and failed data-quality gates refuse publication. Missing inputs may
+publish unavailable score rows without granting analysis or execution authority.
 Status uses ``row_count=None`` when inputs cannot be read or are unavailable.
 Storage roots are process-scoped: set ``ETF_COCKPIT_ROOT`` before importing
 the application, as required by the persistence services. A different runtime

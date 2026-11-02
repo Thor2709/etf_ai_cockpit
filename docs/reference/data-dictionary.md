@@ -284,6 +284,8 @@ Generated with `python scripts/generate_data_dictionary.py`. Regenerate after a 
 | order_reservations | remaining_quantity | TEXT | NOT NULL | etf_cockpit/trading/cash_reservation.py |
 | order_reservations | reserved_amount | TEXT | NOT NULL | etf_cockpit/trading/cash_reservation.py |
 | order_reservations | status | TEXT | NOT NULL CHECK(status IN ('active', 'released')) | etf_cockpit/trading/cash_reservation.py |
+| rate_calls | called_at | REAL | NOT NULL | etf_cockpit/mcp/registry.py |
+| rate_calls | tool | TEXT | NOT NULL | etf_cockpit/mcp/registry.py |
 | schema_migrations | applied_at | TEXT | NOT NULL | etf_cockpit/data/local_storage.py |
 | schema_migrations | name | TEXT | NOT NULL | etf_cockpit/data/local_storage.py |
 | schema_migrations | version | INTEGER | PRIMARY KEY | etf_cockpit/data/local_storage.py |
