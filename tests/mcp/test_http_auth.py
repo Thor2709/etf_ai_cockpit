@@ -197,3 +197,14 @@ def test_http_dispatch_calls_the_registry_service_path_with_verified_context(mon
     assert observed[0][0] == "scores_ranked"
     assert observed[0][1] == {"asset_type": "etf", "top_n": 3}
     assert observed[0][2].client_id == "reader"
+
+
+def test_tunnel_expiry_uses_stopwatch_elapsed_time_instead_of_wall_clock() -> None:
+    from pathlib import Path
+
+    script = (Path(__file__).resolve().parents[2] / "scripts" / "mcp_tunnel.ps1").read_text(encoding="utf-8")
+
+    assert "$timer = [System.Diagnostics.Stopwatch]::StartNew()" in script
+    assert "while (-not $tunnelProcess.HasExited -and $timer.Elapsed.TotalMinutes -lt $MaxDurationMinutes)" in script
+    assert "[DateTime]" not in script
+    assert "$deadline" not in script

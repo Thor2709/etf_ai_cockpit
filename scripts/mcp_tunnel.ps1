@@ -32,8 +32,8 @@ if ($null -eq $tunnelProcess) {
 }
 
 try {
-    $deadline = [DateTime]::UtcNow.AddMinutes($MaxDurationMinutes)
-    while (-not $tunnelProcess.HasExited -and [DateTime]::UtcNow -lt $deadline) {
+    $timer = [System.Diagnostics.Stopwatch]::StartNew()
+    while (-not $tunnelProcess.HasExited -and $timer.Elapsed.TotalMinutes -lt $MaxDurationMinutes) {
         Start-Sleep -Seconds 1
         $tunnelProcess.Refresh()
     }
