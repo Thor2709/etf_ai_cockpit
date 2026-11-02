@@ -1,4 +1,4 @@
-﻿"""Compatibility entry point for the application point-in-time history service."""
+"""Compatibility entry point for the application point-in-time history service."""
 from __future__ import annotations
 
 from importlib import import_module

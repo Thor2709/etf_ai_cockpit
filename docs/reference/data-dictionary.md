@@ -359,6 +359,7 @@ Generated with `python scripts/generate_data_dictionary.py`. Regenerate after a 
 | configs/legal_terms_registry.yaml | code_and_packages, export_policy, jurisdictions, mandatory_model_ids, mandatory_source_ids, models, network_policy, professional_review_required, registry_version, review_status, schema_version, sources, terms_change_policy | registry_version="2026-07-17"; schema_version="legal-terms.v1" |
 | configs/local_llm.yaml | api_key, base_url, enabled, max_tokens, model, timeout_seconds | — |
 | configs/market_calendar_corrections.yaml | corrections, ledger_version, schema_version | ledger_version="2026-07-22"; schema_version=market-calendar-corrections.v1 |
+| configs/mcp_v1.yaml | mcp | — |
 | configs/model_settings.yaml | ensemble, forecast_horizons_trading_days, models, promotion | — |
 | configs/mutation_thresholds_v1.yaml | critical_mutants, required_kill_rate, scope, version | version=1 |
 | configs/paper_bots_execution_v1.yaml | account_capability, base_currency, cost_model, fill_rule, fill_time_utc, lot_size, max_buy_retry_sessions, max_order_split_sessions, max_stale_mark_sessions, min_trade_value_eur, missed_fill_grace_calendar_days, model_id, paper_approvals, position_limits, proposal_validity_days, rebalance_tolerance_weight, replay, rule_expected_benefit_bps, rule_uncertainty_bps, schema_version, sizing_price_max_age_days, strategy_id, uncertainty | schema_version=paper_bots_execution.v1 |

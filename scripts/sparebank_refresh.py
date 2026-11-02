@@ -1,4 +1,4 @@
-﻿"""Compatibility entry point for the application sparebank refresh service."""
+"""Compatibility entry point for the application sparebank refresh service."""
 from __future__ import annotations
 
 from importlib import import_module

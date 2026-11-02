@@ -1,4 +1,4 @@
-﻿"""Compatibility entry point for the application filing importer."""
+"""Compatibility entry point for the application filing importer."""
 from __future__ import annotations
 
 import sys

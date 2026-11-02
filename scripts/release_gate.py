@@ -587,6 +587,8 @@ SKIP_REASON_ALLOWLIST = (
     re.compile(r"(?i)\bresolved via /proc\b"),
     re.compile(r"(?i)\bgolden refresh run\b"),
     re.compile(r"(?i)could not import '(torch|timesfm|toto)'"),  # optional model packages stay disabled-safe
+    # Only the optional HTTP integration may skip; defaults and scope grants run without the SDK.
+    re.compile(r"^optional MCP SDK unavailable: remote HTTP is disabled by default; transport integration requires etf-ai-cockpit\[mcp\]$"),
 )
 # Gate / evidence / safety test modules: a skip here is never acceptable, whatever the reason.
 PROTECTED_TEST_MODULES = (

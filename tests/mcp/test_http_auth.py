@@ -30,10 +30,12 @@ def test_remote_defaults_are_disabled_and_scopes_grant_only_configured_tiers() -
     with pytest.raises(AuthorizationError):
         http.tiers_for_scopes(["unrelated:scope"], grants=grants)
 
+
+def test_remote_http_rejects_unauthenticated_requests() -> None:
     try:
         sdk_root = str(distribution("mcp").locate_file(""))
     except PackageNotFoundError:
-        pytest.skip("the optional MCP SDK is not installed")
+        pytest.skip("optional MCP SDK unavailable: remote HTTP is disabled by default; transport integration requires etf-ai-cockpit[mcp]")
     # The tests/mcp directory shadows the optional top-level mcp package when
     # pytest prepends the test directory to sys.path.
     sys.modules.pop("mcp", None)
