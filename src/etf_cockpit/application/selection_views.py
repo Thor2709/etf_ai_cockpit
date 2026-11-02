@@ -92,8 +92,9 @@ def load_top_n_selection(
     risk_profile: object | None = None,
     snapshot: object | None = None,
     storage_root: Path | None = None,
+    persist: bool = True,
 ) -> dict[str, object]:
-    """Build from saved, point-in-time evidence and persist an immutable run."""
+    """Build from saved, point-in-time evidence; persistence is opt-in for read adapters."""
 
     root = Path(storage_root or ROOT).resolve()
     try:
@@ -460,6 +461,13 @@ def load_top_n_selection(
             portfolio_policy=portfolio_policy,  # type: ignore[arg-type]
             risk_profile=risk_profile,  # type: ignore[arg-type]
         )
+        if not persist:
+            return {
+                **run.to_record(),
+                "slices": materialise_selection_slices(run),
+                "persistence_status": "not_requested",
+                "execution_allowed": False,
+            }
         with TransactionalStore(root) as store:
             stored = persist_selection_run(store, run)
     except (OSError, StorageSchemaError, sqlite3.DatabaseError, TypeError, ValueError) as exc:

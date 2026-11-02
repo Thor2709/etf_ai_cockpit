@@ -5,7 +5,7 @@ from __future__ import annotations
 import dataclasses
 import re
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import date
 from io import BytesIO
 from pathlib import Path
@@ -56,7 +56,9 @@ from etf_cockpit.data.reference_data import (
 )
 from etf_cockpit.data.sample_data import ensure_sample_files
 from etf_cockpit.data.trade_candidate_analysis import (
+    analyse_candidate_prices,
     fetch_candidate_prices,
+    load_stored_candidate_prices,
     refresh_candidate_analysis,
     write_candidate_price_snapshot,
 )
@@ -296,13 +298,33 @@ class DataService:
         self.last_operation_succeeded = True
         return "\n".join(messages)
 
+    def run_stored_candidate_analysis(
+        self,
+        *,
+        years: int = 5,
+        identifiers: Sequence[str] | None = None,
+        root: Path = ROOT,
+    ) -> dict[str, object]:
+        """Run the canonical price analysis from verified local evidence without fetching."""
+
+        data = load_stored_candidate_prices(root=root, years=years, identifiers=identifiers)
+        report = analyse_candidate_prices(data.candidates, data.prices)
+        return {
+            "rows": report.astype(object).where(pd.notna(report), None).to_dict(orient="records"),
+            "effective_as_of": data.effective_as_of.isoformat(),
+            "source_message": data.source_message,
+        }
+
     def run_yfinance_candidate_analysis(
         self,
         *,
         years: int = 5,
+        identifiers: Sequence[str] | None = None,
         publish_guard: PublicationScopeFactory | None = None,
     ) -> str:
-        result = refresh_candidate_analysis(self.config, years=years, publish_guard=publish_guard)
+        result = refresh_candidate_analysis(
+            self.config, years=years, identifiers=identifiers, publish_guard=publish_guard,
+        )
         return (
             f"YFinance candidate algorithms refreshed for {result.rows} instruments as of {result.effective_as_of}. "
             f"Report: {result.csv_path}."
