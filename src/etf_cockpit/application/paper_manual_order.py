@@ -26,7 +26,7 @@ from etf_cockpit.core.atomic_io import atomic_write_bytes
 from etf_cockpit.core.config import load_config
 from etf_cockpit.core.event_policy import EventBlockPolicy
 from etf_cockpit.data.fx_data import build_fx_rate_snapshot, fx_cross_rate, load_fx_rates
-from etf_cockpit.portfolio.costs import estimate_execution_cost
+from etf_cockpit.portfolio.costs import average_daily_value_eur, estimate_execution_cost
 from etf_cockpit.portfolio.paper_bots_execution import PriceBook, load_execution_config
 from etf_cockpit.portfolio.paper_trading import PaperLedger, PaperLedgerError, load_proposal_for_paper
 from etf_cockpit.portfolio.proposal_policy import (
@@ -257,7 +257,15 @@ def preview_manual_paper_order(
 
     order_value_eur = resolved_quantity * float(price_value) * eur_rate
     try:
-        cost = estimate_execution_cost(load_config(), instrument, order_value_eur)
+        history = pd.DataFrame([
+            book.bar(instrument, day, known_by=cutoff) or {}
+            for day in book._dates.get(instrument, []) if day <= cutoff.date()
+        ])
+        adv_eur = average_daily_value_eur(
+            history.get("volume", pd.Series(dtype=float)), history.get("close", pd.Series(dtype=float)),
+            currency=quote_currency, fx_to_eur=eur_rate,
+        )
+        cost = estimate_execution_cost(load_config(), instrument, order_value_eur, adv_eur=adv_eur)
         _, execution_config = load_execution_config(root / "configs" / "paper_bots_execution_v1.yaml")
         friction = evaluate_friction_gate(
             execution_config.get("rule_expected_benefit_bps"),

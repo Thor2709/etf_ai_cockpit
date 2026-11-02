@@ -15,6 +15,37 @@ from etf_cockpit.mcp import tools_data, tools_etf, tools_universe
 from etf_cockpit.data.universe_store import UniverseRecord
 
 
+@pytest.mark.parametrize("submission_route", ["session", "api"])
+def test_refresh_submission_binds_dedupe_to_normalised_request(submission_route):
+    from etf_cockpit.mcp.registry import use_call_context
+
+    submissions = []
+
+    def submit_workflow(*, workflow_type, label, input_payload, dedupe_key):
+        submissions.append((workflow_type, input_payload, dedupe_key))
+        return "wf_refresh"
+
+    def execute(command):
+        assert command.idempotency_key == command.dedupe_key
+        submissions.append((command.workflow_type, command.input_payload, command.dedupe_key))
+        return SimpleNamespace(status="accepted", resource_id="wf_refresh")
+
+    context = _context()
+    context.session = (SimpleNamespace(submit_workflow=submit_workflow) if submission_route == "session"
+                       else SimpleNamespace(application_api=SimpleNamespace(execute=execute)))
+    with use_call_context(context):
+        first = tools_data.data_refresh(" PRICES ", ids=None, years=1, rescore=False)
+        repeated = tools_data.data_refresh("prices", ids=[], years=1, rescore=False)
+        changed = tools_data.data_refresh("prices", years=2, rescore=False)
+        other_source = tools_data.data_refresh("fundamentals", years=1, rescore=False)
+    assert first["job_id"] == repeated["job_id"] == changed["job_id"] == other_source["job_id"] == "wf_refresh"
+    assert len(submissions) == 4
+    assert submissions[0][1] == {"source": "prices", "ids": [], "years": 1, "rescore": False}
+    assert submissions[0][2].startswith("mcp:data_refresh:")
+    assert submissions[0][2] == submissions[1][2]
+    assert len({submissions[index][2] for index in (0, 2, 3)}) == 3
+
+
 def _context(rate_path: Path | None = None) -> CallContext:
     return CallContext(
         enabled_tiers=frozenset({"read", "edit", "read_job"}),

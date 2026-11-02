@@ -9,6 +9,8 @@ provider write before the registry accepts a valid confirmation token.
 from __future__ import annotations
 
 from datetime import date
+import hashlib
+import json
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -44,23 +46,27 @@ def _submit_workflow(workflow_type: str, label: str, payload: Mapping[str, objec
     if session is None:
         raise MCPToolError("JOB_SERVICE_UNAVAILABLE", "The local workflow service is not available", "Start the MCP server with its headless application workflow service.")
     api = getattr(session, "application_api", None) or getattr(session, "api", None)
+    tool_name = "data_refresh" if workflow_type != "score_history_backfill" else workflow_type
+    fingerprint = hashlib.sha256(json.dumps(
+        [tool_name, normalise(payload)], sort_keys=True, separators=(",", ":"), allow_nan=False,
+    ).encode("utf-8")).hexdigest()
+    dedupe_key = f"mcp:{tool_name}:{fingerprint}"
     submit = getattr(session, "submit_workflow", None)
     if callable(submit):
-        result = submit(workflow_type=workflow_type, label=label, input_payload=dict(payload))
-        job_id = getattr(result, "resource_id", None) or getattr(result, "workflow_id", None)
+        result = submit(workflow_type=workflow_type, label=label, input_payload=dict(payload), dedupe_key=dedupe_key)
+        job_id = result if isinstance(result, str) else getattr(result, "resource_id", None) or getattr(result, "workflow_id", None)
         if job_id:
             return str(job_id)
     execute = getattr(api, "execute", None)
     if callable(execute):
-        from uuid import uuid4
-
         from etf_cockpit.application.contracts import SubmitWorkflowCommand
 
         command = SubmitWorkflowCommand(
-            idempotency_key=f"mcp-{uuid4().hex}",
+            idempotency_key=dedupe_key,
             workflow_type=workflow_type,
             label=label,
             input_payload=dict(payload),
+            dedupe_key=dedupe_key,
             job_keys=("start",),
         )
         result = execute(command)

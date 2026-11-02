@@ -1,7 +1,7 @@
 ﻿"""Offline seeded-root driver; launched before application imports by test_flows.
 
-Stubs: identity_get_json (Yahoo HTTP), identity_post_json (OpenFIGI HTTP),
-identity_ticker (Yahoo optional profile client). All use explicit fixture facts.
+Stubs: Yahoo/OpenFIGI identity responses and Yahoo market-data responses use
+explicit fixture facts. Issuer/public reference HTTP inputs stay unavailable.
 No other application service or persistence path is replaced.
 """
 from __future__ import annotations
@@ -21,13 +21,15 @@ class ToolDefect(Exception):
     pass
 
 
-def seed(root):
+def seed(root, flow):
     fixtures = Path(__file__).parent
     code = fixtures.parents[2]
     for name in ("data_readiness_v1.yaml", "paper_bots_execution_v1.yaml", "authority_matrix.yaml",
-                 "pre_trade_limits_v1.yaml", "score_engine_v3.yaml"):
+                 "pre_trade_limits_v1.yaml", "score_engine_v3.yaml", "universe_membership_v1.yaml",
+                 "decision_domains_v1.yaml", "costs.yaml", "gate_policy.yaml", "storage_policy.yaml",
+                 "portfolio_targets.yaml", "risk_limits.yaml", "settlement_v1.yaml", "data_providers.yaml",
+                 "market_calendar_corrections.yaml", "model_settings.yaml"):
         shutil.copyfile(code / "configs" / name, root / "configs" / name)
-    (root / "configs" / "data_providers.yaml").write_text("providers: {}\n", encoding="utf-8")
     from etf_cockpit.core.paths import ROOT
     from etf_cockpit.data.duckdb_store import write_prices
     assert ROOT == root, (ROOT, root)
@@ -40,23 +42,24 @@ def seed(root):
     path.parent.mkdir(parents=True, exist_ok=True)
     prices.to_parquet(path)
     # Health and readiness also read the compatibility store; identical fixture evidence.
-    # An outside-universe candidate has the same explicit fixture price history,
-    # retained through the canonical payload/checksum binding writer.
-    from etf_cockpit.data.trade_candidate_analysis import write_candidate_price_snapshot
-    from etf_cockpit.portfolio.benchmark_reference import adjusted_price_snapshot_binding
-    candidate = prices.assign(etf_id="FIXTURE1")
-    window = {"start_date": str(candidate["date"].min()), "end_date": "2026-10-30",
-              "decision_time": "2026-10-30T20:00:00Z"}
-    binding = adjusted_price_snapshot_binding(candidate, calculation_window=window)
-    assert binding is not None
-    write_candidate_price_snapshot(candidate, binding)
+    # Flow 3 has explicit outside-universe price evidence. Flow 1's newly added
+    # instrument has no supplied history and must remain unavailable.
+    if flow == 3:
+        from etf_cockpit.data.trade_candidate_analysis import write_candidate_price_snapshot
+        from etf_cockpit.portfolio.benchmark_reference import adjusted_price_snapshot_binding
+        candidate = prices.assign(etf_id="FIXTURE1")
+        window = {"start_date": str(candidate["date"].min()), "end_date": "2026-10-30",
+                  "decision_time": "2026-10-30T20:00:00Z"}
+        binding = adjusted_price_snapshot_binding(candidate, calculation_window=window)
+        assert binding is not None
+        write_candidate_price_snapshot(candidate, binding)
     directory = root / "data" / "raw" / "trade_candidates"
     directory.mkdir(parents=True, exist_ok=True)
     (directory / "yahoo_trade_candidates_l9.csv").write_text(
         "instrument_id,yahoo_symbol,name,asset_type\nFIXTURE1,FIXTURE1,Fixture One,stock\n", encoding="utf-8")
-    from etf_cockpit.data.universe_store import load_universe, save_universe
-    universe = load_universe(root)
-    save_universe(universe.records, universe.revision, root=root)
+    from etf_cockpit.data.universe_store import import_legacy_universe, save_universe
+    universe = import_legacy_universe(root / "configs" / "universe.yaml")
+    save_universe(universe.records, "", root=root)
     from etf_cockpit.portfolio.paper_trading import PaperLedger
     PaperLedger(root, account_id="l9-paper").open_account(initial_cash=10000.0)
 
@@ -74,17 +77,36 @@ def identity_ticker(_symbol):
                                  "currency": "EUR", "country": "Germany", "exchange": "GER"})
 
 
+def market_download(symbol, *, start, end, **_kwargs):
+    assert symbol == "VWCE.DE", f"No market response fixture for {symbol}"
+    prices = pd.read_csv(Path(__file__).parent / "prices.csv")
+    dates = pd.to_datetime(prices["date"])
+    prices = prices.loc[(dates >= pd.Timestamp(start)) & (dates < pd.Timestamp(end))].copy()
+    return prices.rename(columns={"date": "Date", "open": "Open", "high": "High", "low": "Low",
+        "close": "Close", "adjusted_close": "Adj Close", "volume": "Volume"}).set_index("Date").rename_axis("Date")
+
+
+def unavailable_reference_http(*_args, **_kwargs):
+    raise OSError("Offline fixture: issuer/public reference input unavailable")
+
+
 def context(root):
+    import yfinance
     from etf_cockpit.application import stock_service
     from etf_cockpit.application.headless_session import HeadlessSession
     from etf_cockpit.application.snapshot_builder import build_snapshot
     from etf_cockpit.data.instrument_lookup import resolve
+    from etf_cockpit.data import etf_e1_fetch
     from etf_cockpit.mcp.audit import AuditRecorder
     from etf_cockpit.mcp.confirm import ConfirmationStore
     from etf_cockpit.mcp.registry import CallContext, RateLimiter
     stock_service.lookup_instrument = partial(resolve, get_json=identity_get_json,
         post_json=identity_post_json, ticker_factory=identity_ticker)
+    yfinance.download = market_download
+    yfinance.Ticker = lambda _symbol: SimpleNamespace(info={}, fast_info={})
+    etf_e1_fetch.get_checked = unavailable_reference_http
     session = HeadlessSession(build_snapshot(force_sample=False), root=root)
+    assert all(not session.snapshot.model_status.get(name, False) for name in ("timesfm", "timesfm3", "toto"))
     return CallContext(enabled_tiers=frozenset({"read", "edit", "read_job", "research", "paper"}),
         profile="full", client_id="l9-flow", session=session,
         confirmation_store=ConfirmationStore(b"c" * 32), audit=AuditRecorder(sink=lambda _record: None),
@@ -171,19 +193,10 @@ def flow1(ctx):
     add_instrument(ctx)
     args = {"source": "prices", "years": 1, "rescore": False}
     preview = confirmed(ctx, "data_refresh", args)
-    before = state(ctx)
-    defect = None
-    try:
-        refresh = call(ctx, "data_refresh", **args, confirm_token=preview["confirm_token"])
-    except TypeError as exc:
-        assert "dedupe_key" in str(exc) and "submit_workflow" in str(exc), str(exc)
-        assert state(ctx) == before
-        defect = "L9-refresh: tools_data._submit_workflow omits required HeadlessSession dedupe_key"
-    else:
-        ctx.session.run_next_workflow(workflow_id=refresh["job_id"])
-        job = call(ctx, "job_status", job_id=refresh["job_id"])
-        assert job["job"].status.value == "succeeded", job
-    # Independently exercise the real derived pipeline even if refresh submission fails.
+    refresh = call(ctx, "data_refresh", **args, confirm_token=preview["confirm_token"])
+    ctx.session.run_next_workflow(workflow_id=refresh["job_id"])
+    job = call(ctx, "job_status", job_id=refresh["job_id"])
+    assert job["job"].status.value == "succeeded", job
     pipeline = call(ctx, "pipeline_run", steps=["scores"], live_optional_models=False)
     assert pipeline["status"] == "succeeded", pipeline
     assert Path(pipeline["result"]["steps"]["scores"]["output_path"]).is_file()
@@ -191,8 +204,6 @@ def flow1(ctx):
     assert job["job"].status.value == "succeeded"
     explained = call(ctx, "score_explain", instrument_id="FIXTURE1")
     assert explained["score_10"] is None and explained["status"] == "unavailable", explained
-    if defect:
-        raise ToolDefect(defect)
 
 
 def research(ctx, kind="web"):
@@ -247,7 +258,7 @@ def seed_proposal(ctx):
     from etf_cockpit.portfolio.paper_trading import PaperLedger
     from etf_cockpit.portfolio.proposal_policy import (REQUIRED_GATES, GateEvidence, ProposalRequest,
         build_proposal_decision, current_authority_policy_checksum, save_proposal_decision)
-    from etf_cockpit.portfolio.costs import estimate_execution_cost
+    from etf_cockpit.portfolio.costs import average_daily_value_eur, estimate_execution_cost
     from etf_cockpit.signals.friction_edge import evaluate_friction_gate
     root = ctx.session.root
     now = datetime.now(timezone.utc)
@@ -256,7 +267,11 @@ def seed_proposal(ctx):
     assert bar is not None
     fingerprint = pd.util.hash_pandas_object(pd.Series([
         "VWCE", str(bar["date"]), str(bar["_known_at"]), 100.0]), index=False).astype("uint64").to_list()
-    cost = estimate_execution_cost(ctx.session.snapshot.config, "VWCE", 1000.0, adv_eur=10000000.0)
+    prices = pd.read_csv(Path(__file__).parent / "prices.csv")
+    history = prices[(prices["etf_id"] == "VWCE") & (pd.to_datetime(prices["date"]).dt.date <= now.date())
+                     & (pd.to_datetime(prices["known_at"], utc=True) <= now)]
+    adv = average_daily_value_eur(history["volume"], history["close"], currency="EUR")
+    cost = estimate_execution_cost(ctx.session.snapshot.config, "VWCE", 1000.0, adv_eur=adv)
     request = ProposalRequest(instrument_id="VWCE", current_quantity=0.0, target_quantity=10.0,
         strategy_id="strategy:paper_portfolio", strategy_stage="paper", model_id="model:paper", model_stage="paper",
         account_id="broker:paper_portfolio", account_stage="paper", optimiser_output_id="l9-seeded-optimiser",
@@ -280,8 +295,7 @@ def flow4(ctx):
     finding = research(ctx, "sentiment")
     assert PaperLedger(ctx.session.root, account_id="l9-paper").snapshot().cash == 10000.0
     source = seed_proposal(ctx)
-    # Placement confirmation must refuse before reading terms or accepting a
-    # proposal, even while the separate manual-preview capacity defect blocks.
+    # Placement confirmation must refuse before reading terms or accepting a proposal.
     uncommitted = {"proposal_id": source, "instrument_id": "VWCE", "quantity": 10.0}
     confirmed(ctx, "paper_order_place", uncommitted)
     confirmed(ctx, "paper_order_place", {**uncommitted, "dry_run": False})
@@ -291,10 +305,6 @@ def flow4(ctx):
     # Explicit missing-token commit attempt, in addition to the safe dry run.
     confirmed(ctx, "paper_order_preview", {**args, "dry_run": False})
     data = preview["preview"]
-    if data["status"] == "blocked" and data["cost_estimate"]["capacity_eur"] is None:
-        assert any(g["gate_id"] == "liquidity" and not g["passed"] for g in data["gates"]), data
-        assert not PaperLedger(ctx.session.root, account_id="l9-paper").orders()
-        raise ToolDefect("L9-paper-capacity: preview_manual_paper_order calls estimate_execution_cost without ADV; capacity=None blocks liquidity")
     assert data["status"] == "confirmation_required", data
     committed = call(ctx, "paper_order_preview", **data["confirmation_arguments"], confirm_token=data["confirm_token"])
     assert committed["status"] == "proposal_ready", committed
@@ -334,7 +344,7 @@ def flow6(ctx):
 
 if __name__ == "__main__":
     selected, root_arg = int(sys.argv[1]), Path(sys.argv[2]).resolve()
-    seed(root_arg)
+    seed(root_arg, selected)
     active = context(root_arg)
     try:
         globals()[f"flow{selected}"](active)

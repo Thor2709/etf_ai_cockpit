@@ -287,6 +287,58 @@ def test_manual_preview_through_confirmed_place_uses_stored_policy_evidence(manu
     assert placed["execution_allowed"] is False
 
 
+@pytest.mark.parametrize("history_kind", ["available", "missing", "future_known", "future_session", "insufficient", "zero"])
+def test_manual_liquidity_uses_canonical_point_in_time_volume(manual_evidence, monkeypatch, history_kind):
+    from datetime import timedelta
+    import pandas as pd
+    from etf_cockpit.portfolio.costs import average_daily_value_eur, estimate_execution_cost
+    from etf_cockpit.portfolio.paper_bots_execution import PRICE_FILE_RELATIVE
+
+    fixture = manual_evidence
+    fixture.store()
+    # Use the real cost service, bypassing this older fixture's capacity override.
+    monkeypatch.setattr(paper_manual_order, "estimate_execution_cost", estimate_execution_cost)
+    price_path = fixture.root / PRICE_FILE_RELATIVE
+    current = pd.read_parquet(price_path)
+    rows = []
+    for offset in range(1, 21):
+        day = fixture.now - timedelta(days=offset)
+        row = {"instrument_id": "VWCE", "date": day.date().isoformat(), "close": 100.0,
+               "known_at": day.isoformat(), "volume": 100000.0}
+        if history_kind == "future_known":
+            row["known_at"] = (fixture.now + timedelta(days=1)).isoformat()
+        if history_kind == "future_session":
+            row["date"] = (fixture.now + timedelta(days=offset)).date().isoformat()
+        if history_kind == "missing":
+            row.pop("volume")
+        if history_kind == "zero":
+            row["volume"] = 0.0
+        if history_kind != "insufficient" or offset <= 8:
+            rows.append(row)
+    # Other instruments must never supply VWCE's missing liquidity evidence.
+    other = [{**row, "instrument_id": "OTHER", "volume": 100000.0} for row in rows]
+    pd.concat([pd.DataFrame(rows + other), current], ignore_index=True).to_parquet(price_path)
+
+    preview = paper_manual_order.preview_manual_paper_order(
+        root=fixture.root, snapshot=fixture.snapshot, account_id="manual-test", instrument_id="VWCE",
+        side="buy", quantity=10.0, rationale="Canonical liquidity regression", as_of=fixture.now,
+    )
+    liquidity = next(gate for gate in preview["gates"] if gate["gate_id"] == "liquidity")
+    if history_kind == "available":
+        expected = average_daily_value_eur([100000.0] * 19 + [None], [100.0] * 20)
+        expected_cost = estimate_execution_cost(fixture.snapshot.config, "VWCE", 1000.0, adv_eur=expected)
+        assert preview["cost_estimate"] == expected_cost.as_dict()
+        assert liquidity["passed"] is True
+        assert preview["status"] == "proposal_ready"
+    else:
+        assert liquidity["passed"] is False
+        assert preview["status"] == "blocked"
+        if history_kind != "zero":
+            assert preview["cost_estimate"]["capacity_eur"] is None
+            assert preview["cost_estimate"]["capacity_status"] == "unavailable_missing_adv"
+    assert not fixture.ledger.orders()
+
+
 @pytest.mark.parametrize("failure", ["missing", "confidence", "concentration", "quantity", "revision", "future", "expired", "corrupt"])
 def test_manual_evidence_fails_closed(manual_evidence, failure):
     from datetime import timedelta
