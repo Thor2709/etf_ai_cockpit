@@ -35,6 +35,38 @@ def test_submit_persists_dag_and_duplicate_submission_is_idempotent(tmp_path) ->
     assert scheduler.verify_event_chain(first.workflow_id)
 
 
+@pytest.mark.parametrize("prefix, wildcard_match", [
+    ("literal%:", "literal-expanded:"),
+    ("literal_:", "literalX:"),
+    ("literal!%_:", "literal!expandedX:"),
+])
+@pytest.mark.parametrize("active_status", [JobStatus.QUEUED, JobStatus.RUNNING])
+def test_find_active_workflow_matches_prefix_literally(tmp_path, prefix, wildcard_match, active_status) -> None:
+    scheduler = DurableJobScheduler(tmp_path)
+    literal = scheduler.submit("refresh", "Literal", (JobSpec("start", "Start"),), dedupe_key=f"{prefix}older")
+    newest = scheduler.submit("refresh", "Newest literal", (JobSpec("start", "Start"),), dedupe_key=f"{prefix}newest")
+    decoy = scheduler.submit("refresh", "Wildcard decoy", (JobSpec("start", "Start"),), dedupe_key=f"{wildcard_match}decoy")
+    other_type = scheduler.submit("other", "Other type", (JobSpec("start", "Start"),), dedupe_key=f"{prefix}other")
+    terminal = scheduler.submit("refresh", "Terminal", (JobSpec("start", "Start"),), dedupe_key=f"{prefix}terminal")
+    scheduler.cancel(terminal.workflow_id)
+    with sqlite3.connect(storage_layout(tmp_path).transactional_path) as connection:
+        for index, record in enumerate((literal, newest, decoy, other_type, terminal)):
+            connection.execute(
+                "UPDATE workflow_runs SET created_at = ? WHERE workflow_id = ?",
+                (f"2026-11-03T00:00:0{index}+00:00", record.workflow_id),
+            )
+        connection.execute("UPDATE workflow_runs SET status = ? WHERE workflow_id = ?", (active_status.value, newest.workflow_id))
+
+    found = scheduler.find_active_workflow("refresh", prefix)
+
+    assert found is not None and found.workflow_id == newest.workflow_id
+    assert found.status is active_status
+    scheduler.cancel(newest.workflow_id)
+    assert scheduler.find_active_workflow("refresh", prefix).workflow_id == literal.workflow_id
+    scheduler.cancel(literal.workflow_id)
+    assert scheduler.find_active_workflow("refresh", prefix) is None
+
+
 def test_dag_execution_gates_dependencies_and_blocks_downstream_failure(tmp_path) -> None:
     scheduler = DurableJobScheduler(tmp_path, worker_id="worker")
     workflow = scheduler.submit("refresh", "Refresh", _dag())

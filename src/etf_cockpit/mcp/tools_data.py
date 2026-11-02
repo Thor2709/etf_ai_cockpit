@@ -8,7 +8,6 @@ Submission identities hash the consumed single-use confirmation token (including
 its nonce), or use uuid4 for calls without confirmation. A process-local lock
 serialises active-workflow lookup and submission. Cross-process duplicates are
 possible only when two processes submit at the same instant (benign: two refreshes).
-The current session exposes at most 200 workflows; a saturated lookup fails closed.
 """
 
 from __future__ import annotations
@@ -72,36 +71,19 @@ def _submit_workflow(workflow_type: str, label: str, payload: Mapping[str, objec
     dedupe_key = f"{dedupe_prefix}{submission_id}"
     submit = getattr(session, "submit_workflow", None)
     execute = getattr(api, "execute", None)
-    list_workflows = getattr(session, "list_workflows", None)
-    if not callable(list_workflows):
-        raise MCPToolError("JOB_SERVICE_UNAVAILABLE", "Active workflows cannot be listed", "Start the MCP server with its headless application workflow service.")
+    find_active_workflow = getattr(session, "find_active_workflow", None)
+    if not callable(find_active_workflow):
+        raise MCPToolError("JOB_SERVICE_UNAVAILABLE", "Active workflows cannot be looked up", "Start the MCP server with its headless application workflow service.")
     with _WORKFLOW_SUBMISSION_LOCK:
-        offset = 0
-        while True:
-            try:
-                # Filter locally: the session applies status filtering before slicing
-                # an already bounded scheduler window, which can hide active rows.
-                rows = list(list_workflows(status=None, offset=offset, limit=MAX_PAGE_SIZE))
-            except Exception as exc:
-                raise MCPToolError("JOB_SERVICE_UNAVAILABLE", "Active workflows cannot be listed", "Restore the local workflow service before retrying.") from exc
-            for record in rows:
-                status = field(record, "status")
-                if getattr(status, "value", status) not in {"queued", "running"} or field(record, "workflow_type") != workflow_type:
-                    continue
-                key = field(record, "dedupe_key")
-                matches = (isinstance(key, str) and key.startswith(dedupe_prefix)) if key else fingerprint_for(field(record, "inputs")) == fingerprint
-                if matches:
-                    job_id = field(record, "workflow_id")
-                    if not job_id:
-                        raise MCPToolError("JOB_SERVICE_UNAVAILABLE", "An active workflow has no identifier", "Restore the local workflow service before retrying.")
-                    return str(job_id)
-            offset += len(rows)
-            # HeadlessSession and its scheduler truncate at 200. An older active
-            # match may be hidden; never treat that truncation as an empty history.
-            if offset >= 200:
-                raise MCPToolError("JOB_SERVICE_UNAVAILABLE", "The workflow listing window is full", "Complete workflow pagination is required before another submission can be accepted.")
-            if len(rows) < MAX_PAGE_SIZE:
-                break
+        try:
+            record = find_active_workflow(workflow_type=workflow_type, dedupe_prefix=dedupe_prefix)
+        except Exception as exc:
+            raise MCPToolError("JOB_SERVICE_UNAVAILABLE", "Active workflows cannot be looked up", "Restore the local workflow service before retrying.") from exc
+        if record is not None:
+            job_id = field(record, "workflow_id")
+            if not job_id:
+                raise MCPToolError("JOB_SERVICE_UNAVAILABLE", "An active workflow has no identifier", "Restore the local workflow service before retrying.")
+            return str(job_id)
         job_id = None
         if callable(submit):
             result = submit(workflow_type=workflow_type, label=label, input_payload=dict(payload), dedupe_key=dedupe_key)

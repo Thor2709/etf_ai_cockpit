@@ -404,6 +404,11 @@ class HeadlessSession:
             rows = tuple(row for row in rows if str(getattr(row.status, "value", row.status)) == status)
         return rows[offset : offset + limit]
 
+    def find_active_workflow(self, workflow_type: str, dedupe_prefix: str):
+        """Find an active workflow through the durable local scheduler."""
+
+        return self._scheduler().find_active_workflow(workflow_type, dedupe_prefix)
+
     def cancel_workflow(self, workflow_id: str, reason: str):
         """Cancel one durable workflow without changing its recorded history."""
 

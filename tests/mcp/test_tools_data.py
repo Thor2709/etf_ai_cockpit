@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 import hashlib
 from pathlib import Path
+import sqlite3
 from types import SimpleNamespace
 
 import pytest
@@ -33,7 +34,7 @@ def test_refresh_submission_binds_dedupe_to_normalised_request(submission_route)
     context = _context()
     context.session = (SimpleNamespace(submit_workflow=submit_workflow) if submission_route == "session"
                        else SimpleNamespace(application_api=SimpleNamespace(execute=execute)))
-    context.session.list_workflows = lambda **_kwargs: []
+    context.session.find_active_workflow = lambda **_kwargs: None
     with use_call_context(context):
         first = tools_data.data_refresh(" PRICES ", ids=None, years=1, rescore=False)
         repeated = tools_data.data_refresh("prices", ids=[], years=1, rescore=False)
@@ -516,7 +517,7 @@ def workflow_submission_context(request, tmp_path, monkeypatch):
         context.session = session
     else:
         api = LocalApplicationApi(lambda: snapshot, scheduler=scheduler, root=tmp_path)
-        context.session = SimpleNamespace(application_api=api, list_workflows=session.list_workflows)
+        context.session = SimpleNamespace(application_api=api, find_active_workflow=session.find_active_workflow)
     return context, scheduler, commands
 
 
@@ -598,28 +599,79 @@ def test_completed_refresh_replacement_is_reused_while_queued(workflow_submissio
     assert len(commands) == 2
 
 
-@pytest.mark.parametrize("listing", [None, "failed", "saturated"])
-def test_refresh_fails_closed_when_complete_listing_is_unavailable(listing):
+def _seed_250_newer_terminal_workflows(scheduler):
+    from etf_cockpit.core.job_scheduler import JobSpec
+    from etf_cockpit.data.local_storage import storage_layout
+
+    seed = scheduler.submit("refresh", "Terminal history", (JobSpec("start", "Start"),), dedupe_key="terminal:0")
+    scheduler.cancel(seed.workflow_id)
+    newer = (datetime.now(timezone.utc) + timedelta(seconds=1)).isoformat(timespec="milliseconds")
+    with sqlite3.connect(storage_layout(scheduler.root).transactional_path) as connection:
+        connection.execute("UPDATE workflow_runs SET created_at = ? WHERE workflow_id = ?", (newer, seed.workflow_id))
+        connection.executemany(
+            """
+            INSERT INTO workflow_runs (
+                workflow_id, workflow_type, label, status, dedupe_key, input_hash,
+                inputs_json, outputs_json, created_at, finished_at, resource_json
+            )
+            SELECT ?, workflow_type, label, status, ?, input_hash,
+                   inputs_json, outputs_json, ?, finished_at, resource_json
+            FROM workflow_runs WHERE workflow_id = ?
+            """,
+            ((f"terminal-{index}", f"terminal:{index}", newer, seed.workflow_id) for index in range(1, 250)),
+        )
+    window = scheduler.list_workflows(limit=200)
+    assert len(window) == 200
+    assert all(row.status.value == "cancelled" for row in window)
+
+
+def test_older_queued_refresh_is_found_and_reused_after_250_terminal_workflows(workflow_submission_context):
+    context, scheduler, commands = workflow_submission_context
+    first = _confirmed_refresh(context)
+    _seed_250_newer_terminal_workflows(scheduler)
+
+    original = scheduler.get_workflow(first)
+    prefix = original.dedupe_key.rsplit(":", 1)[0] + ":"
+    assert scheduler.find_active_workflow("refresh", prefix) == original
+    assert _confirmed_refresh(context) == first
+    assert scheduler.get_workflow(first).status.value == "queued"
+    assert len(commands) == 1
+
+
+def test_refresh_submits_new_job_after_250_terminal_workflows(workflow_submission_context):
+    context, scheduler, commands = workflow_submission_context
+    _seed_250_newer_terminal_workflows(scheduler)
+    assert scheduler.find_active_workflow("refresh", "mcp:data_refresh:") is None
+
+    submitted = _confirmed_refresh(context)
+
+    assert scheduler.get_workflow(submitted).status.value == "queued"
+    assert len(commands) == 1
+
+
+@pytest.mark.parametrize("lookup", ["missing", "legacy_listing", "failed", "missing_id"])
+def test_refresh_fails_closed_when_active_lookup_is_unavailable(lookup):
     from etf_cockpit.mcp.errors import MCPToolError
     from etf_cockpit.mcp.registry import use_call_context
 
-    def list_workflows(*, status, offset, limit):
-        if listing == "failed":
-            raise RuntimeError("listing unavailable")
-        return [SimpleNamespace(status="succeeded") for _ in range(min(limit, 200 - offset))]
+    def find_active_workflow(**_kwargs):
+        if lookup == "failed":
+            raise RuntimeError("lookup unavailable")
+        return SimpleNamespace(workflow_id=None)
 
     context = _context()
     context.session = SimpleNamespace(submit_workflow=lambda **_kwargs: pytest.fail("unsafe submission"))
-    if listing is not None:
-        context.session.list_workflows = list_workflows
+    if lookup == "legacy_listing":
+        context.session.list_workflows = lambda **_kwargs: []
+    elif lookup != "missing":
+        context.session.find_active_workflow = find_active_workflow
     with use_call_context(context), pytest.raises(MCPToolError) as error:
         tools_data.data_refresh("prices")
     assert error.value.reason_code == "JOB_SERVICE_UNAVAILABLE"
 
 
-@pytest.mark.parametrize("record_kind", ["dedupe_key", "inputs"])
-@pytest.mark.parametrize("status", ["queued", "running"])
-def test_refresh_finds_active_match_on_later_page(record_kind, status):
+@pytest.mark.parametrize("record_kind", ["mapping", "record"])
+def test_refresh_reuses_active_lookup_match(record_kind):
     import json
 
     from etf_cockpit.mcp.registry import use_call_context
@@ -628,28 +680,18 @@ def test_refresh_finds_active_match_on_later_page(record_kind, status):
     fingerprint = hashlib.sha256(json.dumps(
         ["data_refresh", payload], sort_keys=True, separators=(",", ":"), allow_nan=False,
     ).encode("utf-8")).hexdigest()
-    matching = {"workflow_id": "existing", "workflow_type": "refresh", "status": status}
-    if record_kind == "dedupe_key":
-        matching["dedupe_key"] = f"mcp:data_refresh:{fingerprint}:submission"
-    else:
-        matching["inputs"] = payload
-    # Nonmatching active workflows must be skipped even when their payload matches.
-    other_type = {**matching, "workflow_type": "other", "workflow_id": "wrong-type"}
-    other_request = {**matching, "dedupe_key": "mcp:data_refresh:different:submission", "workflow_id": "wrong-input"}
-    rows = [other_type, other_request] + [{"status": "succeeded"}] * 123 + [matching]
-    pages = []
+    matching = {"workflow_id": "existing"}
+    lookups = []
 
-    def list_workflows(*, status, offset, limit):
-        assert status is None
-        pages.append(offset)
-        page = rows[offset : offset + limit]
-        return page if record_kind == "inputs" else [SimpleNamespace(**row) for row in page]
+    def find_active_workflow(*, workflow_type, dedupe_prefix):
+        lookups.append((workflow_type, dedupe_prefix))
+        return matching if record_kind == "mapping" else SimpleNamespace(**matching)
 
     context = _context()
-    context.session = SimpleNamespace(list_workflows=list_workflows, submit_workflow=lambda **_kwargs: pytest.fail("duplicate submission"))
+    context.session = SimpleNamespace(find_active_workflow=find_active_workflow, submit_workflow=lambda **_kwargs: pytest.fail("duplicate submission"))
     with use_call_context(context):
         assert tools_data.data_refresh("prices")["job_id"] == "existing"
-    assert pages == [0, 100]
+    assert lookups == [("refresh", f"mcp:data_refresh:{fingerprint}:")]
 
 
 def test_confirmed_submission_identity_is_derived_from_token():
@@ -662,7 +704,7 @@ def test_confirmed_submission_identity_is_derived_from_token():
         return SimpleNamespace(status="accepted", resource_id="submitted")
 
     context = _context()
-    context.session = SimpleNamespace(list_workflows=lambda **_kwargs: [], application_api=SimpleNamespace(execute=execute))
+    context.session = SimpleNamespace(find_active_workflow=lambda **_kwargs: None, application_api=SimpleNamespace(execute=execute))
     token = "single-use-token-with-nonce"
     with use_call_context(context):
         assert tools_data.data_refresh("prices", confirm_token=token)["job_id"] == "submitted"
