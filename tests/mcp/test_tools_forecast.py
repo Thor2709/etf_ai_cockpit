@@ -8,11 +8,14 @@ from types import SimpleNamespace
 import pandas as pd
 import pytest
 
-from etf_cockpit.application import backtest_service, forecast_lab_inputs, forecast_run
+from etf_cockpit.application import backtest_service, forecast_lab_inputs, forecast_run, stress_lab
 from etf_cockpit.core.config import load_config
+from etf_cockpit.data.local_storage import TransactionalStore, storage_layout
 from etf_cockpit.mcp import tools_forecast
 from etf_cockpit.mcp.audit import AuditRecorder
+from etf_cockpit.mcp.errors import MCPToolError
 from etf_cockpit.mcp.registry import CallContext, find_tool, invoke_tool
+from etf_cockpit.portfolio.stress_testing import StressResult
 
 
 def test_forecast_get_paginates_simple_returns_and_keeps_unavailable_values_null(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -246,3 +249,189 @@ def test_pipeline_run_uses_job_api_and_canonical_services_without_confirmation(m
                 instrument_ids=list(config.universe.enabled_ids[:-1]),
                 prices=pd.DataFrame([{"etf_id": first_enabled_id, "date": None}]),
             )
+
+
+@pytest.mark.parametrize("portfolio", ["current", "paper:acct-7", "candidate"])
+def test_stress_test_resolves_portfolio_calls_canonical_service_and_paginates(
+    portfolio: str,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from etf_cockpit.application import portfolio_sandbox
+    from etf_cockpit.portfolio import paper_trading
+
+    snapshot = SimpleNamespace(
+        holdings=pd.DataFrame([{"instrument_id": "AAA", "current_weight": 0.6, "asset_class": "equity", "currency": "EUR"}]),
+        latest_features=pd.DataFrame(),
+        prices=None,
+    )
+
+    class Session:
+        def __init__(self) -> None:
+            self.root = tmp_path
+            self.snapshot = snapshot
+
+    session = Session()
+    monkeypatch.setattr(tools_forecast, "_snapshot", lambda: (session, snapshot))
+    monkeypatch.setattr(stress_lab, "_factor_exposures", lambda *_args: pd.DataFrame())
+
+    if portfolio.startswith("paper:"):
+        class Ledger:
+            def __init__(self, _root: Path, *, account_id: str) -> None:
+                assert account_id == "acct-7"
+                self.path = SimpleNamespace(is_file=lambda: True)
+
+            def snapshot(self):
+                return SimpleNamespace(
+                    status="ready",
+                    event_count=2,
+                    equity=100.0,
+                    positions=(SimpleNamespace(
+                        instrument_id="AAA", quantity=5.0, mark_price=10.0,
+                        mark_fx_rate=1.0, currency="EUR",
+                    ),),
+                )
+
+        monkeypatch.setattr(paper_trading, "PaperLedger", Ledger)
+    elif portfolio == "candidate":
+        with TransactionalStore(tmp_path) as store:
+            store.put(portfolio_sandbox.PORTFOLIO_SANDBOX_ENTITY, "candidate-1", {"name": "latest"})
+            store.put(portfolio_sandbox.PORTFOLIO_SANDBOX_RESULT_ENTITY, "candidate-1", {"status": "available"})
+        monkeypatch.setattr(
+            portfolio_sandbox,
+            "load_portfolio_candidate",
+            lambda *_args, **_kwargs: SimpleNamespace(
+                candidate=SimpleNamespace(target_weights=(("AAA", 0.6),)),
+                result_payload={"status": "available"},
+            ),
+        )
+
+    canonical_calls: list[tuple[object, pd.DataFrame]] = []
+
+    def canonical_run(scenario, allocation, **_kwargs):
+        canonical_calls.append((scenario, allocation.copy()))
+        return StressResult(
+            scenario,
+            "available",
+            -250.0,
+            (
+                {"instrument_id": "AAA", "weight": 0.6, "pnl": -150.0, "shock": -0.1, "source": "hypothetical_explicit_shock"},
+                {"instrument_id": "BBB", "weight": 0.4, "pnl": -100.0, "shock": -0.1, "source": "hypothetical_explicit_shock"},
+            ),
+            (),
+            {"instrument_count": 2},
+            (),
+        )
+
+    monkeypatch.setattr(stress_lab, "run_stress_scenario", canonical_run)
+    context = CallContext(
+        enabled_tiers=frozenset({"read"}),
+        profile="full",
+        session=session,
+        audit=AuditRecorder(sink=lambda _record: None),
+    )
+    result = invoke_tool(
+        "stress_test",
+        {"portfolio": portfolio, "shocks": {"equity": -0.1}, "limit": 1},
+        context=context,
+    )
+
+    assert len(canonical_calls) == 1
+    assert canonical_calls[0][1].iloc[0]["instrument_id"] == "AAA"
+    assert canonical_calls[0][1].iloc[0]["current_weight"] == pytest.approx(0.6 if portfolio != "paper:acct-7" else 0.5)
+    assert result["status"] == "available"
+    assert result["loss"] == pytest.approx(250.0)
+    assert len(result["contributors"]) == 1
+    assert result["next_cursor"] is not None
+    assert result["execution_allowed"] is False
+
+
+def test_stress_test_unknown_paper_is_not_found_and_missing_candidate_is_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    snapshot = SimpleNamespace(holdings=pd.DataFrame(), latest_features=pd.DataFrame(), prices=None)
+
+    class Session:
+        def __init__(self) -> None:
+            self.root = tmp_path
+            self.snapshot = snapshot
+
+    session = Session()
+    monkeypatch.setattr(tools_forecast, "_snapshot", lambda: (session, snapshot))
+    context = CallContext(
+        enabled_tiers=frozenset({"read"}),
+        profile="full",
+        session=session,
+        audit=AuditRecorder(sink=lambda _record: None),
+    )
+
+    with pytest.raises(MCPToolError) as missing_paper:
+        invoke_tool(
+            "stress_test",
+            {"portfolio": "paper:unknown", "shocks": {"equity": -0.1}},
+            context=context,
+        )
+    assert missing_paper.value.reason_code == "NOT_FOUND"
+
+    missing_candidate = invoke_tool(
+        "stress_test",
+        {"portfolio": "candidate", "shocks": {"equity": -0.1}},
+        context=context,
+    )
+    assert missing_candidate["status"] == "unavailable"
+    assert missing_candidate["loss"] is None
+    assert missing_candidate["unavailable_reason"] == "published_candidate_unavailable"
+    assert not storage_layout(tmp_path).transactional_path.exists()
+
+
+def test_reverse_stress_returns_threshold_from_canonical_service(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    snapshot = SimpleNamespace(
+        holdings=pd.DataFrame([{"instrument_id": "AAA", "current_weight": 1.0, "asset_class": "equity"}]),
+        latest_features=pd.DataFrame(),
+        prices=None,
+    )
+
+    class Session:
+        def __init__(self) -> None:
+            self.root = tmp_path
+            self.snapshot = snapshot
+
+    session = Session()
+    monkeypatch.setattr(tools_forecast, "_snapshot", lambda: (session, snapshot))
+    monkeypatch.setattr(stress_lab, "_factor_exposures", lambda *_args: pd.DataFrame())
+    canonical_calls: list[tuple[pd.DataFrame, str, float]] = []
+
+    def canonical_reverse(allocation, *, shock_name, loss_limit, **_kwargs):
+        canonical_calls.append((allocation.copy(), shock_name, loss_limit))
+        return {
+            "status": "available",
+            "threshold": 0.2,
+            "loss_limit": loss_limit,
+            "binding_exposure": {"instrument_id": "AAA", "exposure": 1.0, "instrument_count": 1},
+            "execution_allowed": False,
+        }
+
+    monkeypatch.setattr(stress_lab, "reverse_stress", canonical_reverse)
+    context = CallContext(
+        enabled_tiers=frozenset({"read"}),
+        profile="full",
+        session=session,
+        audit=AuditRecorder(sink=lambda _record: None),
+    )
+    result = invoke_tool(
+        "stress_test",
+        {"portfolio": "current", "reverse_shock_name": "equity", "loss_limit": 1_000.0},
+        context=context,
+    )
+
+    assert len(canonical_calls) == 1
+    assert canonical_calls[0][1:] == ("equity", 1_000.0)
+    assert result["threshold"] == pytest.approx(0.2)
+    assert result["loss"] is None
+    assert result["loss_limit"] == pytest.approx(1_000.0)
+    assert result["contributors"][0]["instrument_id"] == "AAA"
+    assert result["execution_allowed"] is False

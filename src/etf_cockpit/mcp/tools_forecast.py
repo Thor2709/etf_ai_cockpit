@@ -2,7 +2,11 @@
 
 Open defaults: forecast and backtest pages contain 25 records (maximum 100),
 Forecast Lab uses the caller's exact horizon, optional model computation is off,
-and a forecast run always covers the full configured enabled universe.
+and a forecast run always covers the full configured enabled universe. Stress
+defaults to current holdings, a 1-day horizon, 100,000 EUR notional, and 25
+contributors per page (maximum 100); a saved scenario keeps its stored horizon
+unless the caller supplies one. Reverse stress uses the canonical 5.0 maximum
+shock bound and has no time horizon.
 """
 
 from __future__ import annotations
@@ -353,6 +357,192 @@ def backtest_get(
         "equity_summary": equity_summary,
         "quality_label": report.quality_label if records else None,
         "quality_notes": list(report.quality_notes or ())[:5],
+        "next_cursor": next_cursor,
+        "execution_allowed": False,
+    }
+
+
+@tool(
+    tier="read",
+    description="Run a canonical local stress scenario or reverse-stress threshold against current, candidate, or paper holdings.",
+    read_only_hint=True,
+    idempotent_hint=True,
+    profiles=("full",),
+)
+def stress_test(
+    scenario: str | None = None,
+    shocks: Mapping[str, object] | None = None,
+    horizon: int | None = None,
+    notional: float = 100_000.0,
+    portfolio: str = "current",
+    reverse_shock_name: str | None = None,
+    loss_limit: float | None = None,
+    cursor: str | None = None,
+    limit: int = DEFAULT_PAGE_SIZE,
+) -> dict[str, Any]:
+    from dataclasses import replace
+
+    from etf_cockpit.application.stress_lab import (
+        StressLabFacade,
+        StressLabPersistenceError,
+        StressPortfolioNotFoundError,
+        StressScenarioError,
+        build_stress_scenario,
+        resolve_stress_portfolio,
+    )
+
+    if not isinstance(portfolio, str) or not portfolio.strip():
+        raise InvalidArgumentsError("portfolio must be current, candidate, or paper:<account_id>")
+    selected_portfolio = portfolio.strip()
+    if scenario is not None and (not isinstance(scenario, str) or not scenario.strip()):
+        raise InvalidArgumentsError("scenario must be a saved scenario identifier")
+    if shocks is not None and not isinstance(shocks, Mapping):
+        raise InvalidArgumentsError("shocks must be a mapping of supported shock names to fractions")
+    if horizon is not None and (isinstance(horizon, bool) or not isinstance(horizon, int) or not 1 <= horizon <= 3650):
+        raise InvalidArgumentsError("horizon must be an integer from 1 to 3650")
+    try:
+        validate_page_size(limit, maximum=MAX_PAGE_SIZE)
+    except ValueError as exc:
+        raise InvalidArgumentsError(str(exc)) from None
+    selected_notional = _number(notional)
+    if selected_notional is None or selected_notional <= 0:
+        raise InvalidArgumentsError("notional must be finite and greater than zero")
+    reverse_requested = reverse_shock_name is not None or loss_limit is not None
+    if reverse_requested:
+        if horizon is not None:
+            raise InvalidArgumentsError("horizon does not apply to reverse stress")
+        if scenario is not None or shocks is not None:
+            raise InvalidArgumentsError("reverse stress accepts reverse_shock_name and loss_limit instead of scenario or shocks")
+        if not isinstance(reverse_shock_name, str) or not reverse_shock_name.strip() or loss_limit is None:
+            raise InvalidArgumentsError("reverse stress requires reverse_shock_name and loss_limit")
+        selected_loss_limit = _number(loss_limit)
+        if selected_loss_limit is None or selected_loss_limit <= 0:
+            raise InvalidArgumentsError("loss_limit must be finite and greater than zero")
+        if cursor is not None:
+            raise InvalidArgumentsError("reverse stress results do not have additional pages")
+    else:
+        selected_loss_limit = None
+        if (scenario is None) == (shocks is None):
+            raise InvalidArgumentsError("provide exactly one saved scenario identifier or shocks mapping")
+
+    session, snapshot = _snapshot()
+    root = Path(getattr(session, "root", ROOT))
+    facade = StressLabFacade(snapshot, root=root)
+    try:
+        allocation, unavailable_reason = resolve_stress_portfolio(snapshot, selected_portfolio, root=root)
+    except StressPortfolioNotFoundError:
+        raise MCPToolError("NOT_FOUND", "No paper account matches account_id", "Check the account_id with paper_portfolio and retry.") from None
+    except ValueError as exc:
+        raise InvalidArgumentsError(str(exc)) from None
+    except StressLabPersistenceError as exc:
+        raise MCPToolError("STRESS_PORTFOLIO_UNAVAILABLE", "The selected portfolio could not be read", f"Check local portfolio evidence ({type(exc).__name__}).") from None
+    if allocation.empty and unavailable_reason is None:
+        unavailable_reason = "portfolio_allocation_unavailable"
+    filters = {"portfolio": selected_portfolio, "mode": "reverse" if reverse_requested else "scenario"}
+
+    if allocation.empty:
+        return {
+            "status": "unavailable",
+            "portfolio": selected_portfolio,
+            "scenario": None,
+            "loss": None,
+            "total_pnl": None,
+            "instrument_count": 0,
+            "contributors": [],
+            "threshold": None,
+            "unavailable_reason": unavailable_reason or "portfolio_allocation_unavailable",
+            "next_cursor": None,
+            "execution_allowed": False,
+        }
+
+    if reverse_requested:
+        try:
+            report = facade.reverse(
+                shock_name=reverse_shock_name.strip(),  # type: ignore[union-attr]
+                loss_limit=selected_loss_limit,  # type: ignore[arg-type]
+                notional=selected_notional,
+                allocation=allocation,
+            )
+        except StressScenarioError as exc:
+            raise InvalidArgumentsError(str(exc)) from None
+        binding = report.get("binding_exposure")
+        contributors = [dict(binding)] if isinstance(binding, Mapping) else []
+        filters["shock_name"] = reverse_shock_name.strip()
+        page, next_cursor = _page(contributors, cursor=cursor, limit=limit, filters=filters)
+        reverse_status = str(report.get("status", "unavailable"))
+        return {
+            "status": reverse_status,
+            "portfolio": selected_portfolio,
+            "scenario": None,
+            "loss": None,
+            "loss_limit": selected_loss_limit,
+            "total_pnl": None,
+            "instrument_count": binding.get("instrument_count") if isinstance(binding, Mapping) else None,
+            "contributors": page,
+            "threshold": _number(report.get("threshold")),
+            "unavailable_reason": str(report.get("reason") or "reverse_stress_unavailable") if reverse_status == "unavailable" else None,
+            "next_cursor": next_cursor,
+            "execution_allowed": False,
+        }
+
+    try:
+        if scenario is not None:
+            saved = facade.load(scenario.strip())
+            stress_scenario = saved.scenario if horizon is None else replace(saved.scenario, horizon_days=horizon)
+        else:
+            selected_horizon = horizon if horizon is not None else 1
+            encoded = json.dumps(
+                {"shocks": dict(shocks or {}), "horizon_days": selected_horizon},
+                sort_keys=True,
+                separators=(",", ":"),
+                default=str,
+            )
+            scenario_id = "mcp-" + hashlib.sha256(encoded.encode("utf-8")).hexdigest()[:20]
+            stress_scenario = build_stress_scenario(
+                scenario_id=scenario_id,
+                name="MCP inline stress scenario",
+                shocks=shocks or {},
+                horizon_days=selected_horizon,
+            )
+        report = facade.run(stress_scenario, notional=selected_notional, allocation=allocation)
+    except StressScenarioError as exc:
+        raise InvalidArgumentsError(str(exc)) from None
+    except StressLabPersistenceError as exc:
+        raise MCPToolError("STRESS_SCENARIO_UNAVAILABLE", "The saved stress scenario could not be read", f"Check local scenario evidence ({type(exc).__name__}).") from None
+
+    payload = report.to_payload()
+    contributors = [
+        {
+            "instrument_id": item.get("instrument_id"),
+            "weight": item.get("weight"),
+            "pnl": item.get("pnl"),
+            "shock": item.get("shock"),
+            "source": item.get("source"),
+        }
+        for item in payload.get("instrument_contributions", [])
+        if isinstance(item, Mapping)
+    ]
+    filters.update({"scenario_id": stress_scenario.scenario_id})
+    page, next_cursor = _page(contributors, cursor=cursor, limit=limit, filters=filters)
+    total_pnl = _number(payload.get("total_pnl"))
+    status = str(payload.get("status", "unavailable"))
+    limitations = payload.get("limitations", [])
+    return {
+        "status": status,
+        "portfolio": selected_portfolio,
+        "scenario": {
+            "scenario_id": stress_scenario.scenario_id,
+            "name": stress_scenario.name,
+            "horizon_days": stress_scenario.horizon_days,
+            "historical_date": stress_scenario.historical_date,
+            "shock_count": len(stress_scenario.shocks),
+        },
+        "loss": None if total_pnl is None else max(0.0, -total_pnl),
+        "total_pnl": total_pnl,
+        "instrument_count": payload.get("coverage", {}).get("instrument_count") if isinstance(payload.get("coverage"), Mapping) else None,
+        "contributors": page,
+        "threshold": None,
+        "unavailable_reason": (unavailable_reason or (str(limitations[0]) if limitations and status == "unavailable" else None)),
         "next_cursor": next_cursor,
         "execution_allowed": False,
     }
