@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from datetime import date
+import json
 from pathlib import Path
+from threading import Barrier, Event, Lock
 from types import SimpleNamespace
 
 import pandas as pd
@@ -10,7 +12,7 @@ import pytest
 from etf_cockpit.application import data_service as data_service_module
 from etf_cockpit.data import trade_candidate_analysis
 from etf_cockpit.mcp.audit import AuditRecorder
-from etf_cockpit.mcp.errors import ConfirmationError, InvalidArgumentsError
+from etf_cockpit.mcp.errors import ConfirmationError, InvalidArgumentsError, MCPToolError
 from etf_cockpit.mcp.registry import CallContext, invoke_tool
 from etf_cockpit.mcp import tools_scores
 
@@ -137,9 +139,9 @@ def test_candidate_tool_filters_out_universe_and_delegates_to_data_service(monke
         def __init__(self, config):
             assert config is snapshot.config
 
-        def run_yfinance_candidate_analysis(self, **kwargs):
+        def run_stored_candidate_analysis(self, **kwargs):
             calls.append(kwargs)
-            return "candidate report"
+            return {"message": "candidate report"}
 
     monkeypatch.setattr(data_service_module, "DataService", FakeDataService)
     monkeypatch.setattr(
@@ -149,7 +151,7 @@ def test_candidate_tool_filters_out_universe_and_delegates_to_data_service(monke
 
     result = tools_scores.candidate_analyse(["outside"], years=2)
     assert result["result"]["classification"] == "provisional_not_ranked"
-    assert calls == [{"years": 2, "identifiers": ("outside",)}]
+    assert calls == [{"years": 2, "identifiers": ("outside",), "root": tmp_path}]
     with pytest.raises(InvalidArgumentsError, match="outside the configured universe"):
         tools_scores.candidate_analyse(["inside"])
     assert len(calls) == 1
@@ -195,3 +197,235 @@ def test_candidate_service_filters_requested_ids_and_leaves_missing_prices_unava
     assert pd.isna(rows.loc["two", "trade_value_native"])
     assert pd.isna(rows.loc["two", "technical_score"])
     assert rows.loc["two", "blocked_by"] == "missing_price_data"
+
+
+@pytest.mark.parametrize("session_source", ["active", "fallback"])
+@pytest.mark.parametrize("entrypoint", ["score_history", "top_n_selection", "rank_validation_run"])
+def test_score_session_rejects_foreign_root_before_read_or_job(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, session_source: str, entrypoint: str,
+) -> None:
+    from etf_cockpit.application import score_explain, selection_views
+
+    monkeypatch.setattr(tools_scores, "ROOT", tmp_path / "configured")
+    foreign = SimpleNamespace(root=tmp_path / "foreign", snapshot=SimpleNamespace())
+    monkeypatch.setattr(tools_scores, "_DEFAULT_SESSION", foreign)
+    monkeypatch.setattr(
+        tools_scores, "current_call_context",
+        lambda: SimpleNamespace(session=foreign if session_source == "active" else None),
+    )
+    calls = []
+    monkeypatch.setattr(score_explain, "load_score_history", lambda *args, **kwargs: calls.append("history"))
+    monkeypatch.setattr(selection_views, "load_top_n_selection", lambda *args, **kwargs: calls.append("selection"))
+    monkeypatch.setattr(tools_scores, "_job", lambda *args, **kwargs: calls.append("job"))
+    with pytest.raises(MCPToolError, match="DATA_ROOT_MISMATCH"):
+        getattr(tools_scores, entrypoint)(*(["one"] if entrypoint == "score_history" else []))
+    assert calls == []
+    assert not foreign.root.exists()
+
+
+@pytest.mark.parametrize("session_source", ["active", "fallback"])
+def test_score_session_accepts_resolved_configured_root(monkeypatch, tmp_path, session_source) -> None:
+    monkeypatch.setattr(tools_scores, "ROOT", tmp_path)
+    session = SimpleNamespace(root=str(tmp_path / "subdir" / ".."), snapshot=SimpleNamespace())
+    monkeypatch.setattr(tools_scores, "_DEFAULT_SESSION", session)
+    monkeypatch.setattr(
+        tools_scores, "current_call_context",
+        lambda: SimpleNamespace(session=session if session_source == "active" else None),
+    )
+    assert tools_scores._session() is session
+
+
+def _research_item(source_url="https://example.com/article?topic=earnings"):
+    return {
+        "subject": "one", "kind": "filing", "claim": "External claim", "stance": 0.5,
+        "confidence": 0.8, "source_url": source_url, "source_title": "Filing",
+        "published_at": "2025-01-01T00:00:00Z", "retrieved_at": "2025-01-02T00:00:00Z",
+    }
+
+
+@pytest.mark.parametrize("source_url", [
+    "https://user:fixture-secret@example.com/article",
+    "https://user@example.com/article",
+    "https://example.com/article?api_key=fixture-secret",
+    "https://example.com/article?%61ccess_token=fixture-secret",
+    "https://example.com/article?Password=fixture-secret",
+    "https://example.com/article?client_secret=fixture-secret",
+    "https://example.com/article?X-Amz-Credential=fixture-secret",
+    "https://example.com/article?signature=fixture-secret",
+    "https://example.com/article?key=fixture-secret",
+])
+def test_research_url_credentials_refused_before_preview_and_persistence(monkeypatch, tmp_path, source_url):
+    from etf_cockpit.application import research_evidence
+    from etf_cockpit.mcp import tools_research
+
+    monkeypatch.setattr(tools_research, "_root", lambda: tmp_path)
+    item = _research_item(source_url)
+    with pytest.raises(InvalidArgumentsError, match="credentials|credential query") as preview_error:
+        tools_research.research_findings(prepare_items=[item])
+    with pytest.raises(ValueError, match="credentials|credential query") as persist_error:
+        research_evidence.record_research_findings(
+            [item], expected_revision=research_evidence.research_revision(tmp_path), root=tmp_path,
+        )
+    assert "fixture-secret" not in str(preview_error.value)
+    assert "fixture-secret" not in str(persist_error.value)
+    assert not (tmp_path / "data").exists()
+
+
+def test_research_legacy_url_credentials_never_returned(tmp_path):
+    from etf_cockpit.application import research_evidence
+    from etf_cockpit.data.ai_research_evidence import validate_item
+
+    record = validate_item(_research_item())
+    record["source_url"] = "https://user:fixture-secret@example.com/article"
+    (tmp_path / "data").mkdir()
+    (tmp_path / "data" / "ai_research_evidence.jsonl").write_text(json.dumps(record) + "\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="must not contain credentials"):
+        research_evidence.load_research_findings(root=tmp_path)
+
+
+@pytest.mark.parametrize("kind,expected", [
+    ("filing", ["ai-new"]), ("news", ["news-new"]), (None, ["thesis-new", "news-new", "ai-new"]),
+])
+def test_research_filters_apply_to_all_sources_before_paging(monkeypatch, tmp_path, kind, expected):
+    from etf_cockpit.application import research_evidence
+    from etf_cockpit.data.ai_research_evidence import validate_item
+    from etf_cockpit.mcp import tools_research
+
+    old = "2025-01-02T00:00:00Z"
+    recent = "2025-02-02T00:00:00Z"
+    ai_old = validate_item(_research_item())
+    ai_old["evidence_id"] = "ai-old"
+    ai_new = validate_item({**_research_item(), "retrieved_at": recent})
+    ai_new["evidence_id"] = "ai-new"
+    monkeypatch.setattr(research_evidence, "load_ai_research_evidence", lambda _root: [ai_old, ai_new])
+    monkeypatch.setattr(research_evidence, "_load_news", lambda *_args: [
+        {"id": "news-old", "kind": "news", "subject": "one", "known_at": old},
+        {"id": "news-new", "kind": "news", "subject": "one", "known_at": recent},
+        {"id": "news-other", "kind": "news", "subject": "two", "known_at": recent},
+    ])
+    monkeypatch.setattr(research_evidence, "_load_theses", lambda *_args: [
+        *[{"id": f"thesis-old-{i}", "kind": "thesis", "subject": "one", "known_at": old} for i in range(30)],
+        {"id": "thesis-new", "kind": "thesis", "subject": "one", "known_at": "2025-02-02T01:00:00+01:00"},
+    ])
+    monkeypatch.setattr(tools_research, "_root", lambda: tmp_path)
+    monkeypatch.setattr(tools_research, "DEFAULT_PAGE_SIZE", 1)
+    arguments = dict(subject="one", kind=kind, since="2025-02-01T00:00:00Z", include_news=True, include_theses=True)
+    page = tools_research.research_findings(**arguments)
+    ids = [item["id"] for item in page["findings"]]
+    while page["next_cursor"]:
+        page = tools_research.research_findings(**arguments, cursor=page["next_cursor"])
+        ids.extend(item["id"] for item in page["findings"])
+    assert ids == expected
+    assert page["sentiment"]["n"] == (0 if kind == "news" else 1)
+
+
+def test_candidate_default_uses_verified_stored_evidence_and_network_requires_opt_in(monkeypatch, tmp_path):
+    snapshot = SimpleNamespace(config=SimpleNamespace(universe=SimpleNamespace(etfs=())))
+    monkeypatch.setattr(tools_scores, "_snapshot", lambda: (SimpleNamespace(root=tmp_path), snapshot))
+    payloads = []
+
+    def execute_job(_root, _kind, _label, payload, handler, **_kwargs):
+        payloads.append(payload)
+        return {"result": handler(None)}
+
+    monkeypatch.setattr(tools_scores, "_job", execute_job)
+    network_calls = []
+    monkeypatch.setattr(
+        data_service_module.DataService, "run_yfinance_candidate_analysis",
+        lambda self, **kwargs: network_calls.append(kwargs) or "explicit network result",
+    )
+    monkeypatch.setattr(trade_candidate_analysis, "fetch_candidate_fundamentals", lambda *_: pytest.fail("unexpected network fundamentals"))
+    monkeypatch.setattr(trade_candidate_analysis, "YFinanceProvider", lambda *_args, **_kwargs: pytest.fail("unexpected network prices"))
+
+    # No stored evidence must return unavailable, without attempting either fetch.
+    missing = tools_scores.candidate_analyse(["one"])["result"]
+    assert missing["status"] == "unavailable"
+    assert network_calls == []
+    input_dir = tmp_path / "data" / "raw" / "trade_candidates"
+    input_dir.mkdir(parents=True)
+    pd.DataFrame([
+        {"instrument_id": "one", "yahoo_symbol": "ONE"},
+        {"instrument_id": "two", "yahoo_symbol": "TWO"},
+        {"instrument_id": "outside", "yahoo_symbol": "OUT"},
+    ]).to_csv(input_dir / "yahoo_trade_candidates_fixture.csv", index=False)
+    prices = pd.DataFrame([
+        {"etf_id": instrument, "date": "2026-01-02", "adjusted_close": 10.0, "close": 10.0, "currency": "EUR"}
+        for instrument in ("one", "outside")
+    ])
+    price_path = tmp_path / "data" / "forecasts" / trade_candidate_analysis.CANDIDATE_PRICE_SNAPSHOT_PATH.name
+    binding = trade_candidate_analysis.adjusted_price_snapshot_binding(prices, calculation_window={
+        "start_date": "2026-01-02", "end_date": "2026-01-02", "decision_time": "2026-01-02T23:59:59Z",
+    })
+    assert binding is not None
+    trade_candidate_analysis.write_candidate_price_snapshot(prices, binding, path=price_path)
+    result = tools_scores.candidate_analyse(["one", "two"], years=2)["result"]
+    assert result["status"] == "provisional"
+    assert result["classification"] == "provisional_not_ranked"
+    assert result["rank_authority"] is result["execution_allowed"] is False
+    rows = {row["instrument_id"]: row for row in result["rows"]}
+    assert set(rows) == {"one", "two"}
+    assert rows["one"]["latest_price"] == 10.0
+    assert rows["two"]["latest_price"] is None
+    assert rows["two"]["technical_score"] is None
+    assert network_calls == []
+    # A damaged binding must never be used as local evidence.
+    price_path.write_text(price_path.read_text() + "\n", encoding="utf-8")
+    assert tools_scores.candidate_analyse(["one"])["result"]["status"] == "unavailable"
+    assert network_calls == []
+    assert tools_scores.candidate_analyse(["one"], allow_network=True)["result"]["status"] == "provisional"
+    assert network_calls == [{"years": 5, "identifiers": ("one",)}]
+    assert payloads[0]["allow_network"] is False
+    assert payloads[-1]["allow_network"] is True
+
+
+def test_rank_validation_parallelises_independent_windows_and_replays_in_requested_order(monkeypatch, tmp_path):
+    from etf_cockpit.application import rank_validation_service as service
+
+    prices = pd.DataFrame({
+        "instrument_id": ["one", "one"], "date": ["2020-01-01", "2026-01-01"],
+        "adjusted_close": [10.0, 12.0], "known_at": ["2020-01-01T00:00:00Z", "2026-01-01T00:00:00Z"],
+    })
+    original = prices.copy(deep=True)
+    monkeypatch.setattr(service, "_read_table", lambda path: prices if path and path.name == "prices_daily.parquet" else pd.DataFrame())
+    monkeypatch.setattr(service, "_load_membership", lambda *_args: pd.DataFrame())
+    monkeypatch.setattr(service, "load_rank_validation_policy", lambda: SimpleNamespace(version="test", holding_period_sessions=20))
+    monkeypatch.setattr(service, "window_coverage", lambda _prices, _years: {"sufficient": True})
+    monkeypatch.setattr(service, "window_decision_times", lambda _prices, years, **_kwargs: ([years], []))
+    monkeypatch.setattr(service, "price_momentum_risk_evidence", lambda _prices, times: (pd.DataFrame({"window": times}), {}))
+    monkeypatch.setattr(service, "research_policy", lambda policy, **_kwargs: policy)
+    barrier = Barrier(3)
+    second_finished = Event()
+    lock = Lock()
+    state = {"active": 0, "peak": 0}
+    completed = []
+
+    def replay(evidence, _memberships, _prices, _costs, _benchmark, _cash, times, *, policy):
+        years = int(evidence["window"].iloc[0])
+        assert times == [years]
+        with lock:
+            state["active"] += 1
+            state["peak"] = max(state["peak"], state["active"])
+        if years in (5, 1, 3):
+            barrier.wait(timeout=10)
+        if years == 5:
+            assert second_finished.wait(timeout=10)
+        with lock:
+            completed.append(years)
+            state["active"] -= 1
+        if years == 1:
+            second_finished.set()
+        return years, years
+
+    monkeypatch.setattr(service, "run_stored_rank_validation", replay)
+    monkeypatch.setattr(service, "rank_validation_report_dict", lambda replay, validation, **_kwargs: {"window": replay})
+    result = service.build_rank_validation_report(root=tmp_path, years=(5, 1, 3, 2))
+    assert state["peak"] == 3
+    assert completed.index(1) < completed.index(5)
+    assert [window["requested_years"] for window in result["windows"]] == [5, 1, 3, 2]
+    assert [window["sections"]["price_factors"]["window"] for window in result["windows"]] == [5, 1, 3, 2]
+    assert result["parallelism"] == {
+        "unit": "requested_year_windows_including_replay", "executor": "thread_pool",
+        "max_workers": 3, "output_order": "requested",
+    }
+    assert result["rank_authority"] is result["execution_allowed"] is False
+    pd.testing.assert_frame_equal(prices, original)

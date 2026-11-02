@@ -2,10 +2,13 @@
 
 Open defaults: validate 1, 3, and 5 year windows from stored adjusted prices;
 optional cost, cash, and fundamental evidence stays unavailable when absent.
+Independent windows (including replay) use at most three worker threads;
+results retain the requested window order and workers never persist evidence.
 """
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Sequence
@@ -102,15 +105,14 @@ def build_rank_validation_report(
     memberships = _load_membership(Path(membership_path) if membership_path is not None else None, resolved_root, scope, as_known_at)
     report["inputs"]["membership_rows"] = int(len(memberships))  # type: ignore[index]
 
-    for window_years in selected_years:
+    def run_window(window_years: int) -> dict[str, object]:
         coverage = window_coverage(prices, window_years)
         if not coverage["sufficient"]:
-            report["windows"].append({  # type: ignore[union-attr]
+            return {
                 "requested_years": window_years, "status": "insufficient_evidence",
                 "reason": coverage["reason"], "coverage": coverage,
                 "decision_times": 0, "excluded_decision_times": 0, "sections": {},
-            })
-            continue
+            }
         times, excluded = window_decision_times(
             prices, window_years,
             step_sessions=base_policy.holding_period_sessions,
@@ -151,7 +153,15 @@ def build_rank_validation_report(
             if conflicts:
                 sections[label]["fundamental_conflicts"] = conflicts
         window["sections"] = sections
-        report["windows"].append(window)  # type: ignore[union-attr]
+        return window
+
+    max_workers = min(3, len(selected_years))
+    with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="rank-window") as executor:
+        report["windows"] = list(executor.map(run_window, selected_years))
+    report["parallelism"] = {
+        "unit": "requested_year_windows_including_replay", "executor": "thread_pool",
+        "max_workers": max_workers, "output_order": "requested",
+    }
     report["status"] = "reported"
     return report
 

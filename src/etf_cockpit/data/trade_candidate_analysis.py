@@ -142,21 +142,7 @@ def latest_candidate_input(directory: Path = RAW_DIR / "trade_candidates") -> Pa
     return files[0]
 
 
-def fetch_candidate_prices(
-    config: AppConfig,
-    *,
-    years: int = 5,
-    as_of_date: date | None = None,
-    candidate_path: Path | None = None,
-    identifiers: Sequence[str] | None = None,
-) -> CandidatePriceData:
-    """Fetch only requested candidate rows; missing identities remain unavailable.
-
-    Open defaults: use the latest local candidate file, a five-year window, and
-    all rows only for existing non-filtered callers. Filtered calls require each
-    requested identifier to have a local candidate row and Yahoo symbol.
-    """
-    path = candidate_path or latest_candidate_input()
+def _load_candidate_input(path: Path, identifiers: Sequence[str] | None) -> pd.DataFrame:
     candidates = pd.read_csv(path)
     required = {"instrument_id", "yahoo_symbol"}
     missing = required - set(candidates.columns)
@@ -178,6 +164,52 @@ def fetch_candidate_prices(
         if not symbols_available.all():
             raise ValueError("A Yahoo symbol is unavailable for one or more requested identifiers")
         candidates = selected
+    return candidates
+
+
+def load_stored_candidate_prices(
+    *, root: Path, years: int = 5, identifiers: Sequence[str] | None = None,
+) -> CandidatePriceData:
+    """Read verified local evidence only; absent or invalid prices stay unavailable."""
+
+    candidates = _load_candidate_input(
+        latest_candidate_input(Path(root) / "data" / "raw" / "trade_candidates"), identifiers,
+    )
+    prices = load_candidate_price_snapshot(
+        path=Path(root) / "data" / "forecasts" / CANDIDATE_PRICE_SNAPSHOT_PATH.name,
+    )
+    if prices.empty:
+        raise RuntimeError(prices.attrs.get("unavailable_reason", "stored candidate prices unavailable"))
+    if not {"etf_id", "date", "adjusted_close", "close"}.issubset(prices.columns):
+        raise ValueError("Stored candidate price columns are unavailable")
+    as_of = date.today()
+    dates = pd.to_datetime(prices["date"], errors="coerce", utc=True)
+    selected = (
+        prices["etf_id"].astype(str).isin(set(candidates["instrument_id"].astype(str)))
+        & dates.ge(pd.Timestamp(_years_back(as_of, years), tz="UTC"))
+        & dates.lt(pd.Timestamp(as_of, tz="UTC") + pd.Timedelta(days=1))
+    )
+    prices = prices.loc[selected].copy()
+    if prices.empty:
+        raise RuntimeError("Stored candidate prices are unavailable for the requested window and identifiers")
+    prices["date"] = dates.loc[selected]
+    return CandidatePriceData(
+        candidates=candidates, prices=prices, effective_as_of=prices["date"].max().date(),
+        source_message="Verified stored candidate prices; no network refresh performed.",
+    )
+
+
+def fetch_candidate_prices(
+    config: AppConfig,
+    *,
+    years: int = 5,
+    as_of_date: date | None = None,
+    candidate_path: Path | None = None,
+    identifiers: Sequence[str] | None = None,
+) -> CandidatePriceData:
+    """Fetch requested candidate rows; each filtered identifier needs a local row and Yahoo symbol."""
+
+    candidates = _load_candidate_input(candidate_path or latest_candidate_input(), identifiers)
 
     as_of = as_of_date or date.today()
     start = _years_back(as_of, years)

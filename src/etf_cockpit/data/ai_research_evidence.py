@@ -6,17 +6,17 @@ missing files represent an empty store, and no evidence is score-eligible.
 
 from __future__ import annotations
 
-from contextlib import contextmanager
 import hashlib
 import json
 import math
 from pathlib import Path
 from typing import Any, Iterable, Mapping
-from urllib.parse import urlsplit
+from urllib.parse import parse_qsl, urlsplit
 
 from etf_cockpit.core.atomic_io import atomic_write_bytes
 from etf_cockpit.core.file_guard import persistent_file_guard
 from etf_cockpit.core.paths import DATA_DIR
+from etf_cockpit.core.session_log import SECRET_KEY_RE
 
 
 _KINDS = frozenset({"news", "filing", "analyst", "sentiment", "web", "other"})
@@ -49,6 +49,22 @@ def _validate_timestamp(value: object, field: str) -> str:
     return parsed.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
+def _validate_source_url(value: object) -> str:
+    if not isinstance(value, str) or len(value) > 2048:
+        raise ValueError("source_url must be an HTTP or HTTPS URL")
+    source_url = value.strip()
+    parsed = urlsplit(source_url)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise ValueError("source_url must be an HTTP or HTTPS URL")
+    if parsed.username is not None or parsed.password is not None:
+        raise ValueError("source_url must not contain credentials")
+    # Decode parameter names before checking, including signed provider URLs.
+    for key, _value in parse_qsl(parsed.query, keep_blank_values=True):
+        if SECRET_KEY_RE.search(key) or key.casefold() in {"key", "auth", "sig", "signature"}:
+            raise ValueError("source_url must not contain credential query parameters")
+    return source_url
+
+
 def validate_item(item: Mapping[str, Any]) -> dict[str, Any]:
     """Validate caller-supplied evidence without treating its text as trusted."""
 
@@ -61,12 +77,7 @@ def validate_item(item: Mapping[str, Any]) -> dict[str, Any]:
     kind = str(item.get("kind", "")).strip().casefold()
     if kind not in _KINDS:
         raise ValueError("kind must be news, filing, analyst, sentiment, web, or other")
-    source_url = item.get("source_url")
-    if not isinstance(source_url, str) or len(source_url) > 2048:
-        raise ValueError("source_url must be an HTTP or HTTPS URL")
-    parsed_url = urlsplit(source_url.strip())
-    if parsed_url.scheme not in {"http", "https"} or not parsed_url.netloc:
-        raise ValueError("source_url must be an HTTP or HTTPS URL")
+    source_url = _validate_source_url(item.get("source_url"))
     try:
         stance = float(item.get("stance"))
         confidence = float(item.get("confidence"))
@@ -95,7 +106,7 @@ def validate_item(item: Mapping[str, Any]) -> dict[str, Any]:
         "claim": item["claim"].strip(),
         "stance": stance,
         "confidence": confidence,
-        "source_url": source_url.strip(),
+        "source_url": source_url,
         "source_title": item["source_title"].strip(),
         "published_at": published_at,
         "retrieved_at": retrieved_at,
@@ -120,6 +131,8 @@ def _read(path: Path) -> list[dict[str, Any]]:
         raise ValueError("AI research evidence store is unreadable") from exc
     if any(not isinstance(row, dict) or row.get("label") != "ai_external_unverified" or row.get("executable_authority") is not False or row.get("scoring_eligible") is not False for row in records):
         raise ValueError("AI research evidence store contains an invalid record")
+    for row in records:
+        _validate_source_url(row.get("source_url"))
     return records
 
 

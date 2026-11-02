@@ -4,8 +4,9 @@ Open defaults: ranked and research lists use 25 rows per page, score history
 uses one year and at most 500 points, detail defaults to overview and score,
 comparisons use one year, and selection uses the app's configured medium risk
 profile without persisting a run. Candidate analysis defaults to five years and
-uses only requested identifiers found in the local candidate input. Job tools
-use local-only derived work.
+uses only requested identifiers found in the local candidate input and verified
+stored prices. Network candidate refresh requires allow_network=True. Other job
+tools use local-only derived work.
 """
 
 from __future__ import annotations
@@ -31,15 +32,17 @@ def _session() -> Any:
     global _DEFAULT_SESSION
     active = current_call_context().session
     if active is not None and getattr(active, "snapshot", None) is not None:
-        return active
-    if _DEFAULT_SESSION is None:
-        from etf_cockpit.application.headless_session import HeadlessSession
-        from etf_cockpit.application.snapshot_builder import build_snapshot
+        session = active
+    else:
+        if _DEFAULT_SESSION is None:
+            from etf_cockpit.application.headless_session import HeadlessSession
+            from etf_cockpit.application.snapshot_builder import build_snapshot
 
-        _DEFAULT_SESSION = HeadlessSession(build_snapshot(force_sample=False), root=ROOT)
-    if getattr(_DEFAULT_SESSION, "root", ROOT).resolve() != ROOT.resolve():
+            _DEFAULT_SESSION = HeadlessSession(build_snapshot(force_sample=False), root=ROOT)
+        session = _DEFAULT_SESSION
+    if Path(getattr(session, "root", ROOT)).resolve() != ROOT.resolve():
         raise MCPToolError("DATA_ROOT_MISMATCH", "The analysis session is outside the configured data root", "Restart the MCP server with the configured owner data root.")
-    return _DEFAULT_SESSION
+    return session
 
 
 def _snapshot() -> tuple[Any, Any]:
@@ -330,12 +333,14 @@ def analysis_run(profile: str = "quick") -> dict[str, Any]:
 
 
 @tool(tier="read_job", description="Run provisional analysis for identifiers outside the ranked universe.", read_only_hint=False, open_world_hint=True, idempotent_hint=False, profiles=("full",))
-def candidate_analyse(identifiers: Sequence[str], years: int = 5) -> dict[str, Any]:
+def candidate_analyse(identifiers: Sequence[str], years: int = 5, allow_network: bool = False) -> dict[str, Any]:
     selected = tuple(dict.fromkeys(str(value).strip() for value in identifiers if str(value).strip()))
     if not selected or len(selected) > 25:
         raise InvalidArgumentsError("identifiers must contain between 1 and 25 non-empty values")
     if isinstance(years, bool) or not isinstance(years, int) or years < 1 or years > 20:
         raise InvalidArgumentsError("years must be between 1 and 20")
+    if not isinstance(allow_network, bool):
+        raise InvalidArgumentsError("allow_network must be a boolean")
     from etf_cockpit.application.data_service import DataService
 
     session, snapshot = _snapshot()
@@ -348,9 +353,15 @@ def candidate_analyse(identifiers: Sequence[str], years: int = 5) -> dict[str, A
 
     def run(_job_context):
         try:
-            message = DataService(snapshot.config).run_yfinance_candidate_analysis(
-                years=years, identifiers=selected,
-            )
+            service = DataService(snapshot.config)
+            if allow_network:
+                evidence = {"message": service.run_yfinance_candidate_analysis(
+                    years=years, identifiers=selected,
+                )}
+            else:
+                evidence = service.run_stored_candidate_analysis(
+                    years=years, identifiers=selected, root=Path(session.root),
+                )
         except (OSError, RuntimeError, TypeError, ValueError):
             return {
                 "status": "unavailable",
@@ -363,12 +374,12 @@ def candidate_analyse(identifiers: Sequence[str], years: int = 5) -> dict[str, A
             "status": "provisional",
             "classification": "provisional_not_ranked",
             "identifiers": list(selected),
-            "message": message,
+            **evidence,
             "rank_authority": False,
             "execution_allowed": False,
         }
 
-    payload = {"identifiers": list(selected), "years": years}
+    payload = {"identifiers": list(selected), "years": years, "allow_network": allow_network}
     return _job(Path(session.root), "candidate_analyse", "MCP candidate analysis", payload, run, snapshot=snapshot)
 
 

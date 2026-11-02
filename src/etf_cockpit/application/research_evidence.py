@@ -127,24 +127,29 @@ def load_research_findings(
         cutoff = _timestamp(since, "since")
     subject_key = subject.strip().casefold() if isinstance(subject, str) and subject.strip() else None
     selected_kind = kind.strip().casefold() if isinstance(kind, str) and kind.strip() else None
+
+    def matches(item: Mapping[str, Any]) -> bool:
+        stamp = _timestamp(item.get("known_at"), "known_at")
+        return (
+            (not subject_key or subject_key in str(item.get("subject", "")).casefold())
+            and (not selected_kind or item.get("kind") == selected_kind)
+            and (cutoff is None or stamp >= cutoff)
+        )
+
     rows: list[dict[str, Any]] = []
     matched_evidence: list[dict[str, Any]] = []
     for item in evidence:
-        retrieved = _timestamp(item.get("retrieved_at"), "retrieved_at")
-        if subject_key and subject_key not in str(item.get("subject", "")).casefold():
-            continue
-        if selected_kind and item.get("kind") != selected_kind:
-            continue
-        if cutoff and retrieved < cutoff:
+        finding = _untrusted_finding(item)
+        if not matches(finding):
             continue
         matched_evidence.append(item)
-        rows.append(_untrusted_finding(item))
+        rows.append(finding)
 
     if include_news:
-        rows.extend(_load_news(Path(root), subject_key, cutoff))
+        rows.extend(item for item in _load_news(Path(root), subject_key, cutoff) if matches(item))
     if include_theses:
-        rows.extend(_load_theses(Path(root), subject_key))
-    rows.sort(key=lambda row: (str(row.get("known_at", "")), str(row.get("id", ""))), reverse=True)
+        rows.extend(item for item in _load_theses(Path(root), subject_key) if matches(item))
+    rows.sort(key=lambda row: (_timestamp(row.get("known_at"), "known_at"), str(row.get("id", ""))), reverse=True)
 
     stances = [float(item["stance"]) for item in matched_evidence if isinstance(item.get("stance"), (int, float))]
     latest = max((_timestamp(item["retrieved_at"], "retrieved_at") for item in matched_evidence), default=None)
