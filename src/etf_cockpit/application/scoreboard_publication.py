@@ -26,6 +26,7 @@ from etf_cockpit.models.calibration import (
     load_forecast_history,
     write_forecast_calibration,
 )
+from etf_cockpit.core.paths import ROOT
 from etf_cockpit.application.snapshot_builder import CockpitSnapshot
 from etf_cockpit.signals.canonical_scoring import FORECAST_DOMAIN, RANK_DOMAINS, load_score_policy, rank_domain_weights
 from etf_cockpit.signals.simple_scores import (
@@ -33,6 +34,7 @@ from etf_cockpit.signals.simple_scores import (
     build_simple_instrument_scores as build_simple_instrument_scores,
     headline_weights,
     load_latest_candidate_report,
+    load_simple_scoreboard,
     simple_scoreboard_frame,
     write_simple_scoreboard,
 )
@@ -310,6 +312,10 @@ class ScoreboardPublicationBindingError(RuntimeError):
     """The scoreboard was published but its exact score-history binding was not recorded."""
 
 
+class ScoreboardPublicationBlockedError(RuntimeError):
+    """A missing snapshot input or blocking data-quality gate refused publication."""
+
+
 def _signal_classification_is_current(signal: object, *, root: Path) -> bool:
     instrument_id = str(getattr(signal, "etf_id", "") or "").strip()
     if not instrument_id:
@@ -341,7 +347,33 @@ class ScoreboardSession(Protocol):
     snapshot: CockpitSnapshot
 
 
-def _write_current_scoreboard(session: ScoreboardSession) -> Path:
+def _require_publishable_snapshot(snapshot: object) -> None:
+    if snapshot is None:
+        raise ScoreboardPublicationBlockedError("Scoreboard publication is unavailable because the snapshot is missing.")
+    report = getattr(snapshot, "data_report", None)
+    analysis_allowed = getattr(report, "analysis_allowed", None)
+    report_status = str(getattr(report, "status", "")).strip().casefold()
+    if analysis_allowed is not True or report_status == "blocked":
+        raise ScoreboardPublicationBlockedError(
+            "Scoreboard publication is blocked because data-quality inputs are missing or failed a required gate."
+        )
+    prices = getattr(snapshot, "prices", None)
+    if not isinstance(prices, pd.DataFrame) or prices.empty:
+        raise ScoreboardPublicationBlockedError("Scoreboard publication is unavailable because validated price inputs are missing.")
+
+
+def publish_scoreboard(session: ScoreboardSession, *, root: Path | None = None) -> Path:
+    """Publish the canonical scoreboard while holding the shared app/headless writer guard."""
+
+    from etf_cockpit.application.headless_session import cross_process_writer_guard
+
+    resolved_root = Path(root or ROOT).resolve()
+    with cross_process_writer_guard(resolved_root):
+        return _publish_scoreboard_unlocked(session, root=resolved_root)
+
+
+def _publish_scoreboard_unlocked(session: ScoreboardSession, *, root: Path) -> Path:
+    _require_publishable_snapshot(session.snapshot)
     candidate_report, _ = load_latest_candidate_report()
     reference_context = context_from_snapshot(
         session.snapshot,
@@ -366,7 +398,10 @@ def _write_current_scoreboard(session: ScoreboardSession) -> Path:
     scores = published_scores(session.snapshot)
     scoreboard_frame = simple_scoreboard_frame(scores)
     with session.activity_publication():
-        path = write_simple_scoreboard(scores)
+        if root == ROOT.resolve():
+            path = write_simple_scoreboard(scores)
+        else:
+            path = write_simple_scoreboard(scores, path=root / "data" / "derived" / "scoreboard.parquet")
     try:
         with session.activity_publication():
             paths = write_trust_artifacts_for_scores(
@@ -395,6 +430,56 @@ def _write_current_scoreboard(session: ScoreboardSession) -> Path:
     else:
         session.score_history_warning = None
     return path
+
+
+def _write_current_scoreboard(session: ScoreboardSession) -> Path:
+    """Compatibility wrapper; all scoreboard writes use the public application service."""
+
+    return publish_scoreboard(session, root=getattr(session, "root", None))
+
+
+def scoreboard_status(*, root: Path | None = None) -> dict[str, object]:
+    """Return explicit availability for the persisted scoreboard; missing values stay unavailable."""
+
+    resolved_root = Path(root or ROOT).resolve()
+    path = resolved_root / "data" / "derived" / "scoreboard.parquet"
+    if not path.is_file():
+        return {
+            "status": "unavailable",
+            "reason_code": "scoreboard_missing",
+            "message": "Scoreboard inputs have not been published.",
+            "row_count": None,
+            "path": str(path),
+            "execution_allowed": False,
+        }
+    try:
+        frame = load_simple_scoreboard(path, root=resolved_root)
+    except Exception as exc:
+        return {
+            "status": "unavailable",
+            "reason_code": "scoreboard_unreadable",
+            "message": f"Scoreboard inputs are unavailable ({type(exc).__name__}).",
+            "row_count": None,
+            "path": str(path),
+            "execution_allowed": False,
+        }
+    if frame.empty:
+        return {
+            "status": "unavailable",
+            "reason_code": "scoreboard_empty",
+            "message": "Scoreboard inputs are present but contain no available rows.",
+            "row_count": None,
+            "path": str(path),
+            "execution_allowed": False,
+        }
+    return {
+        "status": "available",
+        "reason_code": None,
+        "message": "Scoreboard is available.",
+        "row_count": len(frame),
+        "path": str(path),
+        "execution_allowed": False,
+    }
 
 
 def _record_scoreboard_publication_binding(
