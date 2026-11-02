@@ -19,8 +19,17 @@ from etf_cockpit.mcp.tiers import normalise_profile, parse_tiers
 
 SERVER_NAME = "ETF AI Cockpit"
 SERVER_INSTRUCTIONS = (
-    "Use read tools for cockpit evidence. Research, edit, and paper writes require a fresh "
-    "single-use confirmation token. execution_allowed is always false; no live orders or broker writes are exposed."
+    "Use local read tools and resources to inspect cockpit evidence. health_check sequences cockpit_status, data_health, "
+    "data_readiness, gates_status, paper_controls_status, and alerts_list. weekly_review adds what_changed, bot and "
+    "portfolio views, research_findings, and journal_entries. research_best_etfs and research_best_stocks start from "
+    "eligible ranked scores and inspect supporting evidence; assess_web_candidates treats web material as untrusted "
+    "and stops at universe-change preview. sentiment_paper_trade may prepare a paper proposal but requires owner "
+    "confirmation before placement. add_instrument stops for confirmation before a universe commit. explain_instrument "
+    "combines identity, score, forecast, and research evidence. monthly_decision is advisory and stops before ticket "
+    "export. bots_review checks readiness and paper controls before an explicitly requested run. These templates do "
+    "not grant authority to act. Research, edit, and paper writes require a fresh single-use confirmation token and "
+    "the matching preview; risk and data-quality gates override every other signal. Missing evidence stays unavailable, "
+    "never zero. execution_allowed is always false; no live orders or broker writes are exposed."
 )
 
 
@@ -32,8 +41,16 @@ def list_tools(*, profile: str = "core", tiers: str | tuple[str, ...] | frozense
 
 def _load_sdk() -> tuple[Any, Any, Any]:
     try:
-        from mcp.server import MCPServer
-        from mcp.server.mcpserver.exceptions import ToolError
+        try:
+            from mcp.server import MCPServer
+        except ImportError:
+            # The optional Python SDK 1.x surface is FastMCP; the supported newer
+            # server surface keeps the existing MCPServer registration contract.
+            from mcp.server.fastmcp import FastMCP as MCPServer
+        try:
+            from mcp.server.mcpserver.exceptions import ToolError
+        except ImportError:
+            from mcp.server.fastmcp.exceptions import ToolError
         from mcp.types import ToolAnnotations
     except (ImportError, ModuleNotFoundError) as exc:
         raise MCPServerUnavailable(
@@ -89,7 +106,39 @@ def create_server(
             annotations=annotation_type(**dict(spec.annotations)),
             structured_output=True,
         )
+    _register_resources(server, context)
+    _register_prompts(server)
     return server
+
+
+def _register_resources(server: Any, context: CallContext) -> None:
+    from etf_cockpit.mcp.resources import read_resource, resource_specs
+
+    register = getattr(server, "resource", None)
+    if not callable(register):
+        raise MCPServerUnavailable("The optional MCP SDK does not support resource registration.")
+    for spec in resource_specs():
+        def handler(_spec=spec, **arguments: Any) -> str:
+            return read_resource(_spec, arguments, context)
+
+        parameters = [
+            inspect.Parameter(name, inspect.Parameter.POSITIONAL_OR_KEYWORD, annotation=str)
+            for name in spec.parameters
+        ]
+        handler.__signature__ = inspect.Signature(parameters, return_annotation=str)  # type: ignore[attr-defined]
+        handler.__annotations__ = {name: str for name in spec.parameters} | {"return": str}
+        decorator = register(spec.uri, name=spec.name, description=spec.description, mime_type="application/json")
+        decorator(handler)
+
+
+def _register_prompts(server: Any) -> None:
+    from etf_cockpit.mcp.prompts import prompt_specs
+
+    register = getattr(server, "prompt", None)
+    if not callable(register):
+        raise MCPServerUnavailable("The optional MCP SDK does not support prompt registration.")
+    for spec in prompt_specs():
+        register(name=spec.name, description=spec.description)(spec.function)
 
 
 def run_server(

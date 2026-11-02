@@ -58,14 +58,19 @@ def _field(value: Any, name: str) -> Any:
     profiles=("core", "full"),
 )
 def cockpit_status(detail: str = "brief") -> dict[str, Any]:
-    """Provide the L0 status stub until the application status aggregator is available."""
+    """Return the application status aggregation for the configured root and launch tiers."""
 
     if detail not in {"brief", "full"}:
         raise InvalidArgumentsError("detail must be 'brief' or 'full'")
-    return {
-        "status": "unavailable",
-        "unavailable_reason": "Cockpit status aggregation is not available in the L0 foundation.",
-    }
+    context = current_call_context()
+    from etf_cockpit.application.status_views import build_cockpit_status
+
+    result = build_cockpit_status(
+        detail=detail,
+        session=context.session,
+        enabled_tiers=tuple(sorted(context.enabled_tiers)),
+    )
+    return result
 
 
 @tool(
