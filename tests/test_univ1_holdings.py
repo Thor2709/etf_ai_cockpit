@@ -240,6 +240,7 @@ def test_politeness_spaces_starts_and_transport_shape(monkeypatch):
     fetch_csv(URL, "Mozilla/5.0")
     assert starts == [10.0, 11.0]
 
+
 def test_repository_config_lists_verified_master_funds_only():
     root = Path(__file__).resolve().parents[1]
     config = load_funds(root)
@@ -276,3 +277,51 @@ def test_live_type_column_variant_needs_explicit_columns(listing):
         parse_ishares_csv(payload, **options(listing))
     parsed = parse_ishares_csv(payload, **options(listing), expected_columns=columns)
     assert len(parsed["holdings"]) == 1 and parsed["holdings"][0]["asset_class"] == "Equity"
+
+def _blank_fields(raw: bytes) -> bytes:
+    return raw.replace(b'"8,344,104,027.00",98.00,"8,344,104,027.00","1,234.00",12.50', b',98.00,,,')
+
+
+def test_blank_value_fields_parse_as_none_not_zero(listing):
+    row = parse_ishares_csv(_blank_fields(FIXTURE.read_bytes()), **options(listing))["holdings"][0]
+    assert row["weight"] == .98
+    assert (row["market_value"], row["notional_value"], row["shares"], row["price"]) == (None, None, None, None)
+
+
+def test_blank_weight_still_rejected(listing):
+    raw = FIXTURE.read_bytes().replace(b",98.00,", b",,")
+    with pytest.raises(ValueError):
+        parse_ishares_csv(raw, **options(listing))
+
+
+def test_blank_values_keep_isin_unavailable_and_unscored(listing):
+    parsed = parse_ishares_csv(_blank_fields(FIXTURE.read_bytes()), **options(listing))
+    assert parsed["holdings"][0]["market_value"] is None
+    assert parsed["holdings"][0]["isin_unavailable"] is True
+    assert parsed["holdings"][0]["score_eligible"] is False
+
+
+@pytest.mark.parametrize(("column", "field"), [
+    ("Market Value", "market_value"),
+    ("Notional Value", "notional_value"),
+    ("Shares", "shares"),
+    ("Price", "price"),
+])
+@pytest.mark.parametrize(("value", "expected"), [("", None), (" \t ", None), ("0", 0.0)])
+def test_individual_value_fields_distinguish_blank_from_zero(listing, column, field, value, expected):
+    rows = list(csv.reader(io.StringIO(FIXTURE.read_text(encoding="utf-8"))))
+    rows[3][rows[2].index(column)] = value
+    output = io.StringIO()
+    csv.writer(output).writerows(rows)
+    parsed = parse_ishares_csv(output.getvalue().encode("utf-8"), **options(listing))
+    row = parsed["holdings"][0]
+    if expected is None:
+        assert row[field] is None
+    else:
+        assert row[field] == expected
+    original = dict(market_value=8344104027.0, notional_value=8344104027.0, shares=1234.0, price=12.50)
+    assert {key: row[key] for key in original if key != field} == {
+        key: number for key, number in original.items() if key != field}
+    assert row["weight"] == .98
+    assert row["score_eligible"] is False and row["execution_allowed"] is False
+    assert parsed["execution_allowed"] is False
