@@ -71,6 +71,48 @@ def test_every_write_tool_refuses_missing_confirm_token_before_side_effects(tmp_
     assert not (tmp_path / "data").exists()
 
 
+def test_registry_manual_preview_issues_token_and_place_requires_confirmation(tmp_path: Path, monkeypatch) -> None:
+    calls = []
+    writes = []
+
+    def preview(**kwargs):
+        calls.append(kwargs["persist"])
+        return {"status": "proposal_ready", "proposal_id": "proposal-fixture", "quantity": 1.0, "execution_allowed": False}
+
+    def persist(result, **kwargs):
+        writes.append("proposal")
+        return dict(result)
+
+    monkeypatch.setattr(paper_manual_order, "preview_manual_paper_order", preview)
+    monkeypatch.setattr(paper_manual_order, "persist_manual_paper_proposal", persist)
+    monkeypatch.setattr(paper_manual_order, "accept_manual_paper_proposal", lambda **kwargs: writes.append("place") or {"order_id": "paper-fixture"})
+    context = _context(tmp_path)
+    arguments = {"account_id": "test-account", "instrument_id": "ETF1", "side": "buy", "quantity": 1.0, "rationale": "fixture"}
+    staged = invoke_tool("paper_order_preview", arguments, context=context)
+    assert isinstance(staged["confirm_token"], str)
+    assert staged["preview"]["status"] == "confirmation_required"
+    assert calls == [False] and writes == []
+
+    place_args = {"proposal_id": "proposal-fixture", "instrument_id": "ETF1", "quantity": 1.0}
+    for name, args in (("paper_order_preview", arguments), ("paper_order_place", place_args)):
+        with pytest.raises(ConfirmationError):
+            invoke_tool(name, {**args, "dry_run": False}, context=context)
+        with pytest.raises(ConfirmationError):
+            invoke_tool(name, {**args, "confirm_token": "invalid"}, context=context)
+    assert calls == [False] and writes == []
+
+    committed = invoke_tool("paper_order_preview", {**staged["preview"]["confirmation_arguments"], "confirm_token": staged["confirm_token"]}, context=context)
+    assert calls == [False, True] and writes == ["proposal"]
+    with pytest.raises(ConfirmationError):
+        invoke_tool("paper_order_place", {**place_args, "dry_run": True, "confirm_token": committed["confirm_token"]}, context=context)
+    assert writes == ["proposal"]
+    placed = invoke_tool("paper_order_place", {**place_args, "confirm_token": committed["confirm_token"]}, context=context)
+    assert placed["execution_allowed"] is False and writes == ["proposal", "place"]
+    with pytest.raises(ConfirmationError):
+        invoke_tool("paper_order_place", {**place_args, "confirm_token": committed["confirm_token"]}, context=context)
+    assert writes == ["proposal", "place"]
+
+
 def test_missing_manual_price_remains_unavailable_not_zero(tmp_path: Path) -> None:
     from etf_cockpit.portfolio.paper_trading import PaperLedger
 
@@ -243,6 +285,58 @@ def test_manual_preview_through_confirmed_place_uses_stored_policy_evidence(manu
     assert placed["fill"]["price"] == 100.0
     assert fixture.ledger.snapshot().positions[0].quantity == 10.0
     assert placed["execution_allowed"] is False
+
+
+@pytest.mark.parametrize("history_kind", ["available", "missing", "future_known", "future_session", "insufficient", "zero"])
+def test_manual_liquidity_uses_canonical_point_in_time_volume(manual_evidence, monkeypatch, history_kind):
+    from datetime import timedelta
+    import pandas as pd
+    from etf_cockpit.portfolio.costs import average_daily_value_eur, estimate_execution_cost
+    from etf_cockpit.portfolio.paper_bots_execution import PRICE_FILE_RELATIVE
+
+    fixture = manual_evidence
+    fixture.store()
+    # Use the real cost service, bypassing this older fixture's capacity override.
+    monkeypatch.setattr(paper_manual_order, "estimate_execution_cost", estimate_execution_cost)
+    price_path = fixture.root / PRICE_FILE_RELATIVE
+    current = pd.read_parquet(price_path)
+    rows = []
+    for offset in range(1, 21):
+        day = fixture.now - timedelta(days=offset)
+        row = {"instrument_id": "VWCE", "date": day.date().isoformat(), "close": 100.0,
+               "known_at": day.isoformat(), "volume": 100000.0}
+        if history_kind == "future_known":
+            row["known_at"] = (fixture.now + timedelta(days=1)).isoformat()
+        if history_kind == "future_session":
+            row["date"] = (fixture.now + timedelta(days=offset)).date().isoformat()
+        if history_kind == "missing":
+            row.pop("volume")
+        if history_kind == "zero":
+            row["volume"] = 0.0
+        if history_kind != "insufficient" or offset <= 8:
+            rows.append(row)
+    # Other instruments must never supply VWCE's missing liquidity evidence.
+    other = [{**row, "instrument_id": "OTHER", "volume": 100000.0} for row in rows]
+    pd.concat([pd.DataFrame(rows + other), current], ignore_index=True).to_parquet(price_path)
+
+    preview = paper_manual_order.preview_manual_paper_order(
+        root=fixture.root, snapshot=fixture.snapshot, account_id="manual-test", instrument_id="VWCE",
+        side="buy", quantity=10.0, rationale="Canonical liquidity regression", as_of=fixture.now,
+    )
+    liquidity = next(gate for gate in preview["gates"] if gate["gate_id"] == "liquidity")
+    if history_kind == "available":
+        expected = average_daily_value_eur([100000.0] * 19 + [None], [100.0] * 20)
+        expected_cost = estimate_execution_cost(fixture.snapshot.config, "VWCE", 1000.0, adv_eur=expected)
+        assert preview["cost_estimate"] == expected_cost.as_dict()
+        assert liquidity["passed"] is True
+        assert preview["status"] == "proposal_ready"
+    else:
+        assert liquidity["passed"] is False
+        assert preview["status"] == "blocked"
+        if history_kind != "zero":
+            assert preview["cost_estimate"]["capacity_eur"] is None
+            assert preview["cost_estimate"]["capacity_status"] == "unavailable_missing_adv"
+    assert not fixture.ledger.orders()
 
 
 @pytest.mark.parametrize("failure", ["missing", "confidence", "concentration", "quantity", "revision", "future", "expired", "corrupt"])

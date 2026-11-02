@@ -1,4 +1,7 @@
 mcp:
+  # The queue worker is on by default for stdio and HTTP. Set the environment
+  # variable ETF_COCKPIT_MCP_WORKER_ENABLED=false to disable automatic draining.
+  # It polls idle queues every 100 ms and backs off 500 ms on writer contention.
   remote:
     # Remote access stays off until an operator configures OAuth and HTTPS.
     enabled: false

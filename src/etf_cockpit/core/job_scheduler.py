@@ -704,6 +704,22 @@ class DurableJobScheduler:
             rows = store.connection.execute("SELECT * FROM workflow_runs ORDER BY created_at DESC LIMIT ?", (limit,)).fetchall()
             return tuple(_workflow_record(row) for row in rows)
 
+    def find_active_workflow(self, workflow_type: str, dedupe_prefix: str) -> WorkflowRecord | None:
+        """Find the newest active match without a bounded history window."""
+
+        escaped_prefix = dedupe_prefix.replace("!", "!!").replace("%", "!%").replace("_", "!_")
+        with TransactionalStore(self.root) as store:
+            row = store.connection.execute(
+                """
+                SELECT * FROM workflow_runs
+                WHERE workflow_type = ? AND status IN (?, ?)
+                  AND dedupe_key LIKE ? || '%' ESCAPE '!'
+                ORDER BY created_at DESC LIMIT 1
+                """,
+                (workflow_type, JobStatus.QUEUED.value, JobStatus.RUNNING.value, escaped_prefix),
+            ).fetchone()
+            return _workflow_record(row) if row else None
+
     def list_events(self, workflow_id: str | None = None, limit: int = 200) -> tuple[JobEvent, ...]:
         limit = max(1, min(int(limit), 1000))
         with TransactionalStore(self.root) as store:

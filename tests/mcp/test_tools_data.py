@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 import hashlib
 from pathlib import Path
+import sqlite3
 from types import SimpleNamespace
 
 import pytest
@@ -13,6 +14,41 @@ from etf_cockpit.mcp.errors import ConfirmationError
 from etf_cockpit.mcp.registry import CallContext, RateLimiter, invoke_tool
 from etf_cockpit.mcp import tools_data, tools_etf, tools_universe
 from etf_cockpit.data.universe_store import UniverseRecord
+
+
+@pytest.mark.parametrize("submission_route", ["session", "api"])
+def test_refresh_submission_binds_dedupe_to_normalised_request(submission_route):
+    from etf_cockpit.mcp.registry import use_call_context
+
+    submissions = []
+
+    def submit_workflow(*, workflow_type, label, input_payload, dedupe_key):
+        submissions.append((workflow_type, input_payload, dedupe_key))
+        return "wf_refresh"
+
+    def execute(command):
+        assert command.idempotency_key == f"mcp:{command.dedupe_key.rsplit(':', 1)[1]}"
+        submissions.append((command.workflow_type, command.input_payload, command.dedupe_key))
+        return SimpleNamespace(status="accepted", resource_id="wf_refresh")
+
+    context = _context()
+    context.session = (SimpleNamespace(submit_workflow=submit_workflow) if submission_route == "session"
+                       else SimpleNamespace(application_api=SimpleNamespace(execute=execute)))
+    context.session.find_active_workflow = lambda **_kwargs: None
+    with use_call_context(context):
+        first = tools_data.data_refresh(" PRICES ", ids=None, years=1, rescore=False)
+        repeated = tools_data.data_refresh("prices", ids=[], years=1, rescore=False)
+        changed = tools_data.data_refresh("prices", years=2, rescore=False)
+        other_source = tools_data.data_refresh("fundamentals", years=1, rescore=False)
+    assert first["job_id"] == repeated["job_id"] == changed["job_id"] == other_source["job_id"] == "wf_refresh"
+    assert len(submissions) == 4
+    assert submissions[0][1] == {"source": "prices", "ids": [], "years": 1, "rescore": False}
+    assert submissions[0][2].startswith("mcp:data_refresh:")
+    keys = [submission[2].split(":") for submission in submissions]
+    assert all(len(key) == 4 and len(key[2]) == 64 and len(key[3]) == 32 for key in keys)
+    assert keys[0][2] == keys[1][2]
+    assert len({keys[index][2] for index in (0, 2, 3)}) == 3
+    assert len({key[3] for key in keys}) == 4
 
 
 def _context(rate_path: Path | None = None) -> CallContext:
@@ -36,6 +72,30 @@ def test_data_health_is_paged_and_keeps_unavailable_values(monkeypatch: pytest.M
     assert first["rows"][0]["row_count"] is None
     assert first["rows"][0]["status"] == "unavailable"
     assert first["next_cursor"]
+
+
+@pytest.mark.parametrize("canonical_date", ["2026-10-30", None, "missing"])
+def test_data_health_uses_canonical_report_date_and_reports_missing_date(monkeypatch, canonical_date) -> None:
+    from etf_cockpit.data.health import DataHealthReport, DataHealthRow, DataHealthStatus
+
+    row = DataHealthRow(dataset="prices", status=DataHealthStatus.HEALTHY, path="fixture.parquet", row_count=1,
+                        checksum=None, as_of="2026-10-30", freshness="fresh", provider=None,
+                        last_success=None, last_failure=None, warnings=())
+    report = DataHealthReport(created_at="2026-11-02T00:00:00Z", as_of_date=canonical_date, rows=(row,))
+    if canonical_date == "missing":
+        report = SimpleNamespace(rows=(row,), as_of="1999-01-01")
+        monkeypatch.setattr(mcp_data_views, "filter_data_health_rows", lambda report, **kwargs: report.rows)
+    monkeypatch.setattr(mcp_data_views, "load_config", lambda: None)
+    monkeypatch.setattr(mcp_data_views, "build_data_health", lambda *args, **kwargs: report)
+
+    result = invoke_tool("data_health", {}, context=_context())
+    assert result["rows"][0]["dataset"] == "prices"
+    assert result["rows"][0]["row_count"] == 1
+    assert result["as_of"] == (canonical_date if canonical_date != "missing" else None)
+    if canonical_date in (None, "missing"):
+        assert result["unavailable_reason"]
+    else:
+        assert result["unavailable_reason"] is None
 
 
 def test_canonical_data_services_are_called_and_unavailability_is_not_zero(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -364,3 +424,290 @@ def test_holdings_gaps_and_readiness_failed_dates_are_paged(monkeypatch: pytest.
     assert third["next_cursor"] is None
     for page in (first, second, third):
         assert page["summary"] == {"status": "FAIL", "dates_failed": 12}
+
+
+def test_data_health_reads_only_session_root_and_configuration(tmp_path, monkeypatch):
+    import pandas as pd
+
+    root = tmp_path / "owner"
+    config_dir = root / "configs"
+    config_dir.mkdir(parents=True)
+    (config_dir / "universe.yaml").write_text("etfs: []\n", encoding="utf-8")
+    clean = root / "data" / "clean"
+    clean.mkdir(parents=True)
+    pd.DataFrame({"date": ["2026-10-30"], "close": [123.0]}).to_parquet(clean / "prices.parquet")
+    original_load = mcp_data_views.load_config
+    reads = []
+
+    def configured_load(path):
+        reads.append(path)
+        assert path == config_dir
+        return original_load(path)
+
+    monkeypatch.setattr(mcp_data_views, "load_config", configured_load)
+    monkeypatch.setattr(mcp_data_views, "ROOT", tmp_path / "forbidden-root")
+    context = _context(tmp_path / "limits.sqlite3")
+    context.session = SimpleNamespace(root=root)
+    result = invoke_tool("data_health", {"dataset": "prices"}, context=context)
+    assert reads == [config_dir]
+    assert result["rows"][0]["row_count"] == 1
+    assert Path(result["rows"][0]["path"]) == clean / "prices.parquet"
+
+
+@pytest.mark.parametrize(("tool_name", "arguments", "facade", "result"), [
+    ("data_readiness", {"start": date(2026, 10, 29), "end": date(2026, 10, 30)},
+     "data_readiness_view", {"failed_dates": [], "summary": {}, "interval": {}}),
+    ("data_provider_status", {}, "data_provider_status_view", ()),
+    ("data_validate_prices", {}, "validate_prices_view", {"status": "Unavailable"}),
+    ("data_import_preview", {"path": "fixture.csv"}, "preview_local_import", {"valid": False}),
+    ("data_rollback_prices", {"reason": "fixture"}, "rollback_preview", {"available": True}),
+])
+def test_data_facades_receive_session_root(tmp_path, monkeypatch, tool_name, arguments, facade, result):
+    reads = []
+
+    def read(*args, root, **kwargs):
+        reads.append(root)
+        return dict(result) if isinstance(result, dict) else result
+
+    monkeypatch.setattr(mcp_data_views, facade, read)
+    context = _context(tmp_path / "limits.sqlite3")
+    context.session = SimpleNamespace(root=tmp_path)
+    invoke_tool(tool_name, arguments, context=context)
+    assert reads == [tmp_path.resolve()]
+
+
+@pytest.mark.parametrize("facade", ["preview_local_import", "commit_local_import", "rollback_preview", "rollback_prices", "validate_prices_view"])
+def test_process_bound_data_services_refuse_mismatched_root_before_io(tmp_path, monkeypatch, facade):
+    def forbidden_load(*args, **kwargs):
+        pytest.fail("configuration from another root was read")
+
+    monkeypatch.setattr(mcp_data_views, "load_config", forbidden_load)
+    arguments = (tmp_path / "fixture.csv",) if "import" in facade else ()
+    with pytest.raises(ValueError, match="ETF_COCKPIT_ROOT"):
+        getattr(mcp_data_views, facade)(*arguments, root=tmp_path)
+
+
+@pytest.fixture(params=["session", "api"])
+def workflow_submission_context(request, tmp_path, monkeypatch):
+    from etf_cockpit.application import headless_session
+    from etf_cockpit.application.api import LocalApplicationApi
+    from etf_cockpit.core.job_scheduler import DurableJobScheduler
+
+    scheduler = DurableJobScheduler(tmp_path, max_concurrency=1)
+    snapshot = SimpleNamespace(universe_revision="submission-fixture")
+    context = _context(tmp_path / "limits.sqlite3")
+    commands = []
+    execute = LocalApplicationApi.execute
+
+    def record_command(api, command):
+        submission_id = command.dedupe_key.rsplit(":", 1)[1]
+        if request.param == "session":
+            command_hash = hashlib.sha256(f"{command.workflow_type}\0{command.dedupe_key}".encode("utf-8")).hexdigest()
+            assert command.idempotency_key == f"mcp-{command_hash}"
+        else:
+            assert command.idempotency_key == f"mcp:{submission_id}"
+        commands.append(command)
+        return execute(api, command)
+
+    monkeypatch.setattr(LocalApplicationApi, "execute", record_command)
+    monkeypatch.setattr(headless_session, "ROOT", tmp_path)
+    session = headless_session.HeadlessSession(snapshot, root=tmp_path)
+    session._job_scheduler = scheduler
+    if request.param == "session":
+        context.session = session
+    else:
+        api = LocalApplicationApi(lambda: snapshot, scheduler=scheduler, root=tmp_path)
+        context.session = SimpleNamespace(application_api=api, find_active_workflow=session.find_active_workflow)
+    return context, scheduler, commands
+
+
+def _confirmed_refresh(context):
+    arguments = {"source": "prices", "years": 1, "rescore": False}
+    preview = invoke_tool("data_refresh", arguments, context=context)
+    return invoke_tool("data_refresh", {**arguments, "confirm_token": preview["confirm_token"]}, context=context)["job_id"]
+
+
+def test_confirmed_identical_refresh_after_completion_creates_new_job(workflow_submission_context):
+    context, scheduler, commands = workflow_submission_context
+    first = _confirmed_refresh(context)
+    completed = scheduler.run_once(lambda _context: "offline completion", workflow_id=first)
+    assert completed.status.value == "succeeded"
+    assert scheduler.get_workflow(first).status.value == "succeeded"
+
+    second = _confirmed_refresh(context)
+
+    assert second != first
+    assert scheduler.get_workflow(second).status.value == "queued"
+    assert len(scheduler.list_workflows()) == 2
+    first_key = scheduler.get_workflow(first).dedupe_key.rsplit(":", 1)
+    second_key = scheduler.get_workflow(second).dedupe_key.rsplit(":", 1)
+    assert first_key[0] == second_key[0]
+    assert first_key[1] != second_key[1]
+    assert len(commands) == 2
+    assert len({command.idempotency_key for command in commands}) == 2
+
+
+def test_confirmed_identical_refresh_while_queued_reuses_job(workflow_submission_context):
+    context, scheduler, commands = workflow_submission_context
+    first = _confirmed_refresh(context)
+    assert scheduler.get_workflow(first).status.value == "queued"
+
+    second = _confirmed_refresh(context)
+
+    assert second == first
+    assert len(scheduler.list_workflows()) == 1
+    assert len(scheduler.list_jobs()) == 1
+    assert len(commands) == 1
+
+
+def test_identical_score_history_backfill_after_completion_creates_new_job(workflow_submission_context):
+    context, scheduler, commands = workflow_submission_context
+    arguments = {"start": date(2026, 10, 1), "end": date(2026, 10, 30)}
+    first = invoke_tool("score_history_backfill", arguments, context=context)["job_id"]
+    assert invoke_tool("score_history_backfill", arguments, context=context)["job_id"] == first
+    assert len(scheduler.list_workflows()) == 1
+    completed = scheduler.run_once(lambda _context: "offline completion", workflow_id=first)
+    assert completed.status.value == "succeeded"
+    assert scheduler.get_workflow(first).status.value == "succeeded"
+
+    second = invoke_tool("score_history_backfill", arguments, context=context)["job_id"]
+
+    assert second != first
+    assert scheduler.get_workflow(second).status.value == "queued"
+    assert len(scheduler.list_workflows()) == 2
+    assert len(commands) == 2
+    assert len({command.idempotency_key for command in commands}) == 2
+
+
+def test_completed_refresh_replacement_is_reused_while_queued(workflow_submission_context, tmp_path):
+    context, scheduler, commands = workflow_submission_context
+    now = [0.0]
+    context.rate_limiter = RateLimiter(path=tmp_path / "controlled-limits.sqlite3", clock=lambda: now[0])
+    first = _confirmed_refresh(context)
+    assert scheduler.run_once(lambda _context: "offline completion", workflow_id=first).status.value == "succeeded"
+
+    replacement = _confirmed_refresh(context)
+    assert replacement != first
+    assert scheduler.get_workflow(replacement).status.value == "queued"
+    # Each preview + confirmation consumes two calls. C arrives in the next
+    # quota window; B remains queued throughout, and the real quota stays enabled.
+    now[0] += 3601
+    repeated = _confirmed_refresh(context)
+
+    assert repeated == replacement
+    assert len(scheduler.list_workflows()) == len(scheduler.list_jobs()) == 2
+    assert len(commands) == 2
+
+
+def _seed_250_newer_terminal_workflows(scheduler):
+    from etf_cockpit.core.job_scheduler import JobSpec
+    from etf_cockpit.data.local_storage import storage_layout
+
+    seed = scheduler.submit("refresh", "Terminal history", (JobSpec("start", "Start"),), dedupe_key="terminal:0")
+    scheduler.cancel(seed.workflow_id)
+    newer = (datetime.now(timezone.utc) + timedelta(seconds=1)).isoformat(timespec="milliseconds")
+    with sqlite3.connect(storage_layout(scheduler.root).transactional_path) as connection:
+        connection.execute("UPDATE workflow_runs SET created_at = ? WHERE workflow_id = ?", (newer, seed.workflow_id))
+        connection.executemany(
+            """
+            INSERT INTO workflow_runs (
+                workflow_id, workflow_type, label, status, dedupe_key, input_hash,
+                inputs_json, outputs_json, created_at, finished_at, resource_json
+            )
+            SELECT ?, workflow_type, label, status, ?, input_hash,
+                   inputs_json, outputs_json, ?, finished_at, resource_json
+            FROM workflow_runs WHERE workflow_id = ?
+            """,
+            ((f"terminal-{index}", f"terminal:{index}", newer, seed.workflow_id) for index in range(1, 250)),
+        )
+    window = scheduler.list_workflows(limit=200)
+    assert len(window) == 200
+    assert all(row.status.value == "cancelled" for row in window)
+
+
+def test_older_queued_refresh_is_found_and_reused_after_250_terminal_workflows(workflow_submission_context):
+    context, scheduler, commands = workflow_submission_context
+    first = _confirmed_refresh(context)
+    _seed_250_newer_terminal_workflows(scheduler)
+
+    original = scheduler.get_workflow(first)
+    prefix = original.dedupe_key.rsplit(":", 1)[0] + ":"
+    assert scheduler.find_active_workflow("refresh", prefix) == original
+    assert _confirmed_refresh(context) == first
+    assert scheduler.get_workflow(first).status.value == "queued"
+    assert len(commands) == 1
+
+
+def test_refresh_submits_new_job_after_250_terminal_workflows(workflow_submission_context):
+    context, scheduler, commands = workflow_submission_context
+    _seed_250_newer_terminal_workflows(scheduler)
+    assert scheduler.find_active_workflow("refresh", "mcp:data_refresh:") is None
+
+    submitted = _confirmed_refresh(context)
+
+    assert scheduler.get_workflow(submitted).status.value == "queued"
+    assert len(commands) == 1
+
+
+@pytest.mark.parametrize("lookup", ["missing", "legacy_listing", "failed", "missing_id"])
+def test_refresh_fails_closed_when_active_lookup_is_unavailable(lookup):
+    from etf_cockpit.mcp.errors import MCPToolError
+    from etf_cockpit.mcp.registry import use_call_context
+
+    def find_active_workflow(**_kwargs):
+        if lookup == "failed":
+            raise RuntimeError("lookup unavailable")
+        return SimpleNamespace(workflow_id=None)
+
+    context = _context()
+    context.session = SimpleNamespace(submit_workflow=lambda **_kwargs: pytest.fail("unsafe submission"))
+    if lookup == "legacy_listing":
+        context.session.list_workflows = lambda **_kwargs: []
+    elif lookup != "missing":
+        context.session.find_active_workflow = find_active_workflow
+    with use_call_context(context), pytest.raises(MCPToolError) as error:
+        tools_data.data_refresh("prices")
+    assert error.value.reason_code == "JOB_SERVICE_UNAVAILABLE"
+
+
+@pytest.mark.parametrize("record_kind", ["mapping", "record"])
+def test_refresh_reuses_active_lookup_match(record_kind):
+    import json
+
+    from etf_cockpit.mcp.registry import use_call_context
+
+    payload = {"source": "prices", "ids": [], "years": 5, "rescore": True}
+    fingerprint = hashlib.sha256(json.dumps(
+        ["data_refresh", payload], sort_keys=True, separators=(",", ":"), allow_nan=False,
+    ).encode("utf-8")).hexdigest()
+    matching = {"workflow_id": "existing"}
+    lookups = []
+
+    def find_active_workflow(*, workflow_type, dedupe_prefix):
+        lookups.append((workflow_type, dedupe_prefix))
+        return matching if record_kind == "mapping" else SimpleNamespace(**matching)
+
+    context = _context()
+    context.session = SimpleNamespace(find_active_workflow=find_active_workflow, submit_workflow=lambda **_kwargs: pytest.fail("duplicate submission"))
+    with use_call_context(context):
+        assert tools_data.data_refresh("prices")["job_id"] == "existing"
+    assert lookups == [("refresh", f"mcp:data_refresh:{fingerprint}:")]
+
+
+def test_confirmed_submission_identity_is_derived_from_token():
+    from etf_cockpit.mcp.registry import use_call_context
+
+    commands = []
+
+    def execute(command):
+        commands.append(command)
+        return SimpleNamespace(status="accepted", resource_id="submitted")
+
+    context = _context()
+    context.session = SimpleNamespace(find_active_workflow=lambda **_kwargs: None, application_api=SimpleNamespace(execute=execute))
+    token = "single-use-token-with-nonce"
+    with use_call_context(context):
+        assert tools_data.data_refresh("prices", confirm_token=token)["job_id"] == "submitted"
+    submission_id = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    assert commands[0].dedupe_key.rsplit(":", 1)[1] == submission_id
+    assert commands[0].idempotency_key == f"mcp:{submission_id}"

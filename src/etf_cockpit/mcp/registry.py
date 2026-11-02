@@ -10,7 +10,7 @@ Counters persist in logs/mcp_rate_limits.sqlite3; unavailable quota storage refu
 Write handlers provide a side-effect-free ``preview`` callback: a call without a token returns
 that preview and a 15-minute, client/revision-bound token; a call with the token commits once.
 Paper and portfolio adapters own their preview/token contract; dispatch preserves their payload
-and requires their token before calling the handler.
+and requires their token before calling the handler to commit.
 Explicit read-only preview tools use the edit tier with ``readOnlyHint=true`` and no confirmation.
 Configuration-file ownership belongs to the remote lane.
 """
@@ -324,7 +324,14 @@ def invoke_tool(name: str, arguments: Mapping[str, Any], *, context: CallContext
         handler_args = safe_args
         if "store_revision" in safe_args and "store_revision" not in signature.parameters:
             handler_args = {key: value for key, value in safe_args.items() if key != "store_revision"}
-        if "dry_run" in signature.parameters and spec.preview_function is not None:
+        handler_owned_preview = (
+            spec.preview_function is not None
+            and spec.function.__module__ in _HANDLER_PREVIEW_MODULES
+            and "dry_run" in signature.parameters
+        )
+        if handler_owned_preview and safe_args.get("confirm_token") is not None and "dry_run" not in handler_args:
+            handler_args = {**handler_args, "dry_run": False}
+        if "dry_run" in signature.parameters and spec.preview_function is not None and not handler_owned_preview:
             handler_args = {**handler_args, "dry_run": safe_args.get("confirm_token") is None}
         validation_args = handler_args
         if spec.requires_confirmation and "confirm_token" not in safe_args and "confirm_token" in signature.parameters:
@@ -338,12 +345,22 @@ def invoke_tool(name: str, arguments: Mapping[str, Any], *, context: CallContext
         if write_dispatch or spec.requires_confirmation:
             token = safe_args.get("confirm_token")
             excluded = {"confirm_token", "store_revision"}
-            if spec.preview_function is not None:
+            if spec.preview_function is not None and not handler_owned_preview:
                 excluded.add("dry_run")
-            payload = {key: value for key, value in safe_args.items() if key not in excluded}
+            payload_args = handler_args if handler_owned_preview else safe_args
+            payload = {key: value for key, value in payload_args.items() if key not in excluded}
             if "store_revision" in safe_args and safe_args["store_revision"] != active.store_revision:
                 raise ConfirmationError("The echoed store revision differs from the current store revision")
             if token is None:
+                if handler_owned_preview:
+                    if handler_args.get("dry_run", True) is not True:
+                        raise ConfirmationError("This write tool has no safe dry-run preview")
+                    with use_call_context(active):
+                        preview_result = spec.preview_function(**payload)
+                    result = {"preview": preview_result, "confirm_token": preview_result.get("confirm_token")}
+                    output_hash = hash_arguments(result)
+                    outcome = "ok"
+                    return result
                 if spec.preview_function is None:
                     raise ConfirmationError("This write tool has no safe dry-run preview")
                 try:
