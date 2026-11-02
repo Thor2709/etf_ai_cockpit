@@ -108,7 +108,10 @@ def _read_export(raw_path: str, context: CallContext) -> dict[str, object]:
     path = (root / relative).resolve()
     for prefix in _EXPORT_PREFIXES:
         try:
-            path.relative_to((root / prefix).resolve())
+            approved = (root / prefix).resolve()
+            approved.relative_to(root)
+            path.relative_to(root)
+            path.relative_to(approved)
             allowed = True
             break
         except ValueError:

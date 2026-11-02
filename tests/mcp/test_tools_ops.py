@@ -251,3 +251,69 @@ def test_settings_ui_is_unsupported_and_provider_writes_match_bundle_fields(tmp_
         _apply_provider_setting(values, "controls.output_currency", "USD")
     with pytest.raises(ValueError, match="not allow-listed"):
         _apply_provider_setting(values, "providers.providers.yfinance.api_key", "secret")
+
+
+@pytest.mark.parametrize("directory", ["exports", "exports/nested", "data/reports"])
+def test_export_resource_rejects_directory_links_outside_root(tmp_path: Path, directory: str) -> None:
+    import os
+    import subprocess
+
+    from etf_cockpit.mcp.errors import MCPToolError
+    from etf_cockpit.mcp.resources import _read_export
+
+    root = tmp_path / "root"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "report.txt").write_text("external evidence", encoding="utf-8")
+    link = root / directory
+    link.parent.mkdir(parents=True)
+    if os.name == "nt":
+        subprocess.run(["cmd", "/c", "mklink", "/J", str(link), str(outside)], check=True, capture_output=True)
+    else:
+        link.symlink_to(outside, target_is_directory=True)
+    assert link.resolve() == outside.resolve()
+
+    with pytest.raises(MCPToolError) as error:
+        _read_export(f"{directory}/report.txt", _context(root))
+    assert error.value.reason_code == "RESOURCE_PATH_INVALID"
+
+
+@pytest.mark.parametrize(
+    ("checks", "expected"),
+    [
+        (None, "incomplete"),
+        ([], "incomplete"),
+        ([{}], "incomplete"),
+        ([None], "incomplete"),
+        ([{"name": "gate", "status": "passed"}], "incomplete"),
+        ([{"name": "gate", "required": True}], "incomplete"),
+        ([{"status": "passed", "required": True}], "incomplete"),
+        ([{"name": " ", "status": "passed", "required": True}], "incomplete"),
+        ([{"name": "gate", "status": "passed", "required": 1}], "incomplete"),
+        ([{"name": "gate", "status": "passed", "required": False}], "incomplete"),
+        ([{"name": "gate", "status": "unavailable", "required": True}], "incomplete"),
+        ([{"name": "gate", "status": "passed", "required": True}, {}], "incomplete"),
+        ([{"name": "gate", "status": "passed", "required": True}] * 50 + [{}], "incomplete"),
+        ([{"name": "gate", "status": "passed", "required": True}], "passed"),
+        ([{"name": "gate", "status": "failed", "required": True}], "failed"),
+        ([{"name": "gate", "status": "passed", "required": True},
+          {"name": "optional", "status": "failed", "required": False}], "passed"),
+        ([{"name": "gate", "status": "passed", "required": True}] * 50
+         + [{"name": "last", "status": "failed", "required": True}], "failed"),
+    ],
+)
+def test_validation_report_requires_complete_required_check_evidence(tmp_path: Path, checks: object, expected: str) -> None:
+    import json
+
+    from etf_cockpit.application.validation_report import load_validation_report
+
+    report_path = tmp_path / "artifacts" / "validation" / "latest" / "validation.json"
+    report_path.parent.mkdir(parents=True)
+    report_path.write_text(json.dumps({"checks": checks}), encoding="utf-8")
+
+    report = load_validation_report(tmp_path)
+    assert report["status"] == expected
+    assert report["execution_allowed"] is False
+    assert len(report["checks"]) <= 50
+    if expected == "incomplete":
+        assert report["reason"]

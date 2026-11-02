@@ -45,13 +45,24 @@ def load_validation_report(root: Path, path: Path | None = None) -> dict[str, An
     ] if isinstance(raw_checks, list) else []
     raw_failures = payload.get("failures")
     failures = [str(item)[:240] for item in raw_failures[:20]] if isinstance(raw_failures, list) else []
-    required_failure = isinstance(raw_checks, list) and any(
-        not isinstance(row, dict) or (row.get("required") is True and row.get("status") != "passed")
+    complete_checks = isinstance(raw_checks, list) and bool(raw_checks) and all(
+        isinstance(row, dict)
+        and isinstance(row.get("name"), str)
+        and bool(row["name"].strip())
+        and isinstance(row.get("required"), bool)
+        and row.get("status") in ("passed", "failed")
         for row in raw_checks
+    )
+    required_checks = [
+        row for row in raw_checks if isinstance(row, dict) and row.get("required") is True
+    ] if isinstance(raw_checks, list) else []
+    required_failure = any(
+        row.get("status") == "failed"
+        for row in required_checks
     )
     if failures or required_failure:
         status = "failed"
-    elif isinstance(raw_checks, list) and raw_checks:
+    elif complete_checks and required_checks and all(row["status"] == "passed" for row in required_checks):
         status = "passed"
     else:
         status = "incomplete"
