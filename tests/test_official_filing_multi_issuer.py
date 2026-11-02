@@ -6,6 +6,7 @@ import zipfile
 
 import pytest
 
+from etf_cockpit.parsers import esef_ixbrl
 from etf_cockpit.data.classification import read_instrument_context
 from etf_cockpit.data.universe_store import load_sparebank_records
 from scripts.import_official_filing import _validate_units, import_official_filing
@@ -122,7 +123,9 @@ def test_configured_universe_lei_mismatch_is_rejected(tmp_path: Path) -> None:
         _import(tmp_path / "mismatch", universe_root=tmp_path)
 
 
-def test_ticker_ol_suffix_normalises_to_bare_ticker(tmp_path: Path) -> None:
+def test_ticker_ol_suffix_normalises_to_bare_ticker(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # This tests ticker normalisation; optional Arelle startup can time out under parallel load.
+    monkeypatch.setattr(esef_ixbrl, "_arelle_available", lambda: False)
     result = _import(tmp_path / "ming", ticker="MING.OL")
 
     assert result["ticker"] == "MING.OL"
@@ -130,7 +133,9 @@ def test_ticker_ol_suffix_normalises_to_bare_ticker(tmp_path: Path) -> None:
     assert identity["ticker"] == "MING.OL"
 
 
-def test_import_writes_financial_sector_classification(tmp_path: Path) -> None:
+def test_import_writes_financial_sector_classification(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # This tests classification persistence; optional Arelle startup can time out under parallel load.
+    monkeypatch.setattr(esef_ixbrl, "_arelle_available", lambda: False)
     _import(tmp_path)
 
     context = read_instrument_context(
@@ -143,7 +148,9 @@ def test_import_writes_financial_sector_classification(tmp_path: Path) -> None:
     assert context.sector == "financials"
 
 
-def test_unknown_scope_axis_member_is_rejected(tmp_path: Path) -> None:
+def test_unknown_scope_axis_member_is_rejected(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # This tests scope rejection; optional Arelle startup can time out under parallel load.
+    monkeypatch.setattr(esef_ixbrl, "_arelle_available", lambda: False)
     package = _fixture_with_scope_member(tmp_path / "unknown-scope.xbri", "ifrs-full:UnknownMember")
 
     with pytest.raises(ValueError, match="filing consolidation scope is incomplete"):

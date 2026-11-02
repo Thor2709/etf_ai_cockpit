@@ -424,6 +424,8 @@ def test_arbitrary_local_import_is_retained_but_requires_manual_review(tmp_path:
     import etf_cockpit.application.filing_ingestion as filing_ingestion
     import pandas as pd
 
+    # This tests local-import authority; optional Arelle startup can time out under parallel load.
+    monkeypatch.setattr(esef_ixbrl, "_arelle_available", lambda: False)
     local_package = tmp_path / "local-copy.xbri"
     local_package.write_bytes(FIXTURE.read_bytes())
     monkeypatch.setattr(filing_ingestion_workflows, "STATEMENT_FACTS_PATH", tmp_path / "statement_facts.parquet")

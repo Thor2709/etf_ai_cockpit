@@ -8,9 +8,11 @@ import re
 import zipfile
 
 import pandas as pd
+import pytest
 
 from etf_cockpit.application.financial_institution_views import load_financial_institution_projection
 from etf_cockpit.application.identity_views import load_identity_projection
+from etf_cockpit.parsers import esef_ixbrl
 from etf_cockpit.parsers.contracts import RawDocument
 from scripts.import_official_filing import import_official_filing
 from scripts.sparebank_refresh import refresh_sparebanks
@@ -62,7 +64,9 @@ def _fixture_for_issuer(path: Path, lei: str) -> Path:
     return path
 
 
-def test_synthetic_universe_record_imports_and_scores_without_a_code_edit(tmp_path: Path) -> None:
+def test_synthetic_universe_record_imports_and_scores_without_a_code_edit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # This tests onboarding and scoring; optional Arelle startup can time out under parallel load.
+    monkeypatch.setattr(esef_ixbrl, "_arelle_available", lambda: False)
     _universe(tmp_path, (("SYNTHBANK", "Synthetic Sparebank", "SYNTH.OL", LEI_ONE),))
     package = _fixture_for_issuer(tmp_path / "package.xbri", LEI_ONE)
     source_url = f"https://filings.xbrl.org/{LEI_ONE}/2025-12-31/ESEF/NO/0/synthetic.xbri"
@@ -143,7 +147,9 @@ class _RefreshClient:
         )
 
 
-def test_refresh_isolates_download_failure_and_imports_other_banks(tmp_path: Path) -> None:
+def test_refresh_isolates_download_failure_and_imports_other_banks(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # This tests refresh failure isolation; optional Arelle startup can time out under parallel load.
+    monkeypatch.setattr(esef_ixbrl, "_arelle_available", lambda: False)
     _universe(
         tmp_path,
         (
