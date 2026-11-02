@@ -190,15 +190,14 @@ def resolve_stress_portfolio(
                 return pd.DataFrame(), "published_candidate_unavailable"
             with TransactionalStore(root) as store:
                 with store.read_transaction():
-                    candidates = store.list(PORTFOLIO_SANDBOX_ENTITY)
-                    published_ids = {record.entity_id for record in store.list(PORTFOLIO_SANDBOX_RESULT_ENTITY)}
+                    publications = store.list(PORTFOLIO_SANDBOX_RESULT_ENTITY)
+                    if not publications:
+                        return pd.DataFrame(), "published_candidate_unavailable"
+                    publication = max(publications, key=lambda item: (item.updated_at, item.entity_id))
+                    record = store.get(PORTFOLIO_SANDBOX_ENTITY, publication.entity_id)
         except (OSError, sqlite3.Error, StorageSchemaError) as exc:
             raise StressLabPersistenceError(f"local portfolio storage is unavailable: {exc}") from exc
-        published = [record for record in candidates if record.entity_id in published_ids]
-        if not published:
-            return pd.DataFrame(), "published_candidate_unavailable"
-        record = max(published, key=lambda item: (item.updated_at, item.entity_id))
-        name = str(record.payload.get("name", "")).strip()
+        name = str(record.payload.get("name", "")).strip() if record is not None else ""
         if not name:
             return pd.DataFrame(), "published_candidate_identity_unavailable"
         try:

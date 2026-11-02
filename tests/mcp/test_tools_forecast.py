@@ -150,6 +150,40 @@ def test_backtest_get_reads_only_cached_report_and_preserves_unavailable_metrics
     assert unavailable["results"] == []
 
 
+def test_backtest_get_equity_summary_matches_each_page(monkeypatch: pytest.MonkeyPatch) -> None:
+    rows = [{
+        "strategy_name": f"strategy-{index}",
+        "final_value_eur": None if index == 0 else 100.0 + index,
+        "max_drawdown": None,
+        "extra_metric": index,
+    } for index in range(101)]
+    report = SimpleNamespace(
+        metadata={"cost_regime": "modelled_default"},
+        results=pd.DataFrame(rows),
+        quality_label="unavailable",
+        quality_notes=[],
+    )
+    monkeypatch.setattr(tools_forecast, "_snapshot", lambda: (None, SimpleNamespace(config=load_config())))
+    monkeypatch.setattr(
+        backtest_service, "BacktestService",
+        lambda _config: SimpleNamespace(load_cached_backtest=lambda: report),
+    )
+
+    cursor = None
+    for index in range(2):
+        result = tools_forecast.backtest_get("modelled_default", cursor=cursor, limit=1)
+        assert result["result_count"] == 101
+        assert len(result["results"]) == 1
+        assert result["results"][0]["strategy_name"] == f"strategy-{index}"
+        assert len(result["equity_summary"]) == 1
+        assert result["equity_summary"][0] == {
+            field: result["results"][0][field]
+            for field in ("strategy_name", "final_value_eur", "max_drawdown")
+        }
+        cursor = result["next_cursor"]
+        assert cursor is not None
+
+
 def test_pipeline_run_uses_job_api_and_canonical_services_without_confirmation(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     from etf_cockpit.application import api as api_module
     from etf_cockpit.application.contracts import ApiStatus
@@ -344,6 +378,45 @@ def test_stress_test_resolves_portfolio_calls_canonical_service_and_paginates(
     assert len(result["contributors"]) == 1
     assert result["next_cursor"] is not None
     assert result["execution_allowed"] is False
+
+
+def test_stress_candidate_uses_latest_publication_instead_of_candidate_update(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from etf_cockpit.application import portfolio_sandbox
+    from etf_cockpit.data import local_storage
+
+    timestamps = iter(f"2026-01-0{day}T00:00:00+00:00" for day in range(1, 5))
+    with TransactionalStore(tmp_path) as store:
+        monkeypatch.setattr(local_storage, "_utc_now", lambda: next(timestamps))
+        candidate_a = store.put(portfolio_sandbox.PORTFOLIO_SANDBOX_ENTITY, "candidate-a", {"name": "A"})
+        candidate_b = store.put(portfolio_sandbox.PORTFOLIO_SANDBOX_ENTITY, "candidate-b", {"name": "B"})
+        publication_b = store.put(portfolio_sandbox.PORTFOLIO_SANDBOX_RESULT_ENTITY, "candidate-b", {"status": "available"})
+        publication_a = store.put(portfolio_sandbox.PORTFOLIO_SANDBOX_RESULT_ENTITY, "candidate-a", {"status": "available"})
+    assert candidate_a.updated_at < candidate_b.updated_at
+    assert publication_a.updated_at > publication_b.updated_at
+
+    snapshot = SimpleNamespace(holdings=pd.DataFrame())
+    loaded_names: list[str] = []
+
+    def load_candidate(actual_snapshot, name, *, root):
+        assert actual_snapshot is snapshot
+        assert root == tmp_path
+        loaded_names.append(name)
+        return SimpleNamespace(
+            candidate=SimpleNamespace(target_weights=((name, 0.6),)),
+            result_payload={"status": "available"},
+        )
+
+    monkeypatch.setattr(portfolio_sandbox, "load_portfolio_candidate", load_candidate)
+
+    allocation, reason = stress_lab.resolve_stress_portfolio(snapshot, "candidate", root=tmp_path)
+
+    assert loaded_names == ["A"]
+    assert reason is None
+    assert allocation["instrument_id"].tolist() == ["A"]
+    assert allocation["current_weight"].tolist() == [0.6]
 
 
 def test_stress_test_unknown_paper_is_not_found_and_missing_candidate_is_unavailable(

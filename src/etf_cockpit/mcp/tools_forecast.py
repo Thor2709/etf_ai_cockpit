@@ -11,7 +11,6 @@ shock bound and has no time horizon.
 
 from __future__ import annotations
 
-from datetime import date
 import hashlib
 import json
 import math
@@ -346,7 +345,7 @@ def backtest_get(
     records = _records(results)
     filters = {"cost_regime": cost_regime, "strategy": strategy}
     page, next_cursor = _page(records, cursor=cursor, limit=limit, filters=filters)
-    equity_summary = _records(results, fields=_EQUITY_FIELDS)
+    equity_summary = [{field: row[field] for field in _EQUITY_FIELDS if field in row} for row in page]
     status = "available" if records else "unavailable"
     return {
         "status": status,
