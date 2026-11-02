@@ -13,32 +13,17 @@ sufficient point-in-time data are reported as insufficient.
 from __future__ import annotations
 
 import argparse
-from datetime import datetime, timezone
 import json
 import math
 from pathlib import Path
 import sys
 from typing import Sequence
 
-import pandas as pd
-
 ROOT = Path(__file__).resolve().parents[1]
 for candidate in (ROOT / "src", ROOT / "app" / "src"):
     if candidate.exists():
         sys.path.insert(0, str(candidate))
 
-from etf_cockpit.analysis.decision.rank_validation import (  # noqa: E402 - imports follow the sys.path bootstrap above
-    attach_fundamental_evidence,
-    forward_comparator_frame,
-    load_rank_validation_policy,
-    price_knowledge_gap,
-    price_momentum_risk_evidence,
-    rank_validation_report_dict,
-    research_policy,
-    run_stored_rank_validation,
-    window_coverage,
-    window_decision_times,
-)
 from etf_cockpit.core.paths import CONFIG_DIR  # noqa: E402 - imports follow the sys.path bootstrap above
 
 _PRICE_RELATIVE = Path("data") / "validated" / "prices" / "prices_daily.parquet"
@@ -76,12 +61,6 @@ def output_refusal(target: Path, inputs: Sequence[Path | None]) -> str | None:
     return None
 
 
-def _read_table(path: Path | None) -> pd.DataFrame:
-    if path is None or not path.is_file():
-        return pd.DataFrame()
-    return pd.read_parquet(path) if path.suffix.lower() == ".parquet" else pd.read_csv(path)
-
-
 def _json_safe(value: object) -> object:
     if isinstance(value, dict):
         return {str(key): _json_safe(item) for key, item in value.items()}
@@ -94,127 +73,14 @@ def _json_safe(value: object) -> object:
     return str(value)
 
 
-def _load_membership(args: argparse.Namespace, root: Path, as_known_at: datetime) -> pd.DataFrame:
-    if args.membership is not None:
-        return _read_table(args.membership)
-    from etf_cockpit.data.universe_membership import membership_frame
-
-    return membership_frame(args.scope, as_known_at, root=root)
-
-
 def build_report(args: argparse.Namespace) -> dict[str, object]:
-    root = args.root.resolve()
-    prices = _read_table(args.prices if args.prices is not None else root / _PRICE_RELATIVE)
-    costs = _read_table(args.costs)
-    cash = _read_table(args.cash)
-    fundamentals = _read_table(args.fundamentals)
-    base_policy = load_rank_validation_policy()
-    report: dict[str, object] = {
-        "schema_version": 1,
-        "kind": "rank_validation_report",
-        "generated_for": "research_only",
-        "policy_version": base_policy.version,
-        "price_known_at_basis": "stored_known_at_column_required",
-        "inputs": {
-            "prices_rows": int(len(prices)),
-            "costs_rows": int(len(costs)),
-            "cash_rows": int(len(cash)),
-            "fundamental_rows": int(len(fundamentals)),
-            "benchmark_id": args.benchmark_id,
-        },
-        "windows": [],
-        "promotion_applied": False,
-        "rank_authority": False,
-        "execution_allowed": False,
-    }
-    if prices.empty or not {"instrument_id", "date", "adjusted_close"}.issubset(prices.columns):
-        report["status"] = "unavailable"
-        report["reason"] = "stored adjusted-close history is unavailable"
-        return report
-    gap = price_knowledge_gap(prices)
-    if gap is not None:
-        report["status"] = "unavailable"
-        report["reason"] = gap
-        return report
-    report["inputs"]["price_rows_without_verifiable_known_at"] = int(  # type: ignore[index]
-        sum(1 for item in prices["known_at"] if pd.isna(pd.to_datetime(item, errors="coerce", utc=True)))
-    )
-    last_session = max(item for item in pd.to_datetime(prices["date"]).dt.date)
-    as_known_at = datetime(last_session.year, last_session.month, last_session.day, 23, 59, 59, tzinfo=timezone.utc)
-    memberships = _load_membership(args, root, as_known_at)
-    report["inputs"]["membership_rows"] = int(len(memberships))  # type: ignore[index]
-    first_session = min(item for item in pd.to_datetime(prices["date"]).dt.date)
+    from etf_cockpit.application.rank_validation_service import build_rank_validation_report
 
-    for years in args.years:
-        coverage = window_coverage(prices, years)
-        if not coverage["sufficient"]:
-            report["windows"].append(  # type: ignore[union-attr]
-                {
-                    "requested_years": years,
-                    "status": "insufficient_evidence",
-                    "reason": coverage["reason"],
-                    "coverage": coverage,
-                    "decision_times": 0,
-                    "excluded_decision_times": 0,
-                    "sections": {},
-                }
-            )
-            continue
-        times, excluded = window_decision_times(
-            prices,
-            years,
-            step_sessions=base_policy.holding_period_sessions,
-            holding_period_sessions=base_policy.holding_period_sessions,
-        )
-        evidence, skipped = price_momentum_risk_evidence(prices, times)
-        benchmark = (
-            forward_comparator_frame(prices, args.benchmark_id, times, base_policy.holding_period_sessions)
-            if args.benchmark_id
-            else pd.DataFrame()
-        )
-        window: dict[str, object] = {
-            "requested_years": years,
-            "status": "evaluated",
-            "coverage": coverage,
-            "first_price_date": first_session.isoformat(),
-            "last_price_date": last_session.isoformat(),
-            "decision_times": len(times),
-            "excluded_decision_times": len(excluded),
-            "instrument_skips": {key: len(value) for key, value in skipped.items()},
-        }
-        sections: dict[str, object] = {}
-        runs = [("price_factors", research_policy(base_policy, fundamentals=False), evidence)]
-        if fundamentals.empty:
-            sections["fundamental_factors"] = {
-                "status": "unavailable",
-                "reason": "no point-in-time fundamentals evidence supplied; not filled",
-            }
-        else:
-            runs.append(
-                (
-                    "fundamental_factors",
-                    research_policy(base_policy, fundamentals=True),
-                    attach_fundamental_evidence(evidence, fundamentals),
-                )
-            )
-        for label, policy, run_evidence in runs:
-            replay, validation = run_stored_rank_validation(
-                run_evidence, memberships, prices, costs, benchmark, cash, times, policy=policy
-            )
-            sections[label] = rank_validation_report_dict(
-                replay,
-                validation,
-                label=f"{label}_{years}y",
-                requested_decision_times=times,
-                excluded_decision_times=excluded,
-            )
-            conflicts = run_evidence.attrs.get("fundamental_conflicts")
-            if conflicts:
-                sections[label]["fundamental_conflicts"] = conflicts
-        window["sections"] = sections
-        report["windows"].append(window)  # type: ignore[union-attr]
-    report["status"] = "reported"
-    return report
+    return build_rank_validation_report(
+        root=args.root, years=args.years, scope=args.scope, benchmark_id=args.benchmark_id,
+        prices_path=args.prices, membership_path=args.membership, costs_path=args.costs,
+        cash_path=args.cash, fundamentals_path=args.fundamentals,
+    )
 
 
 def _summary(report: dict[str, object]) -> str:
