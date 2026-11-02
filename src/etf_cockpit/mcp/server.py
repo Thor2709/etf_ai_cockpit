@@ -15,6 +15,7 @@ from etf_cockpit.mcp.errors import MCPServerUnavailable, MCPToolError
 from etf_cockpit.mcp.registry import CallContext, ToolSpec, invoke_tool, list_tools as _list_tools
 from etf_cockpit.mcp.serialise import build_envelope, envelope_dict
 from etf_cockpit.mcp.tiers import normalise_profile, parse_tiers
+from etf_cockpit.mcp.worker import start_server_worker
 
 
 SERVER_NAME = "ETF AI Cockpit"
@@ -91,6 +92,12 @@ def create_server(
     selected_tiers = parse_tiers(tiers)
     if not client_id.strip():
         raise ValueError("client_id must not be empty")
+    if session is None:
+        from etf_cockpit.application.headless_session import HeadlessSession, cross_process_writer_guard
+        from etf_cockpit.application.snapshot_builder import build_snapshot
+
+        with cross_process_writer_guard():
+            session = HeadlessSession(build_snapshot(force_sample=False))
     context = CallContext(
         enabled_tiers=selected_tiers,
         profile=selected_profile,
@@ -108,6 +115,7 @@ def create_server(
         )
     _register_resources(server, context)
     _register_prompts(server)
+    start_server_worker(server, session)
     return server
 
 

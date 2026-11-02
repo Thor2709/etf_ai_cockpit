@@ -190,12 +190,25 @@ def add_instrument(ctx):
 
 
 def flow1(ctx):
+    import time
+
+    from etf_cockpit.mcp.worker import WorkflowWorker
+
     add_instrument(ctx)
     args = {"source": "prices", "years": 1, "rescore": False}
     preview = confirmed(ctx, "data_refresh", args)
     refresh = call(ctx, "data_refresh", **args, confirm_token=preview["confirm_token"])
-    ctx.session.run_next_workflow(workflow_id=refresh["job_id"])
-    job = call(ctx, "job_status", job_id=refresh["job_id"])
+    worker = WorkflowWorker(ctx.session).start()
+    try:
+        deadline = time.monotonic() + 60
+        while True:
+            job = call(ctx, "job_status", job_id=refresh["job_id"])
+            if job["job"].status.value in {"succeeded", "failed", "cancelled", "blocked"}:
+                break
+            assert time.monotonic() < deadline, job
+            time.sleep(0.1)
+    finally:
+        worker.stop()
     assert job["job"].status.value == "succeeded", job
     pipeline = call(ctx, "pipeline_run", steps=["scores"], live_optional_models=False)
     assert pipeline["status"] == "succeeded", pipeline

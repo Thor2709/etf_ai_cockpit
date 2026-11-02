@@ -7,6 +7,8 @@ issuer/public reference HTTP is unavailable. External AI research is supplied
 fixture evidence. No job, persistence, score, proposal, gate or status service is
 stubbed. Optional model weights are absent and derived jobs disable their
 inference. Independent flows run in separate processes under xdist.
+Flow 1 starts the production queue worker and polls job_status through the
+registry with a 60-second completion deadline.
 """
 
 from __future__ import annotations

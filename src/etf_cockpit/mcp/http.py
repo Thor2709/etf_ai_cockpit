@@ -26,6 +26,7 @@ from etf_cockpit.mcp.registry import CallContext, ToolSpec, invoke_tool, list_to
 from etf_cockpit.mcp.serialise import build_envelope, envelope_dict
 from etf_cockpit.mcp.server import SERVER_INSTRUCTIONS, SERVER_NAME
 from etf_cockpit.mcp.tiers import normalise_profile
+from etf_cockpit.mcp.worker import start_server_worker
 
 
 REMOTE_ALLOWED_TIERS = frozenset({"read", "research", "paper"})
@@ -307,6 +308,7 @@ def create_http_server(
         server._mcp_server.list_tools()(list_authorized_tools)
     except (AttributeError, TypeError) as exc:
         raise MCPServerUnavailable("The installed MCP SDK cannot register scope-filtered tools/list") from exc
+    start_server_worker(server, selected_session)
     return server
 
 
