@@ -323,6 +323,7 @@ def refresh_sparebanks(
     only_ids: set[str] | None = None,
     write_summary: bool = True,
     record_loader: Callable | None = None,
+    lei_resolver: Callable | None = None,
 ) -> tuple[dict[str, object], ...]:
     """Refresh each enabled configured certificate independently and write a summary.
 
@@ -343,6 +344,7 @@ def refresh_sparebanks(
     now = decision_time or _utc_now()
     official = client or OfficialFilingClient(root / "data" / "raw" / "esef")
     loader = load_sparebank_records if record_loader is None else record_loader
+    resolve_lei = _resolve_lei if lei_resolver is None else lei_resolver
     records = tuple(item for item in loader(source_root) if not only_ids or item.instrument_id in only_ids)
     summaries: list[dict[str, object]] = []
     for record in records:
@@ -355,7 +357,7 @@ def refresh_sparebanks(
         history_rows: list[dict[str, object]] = []
         try:
             if history:
-                lei = _resolve_lei(record, bank_evidence, official, now=now)
+                lei = resolve_lei(record, bank_evidence, official, now=now)
                 filings = tuple(official.filings_for_lei(lei))
                 history_rows = _import_history(official, importer, record, lei, filings, root, source_root)
                 if not history_rows:
@@ -368,7 +370,7 @@ def refresh_sparebanks(
                 filing = None
                 reason = "not_fetched"
             else:
-                lei = _resolve_lei(record, bank_evidence, official, now=now)
+                lei = resolve_lei(record, bank_evidence, official, now=now)
                 filing = _latest_filing(tuple(official.filings_for_lei(lei)), lei)
             if history or not fetch:
                 pass

@@ -266,6 +266,47 @@ def test_pit_script_patch_reaches_history_import(tmp_path: Path, monkeypatch: py
     assert not (tmp_path / "log.jsonl").exists()
 
 
+@pytest.mark.parametrize("history", [False, True])
+@pytest.mark.parametrize("resolver_source", ["script", "application", "explicit"])
+def test_sparebank_script_lei_resolver_patch_reaches_refresh(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, history: bool, resolver_source: str
+) -> None:
+    from scripts import sparebank_refresh as script
+    from etf_cockpit.application import sparebank_refresh as application
+
+    record = SimpleNamespace(instrument_id="BANK", lei="", ticker="BANK", isin="")
+    resolved = []
+    requested_leis = []
+    now = "2026-03-05T00:00:00Z"
+
+    def resolver(rec, evidence_dir, client, *, now):
+        resolved.append((rec, evidence_dir, client, now))
+        return "patched-lei"
+
+    def forbidden_resolver(*args, **kwargs):
+        pytest.fail("selected LEI resolver was bypassed")
+
+    client = SimpleNamespace(filings_for_lei=lambda lei: requested_leis.append(lei) or ())
+    monkeypatch.setattr(script, "load_sparebank_records", lambda root: (record,))
+    monkeypatch.setattr(application, "load_sparebank_records", lambda root: (record,))
+    monkeypatch.setattr(script, "_resolve_lei", resolver if resolver_source == "script" else forbidden_resolver)
+    application_resolver = resolver if resolver_source == "application" else forbidden_resolver
+    monkeypatch.setattr(application, "_resolve_lei", application_resolver)
+    module = application if resolver_source == "application" else script
+    kwargs = {"lei_resolver": resolver} if resolver_source == "explicit" else {}
+
+    rows = module.refresh_sparebanks(
+        tmp_path, universe_root=tmp_path, client=client, decision_time=now,
+        history=history, write_summary=False, rescorer=lambda *args: (None, None, "partial"), **kwargs,
+    )
+
+    assert resolved == [(record, tmp_path / "evidence" / "norway" / "BANK", client, now)]
+    assert requested_leis == ["patched-lei"]
+    assert rows[0]["lei"] == "patched-lei"
+    assert rows[0]["reason"] == "no_filing_found"
+    assert application._resolve_lei is application_resolver
+
+
 def test_disclosures_page_all_canonical_records_and_conflicts(monkeypatch: pytest.MonkeyPatch) -> None:
     import pandas as pd
 
