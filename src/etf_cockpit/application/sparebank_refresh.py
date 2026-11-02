@@ -322,6 +322,7 @@ def refresh_sparebanks(
     history: bool = False,
     only_ids: set[str] | None = None,
     write_summary: bool = True,
+    record_loader: Callable | None = None,
 ) -> tuple[dict[str, object], ...]:
     """Refresh each enabled configured certificate independently and write a summary.
 
@@ -341,7 +342,8 @@ def refresh_sparebanks(
     source_root = Path(universe_root or ROOT).resolve()
     now = decision_time or _utc_now()
     official = client or OfficialFilingClient(root / "data" / "raw" / "esef")
-    records = tuple(item for item in load_sparebank_records(source_root) if not only_ids or item.instrument_id in only_ids)
+    loader = load_sparebank_records if record_loader is None else record_loader
+    records = tuple(item for item in loader(source_root) if not only_ids or item.instrument_id in only_ids)
     summaries: list[dict[str, object]] = []
     for record in records:
         bank_evidence = root / "evidence" / "norway" / record.instrument_id
@@ -482,6 +484,7 @@ def rescore_sparebanks_at(
     universe_root: Path | None = None,
     only_ids: set[str] | None = None,
     rescorer: Callable = _rescore,
+    record_loader: Callable | None = None,
 ) -> tuple[dict[str, object], ...]:
     """Per-decision-date rescore hook for a score-history backfill (no network, no summary file).
 
@@ -504,6 +507,7 @@ def rescore_sparebanks_at(
         only_ids=only_ids,
         rescorer=rescorer,
         write_summary=False,
+        record_loader=record_loader,
     )
     # nothing is fetched by design, so the refresh's "not_fetched" marker is not a finding of this call
     cleaned = []

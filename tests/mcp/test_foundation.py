@@ -524,3 +524,48 @@ def test_tools_cannot_set_execution_allowed_or_import_broker_layers() -> None:
         for module in imports
         for prefix in ("etf_cockpit.trading", "etf_cockpit.portfolio", "etf_cockpit.data")
     )
+
+
+@pytest.mark.parametrize("entrypoint", ["refresh_sparebanks", "rescore_sparebanks_at"])
+@pytest.mark.parametrize("loader_source", ["script", "application", "explicit"])
+def test_sparebank_loader_patch_points_delegate_without_changing_application_globals(
+    entrypoint: str, loader_source: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from types import SimpleNamespace
+
+    from scripts import sparebank_refresh as script
+    from etf_cockpit.application import sparebank_refresh as application
+
+    record = SimpleNamespace(instrument_id="PATCHED", lei="")
+    loaded_roots = []
+    scored = []
+
+    def loader(root):
+        loaded_roots.append(root)
+        return (record,)
+
+    def forbidden_loader(root):
+        raise AssertionError("the selected loader was bypassed")
+
+    def rescorer(rec, data_root, universe_root, decision_time):
+        scored.append((rec, data_root, universe_root, decision_time))
+        return 7.5, 0.4, "partial"
+
+    monkeypatch.setattr(script, "load_sparebank_records", loader if loader_source == "script" else forbidden_loader)
+    application_loader = loader if loader_source == "application" else forbidden_loader
+    monkeypatch.setattr(application, "load_sparebank_records", application_loader)
+    module = application if loader_source == "application" else script
+    kwargs = {"rescorer": rescorer}
+    if loader_source == "explicit":
+        kwargs["record_loader"] = loader
+    if entrypoint == "refresh_sparebanks":
+        kwargs.update(universe_root=tmp_path, decision_time="2024-06-28T23:59:59+00:00", fetch=False, write_summary=False)
+        rows = module.refresh_sparebanks(tmp_path, **kwargs)
+    else:
+        rows = module.rescore_sparebanks_at(tmp_path, "2024-06-28", **kwargs)
+
+    assert loaded_roots == [tmp_path.resolve()]
+    assert scored == [(record, tmp_path.resolve(), tmp_path.resolve(), "2024-06-28T23:59:59+00:00")]
+    assert rows[0]["id"] == "PATCHED" and rows[0]["composite"] == 7.5
+    assert application.load_sparebank_records is application_loader
+    assert not (tmp_path / "evidence").exists()
