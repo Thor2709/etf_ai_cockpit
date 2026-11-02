@@ -182,6 +182,64 @@ def test_write_without_preview_callback_gets_a_confirmation_bound_intent(monkeyp
     assert writes == ["candidate"]
 
 
+@pytest.mark.parametrize("module_name", ["etf_cockpit.mcp.tools_paper", "etf_cockpit.mcp.tools_portfolio"])
+@pytest.mark.parametrize("arguments", [{}, {"dry_run": True}, {"dry_run": False}])
+def test_handler_owned_preview_requires_token_before_dispatch(
+    module_name: str, arguments: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls = []
+
+    def write(value: str, dry_run: bool = True, confirm_token: str | None = None) -> dict:
+        calls.append((value, dry_run))
+        return {"status": "confirmation_required", "confirm_token": "handler-token"}
+
+    monkeypatch.setattr(write, "__module__", module_name)
+    write = tool(tier="paper", description="Handler-owned preview")(write)
+    spec = write.__mcp_tool_spec__
+    assert spec.preview_function is None
+    monkeypatch.setattr(registry, "find_tool", lambda name: spec)
+    context = CallContext(
+        enabled_tiers=frozenset({"paper"}), profile="full", audit=AuditRecorder(sink=lambda record: None)
+    )
+
+    with pytest.raises(ConfirmationError):
+        invoke_tool("write", {"value": "candidate", **arguments}, context=context)
+    assert calls == []
+    assert context.audit.records[-1].outcome == "refused"
+
+
+@pytest.mark.parametrize("module_name", ["etf_cockpit.mcp.tools_paper", "etf_cockpit.mcp.tools_portfolio"])
+def test_handler_owned_token_preserves_dry_run_binding_and_is_single_use(
+    module_name: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls = []
+
+    def write(value: str, dry_run: bool = True, confirm_token: str | None = None) -> dict:
+        calls.append((value, dry_run))
+        return {"written": value}
+
+    monkeypatch.setattr(write, "__module__", module_name)
+    write = tool(tier="paper", description="Handler-owned preview")(write)
+    monkeypatch.setattr(registry, "find_tool", lambda name: write.__mcp_tool_spec__)
+    context = CallContext(
+        enabled_tiers=frozenset({"paper"}), profile="full", store_revision="R2",
+        audit=AuditRecorder(sink=lambda record: None),
+    )
+    payload = {"value": "candidate", "dry_run": False}
+    token = context.confirmation_store.issue(payload, store_revision="R2", client_id=context.client_id)
+    for changed in ({"value": "candidate"}, {**payload, "dry_run": True}, {**payload, "value": "changed"}):
+        with pytest.raises(ConfirmationError):
+            invoke_tool("write", {**changed, "confirm_token": token}, context=context)
+    assert calls == []
+
+    arguments = {**payload, "confirm_token": token, "store_revision": "R2"}
+    assert invoke_tool("write", arguments, context=context) == {"written": "candidate"}
+    assert calls == [("candidate", False)]
+    with pytest.raises(ConfirmationError):
+        invoke_tool("write", arguments, context=context)
+    assert calls == [("candidate", False)]
+
+
 def test_edit_tier_read_only_preview_needs_no_confirmation(monkeypatch: pytest.MonkeyPatch) -> None:
     @tool(tier="edit", description="Inspect an import", read_only_hint=True)
     def preview(path: str) -> dict[str, str]:

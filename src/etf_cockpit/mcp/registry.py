@@ -9,6 +9,8 @@ count even if confirmation or the handler fails; rate refusals do not consume to
 Counters persist in logs/mcp_rate_limits.sqlite3; unavailable quota storage refuses the call.
 Write handlers provide a side-effect-free ``preview`` callback: a call without a token returns
 that preview and a 15-minute, client/revision-bound token; a call with the token commits once.
+Paper and portfolio adapters own their preview/token contract; dispatch preserves their payload
+and requires their token before calling the handler.
 Explicit read-only preview tools use the edit tier with ``readOnlyHint=true`` and no confirmation.
 Configuration-file ownership belongs to the remote lane.
 """
@@ -86,6 +88,12 @@ class RateLimiter:
 
 
 _RATE_LIMITER = RateLimiter()
+
+# These adapters issue their own tokens, including the explicit dry_run=False argument.
+_HANDLER_PREVIEW_MODULES = frozenset({
+    "etf_cockpit.mcp.tools_paper",
+    "etf_cockpit.mcp.tools_portfolio",
+})
 
 
 @dataclass(frozen=True)
@@ -191,7 +199,7 @@ def tool(
         if inspect.iscoroutinefunction(function):
             raise ValueError("MCP tool handlers must be synchronous")
         preview_handler = preview
-        if resolved_confirmation and preview_handler is None:
+        if resolved_confirmation and preview_handler is None and function.__module__ not in _HANDLER_PREVIEW_MODULES:
             if "dry_run" in signature.parameters:
                 def preview_handler(**kwargs: Any) -> Any:
                     preview_args = {**kwargs, "dry_run": True}
@@ -316,7 +324,7 @@ def invoke_tool(name: str, arguments: Mapping[str, Any], *, context: CallContext
         handler_args = safe_args
         if "store_revision" in safe_args and "store_revision" not in signature.parameters:
             handler_args = {key: value for key, value in safe_args.items() if key != "store_revision"}
-        if "dry_run" in signature.parameters:
+        if "dry_run" in signature.parameters and spec.preview_function is not None:
             handler_args = {**handler_args, "dry_run": safe_args.get("confirm_token") is None}
         validation_args = handler_args
         if spec.requires_confirmation and "confirm_token" not in safe_args and "confirm_token" in signature.parameters:
@@ -329,7 +337,10 @@ def invoke_tool(name: str, arguments: Mapping[str, Any], *, context: CallContext
         write_dispatch = spec.tier in WRITE_TIERS and not bool(spec.annotations.get("readOnlyHint"))
         if write_dispatch or spec.requires_confirmation:
             token = safe_args.get("confirm_token")
-            payload = {key: value for key, value in safe_args.items() if key not in {"confirm_token", "store_revision", "dry_run"}}
+            excluded = {"confirm_token", "store_revision"}
+            if spec.preview_function is not None:
+                excluded.add("dry_run")
+            payload = {key: value for key, value in safe_args.items() if key not in excluded}
             if "store_revision" in safe_args and safe_args["store_revision"] != active.store_revision:
                 raise ConfirmationError("The echoed store revision differs from the current store revision")
             if token is None:
