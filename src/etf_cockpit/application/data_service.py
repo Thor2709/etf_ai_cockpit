@@ -5,7 +5,7 @@ from __future__ import annotations
 import dataclasses
 import re
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import date
 from io import BytesIO
 from pathlib import Path
@@ -300,9 +300,12 @@ class DataService:
         self,
         *,
         years: int = 5,
+        identifiers: Sequence[str] | None = None,
         publish_guard: PublicationScopeFactory | None = None,
     ) -> str:
-        result = refresh_candidate_analysis(self.config, years=years, publish_guard=publish_guard)
+        result = refresh_candidate_analysis(
+            self.config, years=years, identifiers=identifiers, publish_guard=publish_guard,
+        )
         return (
             f"YFinance candidate algorithms refreshed for {result.rows} instruments as of {result.effective_as_of}. "
             f"Report: {result.csv_path}."

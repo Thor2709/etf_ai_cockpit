@@ -186,6 +186,22 @@ def query_for_snapshot(snapshot: Any, frame: pd.DataFrame, **kwargs: object) -> 
             if signal.supporting_metrics.get("formula_version")
         }
     )
+    formula_checksums = sorted(
+        {
+            str(signal.supporting_metrics.get("formula_checksum"))
+            for signal in getattr(snapshot, "signals", ())
+            if signal.supporting_metrics.get("formula_checksum")
+        }
+    )
+    return ScreenQuery(
+        as_of=_as_of(snapshot),
+        universe_revision=str(getattr(snapshot, "universe_revision", "") or "unavailable"),
+        formula_version="|".join(formulas) or "unavailable",
+        formula_checksum="|".join(formula_checksums) or "unavailable",
+        dataset_checksums=(("local_screen_rows", input_checksum),),
+        input_checksum=input_checksum,
+        **kwargs,  # type: ignore[arg-type]
+    )
 
 
 def run_screen_query(
@@ -207,22 +223,6 @@ def run_screen_query(
 
 
 __all__ = ["build_screen_rows", "filter_from_dict", "load_screening_fundamentals", "query_for_snapshot", "run_screen_query", "saved_lineage_notice", "sort_from_dict"]
-    formula_checksums = sorted(
-        {
-            str(signal.supporting_metrics.get("formula_checksum"))
-            for signal in getattr(snapshot, "signals", ())
-            if signal.supporting_metrics.get("formula_checksum")
-        }
-    )
-    return ScreenQuery(
-        as_of=_as_of(snapshot),
-        universe_revision=str(getattr(snapshot, "universe_revision", "") or "unavailable"),
-        formula_version="|".join(formulas) or "unavailable",
-        formula_checksum="|".join(formula_checksums) or "unavailable",
-        dataset_checksums=(("local_screen_rows", input_checksum),),
-        input_checksum=input_checksum,
-        **kwargs,  # type: ignore[arg-type]
-    )
 
 
 def saved_lineage_notice(saved: ScreenQuery, current: ScreenQuery) -> str | None:

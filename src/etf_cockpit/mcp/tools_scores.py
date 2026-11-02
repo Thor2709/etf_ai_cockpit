@@ -3,7 +3,9 @@
 Open defaults: ranked and research lists use 25 rows per page, score history
 uses one year and at most 500 points, detail defaults to overview and score,
 comparisons use one year, and selection uses the app's configured medium risk
-profile without persisting a run. Job tools use local-only derived work.
+profile without persisting a run. Candidate analysis defaults to five years and
+uses only requested identifiers found in the local candidate input. Job tools
+use local-only derived work.
 """
 
 from __future__ import annotations
@@ -56,26 +58,47 @@ def _number(value: object) -> float | None:
     return result if math.isfinite(result) else None
 
 
-def _job(root: Path, workflow_type: str, label: str, payload: Mapping[str, object], handler) -> dict[str, Any]:
-    from etf_cockpit.core.job_scheduler import DurableJobScheduler, JobSpec
+def _job(
+    root: Path,
+    workflow_type: str,
+    label: str,
+    payload: Mapping[str, object],
+    handler,
+    *,
+    snapshot: object,
+) -> dict[str, Any]:
+    from etf_cockpit.application.api import LocalApplicationApi
+    from etf_cockpit.application.contracts import ApiStatus, SubmitWorkflowCommand
 
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
     dedupe_key = "mcp-" + hashlib.sha256(encoded.encode("utf-8")).hexdigest()[:40]
-    scheduler = DurableJobScheduler(root)
+    api = LocalApplicationApi(lambda: snapshot, root=root)
     try:
-        workflow = scheduler.submit(
-            workflow_type,
-            label,
-            (JobSpec("run", f"{label}:run"),),
+        submission = api.execute(SubmitWorkflowCommand(
+            idempotency_key=dedupe_key,
+            workflow_type=workflow_type,
+            label=label,
             input_payload=dict(payload),
+            job_keys=("run",),
             dedupe_key=dedupe_key,
-        )
-        job = scheduler.run_once(handler, workflow_id=workflow.workflow_id)
+        ))
+        if submission.status not in {ApiStatus.ACCEPTED, ApiStatus.REPLAYED} or not submission.resource_id:
+            raise MCPToolError(
+                "ANALYSIS_JOB_UNAVAILABLE",
+                "The local analysis job could not be submitted",
+                f"Check local job storage and resource policy ({submission.error_code or submission.status.value}).",
+            )
+        workflow_id = submission.resource_id
+        job = api.run_next_job(handler, workflow_id=workflow_id)
+    except MCPToolError:
+        raise
     except (OSError, RuntimeError, TypeError, ValueError) as exc:
         raise MCPToolError("ANALYSIS_JOB_UNAVAILABLE", "The local analysis job could not be started", f"Check local job storage and retry ({type(exc).__name__}).") from None
     if job is None:
-        job = scheduler.list_jobs(workflow.workflow_id)[0]
-    return {"job_id": job.job_id, "workflow_id": workflow.workflow_id, "status": job.status.value, "result": job.result, "execution_allowed": False}
+        status = dict(submission.details).get("status", "queued")
+        return {"job_id": workflow_id, "workflow_id": workflow_id, "status": status, "result": None, "execution_allowed": False}
+    status = getattr(job.status, "value", str(job.status))
+    return {"job_id": workflow_id, "workflow_id": workflow_id, "status": status, "result": job.outputs, "execution_allowed": False}
 
 
 @tool(tier="read", description="Read the canonical ranked scores with eligibility, gate, coverage, rank authority, and publication age.", read_only_hint=True, idempotent_hint=True)
@@ -303,7 +326,7 @@ def analysis_run(profile: str = "quick") -> dict[str, Any]:
             "execution_allowed": False,
         }
 
-    return _job(Path(session.root), "analysis_run", "MCP analysis run", {"profile": profile}, run)
+    return _job(Path(session.root), "analysis_run", "MCP analysis run", {"profile": profile}, run, snapshot=snapshot)
 
 
 @tool(tier="read_job", description="Run provisional analysis for identifiers outside the ranked universe.", read_only_hint=False, open_world_hint=True, idempotent_hint=False, profiles=("full",))
@@ -311,13 +334,42 @@ def candidate_analyse(identifiers: Sequence[str], years: int = 5) -> dict[str, A
     selected = tuple(dict.fromkeys(str(value).strip() for value in identifiers if str(value).strip()))
     if not selected or len(selected) > 25:
         raise InvalidArgumentsError("identifiers must contain between 1 and 25 non-empty values")
-    if isinstance(years, bool) or years < 1 or years > 20:
+    if isinstance(years, bool) or not isinstance(years, int) or years < 1 or years > 20:
         raise InvalidArgumentsError("years must be between 1 and 20")
-    raise MCPToolError(
-        "CANDIDATE_FILTER_UNAVAILABLE",
-        "The candidate analysis service cannot restrict work to the requested identifiers",
-        "Add identifier filtering to the existing candidate application service before enabling this tool.",
-    )
+    from etf_cockpit.application.data_service import DataService
+
+    session, snapshot = _snapshot()
+    in_universe = {
+        str(getattr(item, "id", "")).casefold()
+        for item in getattr(getattr(snapshot.config, "universe", None), "etfs", ())
+    }
+    if any(identifier.casefold() in in_universe for identifier in selected):
+        raise InvalidArgumentsError("candidate identifiers must be outside the configured universe")
+
+    def run(_job_context):
+        try:
+            message = DataService(snapshot.config).run_yfinance_candidate_analysis(
+                years=years, identifiers=selected,
+            )
+        except (OSError, RuntimeError, TypeError, ValueError):
+            return {
+                "status": "unavailable",
+                "reason": "candidate_data_unavailable",
+                "classification": "provisional_not_ranked",
+                "identifiers": list(selected),
+                "execution_allowed": False,
+            }
+        return {
+            "status": "provisional",
+            "classification": "provisional_not_ranked",
+            "identifiers": list(selected),
+            "message": message,
+            "rank_authority": False,
+            "execution_allowed": False,
+        }
+
+    payload = {"identifiers": list(selected), "years": years}
+    return _job(Path(session.root), "candidate_analyse", "MCP candidate analysis", payload, run, snapshot=snapshot)
 
 
 @tool(tier="read_job", description="Run read-only champion versus challenger rank validation from stored point-in-time inputs.", read_only_hint=False, idempotent_hint=False, profiles=("full",))
@@ -337,7 +389,11 @@ def rank_validation_run(
             root=Path(session.root), years=years, scope=scope, benchmark_id=benchmark_id,
         )
 
-    return _job(Path(session.root), "rank_validation", "MCP rank validation", {"years": list(years), "scope": scope, "benchmark_id": benchmark_id}, run)
+    return _job(
+        Path(session.root), "rank_validation", "MCP rank validation",
+        {"years": list(years), "scope": scope, "benchmark_id": benchmark_id}, run,
+        snapshot=_snapshot_value,
+    )
 
 
 __all__ = [

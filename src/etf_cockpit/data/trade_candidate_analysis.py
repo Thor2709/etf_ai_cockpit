@@ -4,6 +4,7 @@ import json
 import hashlib
 from io import BytesIO
 from dataclasses import dataclass
+from collections.abc import Sequence
 from datetime import date, datetime, timezone
 from math import log, sqrt
 from pathlib import Path
@@ -147,13 +148,36 @@ def fetch_candidate_prices(
     years: int = 5,
     as_of_date: date | None = None,
     candidate_path: Path | None = None,
+    identifiers: Sequence[str] | None = None,
 ) -> CandidatePriceData:
+    """Fetch only requested candidate rows; missing identities remain unavailable.
+
+    Open defaults: use the latest local candidate file, a five-year window, and
+    all rows only for existing non-filtered callers. Filtered calls require each
+    requested identifier to have a local candidate row and Yahoo symbol.
+    """
     path = candidate_path or latest_candidate_input()
     candidates = pd.read_csv(path)
     required = {"instrument_id", "yahoo_symbol"}
     missing = required - set(candidates.columns)
     if missing:
         raise ValueError(f"Candidate file {path} is missing columns: {sorted(missing)}")
+
+    if identifiers is not None:
+        requested = tuple(dict.fromkeys(str(value).strip() for value in identifiers if str(value).strip()))
+        if not requested:
+            raise ValueError("At least one candidate identifier is required")
+        candidates["instrument_id"] = candidates["instrument_id"].astype(str)
+        candidate_ids = candidates["instrument_id"]
+        selected = candidates.loc[candidate_ids.isin(requested)].copy()
+        available = set(selected["instrument_id"])
+        unavailable = [identifier for identifier in requested if identifier not in available]
+        if unavailable:
+            raise ValueError("Candidate input is unavailable for one or more requested identifiers")
+        symbols_available = selected["yahoo_symbol"].fillna("").astype(str).str.strip().ne("")
+        if not symbols_available.all():
+            raise ValueError("A Yahoo symbol is unavailable for one or more requested identifiers")
+        candidates = selected
 
     as_of = as_of_date or date.today()
     start = _years_back(as_of, years)
@@ -169,8 +193,18 @@ def fetch_candidate_prices(
     if not result.ok or result.data is None:
         raise RuntimeError(result.message)
     prices = result.data.copy()
+    if prices.empty:
+        raise RuntimeError("Candidate price data is unavailable")
+    if identifiers is not None:
+        selected_ids = set(candidates["instrument_id"].astype(str))
+        prices = prices.loc[prices["etf_id"].astype(str).isin(selected_ids)].copy()
+        if prices.empty:
+            raise RuntimeError("Candidate price data is unavailable for the requested identifiers")
     prices["date"] = pd.to_datetime(prices["date"], errors="coerce")
-    effective_as_of = prices["date"].max().date()
+    valid_dates = prices["date"].dropna()
+    if valid_dates.empty:
+        raise RuntimeError("Candidate price dates are unavailable")
+    effective_as_of = valid_dates.max().date()
     return CandidatePriceData(candidates=candidates, prices=prices, effective_as_of=effective_as_of, source_message=result.message)
 
 
@@ -180,9 +214,13 @@ def refresh_candidate_analysis(
     years: int = 5,
     as_of_date: date | None = None,
     candidate_path: Path | None = None,
+    identifiers: Sequence[str] | None = None,
     publish_guard: PublicationScopeFactory | None = None,
 ) -> CandidateAnalysisResult:
-    data = fetch_candidate_prices(config, years=years, as_of_date=as_of_date, candidate_path=candidate_path)
+    data = fetch_candidate_prices(
+        config, years=years, as_of_date=as_of_date, candidate_path=candidate_path,
+        identifiers=identifiers,
+    )
     # Retaining the price snapshot is best-effort: a failed binding is logged, never blocks the refresh.
     price_dates = pd.to_datetime(data.prices.get("date"), errors="coerce", utc=True).dropna()
     price_binding = None
@@ -292,11 +330,11 @@ def _analyse_one_candidate(instrument_id: str, meta: dict[str, object], group: p
     group = group.sort_values("date").copy()
     adjusted = pd.to_numeric(group["adjusted_close"], errors="coerce").dropna()
     close = pd.to_numeric(group["close"], errors="coerce").dropna()
-    volume = pd.to_numeric(group.get("volume", pd.Series(dtype=float)), errors="coerce").fillna(0.0)
+    volume = pd.to_numeric(group.get("volume", pd.Series(dtype=float)), errors="coerce")
     rows = int(len(adjusted))
     returns = _log_returns(adjusted)
     latest_price = _safe_float(close.iloc[-1]) if not close.empty else None
-    shares = _safe_float(meta.get("shares")) or 0.0
+    shares = _safe_float(meta.get("shares"))
     currency_values = (
         group["currency"].dropna().astype(str).str.strip()
         if "currency" in group.columns
@@ -304,7 +342,7 @@ def _analyse_one_candidate(instrument_id: str, meta: dict[str, object], group: p
     )
     currencies = {value for value in currency_values if value}
     currency = next(iter(currencies)) if len(currencies) == 1 else ""
-    trade_value = latest_price * shares if latest_price is not None else None
+    trade_value = latest_price * shares if latest_price is not None and shares is not None else None
     trade_value_eur = trade_value if currency.upper() == "EUR" else None
     ret_1w = _horizon_return(adjusted, 5)
     ret_1m = _horizon_return(adjusted, 21)
@@ -459,7 +497,7 @@ def _missing_candidate_row(instrument_id: str, meta: dict[str, object], reason: 
         "data_policy": str(meta.get("data_policy", "yfinance_only")),
         "instrument_type": str(meta.get("instrument_type", "")),
         "asset_type": _candidate_asset_type(meta),
-        "shares": _safe_float(meta.get("shares")) or 0.0,
+        "shares": _safe_float(meta.get("shares")),
         "currency": str(meta["currency"]).strip() if pd.notna(meta.get("currency")) else "",
         "latest_date": "unknown",
         "source_dataset": "yfinance_adjusted_close",
@@ -504,7 +542,7 @@ def _missing_candidate_row(instrument_id: str, meta: dict[str, object], reason: 
         "fundamental_missing_fields": str(meta.get("fundamental_missing_fields", "")),
         "fundamental_source": str(meta.get("fundamental_source", "yfinance")),
         "fundamental_limitations": str(meta.get("fundamental_limitations", "Yahoo/yfinance fundamentals are unofficial vendor evidence and may be incomplete.")),
-        "technical_score": -99,
+        "technical_score": None,
         "advisory_status": "manual_review",
         "blocked_by": "missing_price_data",
         "reason_full": reason,
