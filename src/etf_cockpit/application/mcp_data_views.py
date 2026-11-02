@@ -21,15 +21,29 @@ from etf_cockpit.data.health import build_data_health, filter_data_health_rows
 from etf_cockpit.data.provider_registry import ProviderRegistry
 
 
-def data_health_view(*, dataset: str | None = None, stale_after_days: int = 3) -> dict[str, object]:
-    report = build_data_health(load_config(), Path(ROOT), stale_after_days=stale_after_days)
+def _config(root: Path | None):
+    return load_config(Path(root) / "configs") if root is not None else load_config()
+
+
+def _storage_config(root: Path | None):
+    # DataService stores bind at process startup. Refuse
+    # a different session root rather than read or write another owner's store.
+    if root is not None:
+        from etf_cockpit.application.headless_session import require_storage_root
+
+        require_storage_root(root)
+    return _config(root)
+
+
+def data_health_view(*, root: Path | None = None, dataset: str | None = None, stale_after_days: int = 3) -> dict[str, object]:
+    report = build_data_health(_config(root), Path(root or ROOT), stale_after_days=stale_after_days)
     rows = filter_data_health_rows(report, dataset=dataset)
     as_of = getattr(report, "as_of_date", None)
     return {"as_of": as_of, "rows": rows, "unavailable": as_of is None or not bool(rows)}
 
 
-def data_provider_status_view(*, probe: bool = False) -> tuple[dict[str, object], ...]:
-    registry = ProviderRegistry(load_config().data_providers)
+def data_provider_status_view(*, root: Path | None = None, probe: bool = False) -> tuple[dict[str, object], ...]:
+    registry = ProviderRegistry(_config(root).data_providers)
     if probe:
         return registry.status_rows(registry.probe_all())
     # The default path reports configured capabilities only. It does not invoke provider probes.
@@ -58,9 +72,8 @@ def data_provider_status_view(*, probe: bool = False) -> tuple[dict[str, object]
     return registry.status_rows(capabilities)
 
 
-def validate_prices_view() -> dict[str, object]:
-    service = DataService(load_config())
-    report = service.validate_prices()
+def validate_prices_view(*, root: Path | None = None) -> dict[str, object]:
+    report = DataService(_storage_config(root)).validate_prices()
     return {
         "status": report.status,
         "analysis_allowed": report.analysis_allowed,
@@ -71,13 +84,13 @@ def validate_prices_view() -> dict[str, object]:
     }
 
 
-def data_readiness_view(start: date, end: date, *, every: int | None = None) -> dict[str, object]:
-    report = evaluate_readiness(load_inputs(Path(ROOT)), start, end, load_thresholds(), every=every)
+def data_readiness_view(start: date, end: date, *, every: int | None = None, root: Path | None = None) -> dict[str, object]:
+    report = evaluate_readiness(load_inputs(Path(root or ROOT)), start, end, load_thresholds(Path(root) / "configs" / "data_readiness_v1.yaml") if root is not None else load_thresholds(), every=every)
     return {"summary": report.summary(), "failed_dates": report.failed_dates(), "interval": report.interval}
 
 
-def preview_local_import(path: Path, dataset_type: str = "prices") -> dict[str, object]:
-    result = DataService(load_config()).import_local_file(Path(path), dataset_type, commit=False)
+def preview_local_import(path: Path, dataset_type: str = "prices", *, root: Path | None = None) -> dict[str, object]:
+    result = DataService(_storage_config(root)).import_local_file(Path(path), dataset_type, commit=False)
     data = result.data
     rows = len(data) if isinstance(data, pd.DataFrame) else None
     columns = list(data.columns) if isinstance(data, pd.DataFrame) else None
@@ -93,19 +106,20 @@ def preview_local_import(path: Path, dataset_type: str = "prices") -> dict[str, 
     }
 
 
-def commit_local_import(path: Path, dataset_type: str = "prices") -> dict[str, object]:
-    result = DataService(load_config()).import_local_file(Path(path), dataset_type, commit=True)
+def commit_local_import(path: Path, dataset_type: str = "prices", *, root: Path | None = None) -> dict[str, object]:
+    result = DataService(_storage_config(root)).import_local_file(Path(path), dataset_type, commit=True)
     return {"status": result.status, "dataset_type": dataset_type, "provider": result.provider_name, "message": result.message, "execution_allowed": False}
 
 
-def rollback_preview() -> dict[str, object]:
+def rollback_preview(*, root: Path | None = None) -> dict[str, object]:
     from etf_cockpit.data.import_pipeline import SNAPSHOTS_DIR
 
+    config = _storage_config(root)
     candidates = sorted((SNAPSHOTS_DIR / "prices").glob("*_previous_*.parquet"), key=lambda item: item.name)
     if not candidates:
         return {"available": False, "unavailable_reason": "No previous clean price snapshot is available to roll back."}
     frame = pd.read_parquet(candidates[-1])
-    validation = DataService(load_config()).validate_prices(frame)
+    validation = DataService(config).validate_prices(frame)
     return {
         "available": True,
         "snapshot_name": candidates[-1].name,
@@ -115,15 +129,15 @@ def rollback_preview() -> dict[str, object]:
     }
 
 
-def rollback_prices() -> str:
+def rollback_prices(*, root: Path | None = None) -> str:
     # This is the canonical restore operation; preview is performed before it by MCP dispatch.
-    return DataService(load_config()).rollback_latest_price_import()
+    return DataService(_storage_config(root)).rollback_latest_price_import()
 
 
-def backfill_score_history(start: date, end: date, *, every: int = 5, workers: int = 1, force: bool = False) -> object:
+def backfill_score_history(start: date, end: date, *, every: int = 5, workers: int = 1, force: bool = False, root: Path | None = None) -> object:
     from etf_cockpit.application.score_backfill import backfill_score_history as run_backfill
 
-    return run_backfill(Path(ROOT), start, end, every=every, workers=workers, force=force)
+    return run_backfill(Path(root or ROOT), start, end, every=every, workers=workers, force=force)
 
 
 __all__ = [

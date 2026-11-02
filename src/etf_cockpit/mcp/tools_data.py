@@ -23,6 +23,11 @@ _CURSORS = CursorCodec()
 _REFRESH_SOURCES = frozenset({"prices", "fundamentals", "etf_holdings", "sparebanks", "euronext_listing", "pit_history"})
 
 
+def _root_arguments() -> dict[str, Path]:
+    root = getattr(current_call_context().session, "root", None)
+    return {"root": Path(root).resolve()} if root is not None else {}
+
+
 def _paged(rows: list[Any], *, cursor: str | None, filters: Mapping[str, object], limit: int = DEFAULT_PAGE_SIZE) -> dict[str, object]:
     try:
         size = validate_page_size(limit, maximum=MAX_PAGE_SIZE)
@@ -82,7 +87,7 @@ def _preview_refresh(source: str, ids: list[str] | None = None, years: int = 5, 
 def data_health(dataset: str | None = None, stale_after_days: int = 3, cursor: str | None = None, limit: int = DEFAULT_PAGE_SIZE) -> dict[str, object]:
     if stale_after_days < 0:
         raise InvalidArgumentsError("stale_after_days must be non-negative")
-    view = mcp_data_views.data_health_view(dataset=dataset, stale_after_days=stale_after_days)
+    view = mcp_data_views.data_health_view(dataset=dataset, stale_after_days=stale_after_days, **_root_arguments())
     paged = _paged(list(view["rows"]), cursor=cursor, filters={"dataset": dataset, "stale_after_days": stale_after_days}, limit=limit)
     as_of = view.get("as_of")
     unavailable_reason = None
@@ -96,7 +101,7 @@ def data_health(dataset: str | None = None, stale_after_days: int = 3, cursor: s
 @tool(tier="read", description="Evaluate point-in-time data readiness across an interval.", read_only_hint=True, idempotent_hint=True)
 def data_readiness(start: date, end: date, every: int | None = None, cursor: str | None = None, limit: int = DEFAULT_PAGE_SIZE) -> dict[str, object]:
     try:
-        result = mcp_data_views.data_readiness_view(start, end, every=every)
+        result = mcp_data_views.data_readiness_view(start, end, every=every, **_root_arguments())
     except ValueError as exc:
         raise InvalidArgumentsError(str(exc)) from None
     page = _paged(list(result["failed_dates"]), cursor=cursor, filters={"start": start.isoformat(), "end": end.isoformat(), "every": every}, limit=limit)
@@ -106,14 +111,14 @@ def data_readiness(start: date, end: date, every: int | None = None, cursor: str
 
 @tool(tier="read", description="Read configured provider capabilities and redacted credential status; probe is off by default.", read_only_hint=True, idempotent_hint=True, open_world_hint=True)
 def data_provider_status(probe: bool = False, cursor: str | None = None, limit: int = DEFAULT_PAGE_SIZE) -> dict[str, object]:
-    rows = list(mcp_data_views.data_provider_status_view(probe=probe))
+    rows = list(mcp_data_views.data_provider_status_view(probe=probe, **_root_arguments()))
     paged = _paged(rows, cursor=cursor, filters={"probe": probe}, limit=limit)
     return {"rows": paged["rows"], "next_cursor": paged["next_cursor"], "probed": bool(probe)}
 
 
 @tool(tier="read", description="Run the canonical stored-price quality validation without committing data.", read_only_hint=True, idempotent_hint=True)
 def data_validate_prices() -> dict[str, object]:
-    return normalise(mcp_data_views.validate_prices_view())
+    return normalise(mcp_data_views.validate_prices_view(**_root_arguments()))
 
 
 @tool(tier="edit", description="Refresh one configured data source and optionally rescore; the dry run is side-effect-free.", read_only_hint=False, open_world_hint=True, preview=_preview_refresh)
@@ -129,7 +134,7 @@ def data_refresh(source: str, ids: list[str] | None = None, years: int = 5, resc
 def _preview_rollback(reason: str) -> dict[str, object]:
     if not reason.strip():
         raise InvalidArgumentsError("reason must not be empty")
-    result = mcp_data_views.rollback_preview()
+    result = mcp_data_views.rollback_preview(**_root_arguments())
     if result.get("available") is not True:
         raise MCPToolError("ROLLBACK_UNAVAILABLE", str(result.get("unavailable_reason") or "No previous price snapshot is available"), "Create a validated price import before requesting rollback.")
     return {"reason": reason.strip(), **result, "would_write": False}
@@ -138,13 +143,13 @@ def _preview_rollback(reason: str) -> dict[str, object]:
 @tool(tier="edit", description="Restore the previous validated clean-price snapshot.", read_only_hint=False, destructive_hint=True, preview=_preview_rollback)
 def data_rollback_prices(reason: str, confirm_token: str | None = None) -> dict[str, object]:
     _preview_rollback(reason)
-    return {"message": mcp_data_views.rollback_prices(), "execution_allowed": False}
+    return {"message": mcp_data_views.rollback_prices(**_root_arguments()), "execution_allowed": False}
 
 
 @tool(tier="edit", description="Validate a local file import and issue a confirmation token for data_import_commit.", read_only_hint=True, idempotent_hint=True)
 def data_import_preview(path: str, dataset_type: str = "prices") -> dict[str, object]:
     try:
-        report = mcp_data_views.preview_local_import(Path(path), dataset_type)
+        report = mcp_data_views.preview_local_import(Path(path), dataset_type, **_root_arguments())
     except (OSError, ValueError) as exc:
         raise InvalidArgumentsError(str(exc)) from None
     report["confirm_token"] = issue_confirmation_token({"path": path, "dataset_type": dataset_type})
@@ -153,14 +158,14 @@ def data_import_preview(path: str, dataset_type: str = "prices") -> dict[str, ob
 
 def _preview_import(path: str, dataset_type: str = "prices") -> dict[str, object]:
     try:
-        return mcp_data_views.preview_local_import(Path(path), dataset_type)
+        return mcp_data_views.preview_local_import(Path(path), dataset_type, **_root_arguments())
     except (OSError, ValueError) as exc:
         raise InvalidArgumentsError(str(exc)) from None
 
 
 @tool(tier="edit", description="Commit a validated local price or reference-data import.", read_only_hint=False, destructive_hint=True, preview=_preview_import)
 def data_import_commit(path: str, dataset_type: str = "prices", confirm_token: str | None = None) -> dict[str, object]:
-    return normalise(mcp_data_views.commit_local_import(Path(path), dataset_type))
+    return normalise(mcp_data_views.commit_local_import(Path(path), dataset_type, **_root_arguments()))
 
 
 def _preview_filing(path: str, jurisdiction: str, instrument_id: str, source_url: str, period: str, sha256: str) -> dict[str, object]:

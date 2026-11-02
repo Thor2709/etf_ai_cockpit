@@ -388,3 +388,64 @@ def test_holdings_gaps_and_readiness_failed_dates_are_paged(monkeypatch: pytest.
     assert third["next_cursor"] is None
     for page in (first, second, third):
         assert page["summary"] == {"status": "FAIL", "dates_failed": 12}
+
+
+def test_data_health_reads_only_session_root_and_configuration(tmp_path, monkeypatch):
+    import pandas as pd
+
+    root = tmp_path / "owner"
+    config_dir = root / "configs"
+    config_dir.mkdir(parents=True)
+    (config_dir / "universe.yaml").write_text("etfs: []\n", encoding="utf-8")
+    clean = root / "data" / "clean"
+    clean.mkdir(parents=True)
+    pd.DataFrame({"date": ["2026-10-30"], "close": [123.0]}).to_parquet(clean / "prices.parquet")
+    original_load = mcp_data_views.load_config
+    reads = []
+
+    def configured_load(path):
+        reads.append(path)
+        assert path == config_dir
+        return original_load(path)
+
+    monkeypatch.setattr(mcp_data_views, "load_config", configured_load)
+    monkeypatch.setattr(mcp_data_views, "ROOT", tmp_path / "forbidden-root")
+    context = _context(tmp_path / "limits.sqlite3")
+    context.session = SimpleNamespace(root=root)
+    result = invoke_tool("data_health", {"dataset": "prices"}, context=context)
+    assert reads == [config_dir]
+    assert result["rows"][0]["row_count"] == 1
+    assert Path(result["rows"][0]["path"]) == clean / "prices.parquet"
+
+
+@pytest.mark.parametrize(("tool_name", "arguments", "facade", "result"), [
+    ("data_readiness", {"start": date(2026, 10, 29), "end": date(2026, 10, 30)},
+     "data_readiness_view", {"failed_dates": [], "summary": {}, "interval": {}}),
+    ("data_provider_status", {}, "data_provider_status_view", ()),
+    ("data_validate_prices", {}, "validate_prices_view", {"status": "Unavailable"}),
+    ("data_import_preview", {"path": "fixture.csv"}, "preview_local_import", {"valid": False}),
+    ("data_rollback_prices", {"reason": "fixture"}, "rollback_preview", {"available": True}),
+])
+def test_data_facades_receive_session_root(tmp_path, monkeypatch, tool_name, arguments, facade, result):
+    reads = []
+
+    def read(*args, root, **kwargs):
+        reads.append(root)
+        return dict(result) if isinstance(result, dict) else result
+
+    monkeypatch.setattr(mcp_data_views, facade, read)
+    context = _context(tmp_path / "limits.sqlite3")
+    context.session = SimpleNamespace(root=tmp_path)
+    invoke_tool(tool_name, arguments, context=context)
+    assert reads == [tmp_path.resolve()]
+
+
+@pytest.mark.parametrize("facade", ["preview_local_import", "commit_local_import", "rollback_preview", "rollback_prices", "validate_prices_view"])
+def test_process_bound_data_services_refuse_mismatched_root_before_io(tmp_path, monkeypatch, facade):
+    def forbidden_load(*args, **kwargs):
+        pytest.fail("configuration from another root was read")
+
+    monkeypatch.setattr(mcp_data_views, "load_config", forbidden_load)
+    arguments = (tmp_path / "fixture.csv",) if "import" in facade else ()
+    with pytest.raises(ValueError, match="ETF_COCKPIT_ROOT"):
+        getattr(mcp_data_views, facade)(*arguments, root=tmp_path)
