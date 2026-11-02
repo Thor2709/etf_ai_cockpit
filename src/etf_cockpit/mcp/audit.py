@@ -7,7 +7,8 @@ Open defaults: client_id is "local" and the in-memory inspection buffer retains 
 from __future__ import annotations
 
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Callable
 
 from etf_cockpit.core.session_log import log_event, new_action_id
@@ -24,6 +25,7 @@ class AuditRecord:
     duration_ms: float = 0.0
     client_id: str = "local"
     reason_code: str | None = None
+    occurred_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
 
 class AuditRecorder:
@@ -53,7 +55,7 @@ def _session_log_sink(record: AuditRecord) -> None:
         operation=record.tool,
         status="started",
         input_summary={"args_sha256": record.args_hash},
-        extra={"tier": record.tier, "client_id": record.client_id, "reason_code": record.reason_code},
+        extra={"tier": record.tier, "client_id": record.client_id, "reason_code": record.reason_code, "occurred_at": record.occurred_at},
     )
     log_event(
         event_type="mcp_tool_end",
@@ -64,5 +66,5 @@ def _session_log_sink(record: AuditRecord) -> None:
         duration_ms=record.duration_ms,
         input_summary={"args_sha256": record.args_hash},
         output_summary={"sha256": record.output_hash} if record.output_hash else {},
-        extra={"tier": record.tier, "client_id": record.client_id, "reason_code": record.reason_code},
+        extra={"tier": record.tier, "client_id": record.client_id, "reason_code": record.reason_code, "occurred_at": record.occurred_at},
     )

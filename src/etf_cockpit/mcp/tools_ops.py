@@ -197,6 +197,7 @@ def activity_log(since: str | None = None, event_type: str | None = None, cursor
     for record in getattr(context.audit, "records", ()):
         rows.append({
             "event_type": "mcp_tool_call",
+            "occurred_at": record.occurred_at,
             "tool": record.tool,
             "tier": record.tier,
             "outcome": record.outcome,

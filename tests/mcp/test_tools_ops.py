@@ -70,6 +70,63 @@ def test_alert_output_uses_bounded_signed_pages(tmp_path: Path, monkeypatch: pyt
     assert len(first["alerts"]) <= 2
 
 
+@pytest.mark.parametrize("outcome", ["ok", "refused", "error"])
+def test_activity_log_preserves_audit_time_and_filters_old_calls(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, outcome: str,
+) -> None:
+    from dataclasses import replace
+    from datetime import datetime, timedelta, timezone
+
+    from etf_cockpit.application import alerts
+    from etf_cockpit.core import session_log
+    from etf_cockpit.mcp import audit, tools_ops
+    from etf_cockpit.mcp.errors import AuthorizationError
+
+    logged: list[dict[str, object]] = []
+    monkeypatch.setattr(audit, "log_event", lambda **kwargs: logged.append(kwargs))
+    monkeypatch.setattr(session_log, "read_session_events", lambda _limit: [])
+    monkeypatch.setattr(alerts, "read_local_alerts", lambda *args, **kwargs: SimpleNamespace(status="available", records=()))
+    context = _context(tmp_path)
+    context.audit = AuditRecorder()
+    if outcome == "refused":
+        context.enabled_tiers = frozenset()
+    elif outcome == "error":
+        def fail_reader(*args, **kwargs):
+            raise RuntimeError("reader failed")
+
+        monkeypatch.setattr(alerts, "read_local_alerts", fail_reader)
+
+    before = datetime.now(timezone.utc)
+    if outcome == "ok":
+        invoke_tool("alerts_list", {}, context=context)
+    else:
+        with pytest.raises(AuthorizationError if outcome == "refused" else RuntimeError):
+            invoke_tool("alerts_list", {}, context=context)
+    after = datetime.now(timezone.utc)
+    assert len(context.audit.records) == 1
+    recent = context.audit.records[0]
+    occurred_at = datetime.fromisoformat(recent.occurred_at)
+    assert occurred_at.tzinfo is not None
+    assert occurred_at.utcoffset() == timedelta(0)
+    assert before <= occurred_at <= after
+    assert recent.outcome == outcome
+    assert len(logged) == 2
+    assert all(event["extra"]["occurred_at"] == recent.occurred_at for event in logged)
+    old = replace(recent, tool="old_call", occurred_at=(before - timedelta(days=8)).isoformat())
+    context.audit.record(old)
+
+    with use_call_context(context):
+        unfiltered = tools_ops.activity_log(event_type="mcp_tool_call")
+        for since in ("7d", before.isoformat()):
+            filtered = tools_ops.activity_log(since=since, event_type="mcp_tool_call")
+            assert filtered["status"] == "available"
+            assert len(filtered["events"]) == 1
+            assert filtered["events"][0]["tool"] == "alerts_list"
+            assert filtered["events"][0]["occurred_at"] == recent.occurred_at
+    assert [event["tool"] for event in unfiltered["events"]] == ["alerts_list", "old_call"]
+    assert unfiltered["events"][1]["occurred_at"] == old.occurred_at
+
+
 def test_status_tools_call_the_canonical_application_aggregators(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from etf_cockpit.application import status_views
     from etf_cockpit.mcp import tools_jobs, tools_ops
