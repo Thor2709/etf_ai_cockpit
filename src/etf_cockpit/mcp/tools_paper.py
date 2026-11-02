@@ -252,7 +252,7 @@ def paper_controls_status(account_id: str | None = None) -> dict[str, Any]:
     return load_paper_controls_status(session.root, account)
 
 
-@tool(tier="paper", description="Preview and record a gate-checked manual paper proposal using stored price and cost evidence.", profiles=("core", "full"))
+@tool(tier="paper", description="Preview and record a gate-checked manual paper proposal using stored price and cost evidence.", idempotent_hint=True, profiles=("core", "full"))
 def paper_order_preview(
     account_id: str,
     instrument_id: str,
@@ -301,6 +301,7 @@ def paper_order_preview(
         return preview
     if dry_run:
         preview["confirm_token"] = _issue_token(args)
+        preview["confirmation_arguments"] = {**args, "dry_run": False}
         preview["status"] = "confirmation_required"
         return preview
     assert persisted is not None
@@ -312,7 +313,7 @@ def paper_order_preview(
     return persisted
 
 
-@tool(tier="paper", description="Accept and fill one approved manual paper proposal with its server-derived price and costs.", profiles=("core", "full"))
+@tool(tier="paper", description="Accept and fill one approved manual paper proposal with its server-derived price and costs.", idempotent_hint=True, profiles=("core", "full"))
 def paper_order_place(
     proposal_id: str,
     instrument_id: str,
@@ -337,7 +338,7 @@ def paper_order_place(
     return {**result, "execution_allowed": False}
 
 
-@tool(tier="paper", description="Cancel one open paper order and record the reason.", profiles=("full",))
+@tool(tier="paper", description="Cancel one open paper order and record the reason.", idempotent_hint=True, profiles=("full",))
 def paper_order_cancel(order_id: str, reason: str, dry_run: bool = True, confirm_token: str | None = None) -> dict[str, Any]:
     session = _session()
     if not reason.strip():
@@ -355,7 +356,7 @@ def paper_order_cancel(order_id: str, reason: str, dry_run: bool = True, confirm
     return {"account_id": account_id, "order": result, "cancelled": True, "execution_allowed": False}
 
 
-@tool(tier="paper", description="Activate the local paper kill switch and cancel open paper orders when configured.", profiles=("full",))
+@tool(tier="paper", description="Activate the local paper kill switch and cancel open paper orders when configured.", idempotent_hint=True, profiles=("full",))
 def paper_kill_switch_activate(reason: str, dry_run: bool = True, confirm_token: str | None = None) -> dict[str, Any]:
     session = _session()
     if not reason.strip():

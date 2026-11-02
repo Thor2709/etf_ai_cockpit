@@ -4,7 +4,10 @@ Defaults: prices come from the validated daily price book and must include a
 per-row ``known_at`` no later than the current UTC time. Manual orders do not
 carry an AI-supplied price, expected benefit, quote, fee or FX rate. Missing
 price, currency, FX, benefit, authority or account evidence stays unavailable
-and blocks proposal acceptance.
+and blocks proposal acceptance. Optimiser, confidence and concentration evidence
+is resolved only from policy-validated stored proposals with matching quantity,
+ledger and price revisions. Friction uses the local canonical paper execution
+configuration; its benefit/uncertainty assumptions are never AI inputs.
 """
 
 from __future__ import annotations
@@ -14,15 +17,17 @@ from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Mapping
+from types import SimpleNamespace
 
 import pandas as pd
 
 from etf_cockpit.core.atomic_io import atomic_write_bytes
 from etf_cockpit.core.config import load_config
+from etf_cockpit.core.event_policy import EventBlockPolicy
 from etf_cockpit.data.fx_data import build_fx_rate_snapshot, fx_cross_rate, load_fx_rates
 from etf_cockpit.portfolio.costs import estimate_execution_cost
-from etf_cockpit.portfolio.paper_bots_execution import PriceBook
+from etf_cockpit.portfolio.paper_bots_execution import PriceBook, load_execution_config
 from etf_cockpit.portfolio.paper_trading import PaperLedger, PaperLedgerError, load_proposal_for_paper
 from etf_cockpit.portfolio.proposal_policy import (
     REQUIRED_GATES,
@@ -31,6 +36,7 @@ from etf_cockpit.portfolio.proposal_policy import (
     build_proposal_decision,
     current_authority_policy_checksum,
     save_proposal_decision,
+    load_proposal_records,
 )
 from etf_cockpit.signals.friction_edge import evaluate_friction_gate
 
@@ -91,7 +97,7 @@ def _evaluate_manual_pretrade(
         orders = ledger.orders()
         with ledger._lock, ledger._file_lock():
             paper_events = ledger._read_events()
-        from etf_cockpit.trading.pre_trade_controls import PreTradeControlError, PreTradeControls
+        from etf_cockpit.trading.pre_trade_controls import PreTradeControls
 
         result = PreTradeControls(Path(root), account_id=account_id).evaluate_order(
             proposal,
@@ -123,6 +129,46 @@ def _evaluate_manual_pretrade(
             "reason": f"pre_trade_controls_unavailable:{type(exc).__name__}",
             "execution_allowed": False,
         }
+
+
+def _stored_manual_evidence(
+    root: Path, *, instrument_id: str, held: float, target: float,
+    portfolio_revision: str, data_revision: str, cutoff: datetime,
+    evidence_refs: tuple[str, ...],
+) -> Mapping[str, object] | None:
+    """Resolve policy-validated evidence for exactly this ledger, price and trade.
+
+    Proposal references select canonical IDs; research references are journal links,
+    never caller-supplied gate values.
+    Without references, search the same canonical store. Expired, future-known,
+    failed, differently sized or differently bound evidence cannot authorize a trade.
+    """
+    records = load_proposal_records(directory=root / "data" / "operations" / "proposals")
+    proposal_refs = {ref for ref in evidence_refs if ref.startswith("proposal_")}
+    for record in sorted(records, key=lambda item: str(item.get("as_of", "")), reverse=True):
+        if proposal_refs and record.get("proposal_id") not in proposal_refs:
+            continue
+        material = record.get("input_material", {})
+        try:
+            created = datetime.fromisoformat(str(record["as_of"]))
+            expires = datetime.fromisoformat(str(record["expires_at"]))
+            gates = {item["gate_id"]: item for item in record["gates"]}
+            if (
+                record.get("instrument_id") == instrument_id
+                and record.get("execution_allowed") is False
+                and created <= cutoff < expires
+                and material.get("current_quantity") == held
+                and material.get("target_quantity") == target
+                and material.get("portfolio_revision") == portfolio_revision
+                and material.get("data_revision") == data_revision
+                and material.get("optimiser_output_id")
+                and all(gates.get(name, {}).get("passed") is True for name in
+                        ("optimizer_output", "model_confidence", "concentration"))
+            ):
+                return record
+        except (KeyError, TypeError, ValueError):
+            continue
+    return None
 
 
 def preview_manual_paper_order(
@@ -212,11 +258,12 @@ def preview_manual_paper_order(
     order_value_eur = resolved_quantity * float(price_value) * eur_rate
     try:
         cost = estimate_execution_cost(load_config(), instrument, order_value_eur)
+        _, execution_config = load_execution_config(root / "configs" / "paper_bots_execution_v1.yaml")
         friction = evaluate_friction_gate(
-            None,
+            execution_config.get("rule_expected_benefit_bps"),
             order_value_eur=order_value_eur,
             cost_estimate=cost.as_dict(),
-            uncertainty_bps=None,
+            uncertainty_bps=execution_config.get("rule_uncertainty_bps"),
         )
         fee = float(cost.commission_eur) / eur_rate
     except (OSError, TypeError, ValueError, KeyError) as exc:
@@ -224,36 +271,57 @@ def preview_manual_paper_order(
 
     price_fingerprint = pd.util.hash_pandas_object(pd.Series([instrument, str(bar.get("date")), str(known_at), float(price_value)]), index=False).astype("uint64").to_list()
     data_revision = "price:" + ":".join(str(item) for item in price_fingerprint)
+    source = _stored_manual_evidence(
+        root, instrument_id=instrument, held=held, target=held + signed_delta,
+        portfolio_revision=str(account_state.ledger_hash or ""), data_revision=data_revision,
+        cutoff=cutoff, evidence_refs=evidence_refs,
+    )
+    if source is None:
+        result = _unavailable("matching_canonical_proposal_evidence_unavailable_or_failing", instrument_id=instrument, account_id=account)
+        result["gates"] = [GateEvidence(name, False, "Matching canonical evidence is unavailable or failing.").to_payload()
+                           for name in ("optimizer_output", "model_confidence", "concentration")]
+        return result
+    material = source["input_material"]
+    if any(material.get(field) != execution_config.get(config_field) for field, config_field in
+           (("strategy_id", "strategy_id"), ("model_id", "model_id"), ("account_id", "account_capability"))):
+        return _unavailable("canonical_rule_authority_binding_mismatch", instrument_id=instrument, account_id=account)
+    source_gates = {item["gate_id"]: GateEvidence(**item) for item in source["gates"]}
     gates_by_id = {
-        "optimizer_output": GateEvidence("optimizer_output", False, "No immutable optimiser output is supplied for this manual request."),
+        "optimizer_output": source_gates["optimizer_output"],
         "portfolio_state": GateEvidence("portfolio_state", True, "The local paper account ledger is open and reconciled."),
         "data_freshness": GateEvidence("data_freshness", known_at <= cutoff, "Committed close and known_at are bound to the current cutoff." if known_at <= cutoff else "The committed close is newer than the cutoff."),
-        "model_confidence": GateEvidence("model_confidence", False, "No model confidence evidence is available for a manual order."),
+        "model_confidence": source_gates["model_confidence"],
         "liquidity": GateEvidence("liquidity", bool(getattr(cost, "capacity_eur", None) is not None and order_value_eur <= float(cost.capacity_eur)), "Order-size capacity is evaluated by the canonical cost model."),
         "cost": GateEvidence("cost", friction.status == "pass" and friction.propose is True, friction.reason),
-        "concentration": GateEvidence("concentration", False, "Target concentration evidence is unavailable for this manual request."),
+        "concentration": source_gates["concentration"],
         "account_authority": GateEvidence("account_authority", True, "The request is bound to an open local paper account."),
     }
     try:
+        event_policy = material.get("event_control", {}).get("policy")
+        inherited_gates = tuple(gate for name, gate in source_gates.items()
+                                if name not in {*REQUIRED_GATES, "event_risk", "friction_edge", "pre_trade"})
         request = ProposalRequest(
                 instrument_id=instrument,
                 current_quantity=held,
                 target_quantity=held + signed_delta,
-                strategy_id="strategy:paper_portfolio",
-                strategy_stage="paper",
-                model_id="model:baseline",
-                model_stage="research",
-                account_id="broker:paper_portfolio",
-                account_stage="paper",
-                optimiser_output_id=None,
+                strategy_id=material["strategy_id"],
+                strategy_stage=material["strategy_stage"],
+                model_id=material["model_id"],
+                model_stage=material["model_stage"],
+                account_id=material["account_id"],
+                account_stage=material["account_stage"],
+                optimiser_output_id=str(material["optimiser_output_id"]),
                 portfolio_revision=str(account_state.ledger_hash or ""),
                 data_revision=data_revision,
                 as_of=cutoff,
-                expires_at=cutoff + timedelta(minutes=15),
+                expires_at=min(cutoff + timedelta(minutes=15), datetime.fromisoformat(str(source["expires_at"]))),
                 authority_policy_checksum=current_authority_policy_checksum(),
-                gate_evidence=tuple(gates_by_id[name] for name in REQUIRED_GATES),
+                gate_evidence=(*tuple(gates_by_id[name] for name in REQUIRED_GATES), *inherited_gates),
                 rationale=rationale.strip(),
                 friction_gate=friction,
+                approvals=tuple(material.get("supplied_approvals", ())),
+                event_calendar_path=root / "data" / "clean" / "event_calendar.parquet",
+                event_policy=EventBlockPolicy.model_validate(event_policy) if event_policy is not None else None,
             )
         decision = build_proposal_decision(request)
         pre_trade = _evaluate_manual_pretrade(
@@ -292,7 +360,7 @@ def preview_manual_paper_order(
         "currency": quote_currency,
         "account_currency": account_currency,
         "rationale": rationale.strip(),
-        "evidence_refs": list(evidence_refs),
+        "evidence_refs": list(dict.fromkeys((*evidence_refs, str(source["proposal_id"])))),
         "fee": fee,
         "fx_rate": fx_rate,
         "eur_rate": eur_rate,
@@ -422,6 +490,16 @@ def accept_manual_paper_proposal(
             break
         offset = page.next_offset
     if existing_order is None:
+        state = PaperLedger(Path(root), account_id=account_id).snapshot()
+        if state.ledger_hash != proposal.get("input_material", {}).get("portfolio_revision"):
+            raise PaperLedgerError("The paper account changed after preview; create a fresh proposal.")
+        revalidated = preview_manual_paper_order(
+            root=Path(root), snapshot=SimpleNamespace(config=load_config()), account_id=account_id, instrument_id=instrument_id,
+            side=str(terms["side"]), quantity=float(quantity),
+            rationale=str(terms["rationale"]), evidence_refs=tuple(terms.get("evidence_refs", ())),
+        )
+        if revalidated.get("status") != "proposal_ready":
+            raise PaperLedgerError("Current canonical evidence or gates no longer permit this paper order.")
         accepted = api.accept_paper_proposal(
             PaperProposalAcceptRequest(
                 account_id=account_id,

@@ -16,10 +16,6 @@ import hashlib
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from etf_cockpit.application.monthly_decision_template import (
-    build_monthly_decision_template,
-    unavailable_monthly_evidence,
-)
 from etf_cockpit.mcp.errors import InvalidArgumentsError, MCPToolError
 from etf_cockpit.mcp.paging import CursorCodec, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, validate_page_size
 from etf_cockpit.mcp.registry import current_call_context, tool
@@ -251,19 +247,12 @@ def monthly_decision_pack(month: str) -> dict[str, Any]:
         datetime.strptime(month, "%Y-%m")
     except ValueError:
         raise InvalidArgumentsError("month must use YYYY-MM") from None
-    unavailable = lambda name: unavailable_monthly_evidence(f"{name}_evidence_unavailable")
-    template = build_monthly_decision_template(
-        benchmark_reference=None,
-        alternatives=unavailable("alternatives"), expected_returns=unavailable("expected_returns"),
-        optimiser=unavailable("optimiser"), costs=unavailable("costs"), events=unavailable("events"),
-        forward_evidence=unavailable("forward_evidence"), paper_outcomes=unavailable("paper_outcomes"),
-        concentration=unavailable("concentration"), assumptions=unavailable("assumptions"),
-        source="mcp_local_evidence",
-    )
-    return {"month": month, **template.projection()}
+    from etf_cockpit.application.headless_session import load_monthly_decision_pack
+
+    return load_monthly_decision_pack(_session().snapshot, month)
 
 
-@tool(tier="edit", description="Validate and stage a local portfolio import; confirmation is required before durable staging.", profiles=("full",))
+@tool(tier="edit", description="Validate and stage a local portfolio import; confirmation is required before durable staging.", idempotent_hint=True, profiles=("full",))
 def portfolio_import_preview(
     path: str,
     source_format: str = "canonical",

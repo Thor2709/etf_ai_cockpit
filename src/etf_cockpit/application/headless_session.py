@@ -432,8 +432,93 @@ class HeadlessSession:
             return self._scheduler().run_once(dispatch, workflow_id=workflow_id)
 
 
+def load_monthly_decision_pack(snapshot: object, month: str) -> dict[str, object]:
+    """Compose canonical candidate evidence for a bound month, without backdating.
+
+    The session snapshot must belong to the requested month and have an explicit
+    knowledge timestamp within the month's cutoff (or now for the current month).
+    Portfolio services expose partial optimiser/cost/concentration evidence;
+    return distributions, replay and account outcomes lack a candidate binding.
+    Those sections remain unavailable. No source or derived artifacts are written.
+    """
+    from etf_cockpit.application.monthly_decision_template import (
+        build_monthly_decision_template, monthly_decision_template_lines,
+        unavailable_monthly_evidence,
+    )
+    from etf_cockpit.application.portfolio_sandbox import (
+        analyse_portfolio_candidate, draft_portfolio_candidate,
+    )
+
+    start = datetime.strptime(month, "%Y-%m").replace(tzinfo=timezone.utc)
+    end = start.replace(year=start.year + 1, month=1) if start.month == 12 else start.replace(month=start.month + 1)
+    cutoff = min(end, datetime.now(timezone.utc))
+    names = ("alternatives", "expected_returns", "optimiser", "costs", "events",
+             "forward_evidence", "paper_outcomes", "concentration", "assumptions")
+    sections = {name: unavailable_monthly_evidence(f"{name}_evidence_not_bound_to_requested_month") for name in names}
+    benchmark = None
+    analysis = None
+    try:
+        as_of = datetime.fromisoformat(str(getattr(getattr(snapshot, "data_report", None), "as_of_date", None)))
+        as_of = as_of.replace(tzinfo=timezone.utc) if as_of.tzinfo is None else as_of.astimezone(timezone.utc)
+        known_at = datetime.fromisoformat(str(getattr(snapshot, "facts_known_at", None)).replace("Z", "+00:00"))
+        if known_at.tzinfo is None or not start <= as_of < end or not as_of <= known_at <= cutoff or known_at >= end:
+            raise ValueError("snapshot_not_known_within_requested_month")
+        candidate = draft_portfolio_candidate(snapshot)
+        analysis = analyse_portfolio_candidate(snapshot, candidate)
+        binding = analysis.snapshot_binding
+        if binding is None or analysis.source_stale or not binding.source_checksum:
+            raise ValueError("portfolio_snapshot_binding_unavailable")
+        benchmark = analysis.service_evidence.get("benchmark_reference")
+        optimiser = analysis.service_evidence.get("optimiser")
+        if isinstance(optimiser, dict) and optimiser.get("status") not in {None, "unavailable"}:
+            sections["optimiser"] = {
+                "status": "partial", "reason": "solver_binding_diagnostics_unavailable",
+                "source_id": candidate.candidate_id, "method": optimiser.get("method"),
+                "solution": {key: optimiser[key] for key in ("status", "weights", "feasible", "warnings") if key in optimiser},
+                "constraints": {"status": "partial", "rows": [
+                    {"name": row.name, "current_value": row.current_value, "target_value": row.target_value,
+                     "limit": row.limit, "status": row.status, "reason": row.reason}
+                    for row in analysis.constraints
+                ]},
+            }
+        cost = analysis.cost
+        sections["costs"] = {
+            "status": "partial", "reason": "portfolio_cost_projection_has_partial_source_provenance",
+            "model_id": cost.model_id, "source_id": candidate.candidate_id,
+            "components": [{"estimate_id": item.estimate_id, "instrument_id": item.instrument_id,
+                            "order_value_eur": item.order_value_eur, "cost_eur": item.total_cost_eur,
+                            "cost_bps": item.total_cost_bps} for item in cost.estimates],
+            "total": {"order_value_eur": cost.total_order_value_eur, "cost_eur": cost.total_cost_eur,
+                      "cost_bps": cost.weighted_cost_bps},
+        }
+        if analysis.sector_exposure:
+            sections["concentration"] = {
+                "status": "partial", "reason": "theme_exposure_unavailable",
+                "sector": {"status": "partial", "source_id": candidate.candidate_id,
+                           "exposures": [{"label": row.bucket, "weight": row.target_weight} for row in analysis.sector_exposure]},
+                "theme": unavailable_monthly_evidence("theme_exposure_unavailable"),
+            }
+        sections["assumptions"] = {
+            "status": "partial", "reason": "candidate_assumptions_have_partial_source_provenance",
+            "source_id": candidate.candidate_id,
+            "values": {"rebalance_cadence": "monthly", "execution_assumption": "next_session",
+                       "candidate_id": candidate.candidate_id, "candidate_source_revision": candidate.source_revision},
+        }
+    except (AttributeError, OSError, TypeError, ValueError, KeyError):
+        # A current snapshot cannot stand in for a missing historical snapshot.
+        sections = {name: unavailable_monthly_evidence(f"{name}_evidence_not_bound_to_requested_month") for name in names}
+        benchmark = None
+    template = build_monthly_decision_template(
+        benchmark_reference=benchmark,
+        benchmark_registry=getattr(snapshot, "benchmark_reference_registry", None),
+        **sections, source=f"mcp_local_evidence:{month}",
+    )
+    return {"month": month, **template.projection(), "lines": list(monthly_decision_template_lines(template))}
+
+
 __all__ = [
     "HeadlessSession",
+    "load_monthly_decision_pack",
     "HeadlessWriterBusyError",
     "cross_process_writer_guard",
 ]
