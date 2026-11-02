@@ -10,6 +10,10 @@ The snapshot builder defaults to ``build_snapshot`` and the data service to
 Action IDs default to ``headless_refresh`` and ``headless_rescore``. Missing
 snapshots, missing data-quality reports, and blocked reports fail closed.
 Status uses ``row_count=None`` when inputs cannot be read or are unavailable.
+Storage roots are process-scoped: set ``ETF_COCKPIT_ROOT`` before importing
+the application, as required by the persistence services. A different runtime
+root is refused before any workflow writes; run separate roots in separate
+processes. This also scopes scoring's implicit reads and trust-artifact writes.
 """
 
 from __future__ import annotations
@@ -67,6 +71,8 @@ def _local_lock(path: Path) -> threading.Lock:
 def _pid_is_alive(pid: int) -> bool:
     if pid <= 0:
         return False
+    if os.name == "nt":
+        return _windows_pid_is_alive(pid)
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
@@ -74,8 +80,47 @@ def _pid_is_alive(pid: int) -> bool:
     except PermissionError:
         return True
     except OSError:
-        return False
+        return True  # An inconclusive probe must never authorize stale-owner recovery.
     return True
+
+
+def _windows_pid_is_alive(pid: int) -> bool:
+    """Query process state without sending a Windows termination signal."""
+
+    import ctypes
+    from ctypes import wintypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    kernel32.GetExitCodeProcess.argtypes = (wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD))
+    kernel32.GetExitCodeProcess.restype = wintypes.BOOL
+    kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
+    kernel32.CloseHandle.restype = wintypes.BOOL
+    handle = kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+    if not handle:
+        # ERROR_INVALID_PARAMETER means no such PID. Access denied and other
+        # query failures leave ownership uncertain, so retain the live lock.
+        return ctypes.get_last_error() != 87
+    try:
+        exit_code = wintypes.DWORD()
+        if not kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code)):
+            return True
+        return exit_code.value == 259  # STILL_ACTIVE
+    finally:
+        kernel32.CloseHandle(handle)
+
+
+def require_storage_root(root: Path | None = None) -> Path:
+    """Keep the writer lock on the root used by import-scoped persistence."""
+
+    selected = Path(root or ROOT).resolve()
+    if selected != ROOT.resolve():
+        raise ValueError(
+            "Storage root differs from the imported application root; set "
+            "ETF_COCKPIT_ROOT before importing etf_cockpit in a separate process."
+        )
+    return selected
 
 
 def _read_owner(path: Path) -> dict[str, object] | None:
@@ -218,6 +263,7 @@ class HeadlessSession:
 
     @contextmanager
     def activity_publication(self, expected_action_id: str | None = None):
+        require_storage_root(self.root)
         with cross_process_writer_guard(self.root):
             with self._publication_scope(expected_action_id):
                 yield
@@ -240,6 +286,7 @@ class HeadlessSession:
     def refresh(self, *, action_id: str | None = None) -> str:
         """Refresh validated local data, rebuild the snapshot and publish its scoreboard."""
 
+        require_storage_root(self.root)
         resolved_action_id = action_id or "headless_refresh"
         with cross_process_writer_guard(self.root):
             with timed_step(resolved_action_id, "yfinance_refresh"):
@@ -254,6 +301,7 @@ class HeadlessSession:
     def rescore(self, *, action_id: str | None = None) -> tuple[str, Path]:
         """Run the deterministic candidate analysis, rebuild the snapshot and publish scores."""
 
+        require_storage_root(self.root)
         resolved_action_id = action_id or "headless_rescore"
         with cross_process_writer_guard(self.root):
             with timed_step(resolved_action_id, "algorithm_scores"):
@@ -267,6 +315,7 @@ class HeadlessSession:
     def refresh_snapshot(self) -> object:
         """Rebuild local signals without initiating a provider refresh or scoreboard publish."""
 
+        require_storage_root(self.root)
         with cross_process_writer_guard(self.root):
             self._set_snapshot(self.snapshot_builder(force_sample=False, publish_guard=self.activity_publication))
         return self.snapshot

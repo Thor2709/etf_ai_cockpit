@@ -5,6 +5,9 @@ from __future__ import annotations
 from contextlib import nullcontext
 import json
 import os
+import shutil
+import subprocess
+import sys
 from pathlib import Path
 import threading
 from types import SimpleNamespace
@@ -47,93 +50,113 @@ def _snapshot(*, blocked: bool = False) -> SimpleNamespace:
     )
 
 
-def _install_scoreboard_fakes(monkeypatch, tmp_path: Path) -> None:
-    from etf_cockpit.application import score_views
-
-    monkeypatch.setattr(scoreboard_publication, "load_latest_candidate_report", lambda: (None, None))
-    monkeypatch.setattr(
-        scoreboard_publication,
-        "context_from_snapshot",
-        lambda *_args, **_kwargs: SimpleNamespace(
-            benchmark_data_id=None,
-            projection=None,
-            registry=None,
-        ),
-    )
-    monkeypatch.setattr(scoreboard_publication, "build_market_regime", lambda *_args, **_kwargs: object())
-    monkeypatch.setattr(scoreboard_publication, "write_market_regime", lambda _value: None)
-    monkeypatch.setattr(scoreboard_publication, "load_forecast_history", lambda: None)
-    monkeypatch.setattr(scoreboard_publication, "evaluate_forecast_calibration", lambda *_args: object())
-    monkeypatch.setattr(scoreboard_publication, "write_forecast_calibration", lambda _value: None)
-    monkeypatch.setattr(score_views, "published_scores", lambda _snapshot: [{"instrument_id": "ETF1", "score": 7.0}])
-    monkeypatch.setattr(
-        scoreboard_publication,
-        "simple_scoreboard_frame",
-        lambda _scores: pd.DataFrame({"instrument_id": ["ETF1"], "score": [7.0]}),
-    )
-
-    def write_board(_scores, path: Path | None = None) -> Path:
-        destination = path or tmp_path / "default-scoreboard.parquet"
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        pd.DataFrame({"instrument_id": ["ETF1"], "score": [7.0]}).to_parquet(destination, index=False)
-        return destination
-
-    history_path = tmp_path / "score-history.parquet"
-    history_path.write_bytes(b"fixture")
-    monkeypatch.setattr(scoreboard_publication, "write_simple_scoreboard", write_board)
-    monkeypatch.setattr(
-        scoreboard_publication,
-        "write_trust_artifacts_for_scores",
-        lambda *_args, **_kwargs: {"score_history": history_path},
-    )
-    monkeypatch.setattr(scoreboard_publication, "_record_scoreboard_publication_binding", lambda *_args, **_kwargs: {})
-
-
-class _FakeDataService:
-    def __init__(self, _config) -> None:
-        self.last_operation_succeeded = True
-
-    def refresh_yfinance_data(self, **_kwargs) -> str:
-        return "fixture refresh completed"
-
-    def run_yfinance_candidate_analysis(self, **_kwargs) -> str:
-        return "fixture rescore completed. Report: candidates.json"
-
-
 def _make_app_state(snapshot: object) -> AppState:
     return AppState(snapshot=snapshot, selected_etf="ETF1")
 
 
-def test_headless_refresh_rescore_publish_matches_app_state_path(monkeypatch, tmp_path) -> None:
-    _install_scoreboard_fakes(monkeypatch, tmp_path)
-    snapshot = _snapshot()
-    builder = lambda **_kwargs: snapshot
-    monkeypatch.setattr(headless_session, "DataService", _FakeDataService)
-    monkeypatch.setattr(headless_session, "build_snapshot", builder)
-    headless_root = tmp_path / "headless"
-    headless = HeadlessSession(snapshot, root=headless_root, snapshot_builder=builder)
+def _fixture_publication(mode: str) -> None:
+    """Run offline I/O fixtures with real scoring, serialization and trust writes."""
+    from dataclasses import replace
+    from datetime import date
 
-    headless.refresh()
-    headless.rescore()
-    headless.publish()
+    from etf_cockpit.core.config import load_config
+    from etf_cockpit.core.paths import ROOT
+    from etf_cockpit.core.types import ComponentScores, SignalResult
 
-    app_root = tmp_path / "app"
-    monkeypatch.setattr(app_state_module, "ROOT", app_root)
-    monkeypatch.setattr(app_state_module, "DataService", _FakeDataService)
-    monkeypatch.setattr(app_state_module, "build_snapshot", builder)
-    monkeypatch.setattr(AppState, "refresh_runtime_profile", lambda self, *_args, **_kwargs: "minimum")
-    monkeypatch.setattr(AppState, "assign_sector_projections", lambda self, *_args, **_kwargs: None)
-    monkeypatch.setattr(app_state_module, "log_event", lambda **_kwargs: None)
-    monkeypatch.setattr(app_state_module, "ACTIVITY_LOG_PATH", tmp_path / "app" / "logs" / "session.jsonl")
-    app_state = _make_app_state(snapshot)
-    monkeypatch.setattr(app_state, "_app_activity_publication", lambda *_args: nullcontext())
-    AppState.refresh_yfinance_data.__wrapped__(app_state)
-    AppState.run_algorithm_scores.__wrapped__(app_state)
-    AppState._write_current_scoreboard.__wrapped__(app_state)
+    config = load_config()
+    config.universe.etfs = [etf for etf in config.universe.etfs if etf.id == "VWCE"]
+    config.ui.default_etf = "VWCE"
+    source = ROOT / "prices.csv"
+    stored = ROOT / "data" / "clean" / "fixture_prices.csv"
+    stored.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(source, stored)
+    signal = SignalResult(
+        run_id="fixture", signal_date=date(2026, 10, 30), etf_id="VWCE",
+        action="HOLD", confidence=0.8, total_score=0.3,
+        components=ComponentScores(0.2, 0.3, 0.1, 0.0, 0.2, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+        blocked_by=[], warnings=[], reason_short="fixture", reason_long="fixture",
+        horizon_primary="1-3 months", supporting_metrics={},
+    )
 
-    headless_board = pd.read_parquet(headless_root / "data" / "derived" / "scoreboard.parquet")
-    app_board = pd.read_parquet(app_root / "data" / "derived" / "scoreboard.parquet")
-    pd.testing.assert_frame_equal(headless_board, app_board)
+    def builder(**_kwargs):
+        prices = pd.read_csv(stored, parse_dates=["date"])
+        current = replace(signal, components=replace(signal.components, momentum=float(prices.iloc[-1]["momentum"])))
+        return SimpleNamespace(
+            config=config, data_report=SimpleNamespace(analysis_allowed=True, status="Clean"),
+            prices=prices, signals=[current], forecasts=pd.DataFrame(), universe_revision="fixture-revision",
+        )
+
+    class FixtureDataService:
+        def __init__(self, _config):
+            self.last_operation_succeeded = True
+
+        def refresh_yfinance_data(self, **_kwargs):
+            shutil.copyfile(source, stored)
+            return "fixture refresh completed"
+
+        def run_yfinance_candidate_analysis(self, **_kwargs):
+            prices = pd.read_csv(stored)
+            prices.loc[prices.index[-1], ["close", "adj_close", "momentum"]] = [125.0, 125.0, 0.8]
+            prices.to_csv(stored, index=False)
+            return "fixture rescore completed. Report: candidates.json"
+
+    if mode == "headless":
+        session = HeadlessSession(builder(), root=ROOT, snapshot_builder=builder, data_service_factory=FixtureDataService)
+        session.refresh()
+        refreshed = pd.read_parquet(ROOT / "data" / "derived" / "scoreboard.parquet")
+        session.rescore()
+        session.publish()
+        assert session.score_history_warning is None, session.score_history_warning
+    else:
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(app_state_module, "DataService", FixtureDataService)
+            patch.setattr(app_state_module, "build_snapshot", builder)
+            patch.setattr(AppState, "refresh_runtime_profile", lambda *_args, **_kwargs: "minimum")
+            patch.setattr(AppState, "assign_sector_projections", lambda *_args, **_kwargs: None)
+            state = AppState(snapshot=builder(), selected_etf="VWCE")
+            patch.setattr(state, "_app_activity_publication", lambda *_args: nullcontext())
+            AppState.refresh_yfinance_data.__wrapped__(state)
+            refreshed = pd.read_parquet(ROOT / "data" / "derived" / "scoreboard.parquet")
+            AppState.run_algorithm_scores.__wrapped__(state)
+            AppState._write_current_scoreboard.__wrapped__(state)
+            assert state.score_history_warning is None, state.score_history_warning
+    final = pd.read_parquet(ROOT / "data" / "derived" / "scoreboard.parquet")
+    assert not refreshed.equals(final), "Rescoring must affect serialized financial outputs"
+    assert final["momentum_score_10"].notna().any()
+    assert not final["execution_allowed"].any()
+    assert (ROOT / "data" / "derived" / "score_history.parquet").is_file()
+
+
+def test_headless_refresh_rescore_publish_matches_app_state_path(tmp_path) -> None:
+    # Each process selects its root before application imports. The two roots
+    # use identical fixtures; each also checks sensitivity to a rescore change.
+    roots = {}
+    processes = []
+    for mode in ("headless", "app"):
+        root = tmp_path / mode
+        roots[mode] = root
+        shutil.copytree(Path(__file__).resolve().parents[2] / "configs", root / "configs")
+        pd.DataFrame({
+            "date": pd.bdate_range(end="2026-10-30", periods=320), "etf_id": "VWCE",
+            "close": [100.0 + n * 0.05 for n in range(320)],
+            "adj_close": [100.0 + n * 0.05 for n in range(320)],
+            "volume": 100000, "momentum": 0.2,
+        }).to_csv(root / "prices.csv", index=False)
+        environment = dict(os.environ, ETF_COCKPIT_ROOT=str(root), CUDA_VISIBLE_DEVICES="")
+        processes.append(subprocess.Popen(
+            [sys.executable, str(Path(__file__).resolve()), mode], env=environment,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        ))
+    results = []
+    for process in processes:
+        stdout, stderr = process.communicate(timeout=120)
+        results.append((process.returncode, stdout, stderr))
+    assert all(code == 0 for code, _, _ in results), results
+    for suffix in ("parquet", "csv", "json"):
+        loader = {"parquet": pd.read_parquet, "csv": pd.read_csv, "json": pd.read_json}[suffix]
+        left = loader(roots["headless"] / "data" / "derived" / f"scoreboard.{suffix}")
+        right = loader(roots["app"] / "data" / "derived" / f"scoreboard.{suffix}")
+        pd.testing.assert_frame_equal(left, right)
 
 
 def test_app_state_delegates_refresh_rescore_and_publish(monkeypatch, tmp_path) -> None:
@@ -207,6 +230,24 @@ def test_second_writer_is_refused_while_guard_is_held(tmp_path) -> None:
     assert not thread.is_alive()
     assert result == ["refused"]
 
+    # A separate interpreter has no shared threading lock or writer context.
+    command = """
+import sys
+from pathlib import Path
+from etf_cockpit.application.headless_session import cross_process_writer_guard, HeadlessWriterBusyError
+try:
+    with cross_process_writer_guard(Path(sys.argv[1])):
+        raise AssertionError('second process acquired the writer lock')
+except HeadlessWriterBusyError:
+    print('refused')
+"""
+    with cross_process_writer_guard(tmp_path):
+        child = subprocess.run(
+            [sys.executable, "-c", command, str(tmp_path)], capture_output=True, text=True, timeout=30,
+        )
+    assert child.returncode == 0, child.stderr
+    assert child.stdout.strip() == "refused"
+
 
 def test_stale_dead_pid_lock_is_recovered_with_audit_note(tmp_path) -> None:
     owner_path = tmp_path / "data" / ".headless-writer.lock.owner.json"
@@ -230,12 +271,72 @@ def test_stale_dead_pid_lock_is_recovered_with_audit_note(tmp_path) -> None:
     ]
 
 
-def test_blocking_data_quality_gate_prevents_scoreboard_publish(monkeypatch, tmp_path) -> None:
-    _install_scoreboard_fakes(monkeypatch, tmp_path)
-    root = tmp_path / "blocked"
+def test_blocking_data_quality_gate_prevents_scoreboard_publish(monkeypatch) -> None:
+    root = headless_session.ROOT
     session = HeadlessSession(_snapshot(blocked=True), root=root)
+    path = root / "data" / "derived" / "scoreboard.parquet"
+    previous = path.read_bytes() if path.exists() else None
+
+    def unexpected(*_args, **_kwargs):
+        pytest.fail("A blocked snapshot reached publication")
+
+    monkeypatch.setattr(scoreboard_publication, "load_latest_candidate_report", unexpected)
 
     with pytest.raises(scoreboard_publication.ScoreboardPublicationBlockedError):
         session.publish()
 
-    assert not (root / "data" / "derived" / "scoreboard.parquet").exists()
+    assert (path.read_bytes() if path.exists() else None) == previous
+
+
+@pytest.mark.parametrize("operation", ["refresh", "rescore", "refresh_snapshot", "publish"])
+def test_runtime_root_mismatch_is_refused_before_any_persistence(monkeypatch, tmp_path, operation) -> None:
+    def unexpected(*_args, **_kwargs):
+        pytest.fail("A mismatched root reached a default-scoped persistence service")
+
+    monkeypatch.setattr(scoreboard_publication, "load_latest_candidate_report", unexpected)
+    session = HeadlessSession(_snapshot(), root=tmp_path, snapshot_builder=unexpected, data_service_factory=unexpected)
+    with pytest.raises(ValueError, match="ETF_COCKPIT_ROOT before importing"):
+        getattr(session, operation)()
+    assert not (tmp_path / "data").exists()
+
+
+def test_live_owner_probe_does_not_terminate_a_process(monkeypatch, tmp_path) -> None:
+    child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
+    try:
+        owner = tmp_path / "data" / ".headless-writer.lock.owner.json"
+        owner.parent.mkdir(parents=True)
+        owner.write_text(json.dumps({"active": True, "pid": child.pid}), encoding="utf-8")
+        if os.name == "nt":
+            monkeypatch.setattr(os, "kill", lambda *_args: pytest.fail("Windows must never signal the owner"))
+        assert headless_session._pid_is_alive(child.pid)
+        with pytest.raises(HeadlessWriterBusyError, match="live owner"):
+            with cross_process_writer_guard(tmp_path):
+                pytest.fail("live metadata owner must be refused")
+        assert child.poll() is None
+        assert json.loads(owner.read_text(encoding="utf-8"))["active"] is True
+    finally:
+        child.terminate()
+        child.wait(timeout=10)
+
+
+@pytest.mark.parametrize("error, expected", [(87, False), (5, True), (6, True)])
+def test_windows_inconclusive_owner_query_fails_closed(monkeypatch, error, expected) -> None:
+    import ctypes
+
+    def open_process(*_args):
+        return None
+
+    def exit_code(*_args):
+        pytest.fail("No process handle was acquired")
+
+    def close_handle(*_args):
+        pytest.fail("No process handle was acquired")
+
+    api = SimpleNamespace(OpenProcess=open_process, GetExitCodeProcess=exit_code, CloseHandle=close_handle)
+    monkeypatch.setattr(ctypes, "WinDLL", lambda *_args, **_kwargs: api, raising=False)
+    monkeypatch.setattr(ctypes, "get_last_error", lambda: error, raising=False)
+    assert headless_session._windows_pid_is_alive(12345) is expected
+
+
+if __name__ == "__main__":
+    _fixture_publication(sys.argv[1])

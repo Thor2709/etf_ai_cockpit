@@ -365,9 +365,10 @@ def _require_publishable_snapshot(snapshot: object) -> None:
 def publish_scoreboard(session: ScoreboardSession, *, root: Path | None = None) -> Path:
     """Publish the canonical scoreboard while holding the shared app/headless writer guard."""
 
-    from etf_cockpit.application.headless_session import cross_process_writer_guard
+    from etf_cockpit.application.headless_session import cross_process_writer_guard, require_storage_root
 
-    resolved_root = Path(root or ROOT).resolve()
+    resolved_root = require_storage_root(root if root is not None else getattr(session, "root", None))
+    _require_publishable_snapshot(session.snapshot)
     with cross_process_writer_guard(resolved_root):
         return _publish_scoreboard_unlocked(session, root=resolved_root)
 
