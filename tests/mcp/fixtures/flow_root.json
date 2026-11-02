@@ -1,0 +1,10 @@
+{
+  "fixture": "MCP L9 isolated root",
+  "as_of": "2026-11-02",
+  "execution_allowed": false,
+  "data": {
+    "prices": {"status": "unavailable", "rows": null},
+    "fundamentals": {"status": "unavailable", "rows": null},
+    "scores": {"status": "unavailable", "score": null}
+  }
+}
