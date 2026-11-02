@@ -28,7 +28,8 @@ from etf_cockpit.app.pages import _p4_common as common
 from etf_cockpit.app.pages._p4_common import workflow_button as _workflow_button
 from etf_cockpit.app.pages.dashboard import _run_action
 from etf_cockpit.app.state import AppState
-from etf_cockpit.application.forecast_service import build_forecast_lab_workspace, forecast_lab_inputs, load_forecast_history
+from etf_cockpit.application.forecast_lab_inputs import assemble_forecast_lab_inputs
+from etf_cockpit.application.forecast_service import build_forecast_lab_workspace
 from etf_cockpit.application.ui_views import forecast_lab as lab_view
 
 _HORIZONS = list(lab_view.HORIZON_LIMITS)
@@ -485,9 +486,8 @@ def _cards_card(layout: common.GridLayout, catalogue: pd.DataFrame, models: pd.D
 
 def forecast_lab_page(page: ft.Page, state: AppState) -> PageView:
     """Render local forecast comparison and validation evidence (read-only; the run button uses the guarded workflow)."""
-    history = load_forecast_history()
-    forecasts = forecast_lab_inputs(getattr(state.snapshot, "forecasts", pd.DataFrame()), history, state.snapshot.prices)
-    report = build_forecast_lab_workspace(state.snapshot.config, forecasts, state.snapshot.prices, forecast_history=history)
+    forecasts, history, prices = assemble_forecast_lab_inputs(state.snapshot)
+    report = build_forecast_lab_workspace(state.snapshot.config, forecasts, prices, forecast_history=history)
     models, catalogue = report["models"], report["model_catalogue"]
     layout = common.make_layout(page)
     ids = _model_ids(models, catalogue)
