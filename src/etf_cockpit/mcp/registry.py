@@ -104,8 +104,8 @@ class ToolSpec:
     annotations: Mapping[str, bool]
     requires_confirmation: bool
     function: Callable[..., Any]
-    preview_function: Callable[..., Any] | None
     output_model: type[BaseModel]
+    preview_function: Callable[..., Any] | None = None
     profiles: frozenset[str] | None = None
 
 

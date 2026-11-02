@@ -77,7 +77,11 @@ def _fixture_with_scope_member(path: Path, member: str) -> Path:
     return path
 
 
-def test_nong_import_uses_configured_universe_identity(tmp_path: Path) -> None:
+def test_nong_import_uses_configured_universe_identity(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from etf_cockpit.parsers import esef_ixbrl
+
+    monkeypatch.setattr(esef_ixbrl, "_arelle_available", lambda: False)
+
     issuer = next(record for record in load_sparebank_records() if record.instrument_id == "NONG")
     lei = "549300SXM92LQ05OJQ76"
     package = _fixture_for_issuer(tmp_path / "nong.xbri", lei)

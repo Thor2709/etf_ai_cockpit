@@ -10,7 +10,6 @@ from __future__ import annotations
 from dataclasses import asdict
 from datetime import date
 from pathlib import Path
-from typing import Any
 
 import pandas as pd
 
@@ -19,7 +18,6 @@ from etf_cockpit.application.data_service import DataService
 from etf_cockpit.core.config import load_config
 from etf_cockpit.core.paths import ROOT
 from etf_cockpit.data.health import build_data_health, filter_data_health_rows
-from etf_cockpit.data.import_pipeline import rollback_latest_price_import
 from etf_cockpit.data.provider_registry import ProviderRegistry
 
 
