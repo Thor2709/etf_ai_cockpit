@@ -15,7 +15,6 @@ import threading
 import time
 from typing import Any
 
-from etf_cockpit.mcp.errors import ConfirmationError
 from etf_cockpit.mcp.serialise import canonical_json
 
 

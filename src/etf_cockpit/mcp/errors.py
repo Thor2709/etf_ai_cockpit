@@ -31,6 +31,16 @@ class AuthorizationError(MCPToolError):
         super().__init__("TIER_NOT_ENABLED", message, "Restart the local server with the required tier enabled.")
 
 
+class RateLimitError(MCPToolError):
+    def __init__(self, retry_after_seconds: float) -> None:
+        self.retry_after_seconds = retry_after_seconds
+        super().__init__(
+            "RATE_LIMIT_EXCEEDED",
+            "The operation's rate limit has been reached",
+            f"Wait at least {retry_after_seconds:.0f} seconds before retrying.",
+        )
+
+
 class InvalidCursorError(MCPToolError):
     def __init__(self) -> None:
         super().__init__("INVALID_CURSOR", "The paging cursor is invalid or expired", "Restart from the first page.")

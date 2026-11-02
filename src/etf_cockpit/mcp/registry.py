@@ -3,22 +3,30 @@
 Open defaults: tools without an explicit profile are visible only in full; calls run with
 read-only access unless the server launch configuration grants additional tiers. Call context
 defaults are the core profile, read tier, local client id, and an empty store revision.
+Rate limits are rolling windows shared across clients and processes under the data root: 20 paper
+order placements/day, 10 ticket exports/day, and 4 data refreshes/hour. Admitted attempts
+count even if confirmation or the handler fails; rate refusals do not consume tokens.
+Counters persist in logs/mcp_rate_limits.sqlite3; unavailable quota storage refuses the call.
+Configuration-file ownership belongs to the remote lane.
 """
 
 from __future__ import annotations
 
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 import importlib
 import inspect
+from pathlib import Path
 import pkgutil
+import sqlite3
 import time
 from types import ModuleType
 from typing import Any, Callable, Iterator, Mapping
 
 from pydantic import BaseModel
 
+from etf_cockpit.core.paths import LOG_DIR
 from etf_cockpit.mcp.audit import AuditRecord, AuditRecorder, hash_arguments
 from etf_cockpit.mcp.confirm import ConfirmationStore
 from etf_cockpit.mcp.envelope import Envelope
@@ -27,9 +35,54 @@ from etf_cockpit.mcp.errors import (
     ConfirmationError,
     InvalidArgumentsError,
     MCPToolError,
+    RateLimitError,
     ToolDiscoveryError,
 )
 from etf_cockpit.mcp.tiers import WRITE_TIERS, normalise_profile, normalise_tier, parse_tiers, profile_allows
+
+
+class RateLimiter:
+    """Atomically reserve an attempt before dispatching a rate-limited operation."""
+
+    _LIMITS = {
+        "paper_order_place": (20, 86400),
+        "ticket_export": (10, 86400),
+        "data_refresh": (4, 3600),
+    }
+
+    def __init__(
+        self, *, path: Path = LOG_DIR / "mcp_rate_limits.sqlite3", clock: Callable[[], float] = time.time
+    ) -> None:
+        self._path = path
+        self._clock = clock
+
+    def acquire(self, name: str) -> None:
+        if name not in self._LIMITS:
+            return
+        limit, window = self._LIMITS[name]
+        try:
+            self._path.parent.mkdir(parents=True, exist_ok=True)
+            with closing(sqlite3.connect(self._path, timeout=1.0)) as connection, connection:
+                # One transaction reserves the quota across threads, clients and server restarts.
+                connection.execute("BEGIN IMMEDIATE")
+                connection.execute("CREATE TABLE IF NOT EXISTS rate_calls (tool TEXT NOT NULL, called_at REAL NOT NULL)")
+                now = self._clock()
+                connection.execute("DELETE FROM rate_calls WHERE tool = ? AND called_at <= ?", (name, now - window))
+                count, oldest = connection.execute(
+                    "SELECT COUNT(*), MIN(called_at) FROM rate_calls WHERE tool = ?", (name,)
+                ).fetchone()
+                if count >= limit:
+                    raise RateLimitError(oldest + window - now)
+                connection.execute("INSERT INTO rate_calls (tool, called_at) VALUES (?, ?)", (name, now))
+        except (OSError, sqlite3.Error):
+            raise MCPToolError(
+                "RATE_LIMIT_UNAVAILABLE",
+                "The rate-limit store is unavailable",
+                "Restore access to the local quota store before retrying.",
+            ) from None
+
+
+_RATE_LIMITER = RateLimiter()
 
 
 @dataclass(frozen=True)
@@ -53,6 +106,7 @@ class CallContext:
     audit: AuditRecorder = field(default_factory=AuditRecorder)
     session: Any = None
     store_revision: str = ""
+    rate_limiter: RateLimiter = field(default_factory=lambda: _RATE_LIMITER)
 
     def __post_init__(self) -> None:
         self.enabled_tiers = parse_tiers(self.enabled_tiers)
@@ -101,6 +155,8 @@ def tool(
     resolved_read_only = normalized_tier not in WRITE_TIERS if read_only_hint is None else bool(read_only_hint)
     resolved_confirmation = normalized_tier in WRITE_TIERS if requires_confirmation is None else bool(requires_confirmation)
     resolved_destructive = resolved_confirmation if destructive_hint is None else bool(destructive_hint)
+    if normalized_tier in WRITE_TIERS and not resolved_confirmation:
+        raise ValueError("write-tier tools must require confirmation")
     if normalized_tier in WRITE_TIERS and resolved_read_only:
         raise ValueError("write-tier tools cannot declare readOnlyHint=true")
     if resolved_confirmation and not resolved_destructive:
@@ -210,7 +266,7 @@ def invoke_tool(name: str, arguments: Mapping[str, Any], *, context: CallContext
     outcome = "error"
     output_hash: str | None = None
     result: Any = None
-    error: BaseException | None = None
+    reason_code: str | None = None
     try:
         spec = find_tool(name)
         if spec.tier not in active.enabled_tiers or not profile_allows(spec.name, active.profile, spec.profiles):
@@ -222,14 +278,16 @@ def invoke_tool(name: str, arguments: Mapping[str, Any], *, context: CallContext
             signature.bind(**safe_args)
         except TypeError as exc:
             raise InvalidArgumentsError(str(exc)) from None
-        if spec.requires_confirmation:
+        active.rate_limiter.acquire(spec.name)
+        if spec.tier in WRITE_TIERS or spec.requires_confirmation:
             token = safe_args.get("confirm_token")
             payload = {key: value for key, value in safe_args.items() if key not in {"confirm_token", "store_revision"}}
-            revision = str(safe_args.get("store_revision", active.store_revision))
+            if "store_revision" in safe_args and safe_args["store_revision"] != active.store_revision:
+                raise ConfirmationError("The echoed store revision differs from the current store revision")
             if not isinstance(token, str) or not active.confirmation_store.consume(
                 token,
                 payload,
-                store_revision=revision,
+                store_revision=active.store_revision,
                 client_id=active.client_id,
             ):
                 raise ConfirmationError()
@@ -239,7 +297,7 @@ def invoke_tool(name: str, arguments: Mapping[str, Any], *, context: CallContext
         outcome = "ok"
         return result
     except BaseException as exc:
-        error = exc
+        reason_code = exc.reason_code if isinstance(exc, MCPToolError) else None
         outcome = "refused" if isinstance(exc, MCPToolError) else "error"
         raise
     finally:
@@ -252,5 +310,6 @@ def invoke_tool(name: str, arguments: Mapping[str, Any], *, context: CallContext
                 output_hash=output_hash,
                 duration_ms=(time.perf_counter() - started) * 1000,
                 client_id=active.client_id,
+                reason_code=reason_code,
             )
         )

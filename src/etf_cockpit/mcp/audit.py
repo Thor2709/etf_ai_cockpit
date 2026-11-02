@@ -23,6 +23,7 @@ class AuditRecord:
     output_hash: str | None = None
     duration_ms: float = 0.0
     client_id: str = "local"
+    reason_code: str | None = None
 
 
 class AuditRecorder:
@@ -52,7 +53,7 @@ def _session_log_sink(record: AuditRecord) -> None:
         operation=record.tool,
         status="started",
         input_summary={"args_sha256": record.args_hash},
-        extra={"tier": record.tier, "client_id": record.client_id},
+        extra={"tier": record.tier, "client_id": record.client_id, "reason_code": record.reason_code},
     )
     log_event(
         event_type="mcp_tool_end",
@@ -63,5 +64,5 @@ def _session_log_sink(record: AuditRecord) -> None:
         duration_ms=record.duration_ms,
         input_summary={"args_sha256": record.args_hash},
         output_summary={"sha256": record.output_hash} if record.output_hash else {},
-        extra={"tier": record.tier, "client_id": record.client_id},
+        extra={"tier": record.tier, "client_id": record.client_id, "reason_code": record.reason_code},
     )
