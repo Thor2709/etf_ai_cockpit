@@ -88,11 +88,14 @@ def data_health(dataset: str | None = None, stale_after_days: int = 3, cursor: s
 
 
 @tool(tier="read", description="Evaluate point-in-time data readiness across an interval.", read_only_hint=True, idempotent_hint=True)
-def data_readiness(start: date, end: date, every: int | None = None) -> dict[str, object]:
+def data_readiness(start: date, end: date, every: int | None = None, cursor: str | None = None, limit: int = DEFAULT_PAGE_SIZE) -> dict[str, object]:
     try:
-        return normalise(mcp_data_views.data_readiness_view(start, end, every=every))
+        result = mcp_data_views.data_readiness_view(start, end, every=every)
     except ValueError as exc:
         raise InvalidArgumentsError(str(exc)) from None
+    page = _paged(list(result["failed_dates"]), cursor=cursor, filters={"start": start.isoformat(), "end": end.isoformat(), "every": every}, limit=limit)
+    summary = {key: value for key, value in result["summary"].items() if key != "failed_dates"}
+    return normalise({**result, "summary": summary, "failed_dates": page["rows"], "next_cursor": page["next_cursor"]})
 
 
 @tool(tier="read", description="Read configured provider capabilities and redacted credential status; probe is off by default.", read_only_hint=True, idempotent_hint=True, open_world_hint=True)
@@ -142,7 +145,7 @@ def data_import_preview(path: str, dataset_type: str = "prices") -> dict[str, ob
     return normalise(report)
 
 
-def _preview_import(path: str, dataset_type: str) -> dict[str, object]:
+def _preview_import(path: str, dataset_type: str = "prices") -> dict[str, object]:
     try:
         return mcp_data_views.preview_local_import(Path(path), dataset_type)
     except (OSError, ValueError) as exc:
@@ -173,7 +176,14 @@ def filing_import(path: str, jurisdiction: str, instrument_id: str, source_url: 
     preview = _preview_filing(path, jurisdiction, instrument_id, source_url, period, sha256)
     from etf_cockpit.application.official_filing_import import import_official_filing
 
-    result = import_official_filing(Path(path), jurisdiction=jurisdiction, instrument_id=instrument_id, source_url=source_url, expected_period=period, expected_sha256=sha256)
+    session_root = getattr(current_call_context().session, "root", None)
+    if session_root is None:
+        raise MCPToolError("DATA_ROOT_UNAVAILABLE", "The configured session data root is unavailable", "Start the MCP server with its configured headless session.")
+    root = Path(session_root).resolve()
+    output = (root / "evidence" / "norway" / f"{instrument_id}-{period[:4]}").resolve()
+    if not output.is_relative_to(root):
+        raise InvalidArgumentsError("filing evidence output must remain inside the configured data root")
+    result = import_official_filing(Path(path), jurisdiction=jurisdiction, instrument_id=instrument_id, source_url=source_url, expected_period=period, expected_sha256=sha256, output_dir=output, universe_root=root)
     return {"preview": preview, "result": result, "execution_allowed": False}
 
 

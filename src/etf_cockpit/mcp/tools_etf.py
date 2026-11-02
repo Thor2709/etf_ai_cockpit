@@ -42,15 +42,17 @@ def _page(rows: list[Any], cursor: str | None, filters: dict[str, object], limit
 
 
 @tool(tier="read", description="Read point-in-time ETF holdings, splits, coverage and optional missing business days.", read_only_hint=True, idempotent_hint=True, profiles=("core", "full"))
-def etf_holdings(instrument_id: str, as_of: date, top_n: int = 25, include_gaps: bool = False, cursor: str | None = None, limit: int = DEFAULT_PAGE_SIZE) -> dict[str, object]:
+def etf_holdings(instrument_id: str, as_of: date, top_n: int = 25, include_gaps: bool = False, cursor: str | None = None, limit: int = DEFAULT_PAGE_SIZE, gaps_cursor: str | None = None) -> dict[str, object]:
     if top_n < 1 or top_n > 100:
         raise InvalidArgumentsError("top_n must be between 1 and 100")
     try:
         result = mcp_etf_views.etf_holdings_view(instrument_id, as_of, top_n=top_n, include_gaps=include_gaps)
     except (OSError, ValueError, TypeError) as exc:
         raise MCPToolError("HOLDINGS_UNAVAILABLE", str(exc), "Check that a dated holdings snapshot and validated listing evidence are available.") from None
-    page = _page(list(result.get("holdings") or ()), cursor, {"instrument_id": instrument_id, "as_of": as_of.isoformat(), "top_n": top_n}, limit)
-    return {**result, "holdings": page["rows"], "next_cursor": page["next_cursor"]}
+    filters = {"instrument_id": instrument_id, "as_of": as_of.isoformat(), "top_n": top_n, "include_gaps": include_gaps}
+    page = _page(list(result.get("holdings") or ()), cursor, {**filters, "collection": "holdings"}, limit)
+    gaps = _page(list(result.get("gaps") or ()), gaps_cursor, {**filters, "collection": "gaps"}, limit)
+    return {**result, "holdings": page["rows"], "next_cursor": page["next_cursor"], "gaps": gaps["rows"] if result.get("gaps") is not None else None, "gaps_next_cursor": gaps["next_cursor"]}
 
 
 @tool(tier="read", description="Read fail-closed point-in-time exposure for one ETF or the portfolio.", read_only_hint=True, idempotent_hint=True, profiles=("core", "full"))
@@ -89,12 +91,13 @@ def etf_economics(instrument_id: str, horizon_days: int = 252) -> dict[str, obje
 
 
 @tool(tier="read", description="Read ETF KID, SFDR, methodology, report records and conflicts.", read_only_hint=True, idempotent_hint=True)
-def etf_disclosures(instrument_id: str, cursor: str | None = None, limit: int = DEFAULT_PAGE_SIZE) -> dict[str, object]:
+def etf_disclosures(instrument_id: str, cursor: str | None = None, limit: int = DEFAULT_PAGE_SIZE, conflicts_cursor: str | None = None) -> dict[str, object]:
     result = mcp_etf_views.etf_disclosures_view(instrument_id)
     docs = list(result.get("documents") or ())
     reports = list(result.get("parsed_fields") or ())
-    page = _page(docs + reports, cursor, {"instrument_id": instrument_id}, limit)
-    return {**result, "documents_and_fields": page["rows"], "documents": None, "parsed_fields": None, "next_cursor": page["next_cursor"]}
+    page = _page(docs + reports, cursor, {"instrument_id": instrument_id, "collection": "documents_and_fields"}, limit)
+    conflicts = _page(list(result.get("conflicts") or ()), conflicts_cursor, {"instrument_id": instrument_id, "collection": "conflicts"}, limit)
+    return {**result, "documents_and_fields": page["rows"], "documents": None, "parsed_fields": None, "next_cursor": page["next_cursor"], "conflicts": conflicts["rows"], "conflicts_next_cursor": conflicts["next_cursor"]}
 
 
 def _preview_disclosure(kind: str, path: str, instrument_id: str, as_of: date, sha256: str | None = None) -> dict[str, object]:

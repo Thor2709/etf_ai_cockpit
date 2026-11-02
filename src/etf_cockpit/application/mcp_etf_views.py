@@ -14,7 +14,7 @@ from typing import Any
 import pandas as pd
 
 from etf_cockpit.application.etf_economics_view import build_etf_economics_panel
-from etf_cockpit.application.market_views import load_etf_look_through, load_etf_structure_projection
+from etf_cockpit.application.market_views import load_etf_look_through
 from etf_cockpit.application.overlap import build_direct_overlap_view, direct_overlap_payload
 from etf_cockpit.core.paths import ROOT
 from etf_cockpit.data.fund_documents import import_etf_document, read_document_registry
@@ -114,9 +114,9 @@ def etf_disclosures_view(instrument_id: str) -> dict[str, object]:
     rows = reports.loc[reports["instrument_id"].astype(str).eq(instrument_id)] if "instrument_id" in reports else reports.iloc[:0]
     return {
         "instrument_id": instrument_id,
-        "documents": docs.head(100).to_dict("records"),
-        "parsed_fields": rows.head(100).to_dict("records"),
-        "conflicts": rows.loc[rows.get("verification_status", pd.Series(index=rows.index, dtype=object)).astype(str).eq("conflict")].head(100).to_dict("records"),
+        "documents": docs.to_dict("records"),
+        "parsed_fields": rows.to_dict("records"),
+        "conflicts": rows.loc[rows.get("verification_status", pd.Series(index=rows.index, dtype=object)).astype(str).eq("conflict")].to_dict("records"),
         "status": "available" if not docs.empty or not rows.empty else "unavailable",
         "unavailable_reason": None if not docs.empty or not rows.empty else "No disclosure records are available for this instrument.",
     }

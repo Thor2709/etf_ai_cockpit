@@ -8,10 +8,10 @@ from __future__ import annotations
 
 from dataclasses import asdict
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Mapping
 
 from etf_cockpit.core.paths import ROOT
-from etf_cockpit.data.savings_bank_universe import missing_savings_banks, sync as sync_savings_banks
+from etf_cockpit.data.savings_bank_universe import isin_corrections, missing_savings_banks, sync as sync_savings_banks
 from etf_cockpit.data.universe_import import (
     build_universe_manifest,
     dry_run_universe_import,
@@ -156,25 +156,31 @@ def commit_universe_import(
     correction_overlays: Mapping[int | str, Mapping[str, object]] | None = None,
     expected_revision: str | None = None,
 ) -> dict[str, object]:
-    if source == "savings_bank_gap":
-        saved = sync_savings_banks(Path(ROOT), apply=True)
-        return {"manifest": None, "save_result": {"records_saved": len(saved)}, "execution_allowed": False}
     current = load_universe(Path(ROOT))
     if expected_revision is not None and expected_revision != current.revision:
         raise ValueError("universe revision changed; request a fresh preview")
-    report = dry_run_universe_import(source, source_kind=source_kind, provider_name=provider_name, correction_overlays=correction_overlays)
-    if not report.valid or not report.records:
-        raise ValueError("universe import has errors or no resolved candidates")
-    manifest = build_universe_manifest(report)
-    ids = {item.instrument_id.casefold() for item in current.records}
-    candidates = tuple(item for item in report.records if item.instrument_id.casefold() not in ids)
-    if not candidates:
-        raise ValueError("universe import contains no new instruments")
-    combined = add_record(current.records, candidates[0], allow_cross_tier_duplicates=current.allow_cross_tier_duplicates)
-    for record in candidates[1:]:
+    if current.integrity_errors:
+        raise ValueError("universe integrity errors block imports")
+    combined = current.records
+    if source == "savings_bank_gap":
+        candidates = tuple(sync_savings_banks(Path(ROOT), apply=False))
+        corrections = isin_corrections(Path(ROOT))
+        for instrument_id, isin in corrections.items():
+            combined = edit_record(combined, instrument_id, isin=isin, isin_status="verified", allow_cross_tier_duplicates=current.allow_cross_tier_duplicates)
+        manifest = None
+    else:
+        report = dry_run_universe_import(source, source_kind=source_kind, provider_name=provider_name, correction_overlays=correction_overlays)
+        if not report.valid or not report.records:
+            raise ValueError("universe import has errors or no resolved candidates")
+        manifest = build_universe_manifest(report)
+        ids = {item.instrument_id.casefold() for item in current.records}
+        candidates = tuple(item for item in report.records if item.instrument_id.casefold() not in ids)
+        if not candidates:
+            raise ValueError("universe import contains no new instruments")
+    for record in candidates:
         combined = add_record(combined, record, allow_cross_tier_duplicates=current.allow_cross_tier_duplicates)
     save_result = save_universe(combined, current.revision, root=Path(ROOT), allow_cross_tier_duplicates=current.allow_cross_tier_duplicates, policy_profiles=current.policy_profiles)
-    manifest_result = save_universe_manifest(manifest, root=Path(ROOT))
+    manifest_result = save_universe_manifest(manifest, root=Path(ROOT)) if manifest is not None else None
     return {"manifest": manifest_result, "save_result": save_result, "execution_allowed": False}
 
 
