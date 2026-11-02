@@ -142,7 +142,10 @@ def test_headless_refresh_rescore_publish_matches_app_state_path(tmp_path) -> No
             "adj_close": [100.0 + n * 0.05 for n in range(320)],
             "volume": 100000, "momentum": 0.2,
         }).to_csv(root / "prices.csv", index=False)
-        environment = dict(os.environ, ETF_COCKPIT_ROOT=str(root), CUDA_VISIBLE_DEVICES="")
+        environment = dict(
+            os.environ, ETF_COCKPIT_ROOT=str(root), CUDA_VISIBLE_DEVICES="",
+            PYTHONPATH=str(Path(__file__).resolve().parents[2] / "src"),
+        )
         processes.append(subprocess.Popen(
             [sys.executable, str(Path(__file__).resolve()), mode], env=environment,
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
@@ -273,6 +276,7 @@ except HeadlessWriterBusyError:
     with cross_process_writer_guard(tmp_path):
         child = subprocess.run(
             [sys.executable, "-c", command, str(tmp_path)], capture_output=True, text=True, timeout=30,
+            env=dict(os.environ, PYTHONPATH=str(Path(__file__).resolve().parents[2] / "src")),
         )
     assert child.returncode == 0, child.stderr
     assert child.stdout.strip() == "refused"
@@ -315,6 +319,61 @@ def test_blocking_data_quality_gate_prevents_scoreboard_publish(monkeypatch) -> 
         session.publish()
 
     assert (path.read_bytes() if path.exists() else None) == previous
+
+
+@pytest.mark.parametrize("report", [None, SimpleNamespace(status="unavailable")])
+def test_missing_optional_report_does_not_become_a_passed_gate(report) -> None:
+    snapshot = _snapshot()
+    snapshot.data_report = report
+
+    scoreboard_publication._require_publishable_snapshot(snapshot)
+
+    assert snapshot.data_report is report
+    assert getattr(report, "analysis_allowed", None) is None
+
+
+def test_empty_first_run_can_publish_unavailable_rows_without_clearing_its_gate() -> None:
+    from datetime import date
+    from etf_cockpit.core.types import DataQualityIssue, DataQualityReport
+
+    snapshot = _snapshot()
+    snapshot.prices = pd.DataFrame()
+    snapshot.data_report = DataQualityReport(
+        date(2026, 11, 2), [DataQualityIssue("ALL", "block", "empty_prices", "No price rows are available.")],
+    )
+
+    scoreboard_publication._require_publishable_snapshot(snapshot)
+
+    assert snapshot.data_report.analysis_allowed is False
+    assert snapshot.data_report.status == "Blocked"
+    assert snapshot.prices.empty
+    assert snapshot.signals == []
+
+
+@pytest.mark.parametrize("failure", ["invalid_price_values", "missing_adjusted_close", "stale_data", "risk_limit"])
+def test_empty_inputs_do_not_hide_another_failed_gate(failure) -> None:
+    from datetime import date
+    from etf_cockpit.core.types import DataQualityIssue, DataQualityReport
+
+    snapshot = _snapshot()
+    snapshot.prices = pd.DataFrame()
+    snapshot.data_report = DataQualityReport(date(2026, 11, 2), [
+        DataQualityIssue("ALL", "block", "empty_prices", "No price rows are available."),
+        DataQualityIssue("ETF1", "block", failure, "A required gate failed."),
+    ])
+
+    with pytest.raises(scoreboard_publication.ScoreboardPublicationBlockedError):
+        scoreboard_publication._require_publishable_snapshot(snapshot)
+
+
+def test_empty_price_gate_cannot_publish_signals_as_available() -> None:
+    snapshot = _snapshot(blocked=True)
+    snapshot.prices = pd.DataFrame()
+    snapshot.signals = [SimpleNamespace(etf_id="ETF1")]
+    snapshot.data_report.issues = [SimpleNamespace(severity="block", code="empty_prices")]
+
+    with pytest.raises(scoreboard_publication.ScoreboardPublicationBlockedError):
+        scoreboard_publication._require_publishable_snapshot(snapshot)
 
 
 @pytest.mark.parametrize("operation", ["refresh", "rescore", "refresh_snapshot", "publish"])

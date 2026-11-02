@@ -353,13 +353,22 @@ def _require_publishable_snapshot(snapshot: object) -> None:
     report = getattr(snapshot, "data_report", None)
     analysis_allowed = getattr(report, "analysis_allowed", None)
     report_status = str(getattr(report, "status", "")).strip().casefold()
-    if analysis_allowed is not True or report_status == "blocked":
-        raise ScoreboardPublicationBlockedError(
-            "Scoreboard publication is blocked because data-quality inputs are missing or failed a required gate."
-        )
     prices = getattr(snapshot, "prices", None)
-    if not isinstance(prices, pd.DataFrame) or prices.empty:
-        raise ScoreboardPublicationBlockedError("Scoreboard publication is unavailable because validated price inputs are missing.")
+    blocking_issues = [issue for issue in getattr(report, "issues", ()) if getattr(issue, "severity", None) == "block"]
+    # An empty first-run dataset can still publish unavailable score rows. Its
+    # report remains blocked for analysis; publication does not grant authority
+    # or replace missing evidence. Any other failed gate still refuses writes.
+    unavailable_only = (
+        isinstance(prices, pd.DataFrame)
+        and prices.empty
+        and not getattr(snapshot, "signals", ())
+        and bool(blocking_issues)
+        and all(getattr(issue, "code", None) == "empty_prices" for issue in blocking_issues)
+    )
+    if not unavailable_only and (analysis_allowed is False or report_status in {"blocked", "failed"} or blocking_issues):
+        raise ScoreboardPublicationBlockedError(
+            "Scoreboard publication is blocked because a required data-quality gate failed."
+        )
 
 
 def publish_scoreboard(session: ScoreboardSession, *, root: Path | None = None) -> Path:
