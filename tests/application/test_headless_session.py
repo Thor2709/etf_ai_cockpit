@@ -428,3 +428,57 @@ def test_windows_inconclusive_owner_query_fails_closed(monkeypatch, error, expec
 
 if __name__ == "__main__":
     _fixture_publication(sys.argv[1])
+
+
+@pytest.fixture
+def monthly_analysis(monkeypatch):
+    from etf_cockpit.application import portfolio_sandbox
+    candidate = SimpleNamespace(candidate_id="candidate:month", source_revision="revision:month")
+    cost = SimpleNamespace(model_id="canonical-cost", estimates=(), total_order_value_eur=1000.0,
+                           total_cost_eur=12.0, weighted_cost_bps=120.0)
+    benchmark = {"status": "unavailable", "reason": "fixture_reference_unavailable", "execution_allowed": False}
+    analysis = SimpleNamespace(
+        candidate=candidate, snapshot_binding=SimpleNamespace(source_checksum="a" * 64), source_stale=False,
+        service_evidence={"benchmark_reference": benchmark,
+                          "optimiser": {"status": "success", "method": "minimum_variance", "feasible": True, "weights": {"VWCE": 1.0}}},
+        cost=cost, constraints=(), sector_exposure=(SimpleNamespace(bucket="global", target_weight=1.0),),
+    )
+    calls = []
+    monkeypatch.setattr(portfolio_sandbox, "draft_portfolio_candidate", lambda snapshot: candidate)
+    def analyse(snapshot, selected):
+        calls.append((snapshot, selected))
+        return analysis
+    monkeypatch.setattr(portfolio_sandbox, "analyse_portfolio_candidate", analyse)
+    return analysis, calls
+
+
+def test_monthly_pack_consumes_month_bound_application_projections(monthly_analysis):
+    analysis, calls = monthly_analysis
+    snapshot = SimpleNamespace(data_report=SimpleNamespace(as_of_date="2026-08-21"), facts_known_at="2026-08-21T12:00:00Z")
+    result = headless_session.load_monthly_decision_pack(snapshot, "2026-08")
+    assert calls == [(snapshot, analysis.candidate)]
+    assert result["benchmark_reference"] == analysis.service_evidence["benchmark_reference"]
+    assert result["costs"]["status"] == "partial", result
+    assert result["costs"]["total"]["cost_eur"] == 12.0
+    assert result["optimiser"]["solution"]["weights"] == {"VWCE": 1.0}
+    assert result["concentration"]["sector"]["exposures"] == [{"label": "global", "weight": 1.0}]
+    assert result["assumptions"]["values"]["candidate_source_revision"] == "revision:month"
+    assert result["expected_returns"]["status"] == "unavailable"
+    assert result["lines"]
+    assert result["execution_allowed"] is False
+
+
+@pytest.mark.parametrize("as_of,known", [
+    ("2026-09-01", "2026-09-01T12:00:00Z"),
+    ("2026-07-31", "2026-07-31T12:00:00Z"),
+    ("2026-08-21", "2026-09-01T00:00:00Z"),
+    ("2026-08-21", None),
+])
+def test_monthly_pack_refuses_other_month_or_future_known_snapshot(monthly_analysis, as_of, known):
+    _, calls = monthly_analysis
+    snapshot = SimpleNamespace(data_report=SimpleNamespace(as_of_date=as_of), facts_known_at=known)
+    result = headless_session.load_monthly_decision_pack(snapshot, "2026-08")
+    assert not calls
+    for name in ("costs", "optimiser", "concentration", "assumptions"):
+        assert result[name]["status"] == "unavailable"
+    assert result["benchmark_reference"]["status"] == "unavailable"

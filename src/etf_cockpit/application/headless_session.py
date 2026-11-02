@@ -250,6 +250,7 @@ class HeadlessSession:
         self._score_history_warning_getter = score_history_warning_getter
         self._score_history_warning_setter = score_history_warning_setter
         self._score_history_failure_handler = score_history_failure_handler
+        self._job_scheduler = None
 
     @property
     def score_history_warning(self) -> str | None:
@@ -345,9 +346,179 @@ class HeadlessSession:
 
         return scoreboard_status(root=self.root)
 
+    def _scheduler(self):
+        if self._job_scheduler is None:
+            from etf_cockpit.core.job_scheduler import DurableJobScheduler
+
+            self._job_scheduler = DurableJobScheduler(self.root, max_concurrency=1)
+        return self._job_scheduler
+
+    def submit_workflow(
+        self,
+        workflow_type: str,
+        *,
+        label: str,
+        input_payload: dict[str, object],
+        dedupe_key: str,
+    ) -> str:
+        """Submit one durable headless workflow through the typed application boundary."""
+
+        import hashlib
+
+        from etf_cockpit.application.api import LocalApplicationApi
+        from etf_cockpit.application.contracts import SubmitWorkflowCommand
+
+        require_storage_root(self.root)
+        command_key = hashlib.sha256(f"{workflow_type}\0{dedupe_key}".encode("utf-8")).hexdigest()
+        api = LocalApplicationApi(lambda: self.snapshot, scheduler=self._scheduler(), root=self.root)
+        with cross_process_writer_guard(self.root):
+            result = api.execute(
+                SubmitWorkflowCommand(
+                    idempotency_key=f"mcp-{command_key}",
+                    workflow_type=workflow_type,
+                    label=label,
+                    input_payload=input_payload,
+                    dedupe_key=dedupe_key,
+                )
+            )
+        if result.status.value not in {"accepted", "replayed"} or not result.resource_id:
+            raise RuntimeError(result.error_message or "The workflow could not be submitted.")
+        return result.resource_id
+
+    def get_workflow(self, workflow_id: str):
+        """Read a durable workflow by workflow id or one of its job ids."""
+
+        scheduler = self._scheduler()
+        record = scheduler.get_workflow(workflow_id)
+        if record is not None:
+            return record
+        job = scheduler.get_job(workflow_id)
+        return scheduler.get_workflow(job.workflow_id) if job is not None else None
+
+    def list_workflows(self, *, status: str | None, offset: int, limit: int):
+        """Return a bounded workflow page from the durable local scheduler."""
+
+        requested = max(1, min(int(offset) + int(limit), 200))
+        rows = self._scheduler().list_workflows(limit=requested)
+        if status is not None:
+            rows = tuple(row for row in rows if str(getattr(row.status, "value", row.status)) == status)
+        return rows[offset : offset + limit]
+
+    def cancel_workflow(self, workflow_id: str, reason: str):
+        """Cancel one durable workflow without changing its recorded history."""
+
+        require_storage_root(self.root)
+        record = self.get_workflow(workflow_id)
+        if record is None:
+            raise KeyError(f"workflow unavailable: {workflow_id}")
+        with cross_process_writer_guard(self.root):
+            return self._scheduler().cancel(record.workflow_id, message=reason)
+
+    def run_next_workflow(self, *, workflow_id: str | None = None):
+        """Run one queued workflow using the bounded local handler mapping."""
+
+        from etf_cockpit.application.workflow_handlers import headless_workflow_handlers
+
+        handlers = headless_workflow_handlers(lambda: self, include_paper=True)
+
+        def dispatch(context):
+            record = self.get_workflow(context.workflow_id)
+            if record is None or record.workflow_type not in handlers:
+                raise ValueError("No headless handler is registered for this workflow.")
+            return handlers[record.workflow_type](context)
+
+        require_storage_root(self.root)
+        with cross_process_writer_guard(self.root):
+            return self._scheduler().run_once(dispatch, workflow_id=workflow_id)
+
+
+def load_monthly_decision_pack(snapshot: object, month: str) -> dict[str, object]:
+    """Compose canonical candidate evidence for a bound month, without backdating.
+
+    The session snapshot must belong to the requested month and have an explicit
+    knowledge timestamp within the month's cutoff (or now for the current month).
+    Portfolio services expose partial optimiser/cost/concentration evidence;
+    return distributions, replay and account outcomes lack a candidate binding.
+    Those sections remain unavailable. No source or derived artifacts are written.
+    """
+    from etf_cockpit.application.monthly_decision_template import (
+        build_monthly_decision_template, monthly_decision_template_lines,
+        unavailable_monthly_evidence,
+    )
+    from etf_cockpit.application.portfolio_sandbox import (
+        analyse_portfolio_candidate, draft_portfolio_candidate,
+    )
+
+    start = datetime.strptime(month, "%Y-%m").replace(tzinfo=timezone.utc)
+    end = start.replace(year=start.year + 1, month=1) if start.month == 12 else start.replace(month=start.month + 1)
+    cutoff = min(end, datetime.now(timezone.utc))
+    names = ("alternatives", "expected_returns", "optimiser", "costs", "events",
+             "forward_evidence", "paper_outcomes", "concentration", "assumptions")
+    sections = {name: unavailable_monthly_evidence(f"{name}_evidence_not_bound_to_requested_month") for name in names}
+    benchmark = None
+    analysis = None
+    try:
+        as_of = datetime.fromisoformat(str(getattr(getattr(snapshot, "data_report", None), "as_of_date", None)))
+        as_of = as_of.replace(tzinfo=timezone.utc) if as_of.tzinfo is None else as_of.astimezone(timezone.utc)
+        known_at = datetime.fromisoformat(str(getattr(snapshot, "facts_known_at", None)).replace("Z", "+00:00"))
+        if known_at.tzinfo is None or not start <= as_of < end or not as_of <= known_at <= cutoff or known_at >= end:
+            raise ValueError("snapshot_not_known_within_requested_month")
+        candidate = draft_portfolio_candidate(snapshot)
+        analysis = analyse_portfolio_candidate(snapshot, candidate)
+        binding = analysis.snapshot_binding
+        if binding is None or analysis.source_stale or not binding.source_checksum:
+            raise ValueError("portfolio_snapshot_binding_unavailable")
+        benchmark = analysis.service_evidence.get("benchmark_reference")
+        optimiser = analysis.service_evidence.get("optimiser")
+        if isinstance(optimiser, dict) and optimiser.get("status") not in {None, "unavailable"}:
+            sections["optimiser"] = {
+                "status": "partial", "reason": "solver_binding_diagnostics_unavailable",
+                "source_id": candidate.candidate_id, "method": optimiser.get("method"),
+                "solution": {key: optimiser[key] for key in ("status", "weights", "feasible", "warnings") if key in optimiser},
+                "constraints": {"status": "partial", "rows": [
+                    {"name": row.name, "current_value": row.current_value, "target_value": row.target_value,
+                     "limit": row.limit, "status": row.status, "reason": row.reason}
+                    for row in analysis.constraints
+                ]},
+            }
+        cost = analysis.cost
+        sections["costs"] = {
+            "status": "partial", "reason": "portfolio_cost_projection_has_partial_source_provenance",
+            "model_id": cost.model_id, "source_id": candidate.candidate_id,
+            "components": [{"estimate_id": item.estimate_id, "instrument_id": item.instrument_id,
+                            "order_value_eur": item.order_value_eur, "cost_eur": item.total_cost_eur,
+                            "cost_bps": item.total_cost_bps} for item in cost.estimates],
+            "total": {"order_value_eur": cost.total_order_value_eur, "cost_eur": cost.total_cost_eur,
+                      "cost_bps": cost.weighted_cost_bps},
+        }
+        if analysis.sector_exposure:
+            sections["concentration"] = {
+                "status": "partial", "reason": "theme_exposure_unavailable",
+                "sector": {"status": "partial", "source_id": candidate.candidate_id,
+                           "exposures": [{"label": row.bucket, "weight": row.target_weight} for row in analysis.sector_exposure]},
+                "theme": unavailable_monthly_evidence("theme_exposure_unavailable"),
+            }
+        sections["assumptions"] = {
+            "status": "partial", "reason": "candidate_assumptions_have_partial_source_provenance",
+            "source_id": candidate.candidate_id,
+            "values": {"rebalance_cadence": "monthly", "execution_assumption": "next_session",
+                       "candidate_id": candidate.candidate_id, "candidate_source_revision": candidate.source_revision},
+        }
+    except (AttributeError, OSError, TypeError, ValueError, KeyError):
+        # A current snapshot cannot stand in for a missing historical snapshot.
+        sections = {name: unavailable_monthly_evidence(f"{name}_evidence_not_bound_to_requested_month") for name in names}
+        benchmark = None
+    template = build_monthly_decision_template(
+        benchmark_reference=benchmark,
+        benchmark_registry=getattr(snapshot, "benchmark_reference_registry", None),
+        **sections, source=f"mcp_local_evidence:{month}",
+    )
+    return {"month": month, **template.projection(), "lines": list(monthly_decision_template_lines(template))}
+
 
 __all__ = [
     "HeadlessSession",
+    "load_monthly_decision_pack",
     "HeadlessWriterBusyError",
     "cross_process_writer_guard",
 ]
