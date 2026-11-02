@@ -480,3 +480,93 @@ def test_process_bound_data_services_refuse_mismatched_root_before_io(tmp_path, 
     arguments = (tmp_path / "fixture.csv",) if "import" in facade else ()
     with pytest.raises(ValueError, match="ETF_COCKPIT_ROOT"):
         getattr(mcp_data_views, facade)(*arguments, root=tmp_path)
+
+
+@pytest.fixture(params=["session", "api"])
+def workflow_submission_context(request, tmp_path, monkeypatch):
+    from etf_cockpit.application import headless_session
+    from etf_cockpit.application.api import LocalApplicationApi
+    from etf_cockpit.core.job_scheduler import DurableJobScheduler
+
+    scheduler = DurableJobScheduler(tmp_path, max_concurrency=1)
+    snapshot = SimpleNamespace(universe_revision="submission-fixture")
+    context = _context(tmp_path / "limits.sqlite3")
+    commands = []
+    if request.param == "session":
+        monkeypatch.setattr(headless_session, "ROOT", tmp_path)
+        session = headless_session.HeadlessSession(snapshot, root=tmp_path)
+        session._job_scheduler = scheduler
+        context.session = session
+    else:
+        api = LocalApplicationApi(lambda: snapshot, scheduler=scheduler, root=tmp_path)
+        execute = api.execute
+
+        def record_command(command):
+            commands.append(command)
+            return execute(command)
+
+        monkeypatch.setattr(api, "execute", record_command)
+        context.session = SimpleNamespace(application_api=api)
+    return context, scheduler, commands
+
+
+def _confirmed_refresh(context):
+    arguments = {"source": "prices", "years": 1, "rescore": False}
+    preview = invoke_tool("data_refresh", arguments, context=context)
+    return invoke_tool("data_refresh", {**arguments, "confirm_token": preview["confirm_token"]}, context=context)["job_id"]
+
+
+def test_confirmed_identical_refresh_after_completion_creates_new_job(workflow_submission_context):
+    context, scheduler, commands = workflow_submission_context
+    first = _confirmed_refresh(context)
+    completed = scheduler.run_once(lambda _context: "offline completion", workflow_id=first)
+    assert completed.status.value == "succeeded"
+    assert scheduler.get_workflow(first).status.value == "succeeded"
+
+    second = _confirmed_refresh(context)
+
+    assert second != first
+    assert scheduler.get_workflow(second).status.value == "queued"
+    assert len(scheduler.list_workflows()) == 2
+    original_key = scheduler.get_workflow(first).dedupe_key
+    assert scheduler.get_workflow(second).dedupe_key.startswith(original_key + ":")
+    if commands:
+        assert len(commands) == 3  # original, historical match, one fresh submission
+        assert len({command.idempotency_key for command in commands}) == 3
+        assert commands[0].dedupe_key == commands[1].dedupe_key == original_key
+
+
+def test_confirmed_identical_refresh_while_queued_reuses_job(workflow_submission_context):
+    context, scheduler, commands = workflow_submission_context
+    first = _confirmed_refresh(context)
+    assert scheduler.get_workflow(first).status.value == "queued"
+
+    second = _confirmed_refresh(context)
+
+    assert second == first
+    assert len(scheduler.list_workflows()) == 1
+    assert len(scheduler.list_jobs()) == 1
+    if commands:
+        assert len(commands) == 2
+        assert commands[0].idempotency_key != commands[1].idempotency_key
+        assert commands[0].dedupe_key == commands[1].dedupe_key
+
+
+def test_identical_score_history_backfill_after_completion_creates_new_job(workflow_submission_context):
+    context, scheduler, commands = workflow_submission_context
+    arguments = {"start": date(2026, 10, 1), "end": date(2026, 10, 30)}
+    first = invoke_tool("score_history_backfill", arguments, context=context)["job_id"]
+    assert invoke_tool("score_history_backfill", arguments, context=context)["job_id"] == first
+    assert len(scheduler.list_workflows()) == 1
+    completed = scheduler.run_once(lambda _context: "offline completion", workflow_id=first)
+    assert completed.status.value == "succeeded"
+    assert scheduler.get_workflow(first).status.value == "succeeded"
+
+    second = invoke_tool("score_history_backfill", arguments, context=context)["job_id"]
+
+    assert second != first
+    assert scheduler.get_workflow(second).status.value == "queued"
+    assert len(scheduler.list_workflows()) == 2
+    if commands:
+        assert len(commands) == 4
+        assert len({command.idempotency_key for command in commands}) == 4

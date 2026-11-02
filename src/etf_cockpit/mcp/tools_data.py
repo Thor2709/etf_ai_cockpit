@@ -13,6 +13,7 @@ import hashlib
 import json
 from pathlib import Path
 from typing import Any, Mapping
+from uuid import uuid4
 
 from etf_cockpit.application import mcp_data_views
 from etf_cockpit.mcp.errors import InvalidArgumentsError, MCPToolError
@@ -41,7 +42,7 @@ def _paged(rows: list[Any], *, cursor: str | None, filters: Mapping[str, object]
     return {"rows": normalise(page[:size]), "next_cursor": _CURSORS.encode(offset + size, filters=dict(filters)) if has_more else None}
 
 
-def _submit_workflow(workflow_type: str, label: str, payload: Mapping[str, object]) -> str:
+def _submit_workflow(workflow_type: str, label: str, payload: Mapping[str, object], confirm_token: str | None = None) -> str:
     session = current_call_context().session
     if session is None:
         raise MCPToolError("JOB_SERVICE_UNAVAILABLE", "The local workflow service is not available", "Start the MCP server with its headless application workflow service.")
@@ -51,31 +52,47 @@ def _submit_workflow(workflow_type: str, label: str, payload: Mapping[str, objec
         [tool_name, normalise(payload)], sort_keys=True, separators=(",", ":"), allow_nan=False,
     ).encode("utf-8")).hexdigest()
     dedupe_key = f"mcp:{tool_name}:{fingerprint}"
+    # The registry has consumed a confirmed call's single-use token (including its
+    # random nonce). Hash it for the submission identity; unconfirmed jobs use uuid4.
+    submission_id = hashlib.sha256(confirm_token.encode("utf-8")).hexdigest() if confirm_token else uuid4().hex
     submit = getattr(session, "submit_workflow", None)
-    if callable(submit):
-        result = submit(workflow_type=workflow_type, label=label, input_payload=dict(payload), dedupe_key=dedupe_key)
-        job_id = result if isinstance(result, str) else getattr(result, "resource_id", None) or getattr(result, "workflow_id", None)
-        if job_id:
-            return str(job_id)
     execute = getattr(api, "execute", None)
-    if callable(execute):
-        from etf_cockpit.application.contracts import SubmitWorkflowCommand
+    for attempt in range(2):
+        job_id = None
+        workflow_status = None
+        if callable(submit):
+            result = submit(workflow_type=workflow_type, label=label, input_payload=dict(payload), dedupe_key=dedupe_key)
+            job_id = result if isinstance(result, str) else getattr(result, "resource_id", None) or getattr(result, "workflow_id", None)
+            if job_id:
+                get_workflow = getattr(session, "get_workflow", None)
+                record = get_workflow(str(job_id)) if callable(get_workflow) else result
+                workflow_status = record.get("status") if isinstance(record, Mapping) else getattr(record, "status", None)
+        if not job_id and callable(execute):
+            from etf_cockpit.application.contracts import SubmitWorkflowCommand
 
-        command = SubmitWorkflowCommand(
-            idempotency_key=dedupe_key,
-            workflow_type=workflow_type,
-            label=label,
-            input_payload=dict(payload),
-            dedupe_key=dedupe_key,
-            job_keys=("start",),
-        )
-        result = execute(command)
-        job_id = getattr(result, "resource_id", None)
-        status = getattr(getattr(result, "status", None), "value", getattr(result, "status", None))
-        if status in {"accepted", "replayed"} and job_id:
+            command = SubmitWorkflowCommand(
+                idempotency_key=f"mcp:{submission_id}:{attempt}",
+                workflow_type=workflow_type,
+                label=label,
+                input_payload=dict(payload),
+                dedupe_key=dedupe_key,
+                job_keys=("start",),
+            )
+            result = execute(command)
+            job_id = getattr(result, "resource_id", None)
+            status = getattr(getattr(result, "status", None), "value", getattr(result, "status", None))
+            if status not in {"accepted", "replayed"} or not job_id:
+                raise MCPToolError("WORKFLOW_SUBMIT_FAILED", "The workflow was not accepted", "Review the local workflow service status and retry after correcting the reported issue.")
+            workflow_status = dict(getattr(result, "details", ())).get("status")
+        if not job_id:
+            raise MCPToolError("JOB_SERVICE_UNAVAILABLE", "The local workflow service is not available", "Start the MCP server with its headless application workflow service.")
+        workflow_status = getattr(workflow_status, "value", workflow_status)
+        if attempt or workflow_status not in {"succeeded", "failed", "cancelled", "blocked"}:
             return str(job_id)
-        raise MCPToolError("WORKFLOW_SUBMIT_FAILED", "The workflow was not accepted", "Review the local workflow service status and retry after correcting the reported issue.")
-    raise MCPToolError("JOB_SERVICE_UNAVAILABLE", "The local workflow service is not available", "Start the MCP server with its headless application workflow service.")
+        # Scheduler dedupe includes terminal runs. Bypass that historical match
+        # exactly once with this submission's suffix; the retry has its own command key.
+        dedupe_key = f"{dedupe_key}:{submission_id}"
+    raise AssertionError("workflow submission attempts exhausted")
 
 
 def _preview_refresh(source: str, ids: list[str] | None = None, years: int = 5, rescore: bool = True) -> dict[str, object]:
@@ -133,7 +150,7 @@ def data_refresh(source: str, ids: list[str] | None = None, years: int = 5, resc
     source_key = str(source).strip().lower()
     workflow = "refresh" if source_key in {"prices", "fundamentals", "etf_holdings"} else f"{source_key}_refresh"
     payload = {"source": source_key, "ids": ids or [], "years": years, "rescore": bool(rescore)}
-    job_id = _submit_workflow(workflow, f"Refresh {source_key}", payload)
+    job_id = _submit_workflow(workflow, f"Refresh {source_key}", payload, confirm_token)
     return {"job_id": job_id, "source": source_key, "preview": preview, "execution_allowed": False}
 
 
