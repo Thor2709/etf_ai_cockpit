@@ -11,7 +11,6 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Callable, Sequence
 from datetime import date
-from pathlib import Path
 from typing import Any
 
 import pandas as pd
@@ -55,8 +54,13 @@ def run_forecast_recipe(
     holdings: pd.DataFrame | None = None,
     progress_callback: Callable[[str, int, int], None] | None = None,
     publish_guard: PublicationScopeFactory | None = None,
+    holdings_loader: Callable[[], pd.DataFrame] | None = None,
+    reference_snapshot_inputs_factory: Callable[..., Any] | None = None,
+    reference_context_factory: Callable[..., Any] | None = None,
+    configured_request_identity_factory: Callable[..., dict[str, Any]] | None = None,
+    forecast_service_factory: Callable[..., ForecastService] | None = None,
 ) -> dict[str, Any]:
-    """Run the canonical forecast service for the full configured universe."""
+    """Run the full-universe recipe; optional factories preserve CLI patch points."""
 
     price_frame = (prices if prices is not None else load_prices(config=config)).copy()
     if price_frame.empty or not {"etf_id", "date"}.issubset(price_frame.columns):
@@ -81,13 +85,15 @@ def run_forecast_recipe(
             raise ValueError("date must be 'latest' or a valid date.")
         effective_as_of = parsed_as_of.date()
 
-    reference_holdings = holdings if holdings is not None else load_holdings(config=config)
-    reference_context = _reference_context_from_inputs(
-        _benchmark_reference_snapshot_inputs(config, effective_as_of, reference_holdings),
+    reference_holdings = holdings if holdings is not None else (
+        holdings_loader() if holdings_loader is not None else load_holdings(config=config)
+    )
+    reference_context = (reference_context_factory or _reference_context_from_inputs)(
+        (reference_snapshot_inputs_factory or _benchmark_reference_snapshot_inputs)(config, effective_as_of, reference_holdings),
         purpose="comparison",
         analysis_id=f"forecast:{effective_as_of.isoformat()}",
     )
-    configured_identity = configured_forecast_request_identity(config)
+    configured_identity = (configured_request_identity_factory or configured_forecast_request_identity)(config)
     if live_optional_models is None:
         live_optional_models = bool(configured_identity["live_optional_models"])
     if not isinstance(live_optional_models, bool):
@@ -98,8 +104,9 @@ def run_forecast_recipe(
         live_optional_models=live_optional_models,
     )
     forecast_config = config if live_optional_models else _config_with_optional_models_disabled(config)
-    service = ForecastService(forecast_config, reference_context=reference_context)
-    promotions = service.evaluate_promotions(effective_as_of, price_frame) if config.models.promotion.enabled else {}
+    service = (forecast_service_factory or ForecastService)(forecast_config, reference_context=reference_context)
+    promotion_config = getattr(getattr(config, "models", None), "promotion", None)
+    promotions = service.evaluate_promotions(effective_as_of, price_frame) if getattr(promotion_config, "enabled", False) else {}
     forecasts = service.run_forecasts(
         effective_as_of,
         list(enabled_ids),

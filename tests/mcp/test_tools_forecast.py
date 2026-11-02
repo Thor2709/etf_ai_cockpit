@@ -68,6 +68,93 @@ def test_forecast_models_status_uses_model_registry_and_forecast_lab_services(mo
     assert result["models"][0]["weights_present"] is False
 
 
+@pytest.mark.parametrize("entrypoint", ["application", "cli"])
+def test_forecast_recipe_dependencies_work_through_application_and_cli_patch_points(
+    entrypoint: str,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import sys
+    from tests.test_work_b_pipeline_runners import _runner
+
+    target = forecast_run if entrypoint == "application" else _runner(monkeypatch, "run_forecasts")
+    config = SimpleNamespace(
+        universe=SimpleNamespace(enabled_ids=["ON"]),
+        models=SimpleNamespace(promotion=SimpleNamespace(enabled=True)),
+    )
+    prices = pd.DataFrame([
+        {"etf_id": "ON", "date": "2026-01-05", "adjusted_close": 100.0},
+        {"etf_id": "OFF", "date": "2026-01-06", "adjusted_close": 200.0},
+    ])
+    holdings = pd.DataFrame([{"instrument_id": "ON"}])
+    inputs, context = object(), object()
+    calls: list[str] = []
+
+    def read_holdings(**kwargs):
+        assert kwargs == ({"config": config} if entrypoint == "application" else {})
+        calls.append("holdings")
+        return holdings
+
+    def snapshot_inputs(actual_config, as_of, actual_holdings):
+        assert actual_config is config
+        assert as_of.isoformat() == "2026-01-05"
+        assert actual_holdings is holdings
+        calls.append("inputs")
+        return inputs
+
+    def reference_context(actual_inputs, **kwargs):
+        assert actual_inputs is inputs
+        assert kwargs == {"purpose": "comparison", "analysis_id": "forecast:2026-01-05"}
+        calls.append("context")
+        return context
+
+    def request_identity(actual_config):
+        assert actual_config is config
+        calls.append("identity")
+        return {"live_optional_models": True, "requested_horizons": [5]}
+
+    class Service:
+        def __init__(self, actual_config, *, reference_context):
+            assert actual_config is config
+            assert reference_context is context
+            calls.append("service")
+
+        def evaluate_promotions(self, as_of, frame):
+            assert as_of.isoformat() == "2026-01-05"
+            assert frame["etf_id"].tolist() == ["ON"]
+            calls.append("promotions")
+            return {}
+
+        def run_forecasts(self, as_of, ids, frame, **kwargs):
+            assert as_of.isoformat() == "2026-01-05"
+            assert ids == ["ON"]
+            assert frame["etf_id"].tolist() == ["ON"]
+            assert kwargs["horizons"] == [5]
+            assert kwargs["live_optional_models"] is True
+            calls.append("forecasts")
+            return [SimpleNamespace(model_name="baseline", status="ok")]
+
+    monkeypatch.setattr(target, "load_holdings", read_holdings)
+    monkeypatch.setattr(target, "_benchmark_reference_snapshot_inputs", snapshot_inputs)
+    monkeypatch.setattr(target, "_reference_context_from_inputs", reference_context)
+    monkeypatch.setattr(target, "configured_forecast_request_identity", request_identity)
+    monkeypatch.setattr(target, "ForecastService", Service)
+
+    if entrypoint == "application":
+        result = forecast_run.run_forecast_recipe(config, prices=prices, live_optional_models=None)
+        assert result["execution_allowed"] is False
+        assert result["forecast_row_count"] == 1
+    else:
+        monkeypatch.setattr(sys, "argv", ["run_forecasts.py"])
+        monkeypatch.setattr(target, "require_cached_inputs", lambda *_paths: None)
+        monkeypatch.setattr(target, "load_config", lambda: config)
+        monkeypatch.setattr(target, "load_prices", lambda: prices)
+        assert target.main() == 0
+        assert "execution_allowed=false" in capsys.readouterr().out
+
+    assert calls == ["holdings", "inputs", "context", "identity", "service", "promotions", "forecasts"]
+
+
 def test_forecast_lab_compare_filters_inputs_and_returns_canonical_metrics_and_exclusions(monkeypatch: pytest.MonkeyPatch) -> None:
     from tests.test_forecast_lab import _forecasts, _prices
 

@@ -18,9 +18,13 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from etf_cockpit.application.forecast_run import run_forecast_recipe  # noqa: E402
-from etf_cockpit.application.forecast_service import ForecastService  # noqa: E402,F401 - retained script test seam
+from etf_cockpit.application.forecast_service import ForecastService  # noqa: E402
+from etf_cockpit.application.reference_context import (  # noqa: E402
+    _benchmark_reference_snapshot_inputs, _reference_context_from_inputs,
+)
 from etf_cockpit.core.config import load_config  # noqa: E402
-from etf_cockpit.data.duckdb_store import PRICE_PARQUET, load_prices  # noqa: E402
+from etf_cockpit.data.duckdb_store import PRICE_PARQUET, load_holdings, load_prices  # noqa: E402
+from etf_cockpit.models.forecast_scores import configured_forecast_request_identity  # noqa: E402
 
 
 def main() -> int:
@@ -38,6 +42,11 @@ def main() -> int:
         instrument_ids=args.etf or None,
         live_optional_models=None,
         prices=load_prices(),
+        holdings_loader=load_holdings,
+        reference_snapshot_inputs_factory=_benchmark_reference_snapshot_inputs,
+        reference_context_factory=_reference_context_from_inputs,
+        configured_request_identity_factory=configured_forecast_request_identity,
+        forecast_service_factory=ForecastService,
     )
     print(f"Forecast date: {result['as_of_date']}")
     print(f"ETF count: {result['instrument_count']}")
