@@ -29,7 +29,7 @@ import pandas as pd
 import yaml
 
 from etf_cockpit.application.score_backfill import CALENDAR_INSTRUMENT_ID
-from etf_cockpit.core.paths import CODE_CONFIG_DIR, CONFIG_DIR
+from etf_cockpit.core.paths import CODE_CONFIG_DIR, CONFIG_DIR, ROOT
 from etf_cockpit.data.duckdb_store import SYNTHETIC_PRICE_SOURCES, load_prices
 from etf_cockpit.data.fx_data import EurRateBook, load_fx_rates, major_currency
 from etf_cockpit.data.replay_membership import ListingHistory
@@ -274,6 +274,35 @@ def evaluate_readiness(
         "benchmark_sessions": _benchmark_sessions_check(context, start, end),
     }
     return ReadinessReport(start.isoformat(), end.isoformat(), thresholds.policy_version, cadence, dates, interval)
+
+
+def paper_bot_readiness_failure(root: Path | None, start: date, end: date) -> str | None:
+    """Return the canonical readiness report when a paper-bot interval is blocked."""
+
+    try:
+        report = evaluate_readiness(
+            load_inputs(Path(root or ROOT)), start, end, load_thresholds()
+        )
+    except Exception as exc:
+        return f"DATA READINESS {start.isoformat()}..{end.isoformat()} -> FAIL\n  gate unavailable: {type(exc).__name__}: {str(exc)[:160]}"
+    if report.passed:
+        return None
+    failures = {
+        name for name, result in report.interval.items() if not result.passed
+    }
+    families: set[str] = set()
+    for item in report.dates:
+        for name, result in item.checks.items():
+            if not result.passed:
+                failures.add(name)
+            if name == "family_completeness":
+                families.update(
+                    label.removeprefix("missing:")
+                    for label, count in result.counts.items()
+                    if label.startswith("missing:") and count
+                )
+    labels = sorted(failures | families)
+    return report.format_text() + "\nfailing checks/families: " + (", ".join(labels) or "unknown")
 
 
 class _Context:
@@ -616,4 +645,5 @@ __all__ = [
     "evaluate_readiness",
     "load_inputs",
     "load_thresholds",
+    "paper_bot_readiness_failure",
 ]

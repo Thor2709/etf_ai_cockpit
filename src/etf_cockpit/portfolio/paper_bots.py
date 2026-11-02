@@ -18,6 +18,7 @@ from typing import Any, Callable, Collection, Mapping, Sequence
 import pandas as pd
 import yaml
 
+from etf_cockpit.application import data_readiness
 from etf_cockpit.core.paths import CONFIG_DIR, ROOT
 from etf_cockpit.data.local_storage import (
     StorageRevisionConflict,
@@ -109,6 +110,12 @@ def run_paper_bots(
             None,
             (),
             "Forward recorder accepts only the current UTC calendar day; historical replay is not mixed into forward records.",
+        )
+
+    readiness_failure = data_readiness.paper_bot_readiness_failure(project_root, cutoff.date(), cutoff.date())
+    if readiness_failure is not None:
+        return PaperBotRunResult(
+            "unavailable", _time_text(cutoff), None, (), f"Paper bot data readiness blocked:\n{readiness_failure}"
         )
 
     selected_config_path = Path(

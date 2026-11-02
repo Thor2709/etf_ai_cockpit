@@ -16,6 +16,7 @@ from typing import Any, Literal, Mapping
 
 import pandas as pd
 
+from etf_cockpit.application import data_readiness
 from etf_cockpit.data.replay_membership import (
     ListingHistory, MembershipPriceBook, STRICT_MODE, SURVIVORSHIP_MODES, SURVIVORSHIP_UNVERIFIED_BANNER,
     delisting_unverified_in_history, replay_preflight, unverified_instruments,
@@ -74,6 +75,22 @@ def run_historical_replay(
             load_backfill_score_history(project_root) if history_source == "backfill"
             else bots._load_published_score_history(project_root)
         )
+        readiness_days = []
+        if isinstance(frame, pd.DataFrame) and "as_of_date" in frame.columns:
+            readiness_days = [
+                value for value in pd.to_datetime(frame["as_of_date"], errors="coerce").dropna().dt.date
+                if value <= cutoff.date()
+            ]
+        readiness_start = min(readiness_days) if readiness_days else cutoff.date()
+        readiness_end = max(readiness_days) if readiness_days else cutoff.date()
+        readiness_failure = data_readiness.paper_bot_readiness_failure(
+            project_root, readiness_start, readiness_end
+        )
+        if readiness_failure is not None:
+            return execution.ExecutionRunResult(
+                "unavailable", "replay", bots._time_text(cutoff),
+                reason=f"Paper bot data readiness blocked:\n{readiness_failure}", label=track.label,
+            )
         membership = ListingHistory.from_root(project_root)
         book = price_book if price_book is not None else execution.PriceBook.from_root(project_root)
         if survivorship_mode != STRICT_MODE:
