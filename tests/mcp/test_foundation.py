@@ -41,8 +41,8 @@ def test_registry_autodiscovers_module_with_tier_and_annotations(tmp_path: Path,
         tmp_path,
         monkeypatch,
         "from etf_cockpit.mcp.registry import tool\n"
-        "@tool(tier='research', description='Record evidence', idempotent_hint=False)\n"
-        "def test_discovered(value: str) -> dict:\n"
+        "@tool(tier='research', description='Record evidence', idempotent_hint=False, preview=lambda **kwargs: kwargs)\n"
+        "def test_discovered(value: str, confirm_token: str) -> dict:\n"
         "    return {'value': value}\n",
         "tools_test_autodiscovery",
     )
@@ -68,7 +68,7 @@ def test_write_tiers_cannot_exempt_confirmation(tier: str, monkeypatch: pytest.M
 
     writes = []
 
-    @tool(tier=tier, description="Write")
+    @tool(tier=tier, description="Write", preview=lambda **kwargs: kwargs)
     def write(confirm_token: str) -> None:
         writes.append(True)
 
@@ -95,6 +95,60 @@ def test_read_job_compute_keeps_confirmation_exemption(monkeypatch: pytest.Monke
     assert context.audit.records[-1].outcome == "ok"
 
 
+def test_write_without_token_previews_then_commits_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    previews = []
+    writes = []
+
+    def preview(value: str) -> dict[str, str]:
+        previews.append(value)
+        return {"value": value, "would_write": "yes"}
+
+    @tool(tier="edit", description="Update source data", preview=preview)
+    def write(value: str, confirm_token: str) -> dict[str, str]:
+        writes.append(value)
+        return {"written": value}
+
+    monkeypatch.setattr(registry, "find_tool", lambda name: write.__mcp_tool_spec__)
+    context = CallContext(
+        enabled_tiers=frozenset({"edit"}), profile="full", audit=AuditRecorder(sink=lambda record: None)
+    )
+
+    staged = invoke_tool("write", {"value": "candidate"}, context=context)
+    assert staged["preview"] == {"value": "candidate", "would_write": "yes"}
+    assert isinstance(staged["confirm_token"], str)
+    assert previews == ["candidate"]
+    assert writes == []
+
+    with pytest.raises(ConfirmationError):
+        invoke_tool("write", {"value": "candidate", "confirm_token": "invalid"}, context=context)
+    assert writes == []
+
+    committed = invoke_tool("write", {"value": "candidate", "confirm_token": staged["confirm_token"]}, context=context)
+    assert committed == {"written": "candidate"}
+    assert writes == ["candidate"]
+    with pytest.raises(ConfirmationError):
+        invoke_tool("write", {"value": "candidate", "confirm_token": staged["confirm_token"]}, context=context)
+    assert writes == ["candidate"]
+
+
+def test_edit_tier_read_only_preview_needs_no_confirmation(monkeypatch: pytest.MonkeyPatch) -> None:
+    @tool(tier="edit", description="Inspect an import", read_only_hint=True)
+    def preview(path: str) -> dict[str, str]:
+        return {"path": path, "status": "valid"}
+
+    spec = preview.__mcp_tool_spec__
+    assert spec.annotations["readOnlyHint"] is True
+    assert spec.requires_confirmation is False
+    monkeypatch.setattr(registry, "find_tool", lambda name: spec)
+    context = CallContext(
+        enabled_tiers=frozenset({"edit"}), profile="full", audit=AuditRecorder(sink=lambda record: None)
+    )
+
+    assert invoke_tool("preview", {"path": "local.csv"}, context=context) == {
+        "path": "local.csv", "status": "valid"
+    }
+
+
 @pytest.mark.parametrize(
     ("token_revision", "echoed_revision"), [("R1", "R1"), ("R1", "R2"), ("R1", None), ("R2", "R1")]
 )
@@ -103,7 +157,7 @@ def test_confirmation_uses_current_revision_and_rejects_conflicting_echo(
 ) -> None:
     writes = []
 
-    @tool(tier="research", description="Write evidence")
+    @tool(tier="research", description="Write evidence", preview=lambda value: {"value": value})
     def write(value: str, confirm_token: str, store_revision: str | None = None) -> None:
         writes.append(value)
 
@@ -147,7 +201,7 @@ def test_dispatch_rate_limits_before_handler_and_audits_refusals(
     audit = AuditRecorder(sink=lambda record: None)
     writes = []
 
-    @tool(name=name, tier=tier, description="Rate-limited operation")
+    @tool(name=name, tier=tier, description="Rate-limited operation", preview=lambda **kwargs: kwargs)
     def write(confirm_token: str) -> None:
         writes.append(True)
 
@@ -205,7 +259,7 @@ def test_quota_storage_failure_refuses_handler_and_is_audited(tmp_path: Path, mo
     path.write_text("blocked", encoding="utf-8")
     writes = []
 
-    @tool(name="data_refresh", tier="edit", description="Refresh")
+    @tool(name="data_refresh", tier="edit", description="Refresh", preview=lambda **kwargs: kwargs)
     def refresh(confirm_token: str) -> None:
         writes.append(True)
 
@@ -231,7 +285,7 @@ def test_write_tier_without_valid_confirm_token_is_refused_before_handler(
         monkeypatch,
         "from etf_cockpit.mcp.registry import tool\n"
         "writes = []\n"
-        "@tool(tier='research', description='Write evidence')\n"
+        "@tool(tier='research', description='Write evidence', preview=lambda **kwargs: kwargs)\n"
         "def test_write(value: str, confirm_token: str) -> dict:\n"
         "    writes.append(value)\n"
         "    return {'written': value}\n",

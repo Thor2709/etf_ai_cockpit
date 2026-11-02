@@ -7,6 +7,9 @@ Rate limits are rolling windows shared across clients and processes under the da
 order placements/day, 10 ticket exports/day, and 4 data refreshes/hour. Admitted attempts
 count even if confirmation or the handler fails; rate refusals do not consume tokens.
 Counters persist in logs/mcp_rate_limits.sqlite3; unavailable quota storage refuses the call.
+Write handlers provide a side-effect-free ``preview`` callback: a call without a token returns
+that preview and a 15-minute, client/revision-bound token; a call with the token commits once.
+Explicit read-only preview tools use the edit tier with ``readOnlyHint=true`` and no confirmation.
 Configuration-file ownership belongs to the remote lane.
 """
 
@@ -93,6 +96,7 @@ class ToolSpec:
     annotations: Mapping[str, bool]
     requires_confirmation: bool
     function: Callable[..., Any]
+    preview_function: Callable[..., Any] | None
     output_model: type[BaseModel]
     profiles: frozenset[str] | None = None
 
@@ -144,6 +148,7 @@ def tool(
     idempotent_hint: bool = False,
     open_world_hint: bool = False,
     requires_confirmation: bool | None = None,
+    preview: Callable[..., Any] | None = None,
     output_model: type[BaseModel] = Envelope,
     profiles: tuple[str, ...] | None = None,
 ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
@@ -153,12 +158,20 @@ def tool(
     if not description.strip():
         raise ValueError("tool descriptions must not be empty")
     resolved_read_only = normalized_tier not in WRITE_TIERS if read_only_hint is None else bool(read_only_hint)
-    resolved_confirmation = normalized_tier in WRITE_TIERS if requires_confirmation is None else bool(requires_confirmation)
+    resolved_confirmation = (
+        normalized_tier in WRITE_TIERS and not resolved_read_only
+        if requires_confirmation is None
+        else bool(requires_confirmation)
+    )
     resolved_destructive = resolved_confirmation if destructive_hint is None else bool(destructive_hint)
-    if normalized_tier in WRITE_TIERS and not resolved_confirmation:
+    if normalized_tier in WRITE_TIERS and not resolved_confirmation and not resolved_read_only:
         raise ValueError("write-tier tools must require confirmation")
-    if normalized_tier in WRITE_TIERS and resolved_read_only:
-        raise ValueError("write-tier tools cannot declare readOnlyHint=true")
+    if normalized_tier in WRITE_TIERS and resolved_confirmation and resolved_read_only:
+        raise ValueError("confirmation-required write tools cannot declare readOnlyHint=true")
+    if normalized_tier in WRITE_TIERS and not resolved_confirmation and resolved_destructive:
+        raise ValueError("read-only preview tools cannot declare destructiveHint=true")
+    if normalized_tier in WRITE_TIERS and resolved_confirmation and preview is None:
+        raise ValueError("confirmation-required write tools must declare a side-effect-free preview")
     if resolved_confirmation and not resolved_destructive:
         raise ValueError("confirmation-required tools must declare destructiveHint=true")
     declared_profiles = frozenset(profiles) if profiles is not None else None
@@ -186,6 +199,7 @@ def tool(
             annotations=annotation_values,
             requires_confirmation=resolved_confirmation,
             function=function,
+            preview_function=preview,
             output_model=output_model,
             profiles=declared_profiles,
         )
@@ -247,6 +261,17 @@ def find_tool(name: str) -> ToolSpec:
     raise MCPToolError("TOOL_NOT_FOUND", "The requested tool is not available", "List the tools enabled for this launch profile.")
 
 
+def issue_confirmation_token(payload: Mapping[str, Any], *, context: CallContext | None = None) -> str:
+    """Issue a confirmation bound to the current client and store revision for preview tools."""
+
+    active = context or current_call_context()
+    return active.confirmation_store.issue(
+        payload,
+        store_revision=active.store_revision,
+        client_id=active.client_id,
+    )
+
+
 def _contains_execution_control(value: Any) -> bool:
     if isinstance(value, Mapping):
         return any(str(key).strip().lower() == "execution_allowed" or _contains_execution_control(item) for key, item in value.items())
@@ -256,7 +281,7 @@ def _contains_execution_control(value: Any) -> bool:
 
 
 def invoke_tool(name: str, arguments: Mapping[str, Any], *, context: CallContext | None = None) -> Any:
-    """Enforce launch authorization and confirmation, invoke once, then append one audit record."""
+    """Enforce authorization, centrally preview/confirm writes, and audit each call."""
 
     active = context or CallContext()
     started = time.perf_counter()
@@ -274,16 +299,37 @@ def invoke_tool(name: str, arguments: Mapping[str, Any], *, context: CallContext
         if _contains_execution_control(safe_args):
             raise InvalidArgumentsError("execution_allowed is fixed to false and is not a tool argument")
         signature = inspect.signature(spec.function)
+        handler_args = safe_args
+        if "store_revision" in safe_args and "store_revision" not in signature.parameters:
+            handler_args = {key: value for key, value in safe_args.items() if key != "store_revision"}
+        validation_args = handler_args
+        if spec.requires_confirmation and "confirm_token" not in safe_args and "confirm_token" in signature.parameters:
+            validation_args = {**handler_args, "confirm_token": None}
         try:
-            signature.bind(**safe_args)
+            signature.bind(**validation_args)
         except TypeError as exc:
             raise InvalidArgumentsError(str(exc)) from None
         active.rate_limiter.acquire(spec.name)
-        if spec.tier in WRITE_TIERS or spec.requires_confirmation:
+        write_dispatch = spec.tier in WRITE_TIERS and not bool(spec.annotations.get("readOnlyHint"))
+        if write_dispatch or spec.requires_confirmation:
             token = safe_args.get("confirm_token")
             payload = {key: value for key, value in safe_args.items() if key not in {"confirm_token", "store_revision"}}
             if "store_revision" in safe_args and safe_args["store_revision"] != active.store_revision:
                 raise ConfirmationError("The echoed store revision differs from the current store revision")
+            if token is None:
+                if spec.preview_function is None:
+                    raise ConfirmationError("This write tool has no safe dry-run preview")
+                try:
+                    inspect.signature(spec.preview_function).bind(**payload)
+                except TypeError as exc:
+                    raise InvalidArgumentsError(str(exc)) from None
+                with use_call_context(active):
+                    preview_result = spec.preview_function(**payload)
+                issued = issue_confirmation_token(payload, context=active)
+                result = {"preview": preview_result, "confirm_token": issued}
+                output_hash = hash_arguments(result)
+                outcome = "ok"
+                return result
             if not isinstance(token, str) or not active.confirmation_store.consume(
                 token,
                 payload,
@@ -292,7 +338,7 @@ def invoke_tool(name: str, arguments: Mapping[str, Any], *, context: CallContext
             ):
                 raise ConfirmationError()
         with use_call_context(active):
-            result = spec.function(**safe_args)
+            result = spec.function(**handler_args)
         output_hash = hash_arguments(result)
         outcome = "ok"
         return result
