@@ -119,6 +119,13 @@ def load_settings_view(root: Path, section: str | None = None) -> dict[str, obje
 
     from etf_cockpit.core.settings_bundle import load_settings_bundle, settings_export
 
+    if section == "ui":
+        return {
+            "status": "unsupported",
+            "section": "ui",
+            "reason": "UI settings are not represented by the canonical settings bundle",
+            "execution_allowed": False,
+        }
     if section in {
         "portfolio_policy_v1", "risk_limits", "pre_trade_limits_v1", "gate_policy",
         "authority_matrix", "paper_bots_v1", "strategy_templates_v1",

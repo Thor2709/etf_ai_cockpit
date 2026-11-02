@@ -1,13 +1,16 @@
 """K: read-only operations and gates plus confirmed local updates.
 
 Open defaults: record pages contain 25 items and cap at 100; alert and activity
-reads are capped at 500 source rows. Settings writes allow only non-secret
-provider metadata represented by the canonical settings bundle.
+reads are capped at 500 source rows; report_export defaults to a review pack for
+the configured snapshot date, and an explicit ``as_of`` must match that date.
+Settings writes allow only non-secret provider metadata represented by the
+canonical settings bundle.
 """
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
+import hashlib
 import json
 from pathlib import Path
 import re
@@ -20,8 +23,6 @@ from etf_cockpit.mcp.registry import current_call_context, tool
 
 _CURSORS = CursorCodec()
 _SOURCE_ROW_CAP = 500
-_SETTINGS_PROVIDER_PREFIX = "providers.providers."
-_ALLOWED_PROVIDER_FIELDS = frozenset({"active_provider", "base_url", "symbols_map"})
 
 
 def _root() -> Path:
@@ -187,10 +188,11 @@ def activity_log(since: str | None = None, event_type: str | None = None, cursor
     from etf_cockpit.core.session_log import read_session_events
 
     rows: list[dict[str, object]] = []
+    session_log_available = True
     try:
         rows.extend(read_session_events(_SOURCE_ROW_CAP))
     except Exception:
-        pass
+        session_log_available = False
     context = current_call_context()
     for record in getattr(context.audit, "records", ()):
         rows.append({
@@ -203,10 +205,26 @@ def activity_log(since: str | None = None, event_type: str | None = None, cursor
             "client_id": record.client_id,
         })
     rows = [row for row in rows if event_type is None or str(row.get("event_type", "")) == event_type]
-    cutoff = _parse_since(since) if since else None
+    try:
+        cutoff = _parse_since(since) if since else None
+    except ValueError as exc:
+        raise InvalidArgumentsError(str(exc)) from None
     if cutoff is not None:
         rows = [row for row in rows if _event_time(row) is not None and _event_time(row) >= cutoff]
     rows = rows[-_SOURCE_ROW_CAP:]
+    if not session_log_available:
+        if not rows:
+            return {
+                "status": "unavailable",
+                "unavailable_reason": "the local session log is unavailable",
+                "events": [],
+                "next_cursor": None,
+            }
+        return {
+            "status": "partial",
+            "warnings": ["the local session log is unavailable; only current MCP audit events are shown"],
+            **_page(rows, offset=offset, limit=size, key="events", filters=filters),
+        }
     return {"status": "available", **_page(rows, offset=offset, limit=size, key="events", filters=filters)}
 
 
@@ -219,22 +237,32 @@ def diagnostics() -> dict[str, Any]:
     return build_local_diagnostics(_root())
 
 
-@tool(tier="read_job", description="Submit a local review-pack or portfolio-review report and return its resource link.", read_only_hint=False, idempotent_hint=False)
+@tool(tier="read_job", description="Submit a local review-pack or portfolio-review report and return its job id.", read_only_hint=False, idempotent_hint=False)
 def report_export(kind: str = "review_pack", as_of: str | None = None) -> dict[str, Any]:
-    """Submit a bounded headless report workflow; export is unavailable until its workflow handler is registered."""
+    """Submit one canonical local report export as a durable derived-artifact job."""
 
     if kind not in {"review_pack", "portfolio_review"}:
         raise InvalidArgumentsError("kind must be review_pack or portfolio_review")
+    if as_of is not None:
+        try:
+            as_of = date.fromisoformat(as_of).isoformat()
+        except ValueError:
+            raise InvalidArgumentsError("as_of must be an ISO-8601 calendar date (YYYY-MM-DD)") from None
     session = current_call_context().session
     if session is None or not callable(getattr(session, "submit_workflow", None)):
         return {"status": "unavailable", "unavailable_reason": "headless report export service is unavailable", "execution_allowed": False}
-    return {
-        "status": "unavailable",
-        "unavailable_reason": "the configured headless workflow registry has no report_export handler",
-        "kind": kind,
-        "as_of": as_of,
-        "execution_allowed": False,
-    }
+    payload = {"kind": kind, "as_of": as_of}
+    fingerprint = hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+    try:
+        job_id = session.submit_workflow(
+            "report_export",
+            label=f"Export {kind.replace('_', ' ')}",
+            input_payload=payload,
+            dedupe_key=f"report-export:{fingerprint}",
+        )
+    except Exception as exc:
+        raise MCPToolError("REPORT_EXPORT_UNAVAILABLE", f"Report export could not be submitted ({type(exc).__name__})", "Check the local headless job service and retry.") from None
+    return {"status": "submitted", "job_id": str(job_id), "kind": kind, "as_of": as_of, "execution_allowed": False}
 
 
 @tool(tier="read", description="Validate a local AI audit JSON or packet without importing it.", read_only_hint=True, idempotent_hint=True)
@@ -291,7 +319,8 @@ def settings_change_preview(changes: Mapping[str, object]) -> dict[str, Any]:
     except Exception as exc:
         code = getattr(exc, "code", "SETTINGS_CHANGE_INVALID")
         raise MCPToolError(code, str(exc)[:240], "Use only supported non-secret provider metadata keys and retry.") from None
-    preview["confirm_token"] = _issue_token({"changes": dict(changes), "expected_revision": preview["expected_revision"]})
+    if preview.get("valid") is True:
+        preview["confirm_token"] = _issue_token({"changes": dict(changes), "expected_revision": preview["expected_revision"]})
     return preview
 
 

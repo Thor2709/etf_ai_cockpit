@@ -93,20 +93,31 @@ def build_gate_status(*, scope: str = "app", root: Path | None = None) -> dict[s
     quality = _safe_call(load_quality_programme_report, base)
     controls = _paper_kill_switch_status(base)
     validation = load_validation_report(base)
+    from etf_cockpit.application.incident_status import load_incident_status
+
+    freeze = load_incident_status(base)
     readiness = _unavailable("No date interval was supplied for the app-wide historical readiness gate")
     kill_switch = {
         "status": controls.get("status", "unavailable"),
         "active": controls.get("active"),
         "reason": None if controls.get("status") == "available" else controls.get("reason"),
     }
-    freeze = _unavailable("No canonical application freeze projection is available")
-    statuses = [health.get("status"), release.get("status"), security.get("status"), quality.get("status"), validation.get("status"), kill_switch.get("status")]
+    statuses = [
+        readiness.get("status"),
+        health.get("status"),
+        release.get("status"),
+        security.get("status"),
+        quality.get("status"),
+        validation.get("status"),
+        kill_switch.get("status"),
+        freeze.get("status"),
+    ]
     if "failed" in statuses or "blocked" in statuses:
         overall = "failed"
+    elif kill_switch.get("active") is True or freeze.get("frozen") is True:
+        overall = "blocked"
     elif any(status in {"unavailable", "not_run", "incomplete"} for status in statuses):
         overall = "unavailable"
-    elif kill_switch.get("active") is True:
-        overall = "blocked"
     elif "warning" in statuses:
         overall = "warning"
     else:
@@ -163,7 +174,12 @@ def build_cockpit_status(*, detail: str = "brief", session: object | None = None
         "as_of": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "freshness": health.get("status") if isinstance(health, Mapping) else "unavailable",
         "readiness": gates["readiness"],
-        "gate_summary": {"status": gates.get("status"), "release": gates["release_certification"].get("status")},
+        "gate_summary": {
+            "status": gates.get("status"),
+            "release": gates["release_certification"].get("status"),
+            "kill_switch": gates["kill_switch"].get("status"),
+            "freeze": gates["freeze"].get("status"),
+        },
         "active_jobs": [_compact(row) for row in active_jobs],
         "enabled_tiers": sorted(enabled_tiers),
         "paper_bots": _compact(bots),

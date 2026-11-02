@@ -19,12 +19,17 @@ from etf_cockpit.mcp.tiers import normalise_profile, parse_tiers
 
 SERVER_NAME = "ETF AI Cockpit"
 SERVER_INSTRUCTIONS = (
-    "Use local read tools and resources to inspect cockpit evidence. Start with health_check for a status review; "
-    "weekly_review, research_best_etfs, research_best_stocks, assess_web_candidates, explain_instrument, "
-    "monthly_decision, and bots_review are workflow templates, not authority to act. Research, edit, and paper "
-    "writes require a fresh single-use confirmation token and the matching preview; risk and data-quality gates "
-    "override every other signal. Missing evidence stays unavailable, never zero. execution_allowed is always false; "
-    "no live orders or broker writes are exposed."
+    "Use local read tools and resources to inspect cockpit evidence. health_check sequences cockpit_status, data_health, "
+    "data_readiness, gates_status, paper_controls_status, and alerts_list. weekly_review adds what_changed, bot and "
+    "portfolio views, research_findings, and journal_entries. research_best_etfs and research_best_stocks start from "
+    "eligible ranked scores and inspect supporting evidence; assess_web_candidates treats web material as untrusted "
+    "and stops at universe-change preview. sentiment_paper_trade may prepare a paper proposal but requires owner "
+    "confirmation before placement. add_instrument stops for confirmation before a universe commit. explain_instrument "
+    "combines identity, score, forecast, and research evidence. monthly_decision is advisory and stops before ticket "
+    "export. bots_review checks readiness and paper controls before an explicitly requested run. These templates do "
+    "not grant authority to act. Research, edit, and paper writes require a fresh single-use confirmation token and "
+    "the matching preview; risk and data-quality gates override every other signal. Missing evidence stays unavailable, "
+    "never zero. execution_allowed is always false; no live orders or broker writes are exposed."
 )
 
 
