@@ -131,6 +131,57 @@ def test_write_without_token_previews_then_commits_once(monkeypatch: pytest.Monk
     assert writes == ["candidate"]
 
 
+def test_handler_dry_run_is_centralized_and_caller_cannot_skip_it(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[bool, str]] = []
+
+    @tool(tier="edit", description="Update through a handler dry run")
+    def write(value: str, dry_run: bool = True, confirm_token: str | None = None) -> dict[str, object]:
+        calls.append((dry_run, value))
+        return {"status": "confirmation_required" if dry_run else "written", "value": value, "confirm_token": "handler-token"}
+
+    monkeypatch.setattr(registry, "find_tool", lambda name: write.__mcp_tool_spec__)
+    context = CallContext(
+        enabled_tiers=frozenset({"edit"}), profile="full", audit=AuditRecorder(sink=lambda record: None)
+    )
+
+    staged = invoke_tool("write", {"value": "candidate", "dry_run": False}, context=context)
+    assert calls == [(True, "candidate")]
+    assert staged["preview"] == {"status": "confirmation_required", "value": "candidate"}
+    assert isinstance(staged["confirm_token"], str)
+
+    committed = invoke_tool("write", {"value": "candidate", "confirm_token": staged["confirm_token"]}, context=context)
+    assert calls == [(True, "candidate"), (False, "candidate")]
+    assert committed["status"] == "written"
+
+
+def test_write_without_preview_callback_gets_a_confirmation_bound_intent(monkeypatch: pytest.MonkeyPatch) -> None:
+    writes: list[str] = []
+
+    @tool(tier="edit", description="Write with no calculation preview")
+    def write(value: str, confirm_token: str | None = None) -> dict[str, str]:
+        writes.append(value)
+        return {"written": value}
+
+    monkeypatch.setattr(registry, "find_tool", lambda name: write.__mcp_tool_spec__)
+    context = CallContext(
+        enabled_tiers=frozenset({"edit"}), profile="full", audit=AuditRecorder(sink=lambda record: None)
+    )
+
+    staged = invoke_tool("write", {"value": "candidate"}, context=context)
+    assert staged["preview"] == {
+        "status": "confirmation_required",
+        "operation": "write",
+        "arguments": {"value": "candidate"},
+        "execution_allowed": False,
+    }
+    assert isinstance(staged["confirm_token"], str)
+    assert writes == []
+
+    committed = invoke_tool("write", {"value": "candidate", "confirm_token": staged["confirm_token"]}, context=context)
+    assert committed == {"written": "candidate"}
+    assert writes == ["candidate"]
+
+
 def test_edit_tier_read_only_preview_needs_no_confirmation(monkeypatch: pytest.MonkeyPatch) -> None:
     @tool(tier="edit", description="Inspect an import", read_only_hint=True)
     def preview(path: str) -> dict[str, str]:

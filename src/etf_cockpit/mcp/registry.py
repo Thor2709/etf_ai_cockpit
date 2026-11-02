@@ -170,8 +170,6 @@ def tool(
         raise ValueError("confirmation-required write tools cannot declare readOnlyHint=true")
     if normalized_tier in WRITE_TIERS and not resolved_confirmation and resolved_destructive:
         raise ValueError("read-only preview tools cannot declare destructiveHint=true")
-    if normalized_tier in WRITE_TIERS and resolved_confirmation and preview is None:
-        raise ValueError("confirmation-required write tools must declare a side-effect-free preview")
     if resolved_confirmation and not resolved_destructive:
         raise ValueError("confirmation-required tools must declare destructiveHint=true")
     declared_profiles = frozenset(profiles) if profiles is not None else None
@@ -192,6 +190,22 @@ def tool(
             raise ValueError("MCP tools may not receive broker objects")
         if inspect.iscoroutinefunction(function):
             raise ValueError("MCP tool handlers must be synchronous")
+        preview_handler = preview
+        if resolved_confirmation and preview_handler is None:
+            if "dry_run" in signature.parameters:
+                def preview_handler(**kwargs: Any) -> Any:
+                    preview_args = {**kwargs, "dry_run": True}
+                    if "confirm_token" in signature.parameters:
+                        preview_args["confirm_token"] = None
+                    return function(**preview_args)
+            else:
+                def preview_handler(**kwargs: Any) -> dict[str, Any]:
+                    return {
+                        "status": "confirmation_required",
+                        "operation": name or function.__name__,
+                        "arguments": dict(kwargs),
+                        "execution_allowed": False,
+                    }
         spec = ToolSpec(
             name=name or function.__name__,
             description=description.strip(),
@@ -199,7 +213,7 @@ def tool(
             annotations=annotation_values,
             requires_confirmation=resolved_confirmation,
             function=function,
-            preview_function=preview,
+            preview_function=preview_handler,
             output_model=output_model,
             profiles=declared_profiles,
         )
@@ -302,6 +316,8 @@ def invoke_tool(name: str, arguments: Mapping[str, Any], *, context: CallContext
         handler_args = safe_args
         if "store_revision" in safe_args and "store_revision" not in signature.parameters:
             handler_args = {key: value for key, value in safe_args.items() if key != "store_revision"}
+        if "dry_run" in signature.parameters:
+            handler_args = {**handler_args, "dry_run": safe_args.get("confirm_token") is None}
         validation_args = handler_args
         if spec.requires_confirmation and "confirm_token" not in safe_args and "confirm_token" in signature.parameters:
             validation_args = {**handler_args, "confirm_token": None}
@@ -313,7 +329,7 @@ def invoke_tool(name: str, arguments: Mapping[str, Any], *, context: CallContext
         write_dispatch = spec.tier in WRITE_TIERS and not bool(spec.annotations.get("readOnlyHint"))
         if write_dispatch or spec.requires_confirmation:
             token = safe_args.get("confirm_token")
-            payload = {key: value for key, value in safe_args.items() if key not in {"confirm_token", "store_revision"}}
+            payload = {key: value for key, value in safe_args.items() if key not in {"confirm_token", "store_revision", "dry_run"}}
             if "store_revision" in safe_args and safe_args["store_revision"] != active.store_revision:
                 raise ConfirmationError("The echoed store revision differs from the current store revision")
             if token is None:
@@ -325,6 +341,11 @@ def invoke_tool(name: str, arguments: Mapping[str, Any], *, context: CallContext
                     raise InvalidArgumentsError(str(exc)) from None
                 with use_call_context(active):
                     preview_result = spec.preview_function(**payload)
+                if isinstance(preview_result, dict):
+                    preview_result = {
+                        key: value for key, value in preview_result.items()
+                        if key not in {"confirm_token", "confirmation_arguments"}
+                    }
                 issued = issue_confirmation_token(payload, context=active)
                 result = {"preview": preview_result, "confirm_token": issued}
                 output_hash = hash_arguments(result)
