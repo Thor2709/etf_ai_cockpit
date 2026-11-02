@@ -250,6 +250,7 @@ class HeadlessSession:
         self._score_history_warning_getter = score_history_warning_getter
         self._score_history_warning_setter = score_history_warning_setter
         self._score_history_failure_handler = score_history_failure_handler
+        self._job_scheduler = None
 
     @property
     def score_history_warning(self) -> str | None:
@@ -344,6 +345,91 @@ class HeadlessSession:
         from etf_cockpit.application.scoreboard_publication import scoreboard_status
 
         return scoreboard_status(root=self.root)
+
+    def _scheduler(self):
+        if self._job_scheduler is None:
+            from etf_cockpit.core.job_scheduler import DurableJobScheduler
+
+            self._job_scheduler = DurableJobScheduler(self.root, max_concurrency=1)
+        return self._job_scheduler
+
+    def submit_workflow(
+        self,
+        workflow_type: str,
+        *,
+        label: str,
+        input_payload: dict[str, object],
+        dedupe_key: str,
+    ) -> str:
+        """Submit one durable headless workflow through the typed application boundary."""
+
+        import hashlib
+
+        from etf_cockpit.application.api import LocalApplicationApi
+        from etf_cockpit.application.contracts import SubmitWorkflowCommand
+
+        require_storage_root(self.root)
+        command_key = hashlib.sha256(f"{workflow_type}\0{dedupe_key}".encode("utf-8")).hexdigest()
+        api = LocalApplicationApi(lambda: self.snapshot, scheduler=self._scheduler(), root=self.root)
+        with cross_process_writer_guard(self.root):
+            result = api.execute(
+                SubmitWorkflowCommand(
+                    idempotency_key=f"mcp-{command_key}",
+                    workflow_type=workflow_type,
+                    label=label,
+                    input_payload=input_payload,
+                    dedupe_key=dedupe_key,
+                )
+            )
+        if result.status.value not in {"accepted", "replayed"} or not result.resource_id:
+            raise RuntimeError(result.error_message or "The workflow could not be submitted.")
+        return result.resource_id
+
+    def get_workflow(self, workflow_id: str):
+        """Read a durable workflow by workflow id or one of its job ids."""
+
+        scheduler = self._scheduler()
+        record = scheduler.get_workflow(workflow_id)
+        if record is not None:
+            return record
+        job = scheduler.get_job(workflow_id)
+        return scheduler.get_workflow(job.workflow_id) if job is not None else None
+
+    def list_workflows(self, *, status: str | None, offset: int, limit: int):
+        """Return a bounded workflow page from the durable local scheduler."""
+
+        requested = max(1, min(int(offset) + int(limit), 200))
+        rows = self._scheduler().list_workflows(limit=requested)
+        if status is not None:
+            rows = tuple(row for row in rows if str(getattr(row.status, "value", row.status)) == status)
+        return rows[offset : offset + limit]
+
+    def cancel_workflow(self, workflow_id: str, reason: str):
+        """Cancel one durable workflow without changing its recorded history."""
+
+        require_storage_root(self.root)
+        record = self.get_workflow(workflow_id)
+        if record is None:
+            raise KeyError(f"workflow unavailable: {workflow_id}")
+        with cross_process_writer_guard(self.root):
+            return self._scheduler().cancel(record.workflow_id, message=reason)
+
+    def run_next_workflow(self, *, workflow_id: str | None = None):
+        """Run one queued workflow using the bounded local handler mapping."""
+
+        from etf_cockpit.application.workflow_handlers import headless_workflow_handlers
+
+        handlers = headless_workflow_handlers(lambda: self, include_paper=True)
+
+        def dispatch(context):
+            record = self.get_workflow(context.workflow_id)
+            if record is None or record.workflow_type not in handlers:
+                raise ValueError("No headless handler is registered for this workflow.")
+            return handlers[record.workflow_type](context)
+
+        require_storage_root(self.root)
+        with cross_process_writer_guard(self.root):
+            return self._scheduler().run_once(dispatch, workflow_id=workflow_id)
 
 
 __all__ = [
