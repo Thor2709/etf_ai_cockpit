@@ -31,6 +31,7 @@ from etf_cockpit.application.data_service import DataService
 from etf_cockpit.application.snapshot_builder import build_snapshot
 from etf_cockpit.core.file_guard import PersistentFileGuard
 from etf_cockpit.core.paths import ROOT
+from etf_cockpit.core.session_log import redact_text
 from etf_cockpit.core.timing import timed_step
 
 
@@ -277,7 +278,16 @@ class HeadlessSession:
         if self._score_history_failure_handler is not None:
             self._score_history_failure_handler(exc, scoreboard_path)
             return
-        reason = " ".join(f"{type(exc).__name__}: {exc}".split())[:240]
+        from etf_cockpit.application.scoreboard_publication import ScoreboardPublicationBindingError
+
+        reason = redact_text(" ".join(f"{type(exc).__name__}: {exc}".split()))[:240]
+        if isinstance(exc, ScoreboardPublicationBindingError):
+            self.score_history_warning = (
+                f"Scoreboard {scoreboard_path.name} was written, but its score-history publication binding "
+                f"was not recorded ({reason}). Paper bot decisions for this publication are unavailable. "
+                "Scores and actions are unchanged."
+            )
+            return
         self.score_history_warning = (
             f"Score history was not persisted ({reason}). Scoreboard {scoreboard_path.name} was written; "
             "score history, components, evidence ledger and feature drivers for this run are unavailable, not empty."

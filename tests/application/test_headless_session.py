@@ -212,6 +212,35 @@ def test_publish_status_reports_missing_inputs_as_unavailable_not_zero(tmp_path)
     assert status["row_count"] is None
 
 
+def test_headless_binding_failure_keeps_persisted_history_explicit() -> None:
+    session = HeadlessSession(_snapshot())
+    session._record_score_history_failure(
+        scoreboard_publication.ScoreboardPublicationBindingError("binding store unavailable"),
+        Path("scoreboard.parquet"),
+    )
+
+    warning = session.score_history_warning or ""
+    assert "score-history publication binding" in warning
+    assert "binding store unavailable" in warning
+    assert "Paper bot decisions for this publication are unavailable" in warning
+    assert "Score history was not persisted" not in warning
+
+
+def test_headless_history_failure_redacts_details_before_truncating() -> None:
+    session = HeadlessSession(_snapshot())
+    credential = "fixture-private-token"
+    session._record_score_history_failure(
+        OSError("disk full " + "x" * 200 + " api_key=" + credential),
+        Path("scoreboard.parquet"),
+    )
+
+    warning = session.score_history_warning or ""
+    assert warning.startswith("Score history was not persisted (OSError: disk full")
+    assert "unavailable, not empty" in warning
+    assert credential not in warning
+    assert credential[:5] not in warning
+
+
 def test_second_writer_is_refused_while_guard_is_held(tmp_path) -> None:
     result: list[str] = []
 
