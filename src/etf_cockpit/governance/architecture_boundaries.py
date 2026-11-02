@@ -12,7 +12,12 @@ import re
 from etf_cockpit.core.session_log import redact_text
 
 
-PRESENTATION_DIRS = (Path("src/etf_cockpit/app/pages"), Path("src/etf_cockpit/app/components"), Path("src/etf_cockpit/app/selectors"))
+PRESENTATION_DIRS = (
+    Path("src/etf_cockpit/app/pages"),
+    Path("src/etf_cockpit/app/components"),
+    Path("src/etf_cockpit/app/selectors"),
+    Path("src/etf_cockpit/mcp"),
+)
 ALLOWED_IMPLEMENTATION_MODULES = {
     "etf_cockpit.application.ui_facade",
     "etf_cockpit.app.state",
