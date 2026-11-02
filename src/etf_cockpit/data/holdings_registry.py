@@ -47,6 +47,15 @@ def _listing(config: dict) -> ListingCalendarEvidence:
     return ListingCalendarEvidence(**fields)
 
 
+def listing_evidence(root: Path, instrument_id: str) -> ListingCalendarEvidence:
+    """Return the validated listing evidence for one explicitly configured fund."""
+
+    matches = [fund for fund in load_funds(Path(root))["funds"] if fund["instrument_id"] == instrument_id]
+    if len(matches) != 1:
+        raise ValueError("instrument is not present exactly once in the configured holdings registry")
+    return matches[0]["_listing"]
+
+
 def load_funds(root: Path) -> dict:
     path = Path(root) / "configs" / "ishares_ucits_funds_v1.yaml"
     config = yaml.safe_load(path.read_text(encoding="utf-8"))
