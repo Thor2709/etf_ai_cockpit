@@ -102,8 +102,13 @@ class _HistoryClient:
         return RawDocument(path, str(filing["package_url"]), datetime.now(timezone.utc), hashlib.sha256(path.read_bytes()).hexdigest(), "filings_xbrl_org", "esef_report_package", "application/octet-stream", 200)
 
 
-def test_bank_history_imports_every_filing_into_one_directory_with_registry_dates(tmp_path: Path) -> None:
+def test_bank_history_imports_every_filing_into_one_directory_with_registry_dates(tmp_path: Path, monkeypatch) -> None:
+    from etf_cockpit.parsers import esef_ixbrl
     from scripts.sparebank_refresh import _history_filings, refresh_sparebanks
+
+    # This tests history persistence and PIT dates; optional Arelle process startup
+    # can exceed its wall-clock timeout on loaded parallel Windows workers.
+    monkeypatch.setattr(esef_ixbrl, "_arelle_available", lambda: False)
 
     client = _HistoryClient(tmp_path / "downloads")
     assert [row["id"] for row in _history_filings(client.rows, LEI)] == ["f-early", "f-late"]  # oldest knowledge first; no date / other LEI dropped
