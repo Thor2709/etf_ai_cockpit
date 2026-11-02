@@ -1,5 +1,6 @@
 # Exact parser lock used by the protected release matrix.
-arelle-release[esef]==2.41.4
+arelle-release[esef]==2.47.2
+pillow==13.0.0
 pdfplumber==0.11.10
 defusedxml==0.7.1
 feedparser==6.0.11
