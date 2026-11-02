@@ -71,6 +71,48 @@ def test_every_write_tool_refuses_missing_confirm_token_before_side_effects(tmp_
     assert not (tmp_path / "data").exists()
 
 
+def test_registry_manual_preview_issues_token_and_place_requires_confirmation(tmp_path: Path, monkeypatch) -> None:
+    calls = []
+    writes = []
+
+    def preview(**kwargs):
+        calls.append(kwargs["persist"])
+        return {"status": "proposal_ready", "proposal_id": "proposal-fixture", "quantity": 1.0, "execution_allowed": False}
+
+    def persist(result, **kwargs):
+        writes.append("proposal")
+        return dict(result)
+
+    monkeypatch.setattr(paper_manual_order, "preview_manual_paper_order", preview)
+    monkeypatch.setattr(paper_manual_order, "persist_manual_paper_proposal", persist)
+    monkeypatch.setattr(paper_manual_order, "accept_manual_paper_proposal", lambda **kwargs: writes.append("place") or {"order_id": "paper-fixture"})
+    context = _context(tmp_path)
+    arguments = {"account_id": "test-account", "instrument_id": "ETF1", "side": "buy", "quantity": 1.0, "rationale": "fixture"}
+    staged = invoke_tool("paper_order_preview", arguments, context=context)
+    assert isinstance(staged["confirm_token"], str)
+    assert staged["preview"]["status"] == "confirmation_required"
+    assert calls == [False] and writes == []
+
+    place_args = {"proposal_id": "proposal-fixture", "instrument_id": "ETF1", "quantity": 1.0}
+    for name, args in (("paper_order_preview", arguments), ("paper_order_place", place_args)):
+        with pytest.raises(ConfirmationError):
+            invoke_tool(name, {**args, "dry_run": False}, context=context)
+        with pytest.raises(ConfirmationError):
+            invoke_tool(name, {**args, "confirm_token": "invalid"}, context=context)
+    assert calls == [False] and writes == []
+
+    committed = invoke_tool("paper_order_preview", {**staged["preview"]["confirmation_arguments"], "confirm_token": staged["confirm_token"]}, context=context)
+    assert calls == [False, True] and writes == ["proposal"]
+    with pytest.raises(ConfirmationError):
+        invoke_tool("paper_order_place", {**place_args, "dry_run": True, "confirm_token": committed["confirm_token"]}, context=context)
+    assert writes == ["proposal"]
+    placed = invoke_tool("paper_order_place", {**place_args, "confirm_token": committed["confirm_token"]}, context=context)
+    assert placed["execution_allowed"] is False and writes == ["proposal", "place"]
+    with pytest.raises(ConfirmationError):
+        invoke_tool("paper_order_place", {**place_args, "confirm_token": committed["confirm_token"]}, context=context)
+    assert writes == ["proposal", "place"]
+
+
 def test_missing_manual_price_remains_unavailable_not_zero(tmp_path: Path) -> None:
     from etf_cockpit.portfolio.paper_trading import PaperLedger
 

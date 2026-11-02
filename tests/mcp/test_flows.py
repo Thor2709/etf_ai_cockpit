@@ -159,7 +159,6 @@ def test_flow_3_candidate_assessment_is_provisional_and_local(flow_context: Call
     _compact(lookup); _compact(candidate)
 
 
-@pytest.mark.xfail(strict=True, reason="paper_order_preview is a write-tier tool without a registry preview callback, so invoke_tool refuses the intended preview before its handler (tools_paper.py:255)")
 def test_flow_4_paper_order_requires_confirmation_and_stays_paper(flow_context: CallContext, monkeypatch: pytest.MonkeyPatch) -> None:
     from etf_cockpit.application import paper_manual_order
 
@@ -178,7 +177,6 @@ def test_flow_4_paper_order_requires_confirmation_and_stays_paper(flow_context: 
     _compact(preview); _compact(tokenized); _compact(placed)
 
 
-@pytest.mark.xfail(strict=True, reason="tools_data.data_health reads DataHealthReport.as_of, while the canonical report exposes as_of_date; flow 5 stops at freshness lookup (tools_data.py:85, mcp_data_views.py:27)")
 def test_flow_5_status_gates_and_alerts_are_compact(flow_context: CallContext, monkeypatch: pytest.MonkeyPatch) -> None:
     from etf_cockpit.application import status_views
     from etf_cockpit.mcp import tools_ops
@@ -190,7 +188,7 @@ def test_flow_5_status_gates_and_alerts_are_compact(flow_context: CallContext, m
         _compact(result)
 
 
-@pytest.mark.xfail(strict=True, reason="section 6 flow 6 requires ticket_preview, ticket_export and fill_record_preview/fill_record_commit, which are absent from the MCP registry; owner ADR-gated ticket/fill lane is unimplemented")
+@pytest.mark.xfail(strict=True, reason="Deferred by owner decision D2: section 6 flow 6 requires ticket_preview, ticket_export and fill_record_preview/fill_record_commit, which are absent from the MCP registry; owner ADR-gated ticket/fill lane is unimplemented")
 def test_flow_6_owner_ticket_export_and_fill_record(flow_context: CallContext) -> None:
     preview = invoke_tool("ticket_preview", {"instrument_id": "FIXTURE1"}, context=flow_context)
     exported = invoke_tool("ticket_export", {"confirm_token": preview["confirm_token"]}, context=flow_context)

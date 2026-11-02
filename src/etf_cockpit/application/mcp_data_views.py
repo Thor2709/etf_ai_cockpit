@@ -24,7 +24,8 @@ from etf_cockpit.data.provider_registry import ProviderRegistry
 def data_health_view(*, dataset: str | None = None, stale_after_days: int = 3) -> dict[str, object]:
     report = build_data_health(load_config(), Path(ROOT), stale_after_days=stale_after_days)
     rows = filter_data_health_rows(report, dataset=dataset)
-    return {"as_of": report.as_of, "rows": rows, "unavailable": not bool(rows)}
+    as_of = getattr(report, "as_of_date", None)
+    return {"as_of": as_of, "rows": rows, "unavailable": as_of is None or not bool(rows)}
 
 
 def data_provider_status_view(*, probe: bool = False) -> tuple[dict[str, object], ...]:

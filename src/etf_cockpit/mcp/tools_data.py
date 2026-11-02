@@ -84,7 +84,13 @@ def data_health(dataset: str | None = None, stale_after_days: int = 3, cursor: s
         raise InvalidArgumentsError("stale_after_days must be non-negative")
     view = mcp_data_views.data_health_view(dataset=dataset, stale_after_days=stale_after_days)
     paged = _paged(list(view["rows"]), cursor=cursor, filters={"dataset": dataset, "stale_after_days": stale_after_days}, limit=limit)
-    return {"as_of": view["as_of"], "rows": paged["rows"], "next_cursor": paged["next_cursor"], "unavailable_reason": "No data health rows match the requested filter." if not view["rows"] else None}
+    as_of = view.get("as_of")
+    unavailable_reason = None
+    if as_of is None:
+        unavailable_reason = "The canonical data health as_of_date is unavailable."
+    elif not view["rows"]:
+        unavailable_reason = "No data health rows match the requested filter."
+    return {"as_of": as_of, "rows": paged["rows"], "next_cursor": paged["next_cursor"], "unavailable_reason": unavailable_reason}
 
 
 @tool(tier="read", description="Evaluate point-in-time data readiness across an interval.", read_only_hint=True, idempotent_hint=True)

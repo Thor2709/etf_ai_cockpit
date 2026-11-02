@@ -38,6 +38,30 @@ def test_data_health_is_paged_and_keeps_unavailable_values(monkeypatch: pytest.M
     assert first["next_cursor"]
 
 
+@pytest.mark.parametrize("canonical_date", ["2026-10-30", None, "missing"])
+def test_data_health_uses_canonical_report_date_and_reports_missing_date(monkeypatch, canonical_date) -> None:
+    from etf_cockpit.data.health import DataHealthReport, DataHealthRow, DataHealthStatus
+
+    row = DataHealthRow(dataset="prices", status=DataHealthStatus.HEALTHY, path="fixture.parquet", row_count=1,
+                        checksum=None, as_of="2026-10-30", freshness="fresh", provider=None,
+                        last_success=None, last_failure=None, warnings=())
+    report = DataHealthReport(created_at="2026-11-02T00:00:00Z", as_of_date=canonical_date, rows=(row,))
+    if canonical_date == "missing":
+        report = SimpleNamespace(rows=(row,), as_of="1999-01-01")
+        monkeypatch.setattr(mcp_data_views, "filter_data_health_rows", lambda report, **kwargs: report.rows)
+    monkeypatch.setattr(mcp_data_views, "load_config", lambda: None)
+    monkeypatch.setattr(mcp_data_views, "build_data_health", lambda *args, **kwargs: report)
+
+    result = invoke_tool("data_health", {}, context=_context())
+    assert result["rows"][0]["dataset"] == "prices"
+    assert result["rows"][0]["row_count"] == 1
+    assert result["as_of"] == (canonical_date if canonical_date != "missing" else None)
+    if canonical_date in (None, "missing"):
+        assert result["unavailable_reason"]
+    else:
+        assert result["unavailable_reason"] is None
+
+
 def test_canonical_data_services_are_called_and_unavailability_is_not_zero(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[str] = []
 

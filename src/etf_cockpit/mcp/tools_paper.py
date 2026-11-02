@@ -251,7 +251,7 @@ def paper_controls_status(account_id: str | None = None) -> dict[str, Any]:
     return load_paper_controls_status(session.root, account)
 
 
-@tool(tier="paper", description="Preview and record a gate-checked manual paper proposal using stored price and cost evidence.", idempotent_hint=True, profiles=("core", "full"))
+@tool(tier="paper", description="Preview and record a gate-checked manual paper proposal using stored price and cost evidence.", idempotent_hint=True, profiles=("core", "full"), preview=lambda **kwargs: paper_order_preview(**kwargs))
 def paper_order_preview(
     account_id: str,
     instrument_id: str,
@@ -312,7 +312,7 @@ def paper_order_preview(
     return persisted
 
 
-@tool(tier="paper", description="Accept and fill one approved manual paper proposal with its server-derived price and costs.", idempotent_hint=True, profiles=("core", "full"))
+@tool(tier="paper", description="Accept and fill one approved manual paper proposal with its server-derived price and costs.", idempotent_hint=True, profiles=("core", "full"), preview=lambda **kwargs: paper_order_place(**kwargs))
 def paper_order_place(
     proposal_id: str,
     instrument_id: str,
