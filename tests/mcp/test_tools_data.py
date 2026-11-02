@@ -26,13 +26,14 @@ def test_refresh_submission_binds_dedupe_to_normalised_request(submission_route)
         return "wf_refresh"
 
     def execute(command):
-        assert command.idempotency_key == command.dedupe_key
+        assert command.idempotency_key == f"mcp:{command.dedupe_key.rsplit(':', 1)[1]}"
         submissions.append((command.workflow_type, command.input_payload, command.dedupe_key))
         return SimpleNamespace(status="accepted", resource_id="wf_refresh")
 
     context = _context()
     context.session = (SimpleNamespace(submit_workflow=submit_workflow) if submission_route == "session"
                        else SimpleNamespace(application_api=SimpleNamespace(execute=execute)))
+    context.session.list_workflows = lambda **_kwargs: []
     with use_call_context(context):
         first = tools_data.data_refresh(" PRICES ", ids=None, years=1, rescore=False)
         repeated = tools_data.data_refresh("prices", ids=[], years=1, rescore=False)
@@ -42,8 +43,11 @@ def test_refresh_submission_binds_dedupe_to_normalised_request(submission_route)
     assert len(submissions) == 4
     assert submissions[0][1] == {"source": "prices", "ids": [], "years": 1, "rescore": False}
     assert submissions[0][2].startswith("mcp:data_refresh:")
-    assert submissions[0][2] == submissions[1][2]
-    assert len({submissions[index][2] for index in (0, 2, 3)}) == 3
+    keys = [submission[2].split(":") for submission in submissions]
+    assert all(len(key) == 4 and len(key[2]) == 64 and len(key[3]) == 32 for key in keys)
+    assert keys[0][2] == keys[1][2]
+    assert len({keys[index][2] for index in (0, 2, 3)}) == 3
+    assert len({key[3] for key in keys}) == 4
 
 
 def _context(rate_path: Path | None = None) -> CallContext:
@@ -492,21 +496,27 @@ def workflow_submission_context(request, tmp_path, monkeypatch):
     snapshot = SimpleNamespace(universe_revision="submission-fixture")
     context = _context(tmp_path / "limits.sqlite3")
     commands = []
+    execute = LocalApplicationApi.execute
+
+    def record_command(api, command):
+        submission_id = command.dedupe_key.rsplit(":", 1)[1]
+        if request.param == "session":
+            command_hash = hashlib.sha256(f"{command.workflow_type}\0{command.dedupe_key}".encode("utf-8")).hexdigest()
+            assert command.idempotency_key == f"mcp-{command_hash}"
+        else:
+            assert command.idempotency_key == f"mcp:{submission_id}"
+        commands.append(command)
+        return execute(api, command)
+
+    monkeypatch.setattr(LocalApplicationApi, "execute", record_command)
+    monkeypatch.setattr(headless_session, "ROOT", tmp_path)
+    session = headless_session.HeadlessSession(snapshot, root=tmp_path)
+    session._job_scheduler = scheduler
     if request.param == "session":
-        monkeypatch.setattr(headless_session, "ROOT", tmp_path)
-        session = headless_session.HeadlessSession(snapshot, root=tmp_path)
-        session._job_scheduler = scheduler
         context.session = session
     else:
         api = LocalApplicationApi(lambda: snapshot, scheduler=scheduler, root=tmp_path)
-        execute = api.execute
-
-        def record_command(command):
-            commands.append(command)
-            return execute(command)
-
-        monkeypatch.setattr(api, "execute", record_command)
-        context.session = SimpleNamespace(application_api=api)
+        context.session = SimpleNamespace(application_api=api, list_workflows=session.list_workflows)
     return context, scheduler, commands
 
 
@@ -528,12 +538,12 @@ def test_confirmed_identical_refresh_after_completion_creates_new_job(workflow_s
     assert second != first
     assert scheduler.get_workflow(second).status.value == "queued"
     assert len(scheduler.list_workflows()) == 2
-    original_key = scheduler.get_workflow(first).dedupe_key
-    assert scheduler.get_workflow(second).dedupe_key.startswith(original_key + ":")
-    if commands:
-        assert len(commands) == 3  # original, historical match, one fresh submission
-        assert len({command.idempotency_key for command in commands}) == 3
-        assert commands[0].dedupe_key == commands[1].dedupe_key == original_key
+    first_key = scheduler.get_workflow(first).dedupe_key.rsplit(":", 1)
+    second_key = scheduler.get_workflow(second).dedupe_key.rsplit(":", 1)
+    assert first_key[0] == second_key[0]
+    assert first_key[1] != second_key[1]
+    assert len(commands) == 2
+    assert len({command.idempotency_key for command in commands}) == 2
 
 
 def test_confirmed_identical_refresh_while_queued_reuses_job(workflow_submission_context):
@@ -546,10 +556,7 @@ def test_confirmed_identical_refresh_while_queued_reuses_job(workflow_submission
     assert second == first
     assert len(scheduler.list_workflows()) == 1
     assert len(scheduler.list_jobs()) == 1
-    if commands:
-        assert len(commands) == 2
-        assert commands[0].idempotency_key != commands[1].idempotency_key
-        assert commands[0].dedupe_key == commands[1].dedupe_key
+    assert len(commands) == 1
 
 
 def test_identical_score_history_backfill_after_completion_creates_new_job(workflow_submission_context):
@@ -567,6 +574,98 @@ def test_identical_score_history_backfill_after_completion_creates_new_job(workf
     assert second != first
     assert scheduler.get_workflow(second).status.value == "queued"
     assert len(scheduler.list_workflows()) == 2
-    if commands:
-        assert len(commands) == 4
-        assert len({command.idempotency_key for command in commands}) == 4
+    assert len(commands) == 2
+    assert len({command.idempotency_key for command in commands}) == 2
+
+
+def test_completed_refresh_replacement_is_reused_while_queued(workflow_submission_context, tmp_path):
+    context, scheduler, commands = workflow_submission_context
+    now = [0.0]
+    context.rate_limiter = RateLimiter(path=tmp_path / "controlled-limits.sqlite3", clock=lambda: now[0])
+    first = _confirmed_refresh(context)
+    assert scheduler.run_once(lambda _context: "offline completion", workflow_id=first).status.value == "succeeded"
+
+    replacement = _confirmed_refresh(context)
+    assert replacement != first
+    assert scheduler.get_workflow(replacement).status.value == "queued"
+    # Each preview + confirmation consumes two calls. C arrives in the next
+    # quota window; B remains queued throughout, and the real quota stays enabled.
+    now[0] += 3601
+    repeated = _confirmed_refresh(context)
+
+    assert repeated == replacement
+    assert len(scheduler.list_workflows()) == len(scheduler.list_jobs()) == 2
+    assert len(commands) == 2
+
+
+@pytest.mark.parametrize("listing", [None, "failed", "saturated"])
+def test_refresh_fails_closed_when_complete_listing_is_unavailable(listing):
+    from etf_cockpit.mcp.errors import MCPToolError
+    from etf_cockpit.mcp.registry import use_call_context
+
+    def list_workflows(*, status, offset, limit):
+        if listing == "failed":
+            raise RuntimeError("listing unavailable")
+        return [SimpleNamespace(status="succeeded") for _ in range(min(limit, 200 - offset))]
+
+    context = _context()
+    context.session = SimpleNamespace(submit_workflow=lambda **_kwargs: pytest.fail("unsafe submission"))
+    if listing is not None:
+        context.session.list_workflows = list_workflows
+    with use_call_context(context), pytest.raises(MCPToolError) as error:
+        tools_data.data_refresh("prices")
+    assert error.value.reason_code == "JOB_SERVICE_UNAVAILABLE"
+
+
+@pytest.mark.parametrize("record_kind", ["dedupe_key", "inputs"])
+@pytest.mark.parametrize("status", ["queued", "running"])
+def test_refresh_finds_active_match_on_later_page(record_kind, status):
+    import json
+
+    from etf_cockpit.mcp.registry import use_call_context
+
+    payload = {"source": "prices", "ids": [], "years": 5, "rescore": True}
+    fingerprint = hashlib.sha256(json.dumps(
+        ["data_refresh", payload], sort_keys=True, separators=(",", ":"), allow_nan=False,
+    ).encode("utf-8")).hexdigest()
+    matching = {"workflow_id": "existing", "workflow_type": "refresh", "status": status}
+    if record_kind == "dedupe_key":
+        matching["dedupe_key"] = f"mcp:data_refresh:{fingerprint}:submission"
+    else:
+        matching["inputs"] = payload
+    # Nonmatching active workflows must be skipped even when their payload matches.
+    other_type = {**matching, "workflow_type": "other", "workflow_id": "wrong-type"}
+    other_request = {**matching, "dedupe_key": "mcp:data_refresh:different:submission", "workflow_id": "wrong-input"}
+    rows = [other_type, other_request] + [{"status": "succeeded"}] * 123 + [matching]
+    pages = []
+
+    def list_workflows(*, status, offset, limit):
+        assert status is None
+        pages.append(offset)
+        page = rows[offset : offset + limit]
+        return page if record_kind == "inputs" else [SimpleNamespace(**row) for row in page]
+
+    context = _context()
+    context.session = SimpleNamespace(list_workflows=list_workflows, submit_workflow=lambda **_kwargs: pytest.fail("duplicate submission"))
+    with use_call_context(context):
+        assert tools_data.data_refresh("prices")["job_id"] == "existing"
+    assert pages == [0, 100]
+
+
+def test_confirmed_submission_identity_is_derived_from_token():
+    from etf_cockpit.mcp.registry import use_call_context
+
+    commands = []
+
+    def execute(command):
+        commands.append(command)
+        return SimpleNamespace(status="accepted", resource_id="submitted")
+
+    context = _context()
+    context.session = SimpleNamespace(list_workflows=lambda **_kwargs: [], application_api=SimpleNamespace(execute=execute))
+    token = "single-use-token-with-nonce"
+    with use_call_context(context):
+        assert tools_data.data_refresh("prices", confirm_token=token)["job_id"] == "submitted"
+    submission_id = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    assert commands[0].dedupe_key.rsplit(":", 1)[1] == submission_id
+    assert commands[0].idempotency_key == f"mcp:{submission_id}"

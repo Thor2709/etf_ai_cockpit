@@ -4,6 +4,11 @@ Open defaults: health staleness is three days, refresh lookback is five years,
 score-history cadence is five sessions, workers is one, and pages contain 25 rows.
 Refreshes require an injected application workflow service; no tool performs a
 provider write before the registry accepts a valid confirmation token.
+Submission identities hash the consumed single-use confirmation token (including
+its nonce), or use uuid4 for calls without confirmation. A process-local lock
+serialises active-workflow lookup and submission. Cross-process duplicates are
+possible only when two processes submit at the same instant (benign: two refreshes).
+The current session exposes at most 200 workflows; a saturated lookup fails closed.
 """
 
 from __future__ import annotations
@@ -12,6 +17,7 @@ from datetime import date
 import hashlib
 import json
 from pathlib import Path
+import threading
 from typing import Any, Mapping
 from uuid import uuid4
 
@@ -23,6 +29,7 @@ from etf_cockpit.mcp.serialise import normalise
 
 
 _CURSORS = CursorCodec()
+_WORKFLOW_SUBMISSION_LOCK = threading.Lock()
 _REFRESH_SOURCES = frozenset({"prices", "fundamentals", "etf_holdings", "sparebanks", "euronext_listing", "pit_history"})
 
 
@@ -48,30 +55,62 @@ def _submit_workflow(workflow_type: str, label: str, payload: Mapping[str, objec
         raise MCPToolError("JOB_SERVICE_UNAVAILABLE", "The local workflow service is not available", "Start the MCP server with its headless application workflow service.")
     api = getattr(session, "application_api", None) or getattr(session, "api", None)
     tool_name = "data_refresh" if workflow_type != "score_history_backfill" else workflow_type
-    fingerprint = hashlib.sha256(json.dumps(
-        [tool_name, normalise(payload)], sort_keys=True, separators=(",", ":"), allow_nan=False,
-    ).encode("utf-8")).hexdigest()
-    dedupe_key = f"mcp:{tool_name}:{fingerprint}"
+
+    def fingerprint_for(inputs: object) -> str:
+        return hashlib.sha256(json.dumps(
+            [tool_name, normalise(inputs)], sort_keys=True, separators=(",", ":"), allow_nan=False,
+        ).encode("utf-8")).hexdigest()
+
+    def field(record: Any, name: str) -> Any:
+        return record.get(name) if isinstance(record, Mapping) else getattr(record, name, None)
+
+    fingerprint = fingerprint_for(payload)
+    dedupe_prefix = f"mcp:{tool_name}:{fingerprint}:"
     # The registry has consumed a confirmed call's single-use token (including its
     # random nonce). Hash it for the submission identity; unconfirmed jobs use uuid4.
     submission_id = hashlib.sha256(confirm_token.encode("utf-8")).hexdigest() if confirm_token else uuid4().hex
+    dedupe_key = f"{dedupe_prefix}{submission_id}"
     submit = getattr(session, "submit_workflow", None)
     execute = getattr(api, "execute", None)
-    for attempt in range(2):
+    list_workflows = getattr(session, "list_workflows", None)
+    if not callable(list_workflows):
+        raise MCPToolError("JOB_SERVICE_UNAVAILABLE", "Active workflows cannot be listed", "Start the MCP server with its headless application workflow service.")
+    with _WORKFLOW_SUBMISSION_LOCK:
+        offset = 0
+        while True:
+            try:
+                # Filter locally: the session applies status filtering before slicing
+                # an already bounded scheduler window, which can hide active rows.
+                rows = list(list_workflows(status=None, offset=offset, limit=MAX_PAGE_SIZE))
+            except Exception as exc:
+                raise MCPToolError("JOB_SERVICE_UNAVAILABLE", "Active workflows cannot be listed", "Restore the local workflow service before retrying.") from exc
+            for record in rows:
+                status = field(record, "status")
+                if getattr(status, "value", status) not in {"queued", "running"} or field(record, "workflow_type") != workflow_type:
+                    continue
+                key = field(record, "dedupe_key")
+                matches = (isinstance(key, str) and key.startswith(dedupe_prefix)) if key else fingerprint_for(field(record, "inputs")) == fingerprint
+                if matches:
+                    job_id = field(record, "workflow_id")
+                    if not job_id:
+                        raise MCPToolError("JOB_SERVICE_UNAVAILABLE", "An active workflow has no identifier", "Restore the local workflow service before retrying.")
+                    return str(job_id)
+            offset += len(rows)
+            # HeadlessSession and its scheduler truncate at 200. An older active
+            # match may be hidden; never treat that truncation as an empty history.
+            if offset >= 200:
+                raise MCPToolError("JOB_SERVICE_UNAVAILABLE", "The workflow listing window is full", "Complete workflow pagination is required before another submission can be accepted.")
+            if len(rows) < MAX_PAGE_SIZE:
+                break
         job_id = None
-        workflow_status = None
         if callable(submit):
             result = submit(workflow_type=workflow_type, label=label, input_payload=dict(payload), dedupe_key=dedupe_key)
             job_id = result if isinstance(result, str) else getattr(result, "resource_id", None) or getattr(result, "workflow_id", None)
-            if job_id:
-                get_workflow = getattr(session, "get_workflow", None)
-                record = get_workflow(str(job_id)) if callable(get_workflow) else result
-                workflow_status = record.get("status") if isinstance(record, Mapping) else getattr(record, "status", None)
         if not job_id and callable(execute):
             from etf_cockpit.application.contracts import SubmitWorkflowCommand
 
             command = SubmitWorkflowCommand(
-                idempotency_key=f"mcp:{submission_id}:{attempt}",
+                idempotency_key=f"mcp:{submission_id}",
                 workflow_type=workflow_type,
                 label=label,
                 input_payload=dict(payload),
@@ -83,16 +122,9 @@ def _submit_workflow(workflow_type: str, label: str, payload: Mapping[str, objec
             status = getattr(getattr(result, "status", None), "value", getattr(result, "status", None))
             if status not in {"accepted", "replayed"} or not job_id:
                 raise MCPToolError("WORKFLOW_SUBMIT_FAILED", "The workflow was not accepted", "Review the local workflow service status and retry after correcting the reported issue.")
-            workflow_status = dict(getattr(result, "details", ())).get("status")
         if not job_id:
             raise MCPToolError("JOB_SERVICE_UNAVAILABLE", "The local workflow service is not available", "Start the MCP server with its headless application workflow service.")
-        workflow_status = getattr(workflow_status, "value", workflow_status)
-        if attempt or workflow_status not in {"succeeded", "failed", "cancelled", "blocked"}:
-            return str(job_id)
-        # Scheduler dedupe includes terminal runs. Bypass that historical match
-        # exactly once with this submission's suffix; the retry has its own command key.
-        dedupe_key = f"{dedupe_key}:{submission_id}"
-    raise AssertionError("workflow submission attempts exhausted")
+        return str(job_id)
 
 
 def _preview_refresh(source: str, ids: list[str] | None = None, years: int = 5, rescore: bool = True) -> dict[str, object]:
