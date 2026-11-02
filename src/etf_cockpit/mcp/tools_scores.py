@@ -6,7 +6,15 @@ comparisons use one year, and selection uses the app's configured medium risk
 profile without persisting a run. Candidate analysis defaults to five years and
 uses only requested identifiers found in the local candidate input and verified
 stored prices. Network candidate refresh requires allow_network=True. Other job
-tools use local-only derived work.
+    tools use local-only derived work.
+
+Instrument detail keeps the last 60 entries of each list in canonical source
+order (price history is oldest first). Capped lists retain their field names
+and add <field>_pagination with rows_total, rows_returned and truncated. Each
+section gets 30,000 JSON characters divided by the requested section count, reserving
+space within the 32,000-character response budget for identity and the envelope.
+Oversized sections return a truncated status and a narrower-tool/request hint;
+unavailable statuses remain unavailable. The instrument resource uses this path.
 """
 
 from __future__ import annotations
@@ -26,6 +34,8 @@ from etf_cockpit.mcp.registry import current_call_context, tool
 
 _CURSORS = CursorCodec()
 _DEFAULT_SESSION: Any = None
+_DETAIL_ROW_LIMIT = 60
+_DETAIL_SECTIONS_BUDGET = 30_000
 
 
 def _session() -> Any:
@@ -242,15 +252,55 @@ def screen_run(
     }
 
 
+def _project_detail_value(value: Any) -> Any:
+    """Bound nested row lists without changing scalar summaries or missing values."""
+
+    if isinstance(value, Mapping):
+        projected = {key: _project_detail_value(item) for key, item in value.items()}
+        for key, item in value.items():
+            if isinstance(item, (list, tuple)) and len(item) > _DETAIL_ROW_LIMIT:
+                projected[f"{key}_pagination"] = {
+                    "rows_total": len(item),
+                    "rows_returned": _DETAIL_ROW_LIMIT,
+                    "truncated": True,
+                }
+        return projected
+    if isinstance(value, (list, tuple)):
+        return [_project_detail_value(item) for item in value[-_DETAIL_ROW_LIMIT:]]
+    return value
+
+
 @tool(tier="read", description="Load selected canonical instrument detail sections without a UI.", read_only_hint=True, idempotent_hint=True)
 def instrument_detail(instrument_id: str, sections: Sequence[str] | None = None) -> dict[str, Any]:
     from etf_cockpit.application.instrument_detail_loader import load_instrument_detail
 
     _session_value, snapshot = _snapshot()
     try:
-        return load_instrument_detail(snapshot, instrument_id.strip(), tuple(sections or ("overview", "score")))
+        result = load_instrument_detail(snapshot, instrument_id.strip(), tuple(sections or ("overview", "score")))
     except ValueError as exc:
         raise InvalidArgumentsError(str(exc)) from None
+    panels = result.get("sections")
+    if not isinstance(panels, Mapping):
+        return result
+    from etf_cockpit.mcp.serialise import normalise
+
+    budget = _DETAIL_SECTIONS_BUDGET // max(1, len(panels))
+    projected = {}
+    for name, panel in panels.items():
+        section = _project_detail_value(panel)
+        if len(json.dumps(normalise(section), allow_nan=False)) > budget:
+            hint = f"Request instrument_detail with sections=['{name}'] to isolate this section."
+            if name == "score":
+                hint += " Use score_history(instrument_id=..., range='1M') for a narrower history window."
+            elif name == "overview":
+                hint += " Use identity_get(instrument_id=...) for identity alone."
+            section = {
+                "status": "unavailable" if panel.get("status") == "unavailable" else "truncated",
+                "truncated": True,
+                "hint": hint,
+            }
+        projected[name] = section
+    return {**result, "sections": projected}
 
 
 @tool(tier="read", description="Compare 2 to 5 instruments using canonical scores and stored comparison evidence.", read_only_hint=True, idempotent_hint=True)

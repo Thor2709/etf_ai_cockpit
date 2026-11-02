@@ -127,6 +127,79 @@ def test_score_detail_and_rank_tools_delegate_to_application_services(monkeypatc
     assert calls == [{"root": tmp_path, "years": (2,), "scope": "listing:euronext_oslo:all", "benchmark_id": None}]
 
 
+def test_instrument_detail_caps_500_row_history(monkeypatch: pytest.MonkeyPatch) -> None:
+    from etf_cockpit.application import instrument_detail_loader
+
+    history = [{"date": str(day), "adjusted_close": None if day == 499 else day + 1} for day in range(500)]
+    panel = {"status": "available", "rows": 500, "history": history, "latest_price": None}
+    payload = {"sections": {"overview": {"status": "available", "data": {"price": panel}}}, "execution_allowed": False}
+    monkeypatch.setattr(tools_scores, "_snapshot", lambda: (None, object()))
+    monkeypatch.setattr(instrument_detail_loader, "load_instrument_detail", lambda *_args: payload)
+
+    result = tools_scores.instrument_detail("one", sections=["overview"])
+    price = result["sections"]["overview"]["data"]["price"]
+    assert price["history"] == history[-60:]
+    assert price["history_pagination"] == {"rows_total": 500, "rows_returned": 60, "truncated": True}
+    assert price["rows"] == 500
+    assert price["latest_price"] is price["history"][-1]["adjusted_close"] is None
+    assert len(panel["history"]) == 500
+    assert "history_pagination" not in panel
+
+
+@pytest.mark.parametrize("oversized_summary", [False, True])
+def test_instrument_detail_overview_score_and_resource_fit_budget(monkeypatch: pytest.MonkeyPatch, oversized_summary: bool) -> None:
+    from etf_cockpit.application import instrument_detail_loader
+    from etf_cockpit.mcp.resources import RESOURCE_SPECS, read_resource
+    from etf_cockpit.mcp.serialise import build_envelope, envelope_dict
+
+    rows = [{"date": str(day), "value": day, "source": "stored"} for day in range(500)]
+    payload = {
+        "instrument_id": "one", "status": "available", "identity": {"name": "One"},
+        "sections": {
+            "overview": {"status": "available", "data": {"price": {"history": rows, "latest_price": 499}}},
+            "score": {"status": "available", "data": {
+                "history": {"rows": rows}, "score_10": None,
+                "summary": "large summary " * 3000 if oversized_summary else "canonical summary",
+            }},
+        },
+        "execution_allowed": False,
+    }
+    monkeypatch.setattr(tools_scores, "_snapshot", lambda: (None, object()))
+    monkeypatch.setattr(instrument_detail_loader, "load_instrument_detail", lambda *_args: payload)
+
+    result = tools_scores.instrument_detail("one", sections=["overview", "score"])
+    assert len(json.dumps(envelope_dict(build_envelope(result)))) < 32_000
+    score = result["sections"]["score"]
+    if oversized_summary:
+        assert score["status"] == "truncated"
+        assert score["truncated"] is True
+        assert "score_history(instrument_id=..., range='1M')" in score["hint"]
+        assert "data" not in score
+    else:
+        assert score["data"]["summary"] == "canonical summary"
+        assert score["data"]["score_10"] is None
+        assert score["data"]["history"]["rows"] == rows[-60:]
+        assert score["data"]["history"]["rows_pagination"]["rows_total"] == 500
+    spec = next(spec for spec in RESOURCE_SPECS if spec.uri == "cockpit://instrument/{id}")
+    resource = read_resource(spec, {"id": "one"}, CallContext())
+    assert len(resource) < 32_000
+    assert json.loads(resource)["data"] == result
+
+
+def test_instrument_detail_preserves_unavailable_section(monkeypatch: pytest.MonkeyPatch) -> None:
+    from etf_cockpit.application import instrument_detail_loader
+
+    unavailable = {"status": "unavailable", "reason": "No stored score evidence", "data": None}
+    payload = {"sections": {"score": unavailable}, "execution_allowed": False}
+    monkeypatch.setattr(tools_scores, "_snapshot", lambda: (None, object()))
+    monkeypatch.setattr(instrument_detail_loader, "load_instrument_detail", lambda *_args: payload)
+
+    result = tools_scores.instrument_detail("missing", sections=["score"])
+    assert result["sections"]["score"] == unavailable
+    assert result["sections"]["score"]["data"] is None
+    assert result["execution_allowed"] is False
+
+
 def test_candidate_tool_filters_out_universe_and_delegates_to_data_service(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     snapshot = SimpleNamespace(
         config=SimpleNamespace(universe=SimpleNamespace(etfs=(SimpleNamespace(id="inside"),))),
