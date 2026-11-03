@@ -85,6 +85,24 @@ def test_dividend_ex_date_uses_prior_close_quantity(tmp_path, ex_date_trade):
     assert datetime.fromisoformat(_actions(ledger)[0]["occurred_at"]) == _at(DAYS[1])
 
 
+def test_cash_before_ex_date_fill_includes_dividend_appended_after_fill(tmp_path):
+    ledger = _ledger(tmp_path)
+    before = Decimal(str(ledger.snapshot().cash))
+    _trade(ledger, DAYS[1], 5, 98)
+    _sync(tmp_path, ledger, _book())
+
+    events = ledger._read_events()
+    assert events[-1]["event_type"] == "corporate_action"
+    assert datetime.fromisoformat(events[-1]["occurred_at"]) == _at(DAYS[1])
+    assert datetime.fromisoformat(events[-1]["payload"]["available_at"]) == _at(DAYS[1])
+    assert any(event["event_type"] == "fill_recorded"
+               and datetime.fromisoformat(event["occurred_at"]) == _at(DAYS[1], 9)
+               for event in events[:-1])
+    assert ledger.cash_balance(
+        account_id=ledger.account_id, currency="EUR", as_of=_at(DAYS[1], 8),
+    ) == before + Decimal("20")
+
+
 def test_dividend_rerun_and_restart_are_idempotent(tmp_path):
     ledger = _ledger(tmp_path)
     _sync(tmp_path, ledger, _book())
