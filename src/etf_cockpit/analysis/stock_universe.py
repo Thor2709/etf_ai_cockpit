@@ -7,6 +7,7 @@ The caller supplies the decision time; ``live_decision_time`` is the single rule
 
 from __future__ import annotations
 
+import math
 import threading
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
@@ -14,6 +15,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 from etf_cockpit.analysis import stock_metrics as sm
@@ -137,6 +139,46 @@ def _price_frame(prices: pd.DataFrame, instrument_id: str) -> pd.DataFrame:
     return frame.dropna(subset=["date"]).sort_values("date")
 
 
+def as_traded_close(frame: pd.DataFrame, when: date) -> tuple[float | None, str | None]:
+    """Restore a stored split-adjusted close to its traded units on ``when``.
+
+    ``frame`` must contain the instrument's full stored history, including splits
+    after the decision date. Those events only undo the provider's retrospective
+    price adjustment; their prices and other future information are never used.
+    Missing or ambiguous action evidence fails closed, including legacy rows.
+    """
+
+    if frame.empty or not {"date", "close"} <= set(frame.columns):
+        return None, "no stored close for the valuation date"
+    if "etf_id" in frame and frame["etf_id"].nunique(dropna=False) != 1:
+        return None, "ambiguous instrument in valuation price history"
+    if "actions_evidenced" not in frame or not frame["actions_evidenced"].map(
+        lambda value: isinstance(value, (bool, np.bool_)) and bool(value)
+    ).all():
+        return None, "actions_evidence_missing: as-traded valuation price is unavailable"
+    if "stock_splits" not in frame:
+        return None, "split_history_missing: as-traded valuation price is unavailable"
+    dates = pd.to_datetime(frame["date"], errors="coerce", utc=True).dt.date
+    if dates.isna().any() or dates.duplicated().any():
+        return None, "ambiguous dates in valuation split history"
+    rows = frame.loc[dates == when]
+    if rows.empty:
+        return None, "no stored close for the valuation date"
+    close = sm._finite(rows.iloc[0]["close"])
+    if close is None or close <= 0:
+        return None, "stored valuation close is missing or non-positive"
+    splits = pd.to_numeric(frame["stock_splits"], errors="coerce")
+    if splits.isna().any() or not np.isfinite(splits).all() or (splits < 0).any():
+        return None, "split_history_invalid: as-traded valuation price is unavailable"
+    # Zero is the provider's explicit no-event marker. A split on d is already
+    # reflected in d's traded price, so only strictly later events are reversed.
+    factor = math.prod(float(ratio) for ratio in splits[(dates > when) & (splits != 0)])
+    value = sm._finite(close * factor)
+    if value is None or value <= 0:
+        return None, "split_history_invalid: restored valuation price is non-finite or non-positive"
+    return value, None
+
+
 def market_inputs(
     frame: pd.DataFrame,
     snapshot: Mapping[str, Any] | None,
@@ -145,7 +187,7 @@ def market_inputs(
     fx: pd.DataFrame,
     config: Mapping[str, Any],
 ) -> MarketInputs:
-    """Decision-time price, FX, trailing dividends and month-end history; every field known at the decision time."""
+    """Decision-time valuation inputs; later splits only reverse stored price adjustments."""
 
     minor = (config.get("reporting", {}) or {}).get("minor_currency_units", {}) or {}
     if frame.empty:
@@ -155,7 +197,7 @@ def market_inputs(
         return MarketInputs(unavailable_reason="no stored price is known at the decision time")
     last = known.iloc[-1]
     price_date = last["date"].date()
-    close = sm._finite(last.get("close"))
+    close, price_reason = as_traded_close(frame, price_date)
     quote = (snapshot or {}).get("quote_currency") or (str(last.get("currency")) if pd.notna(last.get("currency")) else "")
     quote_major, _factor = sm.minor_unit(str(quote), minor)
     fx_rate = None
@@ -171,7 +213,12 @@ def market_inputs(
         history_complete = bool(not known.empty and known["date"].iloc[0] <= start and not window.empty)
         values = pd.to_numeric(window["dividends"], errors="coerce")
         if history_complete and values.notna().all():
-            dividends = float(values.sum())
+            # Provider dividends share the stored close's split-adjusted units.
+            # Express both legs in the traded share units at the valuation date.
+            if close is not None:
+                dividends = float(values.sum()) * close / float(last["close"])
+            else:
+                dividend_reason = price_reason
         else:
             dividend_reason = "incomplete_dividend_year: stored dividend rows do not cover the full trailing year"
     else:
@@ -181,7 +228,11 @@ def market_inputs(
     month_ends = closes.groupby(closes.index.to_period("M")).tail(1)
     running_month = pd.Period(decision_time.date(), "M")
     month_ends = month_ends[month_ends.index.to_period("M") < running_month]  # the decision month is still running, every earlier month is complete
-    series = tuple((index.date(), float(value)) for index, value in month_ends.items())
+    series = tuple(
+        (index.date(), value)
+        for index in month_ends.index
+        if (value := as_traded_close(frame, index.date())[0]) is not None
+    )
     shares = sm._finite((snapshot or {}).get("shares_outstanding"))
     snap_time = sm.as_utc((snapshot or {}).get("known_at"))
     provider_cap = sm._finite((snapshot or {}).get("market_cap_provider"))
@@ -204,6 +255,7 @@ def market_inputs(
         shares_fallback=shares,
         shares_fallback_known_at=snap_time,
         market_cap_provider=provider_cap,
+        unavailable_reason=price_reason,
     )
 
 

@@ -236,6 +236,8 @@ def test_dividend_yield_is_unavailable_when_the_trailing_year_is_incomplete() ->
             "close": [48.0, 49.0, 50.0],
             "currency": ["EUR"] * 3,
             "dividends": [0.0, None, 0.0],
+            "stock_splits": [0.0] * 3,
+            "actions_evidenced": [True] * 3,
         }
     )
     market = su.market_inputs(prices, None, "EUR", DECISION, pd.DataFrame(columns=store.FX_COLUMNS), CONFIG)
@@ -278,7 +280,8 @@ def test_disabled_delisted_stock_keeps_historical_fundamentals_and_peer_contribu
     monkeypatch.setattr(su, "load_user_peers", lambda _root: {"T": ["OLD"]})
     decision = datetime(2026, 3, 1, tzinfo=UTC)
     prices = pd.DataFrame(
-        {"etf_id": ["OLD", "T"], "date": pd.to_datetime(["2026-02-27", "2026-02-27"]), "close": [50.0, 50.0], "currency": ["EUR", "EUR"], "dividends": [0.0, 0.0]}
+        {"etf_id": ["OLD", "T"], "date": pd.to_datetime(["2026-02-27", "2026-02-27"]), "close": [50.0, 50.0], "currency": ["EUR", "EUR"], "dividends": [0.0, 0.0],
+         "stock_splits": [0.0, 0.0], "actions_evidenced": [True, True]}
     )
     evidence = su.build_universe_evidence(records, prices, decision, config=CONFIG)
     assert evidence.evidence["OLD"].metrics["revenue_cagr"].available
