@@ -17,6 +17,11 @@ the identity. Former-member prices are kept only when the price window covers
 the membership window (otherwise: ticker reuse / no source, flagged).
 execution_allowed is always false.
 
+cover-evidence defaults to filingDate >= 2019-06-01, the first cover-tagging
+period, and includes amendments. It caches only small reports or a 1 MiB inline
+prefix, with a 2 MiB file cap. --cover-cache-budget-bytes defaults to 2 GiB
+(payloads and sidecars); acquisition stops before consuming the last 5 GiB free.
+
 Parallelised: per-CIK SEC fetches (thread pool, one shared limiter), name
 searches, per-ticker price downloads (pool, one shared 1 req/s limiter).
 """
@@ -30,6 +35,7 @@ import json
 import logging
 import os
 import re
+import shutil
 import subprocess
 import sys
 import threading
@@ -37,6 +43,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
@@ -52,12 +59,18 @@ if str(ROOT / "src") not in sys.path:
 # Repository imports follow the standalone CLI's sys.path bootstrap.
 from etf_cockpit.core.atomic_io import atomic_write_bytes  # noqa: E402
 from etf_cockpit.data.sec_cik_history import cik_text  # noqa: E402
-from etf_cockpit.data.sec_cover_identity import FORMS, acceptance_utc, parse_cover, select_bindings  # noqa: E402
+from etf_cockpit.data.sec_cover_identity import (  # noqa: E402
+    DEFAULT_COVER_START, FORMS, acceptance_utc, parse_cover, select_bindings,
+)
 from etf_cockpit.data.sp500_history import (  # noqa: E402
     fja_events, intervals_from_fja, parse_fja_csv, parse_wikipedia_changes,
 )
 
 SEC_RATE, OTHER_RATE = 8.0, 1.0
+COVER_FILE_CAP = 2 * 1024**2
+COVER_RANGE_BYTES = 1024**2
+COVER_CACHE_BUDGET = 2 * 1024**3
+COVER_FREE_FLOOR = 5 * 1024**3
 RETRY_INITIAL, RETRY_CAP, THROTTLE_PAUSE = 5.0, 60.0, 60.0
 FJA_REPO, FJA_FILE = "fja05680/sp500", "S&P 500 Historical Components & Changes (Updated).csv"
 WIKI_HISTORY = "https://en.wikipedia.org/wiki/Historical_components_of_the_S%26P_500"
@@ -129,7 +142,9 @@ def retry_after(value: str | None) -> float:
     return 0.0
 
 
-def http_get(url: str, host: str, *, tries: int = 5, allow_404: bool = False) -> tuple[int, bytes]:
+def http_get(url: str, host: str, *, tries: int = 5, allow_404: bool = False,
+             max_bytes: int | None = None, range_bytes: int | None = None,
+             on_bytes=None) -> tuple[int, bytes]:
     """Five total attempts; 5s exponential backoff capped at 60s.
 
     403/429 wait at least 60s. Retry-After is a lower bound and is never capped.
@@ -137,13 +152,29 @@ def http_get(url: str, host: str, *, tries: int = 5, allow_404: bool = False) ->
     """
     if tries < 1:
         raise ValueError("tries must be positive")
-    request = urllib.request.Request(url, headers={"User-Agent": user_agent(), "Accept-Encoding": "gzip"})
+    headers = {"User-Agent": user_agent(), "Accept-Encoding": "identity" if max_bytes else "gzip"}
+    if range_bytes is not None:
+        headers["Range"] = f"bytes=0-{range_bytes - 1}"
+    request = urllib.request.Request(url, headers=headers)
     for attempt in range(tries):
         LIMITERS[host].wait()
         delay = min(RETRY_INITIAL * 2 ** min(attempt, 4), RETRY_CAP)
         try:
             with urllib.request.urlopen(request, timeout=60) as response:
-                payload = response.read()
+                # Never let a server ignoring Range force a full document read.
+                payload = response.read(range_bytes if range_bytes is not None else
+                                        (max_bytes + 1 if max_bytes is not None else -1))
+                if on_bytes is not None:
+                    on_bytes(len(payload))
+                if max_bytes is not None and len(payload) > max_bytes:
+                    raise ValueError(f"cover per-file cap exceeded ({max_bytes} bytes): {url}")
+                if max_bytes is not None and response.headers.get("Content-Encoding", "identity") != "identity":
+                    raise ValueError("encoded cover response rejected; exact received bytes required")
+                if range_bytes is not None and response.status == 206:
+                    content_range = response.headers.get("Content-Range", "")
+                    match = re.fullmatch(r"bytes 0-(\d+)/(?:\d+|\*)", content_range)
+                    if not match or int(match[1]) + 1 != len(payload):
+                        raise ValueError("invalid cover Content-Range")
                 if response.headers.get("Content-Encoding") == "gzip":
                     payload = gzip.decompress(payload)
                 return response.status, payload
@@ -201,7 +232,7 @@ def fetch_recorded(url: str, host: str, path: Path, meta_dir: Path, *, legacy_me
 
 
 class Layout:
-    def __init__(self, root: Path):
+    def __init__(self, root: Path, *, cover_cache_budget: int = COVER_CACHE_BUDGET):
         self.root = root
         self.raw = root / "data" / "raw" / "univ1_sp500"
         self.sources, self.meta = self.raw / "sources", self.raw / "_meta"
@@ -209,8 +240,16 @@ class Layout:
         # Both endpoints use CIK{cik}.json; their checksums must not overwrite each other.
         self.facts_meta, self.subs_meta = self.meta / "companyfacts", self.meta / "submissions"
         self.prices = self.raw / "prices"
+        self.cover_cache_budget = cover_cache_budget
+        self._cover_cache, self._cover_lock = None, threading.Lock()
         for folder in (self.sources, self.meta, self.facts, self.subs, self.prices):
             folder.mkdir(parents=True, exist_ok=True)
+
+    def cover_cache(self):
+        with self._cover_lock:
+            if self._cover_cache is None:
+                self._cover_cache = CoverCache(self)
+            return self._cover_cache
 
 
 # ---------------------------------------------------------------- pure helpers
@@ -486,6 +525,70 @@ def step_sec(layout: Layout, workers: int) -> dict:
     return summary
 
 
+class CoverRunAborted(RuntimeError):
+    """A shared storage limit stops all issuer workers and config publication."""
+
+
+class CoverCache:
+    """One process-wide run budget, including cover/index payloads and sidecars.
+
+    Existing legacy .txt files count towards the budget but are never read or
+    reused. The caller may remove them separately; acquisition deletes nothing.
+    """
+
+    def __init__(self, layout: Layout):
+        self.layout, self.lock, self.reason = layout, threading.Lock(), None
+        roots = (layout.raw / "sec/covers", layout.meta / "covers", layout.subs, layout.subs_meta)
+        self.used = sum(p.stat().st_size for root in roots for p in root.rglob("*") if p.is_file())
+
+    def _check(self, growth=0, temporary=0):
+        if self.reason is None:
+            if self.used + growth > self.layout.cover_cache_budget:
+                self.reason = f"cover cache budget exceeded ({self.layout.cover_cache_budget} bytes)"
+            elif shutil.disk_usage(self.layout.raw).free - temporary < COVER_FREE_FLOOR:
+                self.reason = f"cover cache stopped: free disk below {COVER_FREE_FLOOR} bytes (5 GiB)"
+        if self.reason is not None:
+            raise CoverRunAborted(self.reason)
+
+    def check(self):
+        with self.lock:
+            self._check()
+
+    def store(self, path: Path, meta_dir: Path, payload: bytes, *, url: str, status: int, **extra):
+        if len(payload) > COVER_FILE_CAP:
+            raise ValueError(f"cover per-file cap exceeded ({COVER_FILE_CAP} bytes): {url}")
+        meta = {"path": str(path), "url": url, "sha256": sha256(payload), "bytes": len(payload),
+                "fetched_at": now(), "http_status": status, **extra}
+        sidecar = meta_dir / (path.name + ".meta.json")
+        metadata = json.dumps(meta, sort_keys=True, indent=1).encode()
+        with self.lock:
+            size = len(payload) + len(metadata)
+            previous = sum(p.stat().st_size for p in (path, sidecar) if p.is_file())
+            self._check(growth=size - previous, temporary=size)
+            try:
+                atomic_write_bytes(path, payload, lambda _: None)
+                atomic_write_bytes(sidecar, metadata, lambda p: json.loads(p.read_text()))
+            except OSError as exc:
+                self.reason = f"cover cache write failed: {exc}"
+                raise CoverRunAborted(self.reason) from exc
+            self.used += size - previous
+            self._check()
+        return meta
+
+
+def cover_report_name(payload: bytes) -> str:
+    """Use the cover report named by FilingSummary, never an arbitrary R1."""
+    root = ET.fromstring(payload)
+    for report in root.iter("Report"):
+        names = " ".join(report.findtext(key, "") for key in ("ShortName", "LongName"))
+        if re.search(r"\bcover\b|document\s+and\s+entity\s+information", names, re.I):
+            name = report.findtext("HtmlFileName", "")
+            if re.fullmatch(r"[A-Za-z0-9_.-]+\.html?", name, re.I):
+                return name
+            raise ValueError("unsafe/missing cover report filename")
+    raise ValueError("FilingSummary has no named cover report")
+
+
 def cover_failure(exc: Exception, *, cik: str, url: str, http_status: int | None,
                   accession: str | None = None) -> dict:
     """Keep transport causes and request context in both machine output and logs."""
@@ -503,31 +606,58 @@ def cover_failure(exc: Exception, *, cik: str, url: str, http_status: int | None
 
 
 def fetch_cover_issuer(task: tuple[str, Layout]) -> dict:
-    """One issuer per worker; all HTTP calls use the process-wide SEC limiter.
+    """One issuer per worker; bounded cover requests share the SEC limiter.
 
-    Full submission text preserves the SEC header and primary cover document in
-    one immutable response. Missing acceptance in old submissions pages can be
-    recovered only from the actual filing header, never from its filing date.
+    Filing dates before 2019-06-01 (the first cover-tagging period) are skipped.
+    Fetch a named rendered cover first, then at most the first 1 MiB of the
+    primary inline document. Never request a full submission, including /A forms.
     """
     cik, layout = task
     evidence, errors = [], []
+    downloaded = 0
     url, http_status, accession = SUBMISSIONS.format(name=f"CIK{cik}.json"), None, None
-    try:
-        name = f"CIK{cik}.json"
-        meta = fetch_recorded(url, "sec", layout.subs / name, layout.subs_meta)
+
+    def count_bytes(size):
+        nonlocal downloaded
+        downloaded += size
+        cache.check()
+
+    def fetch(request_url, target, meta_dir, *, ranged=False):
+        nonlocal url, http_status
+        url, http_status = request_url, None
+        cache.check()
+        # Check size before hashing, including on resume. Never read legacy .txt.
+        if target.is_file() and target.stat().st_size > COVER_FILE_CAP:
+            raise ValueError(f"cover per-file cap exceeded ({COVER_FILE_CAP} bytes): {url}")
+        meta = recorded(target, meta_dir)
+        if meta is None or meta.get("url") != url or meta.get("range_bytes") != (COVER_RANGE_BYTES if ranged else None):
+            status, payload = http_get(url, "sec", max_bytes=COVER_FILE_CAP,
+                                       range_bytes=COVER_RANGE_BYTES if ranged else None, on_bytes=count_bytes)
+            # Defence in depth for alternate transports: only persist bounded bytes.
+            if ranged:
+                payload = payload[:COVER_RANGE_BYTES]
+            meta = cache.store(target, meta_dir, payload, url=url, status=status,
+                               range_bytes=COVER_RANGE_BYTES if ranged else None)
         http_status = meta.get("http_status")
-        main = json.loads((layout.subs / name).read_bytes())
+        return target.read_bytes()
+
+    try:
+        cache = layout.cover_cache()
+        name = f"CIK{cik}.json"
+        main = json.loads(fetch(url, layout.subs / name, layout.subs_meta))
         if cik_text(main["cik"]) != cik:
             raise ValueError("submissions CIK mismatch")
         pages = [(main.get("filings", {}).get("recent", {}), url, http_status)]
         for entry in main.get("filings", {}).get("files", []):
+            end = entry.get("filingTo")
+            if end is not None and date.fromisoformat(end) < date.fromisoformat(DEFAULT_COVER_START):
+                continue
             page = entry["name"]
             if Path(page).name != page or not re.fullmatch(r"CIK\d{10}-submissions-\d+\.json", page):
                 raise ValueError("unsafe submissions page")
             url, http_status = SUBMISSIONS.format(name=page), None
-            meta = fetch_recorded(url, "sec", layout.subs / page, layout.subs_meta)
-            http_status = meta.get("http_status")
-            pages.append((json.loads((layout.subs / page).read_bytes()), url, http_status))
+            payload = fetch(url, layout.subs / page, layout.subs_meta)
+            pages.append((json.loads(payload), url, http_status))
         filings = {}
         for page, url, http_status in pages:
             accession = None
@@ -537,24 +667,44 @@ def fetch_cover_issuer(task: tuple[str, Layout]) -> dict:
             accepts = page.get("acceptanceDateTime", [None] * len(accessions))
             if len(accepts) != len(accessions):
                 raise ValueError("incomplete submissions acceptance index")
-            for accession, form, accepted in zip(accessions, forms, accepts):
+            dates, documents = page.get("filingDate", []), page.get("primaryDocument", [])
+            if len(dates) != len(accessions) or len(documents) != len(accessions):
+                raise ValueError("incomplete submissions date/primary document index")
+            for accession, form, accepted, filed, primary in zip(accessions, forms, accepts, dates, documents):
                 if form not in FORMS:
+                    continue
+                if date.fromisoformat(filed) < date.fromisoformat(DEFAULT_COVER_START):
                     continue
                 if not re.fullmatch(r"\d{10}-\d{2}-\d{6}", accession):
                     raise ValueError("invalid accession")
-                item = (form, accepted or None)
+                if not re.fullmatch(r"[A-Za-z0-9_.-]+\.html?", primary, re.I):
+                    raise ValueError("unsafe/non-HTML primary cover document")
+                item = (form, accepted or None, primary)
                 if accession in filings and filings[accession] != item:
                     raise ValueError("conflicting submissions filing index")
                 filings[accession] = item
-        for accession, (form, accepted) in sorted(filings.items()):
-            url = f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/{accession.replace('-', '')}/{accession}.txt"
-            target = layout.raw / "sec" / "covers" / cik / f"{accession}.txt"
-            http_status = None
-            meta = fetch_recorded(url, "sec", target, layout.meta / "covers" / cik)
-            http_status = meta.get("http_status")
+        for accession, (form, accepted, primary) in sorted(filings.items()):
+            base = f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/{accession.replace('-', '')}/"
+            folder = layout.raw / "sec/covers" / cik / accession
+            meta_dir = layout.meta / "covers" / cik / accession
+            # An unavailable/unreadable rendered report can use inline DEI facts.
             try:
-                evidence.append(parse_cover(target.read_bytes(), cik=cik, accession=accession,
-                                            form=form, acceptance=accepted, source=url))
+                summary = fetch(base + "FilingSummary.xml", folder / "FilingSummary.xml", meta_dir)
+                report = cover_report_name(summary)
+                payload = fetch(base + report, folder / report, meta_dir)
+                row = parse_cover(payload, cik=cik, accession=accession, form=form, acceptance=accepted, source=url)
+            except (urllib.error.HTTPError, ET.ParseError, ValueError, UnicodeError) as exc:
+                if isinstance(exc, urllib.error.HTTPError) and exc.code != 404:
+                    raise
+                if http_status is None and not isinstance(exc, urllib.error.HTTPError):
+                    raise
+                if "per-file cap exceeded" in str(exc) or str(exc) == "conflicting acceptanceDateTime":
+                    raise
+                payload = fetch(base + primary, folder / (primary + ".prefix"), meta_dir, ranged=True)
+                row = None
+            try:
+                evidence.append(row if row is not None else parse_cover(
+                    payload, cik=cik, accession=accession, form=form, acceptance=accepted, source=url))
             except (ValueError, UnicodeError) as exc:
                 # A dated unreadable cover terminates continuity. Without a
                 # trustworthy acceptance, fail the whole issuer scan closed.
@@ -564,16 +714,18 @@ def fetch_cover_issuer(task: tuple[str, Layout]) -> dict:
                 stamp = acceptance_utc(accepted or "")
                 evidence.append({"cik": cik, "accession": accession, "known_at": stamp,
                                  "tickers": [], "source": url})
-        return {"cik": cik, "status": "ok", "evidence": evidence, "errors": errors}
+        return {"cik": cik, "status": "ok", "evidence": evidence, "errors": errors,
+                "bytes_downloaded": downloaded}
     except Exception as exc:
         return {"cik": cik, "status": "failed", "evidence": evidence,
-                "errors": errors + [cover_failure(exc, cik=cik, url=url, http_status=http_status, accession=accession)]}
+                "errors": errors + [cover_failure(exc, cik=cik, url=url, http_status=http_status, accession=accession)],
+                "bytes_downloaded": downloaded}
 
 
 def step_cover(layout: Layout, workers: int) -> dict:
     """Opt-in historical identities; preserve run_config.yaml byte-for-byte.
 
-    Scan every available cover of each candidate issuer, without a date limit.
+    Scan supported filings dated >= 2019-06-01; older identity windows stay unbound.
     Existing resolution residues and exact normalised former security names are
     candidates only. They never supply binding knowledge or effective dates.
     """
@@ -582,6 +734,11 @@ def step_cover(layout: Layout, workers: int) -> dict:
     config = yaml.safe_load((layout.raw / "run_config.yaml").read_text(encoding="utf-8"))
     if config.get("execution_allowed") is not False:
         raise ValueError("execution_allowed=false required")
+    storage = layout.cover_cache()
+    try:
+        storage.check()
+    except CoverRunAborted as exc:
+        return {"status": "aborted", "reason": str(exc), "failed": [], "issuer_outcomes": []}
     resolved = json.loads((layout.raw / "resolve.json").read_text())
     names = {t: info.get("name") for t, info in resolved["members"].items() if not info["current"]}
     cache = search_names(names, layout, workers)
@@ -599,6 +756,9 @@ def step_cover(layout: Layout, workers: int) -> dict:
     candidates = set().union(*candidate_tickers.values())
     with ThreadPoolExecutor(max_workers=workers) as pool:
         results = list(pool.map(fetch_cover_issuer, [(cik, layout) for cik in sorted(candidates)]))
+    if storage.reason is not None:
+        return {"status": "aborted", "reason": storage.reason,
+                "failed": [r["cik"] for r in results if r["status"] == "failed"], "issuer_outcomes": results}
     evidence = [row for result in results for row in result["evidence"]]
     snapshots = parse_fja_csv(Path(config["history_csv"]).read_text(encoding="utf-8"), **config["csv_shape"])
     events = parse_wikipedia_changes(Path(config["wikipedia_html"]).read_text(encoding="utf-8"),
@@ -618,10 +778,17 @@ def step_cover(layout: Layout, workers: int) -> dict:
         failed_ciks=failed, incomplete_tickers={t for t, ids in candidate_tickers.items() if ids & failed})
     config.update(cik_bindings=ciks, instrument_bindings=instruments, identity_policy="sec_cover_v1",
                   identity_unbound=rejected, as_of=now(),
-                  cover_evidence={"version": 1, "issuers": results})
+                  cover_evidence={"version": 1, "filing_date_start": DEFAULT_COVER_START,
+                                  "issuers": [{k: v for k, v in r.items() if k != "bytes_downloaded"} for r in results]})
     payload = yaml.safe_dump(config, sort_keys=False, width=200).encode()
     destination = layout.raw / f"run_config_cover_v1_{sha256(payload)}.yaml"
-    atomic_write_bytes(destination, payload, lambda p: yaml.safe_load(p.read_text()))
+    try:
+        with storage.lock:
+            storage._check(temporary=len(payload))
+            atomic_write_bytes(destination, payload, lambda p: yaml.safe_load(p.read_text()))
+    except (CoverRunAborted, OSError) as exc:
+        return {"status": "aborted", "reason": str(exc),
+                "failed": [r["cik"] for r in results if r["status"] == "failed"], "issuer_outcomes": results}
     return {"config": str(destination), "cik_bindings": len(ciks), "instrument_bindings": len(instruments),
             "unbound_intervals": len(rejected), "failed": [r["cik"] for r in results if r["status"] == "failed"],
             "issuer_outcomes": [{"cik": r["cik"], "status": r["status"], "evidence_count": len(r["evidence"]),
@@ -831,13 +998,17 @@ def main(argv=None) -> int:
                                                           "ingest-block", "ingest", "commit-prices", "report"])
     parser.add_argument("--workers", type=int, default=8)
     parser.add_argument("--sec-rate", type=float, default=SEC_RATE)
+    parser.add_argument("--cover-cache-budget-bytes", type=int, default=COVER_CACHE_BUDGET,
+                        help="Cover/index cache budget including sidecars (default: 2 GiB); stops below 5 GiB free")
     args = parser.parse_args(argv)
     if args.workers < 1:
         parser.error("--workers must be positive")
     if not 0 < args.sec_rate <= 8:
         parser.error("--sec-rate must be positive and <=8")
+    if args.cover_cache_budget_bytes < 1:
+        parser.error("--cover-cache-budget-bytes must be positive")
     LIMITERS["sec"] = Limiter(args.sec_rate)
-    layout = Layout(args.root.resolve())
+    layout = Layout(args.root.resolve(), cover_cache_budget=args.cover_cache_budget_bytes)
     if args.step == "sources":
         out = step_sources(layout)
     elif args.step == "resolve":
@@ -859,7 +1030,7 @@ def main(argv=None) -> int:
     rendered = json.dumps({key: value for key, value in out.items() if key not in {"results", "members", "ciks", "flags", "files"}},
                           sort_keys=True, default=str)
     print(rendered if args.step == "cover-evidence" else rendered[:3000])
-    if args.step in {"sec", "cover-evidence"} and out["failed"]:
+    if args.step in {"sec", "cover-evidence"} and (out["failed"] or out.get("status") == "aborted"):
         return 1
     return 0
 
