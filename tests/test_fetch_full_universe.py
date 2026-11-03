@@ -253,3 +253,137 @@ def test_resume_skips_covered_staging_and_canonical_but_refetches_gaps(tmp_path)
         fetch.fetch_full_universe(replace(options, staging=root / "race-staging", resume=True, promote=True), provider_factory=ConcurrentWriter)
     assert "B" not in set(_prices(root)["etf_id"])
     assert not _prices(root).loc[_prices(root)["etf_id"].eq("A"), "date"].eq(pd.Timestamp("2024-01-03")).any()
+
+
+def _offline_action_chain(root, monkeypatch, missing_column=None):
+    from etf_cockpit.data import yfinance_provider as yahoo
+
+    settings = DataProvidersConfig(providers={
+        "prices": ProviderSection(active_provider="yfinance"),
+        "stooq": ProviderSection(active_provider="stooq"),
+        "tiingo": ProviderSection(active_provider="tiingo", api_key="offline-fixture"),
+        "twelvedata": ProviderSection(active_provider="twelvedata", api_key="offline-fixture"),
+    })
+    monkeypatch.setattr(fetch, "load_config", lambda _: SimpleNamespace(data_providers=settings))
+    monkeypatch.setattr(fetch, "_yahoo_session", lambda _: SimpleNamespace(close=lambda: None))
+    raw = pd.DataFrame({"Open": 10.0, "High": 12.0, "Low": 9.0, "Close": 11.0,
+                        "Adj Close": 10.5, "Volume": 100, "Dividends": 0.0, "Stock Splits": 0.0},
+                       index=pd.bdate_range("2024-01-02", "2024-01-05"))
+    seen = []
+
+    def download(*_args, **_kwargs):
+        seen.append("yfinance")
+        return raw.drop(columns=[missing_column]) if missing_column else raw.copy()
+
+    monkeypatch.setattr(yahoo, "_import_yfinance", lambda: SimpleNamespace(download=download))
+    monkeypatch.setattr(yahoo, "_minor_unit_divisor", lambda *_args, **_kwargs: 1)
+
+    def http_reply(_limiter, url, **_kwargs):
+        if "stooq.com" in url:
+            seen.append("stooq")
+            return SimpleNamespace(text=raw.rename_axis("Date").reset_index().to_csv(index=False),
+                                   raise_for_status=lambda: None)
+        name = "tiingo" if "tiingo.com" in url else "twelvedata"
+        seen.append(name)
+        frame = raw.drop(columns=[missing_column]) if missing_column else raw.copy()
+        frame = frame.rename_axis("date").reset_index().rename(columns={
+            "Open": "open", "High": "high", "Low": "low", "Close": "close", "Adj Close": "adjClose",
+            "Volume": "volume", "Dividends": "divCash", "Stock Splits": "splitFactor",
+        })
+        if "splitFactor" in frame:
+            frame["splitFactor"] = 1.0
+        values = frame.to_dict("records")
+        payload = values if name == "tiingo" else {"values": values, "meta": {"currency": "EUR"}}
+        return SimpleNamespace(json=lambda: payload)
+
+    monkeypatch.setattr(fetch, "_http_get", http_reply)
+    return raw, seen
+
+
+def _assert_missing_action_column(tmp_path, monkeypatch, column):
+    from etf_cockpit.data.yfinance_provider import YFinanceProvider
+
+    root = _root(tmp_path / "root")
+    _, seen = _offline_action_chain(root, monkeypatch, column)
+    options = _options(root)
+    options.staging.mkdir()
+    item = fetch.FetchItem("prices", "B", "B", "EUR")
+    result_path = options.staging / "worker.json"
+    fetch._worker([item], options, options.start, options.end, result_path, fetch.ProviderChain)
+    row, = json.loads(result_path.read_text())
+    assert row["status"] == "missing"
+    assert row["reason"] == "corporate_action_columns_missing"
+    assert seen == ["yfinance", "stooq", "tiingo", "twelvedata"]
+    assert not (options.staging / f"{item.key}.parquet").exists()
+    assert not (root / "data").exists()
+    # The other canonical writer uses public Yahoo price acquisition too.
+    result = YFinanceProvider().fetch_prices(["B"], options.start, options.end)
+    assert not result.ok and result.data is None
+    with pytest.raises(ValueError, match="^corporate_action_columns_missing$"):
+        YFinanceProvider().fetch_daily_prices("B", options.start, options.end)
+    assert YFinanceProvider().validate_symbol("B")  # Listing-only callers keep their existing behavior.
+
+
+def test_missing_dividends_column_reports_missing_without_staging(tmp_path, monkeypatch):
+    _assert_missing_action_column(tmp_path, monkeypatch, "Dividends")
+
+
+def test_missing_stock_splits_column_reports_missing_without_staging(tmp_path, monkeypatch):
+    _assert_missing_action_column(tmp_path, monkeypatch, "Stock Splits")
+
+
+@pytest.mark.parametrize("marker", [None, False, "true", True], ids=["absent", "false", "string", "missing-provider"])
+def test_promote_refuses_staging_without_action_evidence(tmp_path, monkeypatch, capsys, marker):
+    from scripts import fetch_full_universe as cli
+
+    root = _root(tmp_path / "root")
+    options = _options(root)
+    report = fetch.fetch_full_universe(options, provider_factory=FakeProvider)
+    staged_row = next(row for row in report["rows"] if row["kind"] == "prices")
+    stage = Path(staged_row["path"])
+    frame = pd.read_parquet(stage)
+    if marker is None:
+        frame = frame.drop(columns="actions_evidenced")
+    else:
+        frame["actions_evidenced"] = marker
+    if marker is True:
+        frame = frame.drop(columns="provider")
+    frame.to_parquet(stage, index=False)
+    monkeypatch.setattr(cli, "fetch_full_universe", lambda options: fetch.fetch_full_universe(options, provider_factory=NoFetch))
+    with pytest.raises(SystemExit) as error:
+        cli.main(["--root", str(root), "--start", "2024-01-02", "--end", "2024-01-05", "--warmup-days", "0",
+                  "--fill-days", "0", "--workers", "1", "--rate-per-host", "1000", "--staging", str(options.staging),
+                  "--resume", "--promote"])
+    assert error.value.code == 2
+    expected = "staged corporate-action provider" if marker is True else "staged corporate actions are not evidenced"
+    assert expected in capsys.readouterr().err
+    assert json.loads((options.staging / "report.json").read_text())["promotion"] == "failed"
+    assert _store_bytes(root) == {}
+
+
+def test_present_zero_action_columns_are_kept_with_provider_evidence(tmp_path, monkeypatch):
+    from etf_cockpit.data.yfinance_provider import YFinanceProvider
+
+    root = _root(tmp_path / "root")
+    raw, seen = _offline_action_chain(root, monkeypatch)
+    options = _options(root)
+    options.staging.mkdir()
+    item = fetch.FetchItem("prices", "B", "B", "EUR")
+    result_path = options.staging / "worker.json"
+    fetch._worker([item], options, options.start, options.end, result_path, fetch.ProviderChain)
+    row, = json.loads(result_path.read_text())
+    assert row["status"] == "staged"
+    assert seen == ["yfinance"]
+    frame = pd.read_parquet(row["path"])
+    assert len(frame) == len(raw)
+    assert frame[["dividends", "stock_splits"]].eq(0.0).all().all()
+    assert frame["is_adjusted"].all() and frame["actions_evidenced"].eq(True).all()
+    assert frame["provider"].eq("yfinance").all()
+    items, revision = fetch._items(root)
+    fetch.promote_staging(options, [row], items, revision)
+    assert _prices(root)[["dividends", "stock_splits"]].eq(0.0).all().all()
+    # Present but unknown action values must remain unknown, never zero-filled.
+    raw.iloc[0, raw.columns.get_loc("Dividends")] = float("nan")
+    strict = YFinanceProvider()._download_one(symbol="B", etf_id="B", start_date=options.start,
+                                             end_date=options.end, require_actions=True)
+    assert pd.isna(strict["dividends"].iloc[0])

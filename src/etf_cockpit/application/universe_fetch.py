@@ -205,12 +205,19 @@ class ProviderChain:
                             raise ValueError(result.message)
                         frame = result.data
                     else:
-                        frame = adapter._download_one(symbol=symbol, etf_id=item.identifier, start_date=start, end_date=end + timedelta(days=1))
+                        frame = adapter._download_one(symbol=symbol, etf_id=item.identifier, start_date=start,
+                                                      end_date=end + timedelta(days=1), require_actions=True)
                 elif item.kind == "prices" and name == "stooq":
                     frame = StooqProvider(settings, http_get=lambda url, **kw: _http_get(self.limiter, url, **kw)).fetch_daily_prices(symbol, start, end)
                 elif item.kind == "prices" and name in {"tiingo", "twelvedata"}:
                     adapter_type = TiingoProvider if name == "tiingo" else TwelveDataProvider
-                    adapter = adapter_type(settings, default_currency=item.currency, transport=lambda url, headers: _http_get(self.limiter, url, headers=headers, timeout=30))
+
+                    class ActionsRequiredProvider(adapter_type):
+                        def _normalise(self, raw, symbol, currency):
+                            _require_action_columns(raw)
+                            return super()._normalise(raw, symbol, currency)
+
+                    adapter = ActionsRequiredProvider(settings, default_currency=item.currency, transport=lambda url, headers: _http_get(self.limiter, url, headers=headers, timeout=30))
                     frame = adapter.fetch_daily_prices(symbol, start, end)
                 else:
                     raise ValueError("adapter does not support full adjusted history/actions for this dataset")
@@ -221,6 +228,8 @@ class ProviderChain:
                 return _validate_frame(frame, item, start, end)
             except Exception as exc:
                 reasons.append(f"{name}: {redact_text(str(exc))}")
+        if any(reason.endswith(": corporate_action_columns_missing") for reason in reasons):
+            raise ValueError("corporate_action_columns_missing")
         raise ValueError("; ".join(reasons) or "no enabled provider")
 
 
@@ -247,6 +256,14 @@ def _items(root: Path) -> tuple[list[FetchItem], str]:
     return sorted(items, key=lambda item: (item.kind, item.identifier)), snapshot.revision
 
 
+def _require_action_columns(frame: pd.DataFrame) -> None:
+    # Check the provider's raw schema before normalization can introduce columns.
+    for aliases in (("dividend", "dividends", "Dividends", "divCash"),
+                    ("split_factor", "stock_splits", "Stock Splits", "splitFactor", "splits")):
+        if not any(column in frame for column in aliases):
+            raise ValueError("corporate_action_columns_missing")
+
+
 def _validate_frame(frame: pd.DataFrame, item: FetchItem, start: date, end: date) -> pd.DataFrame:
     if frame is None or frame.empty:
         raise ValueError("no rows returned")
@@ -258,6 +275,7 @@ def _validate_frame(frame: pd.DataFrame, item: FetchItem, start: date, end: date
     if frame.empty:
         raise ValueError("no rows in requested window")
     if item.kind == "prices":
+        _require_action_columns(frame)
         if "is_adjusted" not in frame or not frame["is_adjusted"].map(lambda value: isinstance(value, (bool, np.bool_)) and bool(value)).all():
             raise ValueError("unadjusted-only or unverifiable adjustment basis")
         for aliases in (("dividend", "dividends"), ("split_factor", "stock_splits")):
@@ -354,6 +372,9 @@ def _worker(items, options, start, end, result_path, factory):
                     raise ValueError("canonical quote currency is missing")
                 frame = _stamp(provider.fetch(item, start, end), item)
                 frame = _validate_frame(frame, item, start, end)
+                frame["provider"] = frame["source"]
+                if item.kind == "prices":
+                    frame["actions_evidenced"] = True
                 stage = options.staging / f"{item.key}.parquet"
                 atomic_write_bytes(stage, _parquet_bytes(frame), validator=_parquet_validator(len(frame)))
                 dates = pd.to_datetime(frame["date" if item.kind == "prices" else "as_of_date"])
@@ -413,7 +434,14 @@ def promote_staging(options: FetchOptions, rows: list[dict], items: list[FetchIt
                 continue
             item = by_key[(row["kind"], row["identifier"])]
             stage = options.staging / f"{item.key}.parquet"
-            frame = _validate_frame(_read(stage), item, start, end)
+            frame = _read(stage)
+            if item.kind == "prices":
+                if ("actions_evidenced" not in frame or frame.empty
+                        or not frame["actions_evidenced"].map(lambda value: isinstance(value, (bool, np.bool_)) and bool(value)).all()):
+                    raise ValueError(f"staged corporate actions are not evidenced: {item.identifier}")
+                if "provider" not in frame or "source" not in frame or not frame["provider"].eq(frame["source"]).all():
+                    raise ValueError(f"staged corporate-action provider is missing or inconsistent: {item.identifier}")
+            frame = _validate_frame(frame, item, start, end)
             if any(column not in frame for column in ("fetched_at", "ingested_at", "available_at")):
                 raise ValueError("staged availability provenance is missing")
             frames[item.kind].append(frame)
