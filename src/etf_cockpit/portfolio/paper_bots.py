@@ -18,7 +18,6 @@ from typing import Any, Callable, Collection, Mapping, Sequence
 import pandas as pd
 import yaml
 
-from etf_cockpit.application import data_readiness
 from etf_cockpit.core.paths import CONFIG_DIR, ROOT
 from etf_cockpit.data.local_storage import (
     StorageRevisionConflict,
@@ -27,6 +26,7 @@ from etf_cockpit.data.local_storage import (
 )
 from etf_cockpit.data.score_history import project_classification_score_frame
 from etf_cockpit.data.trust_artifacts import SCORE_HISTORY_PATH
+from etf_cockpit.portfolio import paper_bots_readiness as data_readiness
 from etf_cockpit.signals.canonical_scoring import load_score_policy
 
 

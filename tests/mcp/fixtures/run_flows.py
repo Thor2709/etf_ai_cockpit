@@ -82,6 +82,10 @@ def market_download(symbol, *, start, end, **_kwargs):
     prices = pd.read_csv(Path(__file__).parent / "prices.csv")
     dates = pd.to_datetime(prices["date"])
     prices = prices.loc[(dates >= pd.Timestamp(start)) & (dates < pd.Timestamp(end))].copy()
+    # Explicit fixture evidence: this accumulating VWCE history has no cash
+    # distributions or stock splits; actions=True still returns both columns.
+    prices["Dividends"] = 0.0
+    prices["Stock Splits"] = 0.0
     return prices.rename(columns={"date": "Date", "open": "Open", "high": "High", "low": "Low",
         "close": "Close", "adjusted_close": "Adj Close", "volume": "Volume"}).set_index("Date").rename_axis("Date")
 

@@ -16,7 +16,6 @@ from typing import Any, Literal, Mapping
 
 import pandas as pd
 
-from etf_cockpit.application import data_readiness
 from etf_cockpit.data.replay_membership import (
     ListingHistory, MembershipPriceBook, STRICT_MODE, SURVIVORSHIP_MODES, SURVIVORSHIP_UNVERIFIED_BANNER,
     delisting_unverified_in_history, replay_preflight, unverified_instruments,
@@ -24,6 +23,7 @@ from etf_cockpit.data.replay_membership import (
 from etf_cockpit.core.paths import ROOT
 from etf_cockpit.data.local_storage import StorageRevisionConflict, TransactionalStore
 from etf_cockpit.data.score_history_backfill import load_backfill_eligibility, load_backfill_score_history
+from etf_cockpit.portfolio import paper_bots_readiness as data_readiness
 from etf_cockpit.portfolio import paper_bots as bots
 from etf_cockpit.portfolio import paper_bots_execution as execution
 
