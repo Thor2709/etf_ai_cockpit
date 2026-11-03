@@ -7,7 +7,10 @@ adjacent ``holdings_u1i`` directory when it exists; and use ``secondary``,
 ``daily`` and ``EUR`` for missing tier, data-policy and currency values, matching
 the canonical import service. Missing holdings evidence is treated as
 unavailable, never as proof that an ETF is not a fund of funds. Only
-verified-ISIN stocks and explicitly enabled, resolved ETFs are enabled.
+stocks verified by both census and candidate and explicitly enabled, resolved
+ETFs are enabled. Missing, malformed or contradictory stock verification is
+quarantined; only ``verified`` and ``needs_verification`` candidate statuses
+are recognized.
 Unresolved identities are registered disabled only if the canonical store
 accepts them; otherwise they remain in the row-level audit CSV with a reason.
 No market data, provider, broker, or execution interface is called.
@@ -296,9 +299,10 @@ def _company_entry(
     isin = _text(row.get("holding_isin")).upper()
     candidate = candidates_by_isin.get(isin)
     row_verified = _boolean(row.get("verified"))
+    candidate_status = _text(candidate.get("isin_status")).casefold() if candidate else ""
     candidate_verified = bool(
         candidate
-        and _text(candidate.get("isin_status")).casefold() == "verified"
+        and candidate_status == "verified"
         and _text(candidate.get("isin")).upper() == isin
         and is_valid_isin(isin)
     )
@@ -319,8 +323,20 @@ def _company_entry(
     if not instrument_id or not ticker:
         missing = "missing_canonical_identity" if not instrument_id else "missing_ticker"
         return AuditEntry("company", source_row, instrument_id, isin, ticker, "quarantined", missing)
+    if not candidate_status:
+        verification_reason = "candidate verification missing"
+    elif candidate_status not in {"verified", "needs_verification"}:
+        verification_reason = "candidate verification unparseable"
+    elif row_verified is None:
+        verification_reason = "verification_flag_unavailable_or_malformed"
+    elif row_verified != (candidate_status == "verified"):
+        verification_reason = "verification contradictory"
+    else:
+        verification_reason = ""
+    if verification_reason:
+        return AuditEntry("company", source_row, instrument_id, isin, ticker, "quarantined", verification_reason)
     explicit_fund_of_funds = _fund_of_funds(row)
-    if row_verified is True and is_valid_isin(isin) and _TICKER_RE.fullmatch(ticker) and not explicit_fund_of_funds:
+    if row_verified is True and candidate_verified and _TICKER_RE.fullmatch(ticker) and not explicit_fund_of_funds:
         candidate_enabled = _boolean(candidate.get("enabled")) if candidate else True
         if candidate_enabled is not True:
             return _entry(
@@ -347,7 +363,7 @@ def _company_entry(
             asset_type="stock",
             isin_status="verified",
         )
-    status = "verified" if row_verified is True and is_valid_isin(isin) else "needs_verification"
+    status = "verified" if candidate_verified else "needs_verification"
     if explicit_fund_of_funds:
         reason = "fund_of_funds"
     elif row_verified is True and not is_valid_isin(isin):

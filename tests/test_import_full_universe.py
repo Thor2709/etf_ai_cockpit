@@ -149,6 +149,67 @@ def test_census_audit_assigns_one_bucket_per_input_and_reconciles_counts(tmp_pat
     assert next(row for row in audited if row["instrument_id"] == "ETFFOF")["reason"] == "fund_of_funds"
 
 
+@pytest.mark.parametrize("census_verified,candidate_status", [
+    ("true", "needs_verification"),
+    ("false", "verified"),
+])
+def test_contradictory_stock_verification_is_quarantined(
+    census_verified: str, candidate_status: str,
+) -> None:
+    entries = importer.classify_census(
+        (_company("US0378331005", verified=census_verified, ticker="AAPL"),),
+        (_candidate("AAPL", "AAPL", "US0378331005", isin_status=candidate_status, enabled=True),),
+        identity_workers=1,
+    )
+
+    assert len(entries) == 1
+    entry = entries[0]
+    assert entry.bucket == "quarantined"
+    assert entry.reason == "verification contradictory"
+    assert entry.record is None  # No enabled record or upgraded status is emitted.
+
+
+@pytest.mark.parametrize("missing_evidence", ["field", "candidate", "blank", "malformed", "census"])
+def test_missing_or_unparseable_stock_verification_is_quarantined(missing_evidence: str) -> None:
+    company = _company("US0378331005", verified="true", ticker="AAPL")
+    candidate = _candidate("AAPL", "AAPL", "US0378331005", enabled=True)
+    reason = "candidate verification missing"
+    if missing_evidence == "field":
+        candidate.pop("isin_status")
+    elif missing_evidence == "blank":
+        candidate["isin_status"] = ""
+    elif missing_evidence == "malformed":
+        candidate["isin_status"] = "unknown"
+        reason = "candidate verification unparseable"
+    elif missing_evidence == "census":
+        company["verified"] = "unknown"
+        reason = "verification_flag_unavailable_or_malformed"
+    candidates = () if missing_evidence == "candidate" else (candidate,)
+
+    entries = importer.classify_census((company,), candidates, identity_workers=1)
+
+    assert len(entries) == 1
+    entry = entries[0]
+    assert entry.bucket == "quarantined"
+    assert entry.reason == reason
+    assert entry.record is None
+
+
+def test_stock_verified_by_both_sources_is_enabled() -> None:
+    entries = importer.classify_census(
+        (_company("US0378331005", verified="true", ticker="AAPL"),),
+        (_candidate("AAPL", "AAPL", "US0378331005", enabled=True),),
+        identity_workers=1,
+    )
+
+    assert len(entries) == 1
+    entry = entries[0]
+    assert entry.bucket == "imported"
+    assert entry.record is not None
+    assert entry.record["enabled"] is True
+    assert entry.record["isin_status"] == "verified"
+
+
 def test_unverified_candidate_is_never_enabled() -> None:
     companies = (
         _company("US5949181045", verified="false", ticker="MSFT"),
