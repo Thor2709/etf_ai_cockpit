@@ -190,7 +190,10 @@ def _tool_handler(spec: ToolSpec, *, template: CallContext, grants: Mapping[str,
         return envelope_dict(envelope)
 
     signature = inspect.signature(spec.function)
-    type_hints = get_type_hints(spec.function)
+    try:
+        type_hints = get_type_hints(spec.function, include_extras=True)
+    except Exception as exc:
+        raise MCPServerUnavailable(f"Could not resolve annotations for MCP tool {spec.name!r}") from exc
     parameters = [
         parameter.replace(annotation=type_hints.get(name, parameter.annotation))
         for name, parameter in signature.parameters.items()

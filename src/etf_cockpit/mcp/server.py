@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from functools import wraps
 import inspect
-from typing import Any
+from typing import Any, get_type_hints
 
 from etf_cockpit.mcp.envelope import Envelope
 from etf_cockpit.mcp.errors import MCPServerUnavailable, MCPToolError
@@ -71,9 +71,17 @@ def _handler(spec: ToolSpec, context: CallContext, tool_error: type[Exception]):
         envelope = result if isinstance(result, Envelope) else build_envelope(result)
         return envelope_dict(envelope)
 
+    try:
+        type_hints = get_type_hints(spec.function, include_extras=True)
+    except Exception as exc:
+        raise MCPServerUnavailable(f"Could not resolve annotations for MCP tool {spec.name!r}") from exc
     signature = inspect.signature(spec.function)
-    invoke.__signature__ = signature.replace(return_annotation=spec.output_model)  # type: ignore[attr-defined]
-    invoke.__annotations__ = dict(getattr(spec.function, "__annotations__", {}))
+    parameters = [
+        parameter.replace(annotation=type_hints.get(name, parameter.annotation))
+        for name, parameter in signature.parameters.items()
+    ]
+    invoke.__signature__ = signature.replace(parameters=parameters, return_annotation=spec.output_model)  # type: ignore[attr-defined]
+    invoke.__annotations__ = type_hints
     invoke.__annotations__["return"] = spec.output_model
     return invoke
 
