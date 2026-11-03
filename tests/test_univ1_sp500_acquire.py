@@ -1,5 +1,6 @@
 """Pure-logic tests for the S&P live acquisition layer (no network)."""
 from types import SimpleNamespace
+from contextlib import nullcontext
 from datetime import datetime, timezone
 from email.utils import format_datetime
 import io
@@ -7,6 +8,7 @@ import json
 from pathlib import Path
 import time
 import urllib.error
+from unittest.mock import patch
 
 import pytest
 import yaml
@@ -22,6 +24,16 @@ def no_network(monkeypatch):
         raise AssertionError("network is forbidden in acquisition tests")
     monkeypatch.setattr(acq.urllib.request, "urlopen", denied)
     monkeypatch.setattr(acq, "user_agent", lambda: "offline-test")
+    monkeypatch.setattr(acq.shutil, "disk_usage", lambda _: SimpleNamespace(free=20 * 1024**3))
+
+
+def small_cover_response(url):
+    assert not url.lower().endswith(".txt"), "full submissions must never be requested"
+    fixtures = Path(__file__).parent / "fixtures/sec_cover"
+    if url.endswith("FilingSummary.xml"):
+        return (fixtures / "FilingSummary.xml").read_bytes()
+    cik = url.split("/data/")[1].split("/")[0].zfill(10)
+    return (fixtures / f"{cik}-R1.htm").read_bytes()
 
 
 @pytest.fixture
@@ -364,7 +376,7 @@ def test_parallel_cover_acquisition_equals_serial_and_preserves_existing_config(
     monkeypatch.setattr(acq, "now", lambda: "2021-06-01T12:00:00+00:00")
     calls = []
 
-    def get(url, host):
+    def get(url, host, **kwargs):
         assert host == "sec"
         calls.append(url)
         if "search-index" in url:
@@ -375,8 +387,8 @@ def test_parallel_cover_acquisition_equals_serial_and_preserves_existing_config(
             return 200, json.dumps({"cik": cik, "name": "Synthetic fixture issuer", "tickers": [], "formerNames": [],
                                    "filings": {"files": [], "recent": {
                 "accessionNumber": [f"{cik}-19-000001"], "form": ["10-K"],
-                "filingDate": ["2019-12-20"], "acceptanceDateTime": ["2019-12-20T19:30:00.000Z"]}}}).encode()
-        return 200, (fixtures / "sec_cover" / url.rsplit("/", 1)[-1]).read_bytes()
+                "filingDate": ["2019-12-20"], "primaryDocument": ["primary.htm"], "acceptanceDateTime": ["2019-12-20T19:30:00.000Z"]}}}).encode()
+        return 200, small_cover_response(url)
 
     monkeypatch.setattr(acq, "http_get", get)
     outcomes = []
@@ -411,14 +423,30 @@ def test_parallel_cover_acquisition_equals_serial_and_preserves_existing_config(
         assert dated["identity_policy"] == "sec_cover_v1" and dated["execution_allowed"] is False
         assert {r["ticker"] for r in dated["instrument_bindings"]} == {"ZZA", "ZZB", "ZZC"}
         assert all(r["known_at"] == "2019-12-20T19:30:00+00:00" for r in dated["cik_bindings"])
-        for meta in (layout.meta / "covers").rglob("*.meta.json"):
-            item = json.loads(meta.read_text())
-            assert item["url"].startswith("https://www.sec.gov/Archives/")
-            assert item["sha256"] == acq.sha256(Path(item["path"]).read_bytes())
-        assert len(list((layout.raw / "sec/covers").rglob("*.txt"))) == 2
+        saved = list((layout.raw / "sec/covers").rglob("*.json"))
+        assert len(saved) == 2
+        for path in saved:
+            item = json.loads(path.read_bytes())
+            row = item["record"]
+            assert row["source"].startswith("https://www.sec.gov/Archives/")
+            body = small_cover_response(row["source"])
+            assert row["sha256"] == acq.sha256(body) and row["bytes"] == len(body)
+            assert row["form"] == "10-K" and row["filing_date"] == "2019-12-20"
+            assert row["entity_central_index_key"] == row["cik"]
+        assert all(p.suffix == ".json" for p in (layout.raw / "sec/covers").rglob("*") if p.is_file())
+        assert not list((layout.meta / "covers").rglob("*"))
         before = len(calls)
         assert acq.step_cover(layout, workers) == result
-        assert len(calls) == before  # All raw responses resume from verified caches.
+        # Only submissions indexes are refreshed; filing records resume directly.
+        assert all("/submissions/" in url for url in calls[before:])
+        assert not list(layout.subs.iterdir())
+        # Cover acquisition keeps indexes in memory. Ingestion also needs the
+        # SEC acquisition step's submissions and historical acceptance dates.
+        for cik in ("9000000001", "9000000002"):
+            (layout.subs / f"CIK{cik}.json").write_bytes(
+                (fixtures / f"univ1_sp500/submissions_{cik}.json").read_bytes())
+        page = "CIK9000000001-submissions-001.json"
+        (layout.subs / page).write_bytes((fixtures / f"univ1_sp500/{page}").read_bytes())
         report = ingest_sp500.ingest(dated, root=layout.root, workers=1)
         assert report["status"] == "complete", report
         assert report["coverage"]["intervals"] == 3
@@ -442,20 +470,20 @@ def test_parallel_cover_acquisition_equals_serial_and_preserves_existing_config(
     assert {r["reason"] for r in rejected["identity_unbound"]} == {"incomplete_cover_scan", "no_cover_identity_for_window"}
 
 
-def test_cover_scan_missing_acceptance_uses_filing_header(monkeypatch, tmp_path):
-    layout = acq.Layout(tmp_path)
+def test_cover_scan_missing_acceptance_fails_closed(monkeypatch, tmp_path):
     cik = "9000000001"
-    fixture = Path(__file__).parent / "fixtures/sec_cover/9000000001-19-000001.txt"
 
-    def get(url, host):
+    def get(url, host, **kwargs):
         if "submissions" in url:
             return 200, json.dumps({"cik": cik, "filings": {"files": [], "recent": {
-                "accessionNumber": [f"{cik}-19-000001"], "form": ["10-K"]}}}).encode()
-        return 200, fixture.read_bytes()
+                "accessionNumber": [f"{cik}-19-000001"], "form": ["10-K"],
+                "filingDate": ["2019-12-20"], "primaryDocument": ["primary.htm"]}}}).encode()
+        return 200, small_cover_response(url)
 
     monkeypatch.setattr(acq, "http_get", get)
-    result = acq.fetch_cover_issuer((cik, layout))
-    assert result["status"] == "ok" and result["evidence"][0]["known_at"] == "2019-12-20T19:30:00+00:00"
+    result = acq.fetch_cover_issuer((cik, acq.Layout(tmp_path)))
+    assert result["status"] == "failed" and not result["evidence"]
+    assert "acceptanceDateTime" in result["errors"][-1]["reason"]
 
 
 def test_cover_http_requests_share_global_sec_limiter(monkeypatch, clock):
@@ -476,14 +504,17 @@ def test_fixture_issuer_failure_records_request_and_reason(monkeypatch, tmp_path
     fixture = Path(__file__).parent / "fixtures/sec_cover" / f"{accession}.txt"
     real_get = acq.http_get
 
-    def get(url, host):
+    def get(url, host, **kwargs):
         if "/submissions/" in url:
             return 200, json.dumps({"cik": cik, "filings": {"files": [], "recent": {
                 "accessionNumber": [accession], "form": ["10-K"],
+                "filingDate": ["2019-12-20"], "primaryDocument": ["primary.htm"],
                 "acceptanceDateTime": ["2019-12-20T20:30:00Z"]}}}).encode()
         if failure == "conflict":
-            return 200, fixture.read_bytes()
-        return real_get(url, host, tries=1)
+            return 200, small_cover_response(url) if url.endswith("FilingSummary.xml") else fixture.read_bytes()
+        if failure == "not_found":
+            raise http_error(404)
+        return real_get(url, host, tries=1, **kwargs)
 
     error = urllib.error.URLError("offline transport unavailable") if failure == "transport" else http_error(status or 404)
     respond_after_errors(monkeypatch, clock, [error])
@@ -498,7 +529,9 @@ def test_fixture_issuer_failure_records_request_and_reason(monkeypatch, tmp_path
     detail = result["errors"][0]
     assert detail["exception_type"] == expected_type
     assert detail["http_status"] == status
-    assert detail["url"] == f"https://www.sec.gov/Archives/edgar/data/9000000001/{accession.replace('-', '')}/{accession}.txt"
+    assert detail["url"] == (f"https://www.sec.gov/Archives/edgar/data/9000000001/{accession.replace('-', '')}/"
+                             + ("primary.htm" if failure == "not_found" else
+                                "R1.htm" if failure == "conflict" else "FilingSummary.xml"))
     assert detail["accession"] == accession and detail["message"] and detail["reason"]
     assert json.dumps({"cik": cik, **detail}, sort_keys=True) in caplog.text
     # The emitted diagnostic is JSON serialisable, including exhausted HTTP causes.
@@ -507,14 +540,13 @@ def test_fixture_issuer_failure_records_request_and_reason(monkeypatch, tmp_path
 
 def test_unreadable_fixture_cover_records_reason_and_breaks_continuity(monkeypatch, tmp_path, caplog):
     cik, accession = "9000000001", "9000000001-19-000001"
-    fixture = Path(__file__).parent / "fixtures/sec_cover" / f"{accession}.txt"
-
-    def get(url, host):
+    def get(url, host, **kwargs):
         if "/submissions/" in url:
             return 200, json.dumps({"cik": cik, "filings": {"recent": {
                 "accessionNumber": [accession], "form": ["10-K"],
+                "filingDate": ["2019-12-20"], "primaryDocument": ["primary.htm"],
                 "acceptanceDateTime": ["2019-12-20T19:30:00.000Z"]}}}).encode()
-        return 200, fixture.read_bytes().replace(b"dei:TradingSymbol", b"dei:OtherField")
+        return 200, small_cover_response(url).replace(b"dei_TradingSymbol", b"dei_OtherField")
 
     monkeypatch.setattr(acq, "http_get", get)
     result = acq.fetch_cover_issuer((cik, acq.Layout(tmp_path)))
@@ -547,16 +579,16 @@ def test_live_probe_uses_temp_copy_and_prints_issuer_outcome(monkeypatch, tmp_pa
     source = acq.Layout(tmp_path / "source")
     payload = json.dumps({"cik": cik, "filings": {"recent": {
         "accessionNumber": [accession], "form": ["10-K"],
+                "filingDate": ["2019-12-20"], "primaryDocument": ["primary.htm"],
         "acceptanceDateTime": ["2019-12-20T19:30:00.000Z"]}}}).encode()
     acq.record(source.subs / f"CIK{cik}.json", source.subs_meta, payload,
                url=acq.SUBMISSIONS.format(name=f"CIK{cik}.json"))
     before = {p.relative_to(source.root): p.read_bytes() for p in source.root.rglob("*") if p.is_file()}
-    fixture = Path(__file__).parent / "fixtures/sec_cover" / f"{accession}.txt"
     requests = []
 
     def urlopen(request, **kwargs):
         requests.append(request.full_url)
-        response = io.BytesIO(fixture.read_bytes())
+        response = io.BytesIO(small_cover_response(request.full_url))
         response.status, response.headers = 200, {}
         return response
 
@@ -566,7 +598,440 @@ def test_live_probe_uses_temp_copy_and_prints_issuer_outcome(monkeypatch, tmp_pa
     output = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
     assert output[0]["execution_allowed"] is False
     assert not Path(output[0]["temporary_root"]).exists()
-    assert output[1] == {"cik": cik, "status": "ok", "evidence_count": 1, "identity_count": 1, "errors": []}
-    assert output[2] == {"requested": 1, "failed": []}
-    assert len(requests) == 1 and "/Archives/" in requests[0]
+    assert output[1] == {"cik": cik, "status": "ok", "evidence_count": 1, "identity_count": 1, "errors": [],
+                         "bytes_downloaded": sum(len(small_cover_response(url)) for url in requests)}
+    assert output[2] == {"requested": 1, "failed": [], "bytes_downloaded": output[1]["bytes_downloaded"]}
+    assert len(requests) == 2 and all("/Archives/" in url for url in requests)
     assert {p.relative_to(source.root): p.read_bytes() for p in source.root.rglob("*") if p.is_file()} == before
+
+
+def cached_cover_index(layout, *, form="10-K", filed="2019-06-01", primary="primary.htm", files=None):
+    cik = "9000000001"
+    payload = json.dumps({"cik": cik, "filings": {"files": files or [], "recent": {
+        "accessionNumber": [f"{cik}-19-000001"], "form": [form], "filingDate": [filed],
+        "primaryDocument": [primary], "acceptanceDateTime": ["2019-12-20T19:30:00.000Z"]}}}).encode()
+    acq.record(layout.subs / f"CIK{cik}.json", layout.subs_meta, payload,
+               url=acq.SUBMISSIONS.format(name=f"CIK{cik}.json"))
+    return cik
+
+
+@pytest.mark.parametrize("form,filed", [("10-K", "2019-05-31"), ("10-K/A", "1994-01-01"),
+                                       ("8-K", "2020-01-01")])
+def test_ineligible_cover_filings_and_old_pages_make_no_request(monkeypatch, tmp_path, form, filed):
+    layout = acq.Layout(tmp_path)
+    cik = cached_cover_index(layout, form=form, filed=filed, primary="full-submission.txt", files=[{
+        "name": "CIK9000000001-submissions-001.json", "filingTo": "2019-05-31"}])
+
+    def denied(*args, **kwargs):
+        pytest.fail("ineligible cover filing/page requested")
+
+    monkeypatch.setattr(acq, "http_get", denied)
+    result = acq.fetch_cover_issuer((cik, layout))
+    assert result == {"cik": cik, "status": "ok", "evidence": [], "errors": [], "bytes_downloaded": 0}
+
+
+@pytest.mark.parametrize("form", sorted(acq.FORMS))
+def test_cover_cutoff_inclusive_and_all_supported_amendments(monkeypatch, tmp_path, clock, form):
+    layout = acq.Layout(tmp_path)
+    cik = cached_cover_index(layout, form=form)
+    requested = []
+
+    def urlopen(request, **kwargs):
+        requested.append(request.full_url)
+        response = io.BytesIO(small_cover_response(request.full_url))
+        response.status, response.headers = 200, {}
+        return response
+
+    monkeypatch.setattr(acq.urllib.request, "urlopen", urlopen)
+    result = acq.fetch_cover_issuer((cik, layout))
+    assert result["status"] == "ok" and result["evidence"][0]["tickers"] == ["ZZA"]
+    assert [url.rsplit("/", 1)[-1] for url in requested] == ["FilingSummary.xml", "R1.htm"]
+    assert result["bytes_downloaded"] == sum(len(small_cover_response(url)) for url in requested)
+    assert acq.fetch_cover_issuer((cik, layout))["bytes_downloaded"] == 0
+    assert len(requested) == 2
+
+
+@pytest.mark.parametrize("status", [200, 206])
+@pytest.mark.parametrize("fallback", ["missing_summary", "unreadable_report"])
+def test_ranged_inline_fallback_is_bounded_even_if_range_ignored(monkeypatch, tmp_path, clock, status, fallback):
+    layout = acq.Layout(tmp_path)
+    cik = cached_cover_index(layout)
+    fixture = (Path(__file__).parent / "fixtures/sec_cover/inline-cover.htm").read_bytes()
+    body = fixture + b" " * (4 * acq.COVER_RANGE_BYTES)
+    reads, responses, requested = [], [], []
+
+    class BoundedResponse(io.BytesIO):
+        def read(self, size=-1):
+            reads.append(size)
+            return super().read(size)
+
+    def urlopen(request, **kwargs):
+        requested.append(request.full_url)
+        assert not request.full_url.endswith(".txt")
+        if request.full_url.endswith("FilingSummary.xml"):
+            if fallback == "missing_summary":
+                raise http_error(404)
+            response = io.BytesIO(small_cover_response(request.full_url))
+            response.status, response.headers = 200, {}
+            return response
+        if request.full_url.endswith("R1.htm"):
+            response = io.BytesIO(b"<html>no DEI facts</html>")
+            response.status, response.headers = 200, {}
+            return response
+        assert request.full_url.endswith("primary.htm")
+        assert request.get_header("Range") == f"bytes=0-{acq.COVER_RANGE_BYTES - 1}"
+        assert request.get_header("Accept-encoding") == "identity"
+        response = BoundedResponse(body)
+        response.status = status
+        response.headers = {"Content-Range": f"bytes 0-{acq.COVER_RANGE_BYTES - 1}/{len(body)}"} if status == 206 else {}
+        responses.append(response)
+        return response
+
+    monkeypatch.setattr(acq.urllib.request, "urlopen", urlopen)
+    result = acq.fetch_cover_issuer((cik, layout))
+    assert result["status"] == "ok" and result["evidence"][0]["tickers"] == ["ZZA"]
+    assert result["evidence"][0]["known_at"] == "2019-12-20T19:30:00+00:00"
+    assert reads == [acq.COVER_READ_BYTES] and all(r.closed for r in responses)
+    assert result["bytes_downloaded"] == acq.COVER_READ_BYTES + (0 if fallback == "missing_summary" else
+        len(small_cover_response(requested[0])) + len(b"<html>no DEI facts</html>"))
+    saved = list((layout.raw / "sec/covers").rglob("*.json"))
+    assert len(saved) == 1
+    row = json.loads(saved[0].read_bytes())["record"]
+    assert row["source"].endswith("primary.htm")
+    assert row["sha256"] == acq.sha256(body[:acq.COVER_READ_BYTES])
+    assert row["bytes"] == acq.COVER_READ_BYTES
+    assert all(p.suffix == ".json" for p in (layout.raw / "sec/covers").rglob("*") if p.is_file())
+
+
+def test_cover_per_file_cap_records_reason_without_caching_oversize(monkeypatch, tmp_path, clock):
+    layout = acq.Layout(tmp_path)
+    cik = cached_cover_index(layout)
+    reads = []
+
+    class Oversize(io.BytesIO):
+        status, headers = 200, {}
+
+        def read(self, size=-1):
+            reads.append(size)
+            return super().read(size)
+
+    monkeypatch.setattr(acq.urllib.request, "urlopen", lambda *a, **kw: Oversize(b"x" * (acq.COVER_FILE_CAP + 100)))
+    result = acq.fetch_cover_issuer((cik, layout))
+    assert result["status"] == "failed" and "per-file cap exceeded" in result["errors"][0]["reason"]
+    assert result["bytes_downloaded"] == acq.COVER_FILE_CAP + 1
+    assert reads == [acq.COVER_FILE_CAP + 1]
+    assert not list((layout.raw / "sec/covers").rglob("*"))
+
+
+@pytest.mark.parametrize("limit", ["budget", "free_disk"])
+def test_cover_cli_storage_abort_is_clean_and_publishes_no_config(monkeypatch, tmp_path, capsys, limit):
+    layout = acq.Layout(tmp_path)
+    (layout.raw / "run_config.yaml").write_text("execution_allowed: false\n")
+    legacy = layout.raw / "sec/covers/legacy.txt"
+    legacy.parent.mkdir(parents=True)
+    legacy.write_bytes(b"legacy full submission")
+    if limit == "free_disk":
+        monkeypatch.setattr(acq.shutil, "disk_usage", lambda _: SimpleNamespace(free=acq.COVER_FREE_FLOOR - 1))
+    args = ["--root", str(tmp_path), "--step", "cover-evidence"]
+    if limit == "budget":
+        args += ["--cover-cache-budget-bytes", "1"]
+    assert acq.main(args) == 1
+    result = json.loads(capsys.readouterr().out)
+    assert result["status"] == "aborted" and ("budget exceeded" if limit == "budget" else "free disk below") in result["reason"]
+    assert not list(layout.raw.glob("run_config_cover*.yaml"))
+    assert legacy.read_bytes() == b"legacy full submission"
+
+
+def test_parallel_budget_abort_stops_other_issuers_and_config_publication(monkeypatch, tmp_path):
+    layout = acq.Layout(tmp_path)
+    cik = cached_cover_index(layout)
+    # Leave no room for even one extracted cover record.
+    layout.cover_cache_budget = 1
+    company = layout.sources / "company_tickers.json"
+    company.write_text("{}")
+    config = {"execution_allowed": False, "company_tickers": str(company)}
+    (layout.raw / "run_config.yaml").write_text(yaml.safe_dump(config))
+    (layout.raw / "resolve.json").write_text(json.dumps({"members": {"ZZA": {"current": True}},
+        "ciks": {"ZZA": {"cik": cik}, "ZZB": {"cik": "9000000002"}}}))
+
+    def get(url, host, **kwargs):
+        if "/submissions/" in url:
+            return 200, b'{"cik": "9000000002", "filings": {}}'
+        return 200, small_cover_response(url)
+
+    monkeypatch.setattr(acq, "http_get", get)
+    result = acq.step_cover(layout, workers=2)
+    assert result["status"] == "aborted" and "budget exceeded" in result["reason"]
+    assert any(r["status"] == "failed" and "budget exceeded" in r["errors"][-1]["reason"]
+               for r in result["issuer_outcomes"])
+    assert layout.cover_cache().used <= layout.cover_cache_budget
+    assert not list(layout.raw.glob("run_config_cover*.yaml"))
+    assert yaml.safe_load((layout.raw / "run_config.yaml").read_text()) == config
+
+
+def test_free_disk_drop_during_fetch_aborts_before_cache_write(monkeypatch, tmp_path, clock):
+    layout = acq.Layout(tmp_path)
+    cik = cached_cover_index(layout)
+
+    def urlopen(request, **kwargs):
+        monkeypatch.setattr(acq.shutil, "disk_usage", lambda _: SimpleNamespace(free=acq.COVER_FREE_FLOOR - 1))
+        response = io.BytesIO(small_cover_response(request.full_url))
+        response.status, response.headers = 200, {}
+        return response
+
+    monkeypatch.setattr(acq.urllib.request, "urlopen", urlopen)
+    result = acq.fetch_cover_issuer((cik, layout))
+    assert result["status"] == "failed" and "free disk below" in result["errors"][-1]["reason"]
+    assert layout.cover_cache().reason is not None
+    assert not list((layout.raw / "sec/covers").rglob("*"))
+
+
+def test_cover_step_success_and_storage_abort_without_disk_writes():
+    """Read-only reproduction for the storage/name-cache collision and publication."""
+    fixtures = Path(__file__).parent / "fixtures"
+    raw = Path("readonly-cover-fixture")
+    config = {"execution_allowed": False, "company_tickers": str(fixtures / "univ1_sp500/company_tickers.json"),
+              "history_csv": str(fixtures / "univ1_sp500/history.csv"),
+              "wikipedia_html": str(fixtures / "univ1_sp500/changes.html"),
+              "csv_shape": {"date_column": "date", "tickers_column": "tickers"},
+              "wikipedia_table_id": "synthetic-changes", "cross_validation": "report",
+              "baseline_known_at": "2019-12-31", "baseline_names": {}, "announcements": [],
+              "announcement_policy": "effective_date_conservative"}
+    resolved = {"members": {"ZZA": {"current": True}, "ZZB": {"current": True}, "ZZC": {"current": True}},
+                "ciks": {"ZZA": {"cik": "9000000001"}, "ZZB": {"cik": "9000000002"}}}
+    storage = acq.CoverCache.__new__(acq.CoverCache)
+    storage.lock, storage.reason, storage.used = acq.threading.Lock(), None, 0
+    layout = SimpleNamespace(raw=raw, root=acq.ROOT, cover_cache=lambda: storage, cover_cache_budget=acq.COVER_CACHE_BUDGET)
+    storage.layout = layout
+    original_read = Path.read_text
+    writes = {}
+
+    def read(path, *args, **kwargs):
+        if path == raw / "run_config.yaml":
+            return yaml.safe_dump(config)
+        if path == raw / "resolve.json":
+            return json.dumps(resolved)
+        return original_read(path, *args, **kwargs)
+
+    def issuer(task):
+        cik, _ = task
+        evidence = acq.parse_cover((fixtures / "sec_cover" / f"{cik}-R1.htm").read_bytes(), cik=cik,
+            accession=f"{cik}-19-000001", form="10-K", acceptance="2019-12-20T19:30:00Z", source="fixture")
+        return {"cik": cik, "status": "ok", "evidence": [evidence], "errors": [], "bytes_downloaded": 100}
+
+    records = [record("synthetic-a", "ZZA", "US5949181045"), record("synthetic-b", "ZZB", "US0378331005"),
+               record("synthetic-c", "ZZC", "US0231351067")]
+    with (patch.object(Path, "read_text", read), patch.object(acq, "search_names", return_value={}),
+          patch.object(acq, "fetch_cover_issuer", side_effect=issuer) as fetch,
+          patch.object(acq.shutil, "disk_usage", return_value=SimpleNamespace(free=20 * 1024**3)) as disk,
+          patch.object(acq, "atomic_write_bytes", side_effect=lambda path, payload, validator: writes.update({path: payload})),
+          patch("etf_cockpit.data.universe_store.load_universe", return_value=SimpleNamespace(
+              integrity_errors=[], records=records, revision=1))):
+        serial = acq.step_cover(layout, workers=1)
+        parallel = acq.step_cover(layout, workers=2)
+        assert serial["cik_bindings"] == parallel["cik_bindings"] == 3
+        assert serial["instrument_bindings"] == parallel["instrument_bindings"] == 3
+        assert serial["bytes_downloaded"] == parallel["bytes_downloaded"] == 200
+        assert [r["bytes_downloaded"] for r in parallel["issuer_outcomes"]] == [100, 100]
+        generated = yaml.safe_load(writes[Path(parallel["config"])])
+        assert generated["execution_allowed"] is False and generated["cover_evidence"]["filing_date_start"] == "2019-06-01"
+        assert all("bytes_downloaded" not in r for r in generated["cover_evidence"]["issuers"])
+        writes.clear()
+
+        def aborting_issuer(task):
+            storage.reason = "cover cache budget exceeded (fixture)"
+            return {"cik": task[0], "status": "failed", "evidence": [], "errors": [{"reason": storage.reason}]}
+
+        fetch.side_effect = aborting_issuer
+        aborted = acq.step_cover(layout, workers=2)
+        assert aborted["status"] == "aborted" and "budget exceeded" in aborted["reason"] and not writes
+        storage.reason = None
+
+        def late_disk_drop(task):
+            outcome = issuer(task)
+            disk.return_value = SimpleNamespace(free=acq.COVER_FREE_FLOOR - 1)
+            return outcome
+
+        fetch.side_effect = late_disk_drop
+        disk.return_value = SimpleNamespace(free=20 * 1024**3)
+        aborted = acq.step_cover(layout, workers=2)
+        assert aborted["status"] == "aborted" and "free disk below" in aborted["reason"] and not writes
+
+
+def test_missing_cover_user_agent_does_not_try_inline_fallback():
+    cik = "9000000001"
+    raw = Path("readonly-cover-fixture")
+    cache = SimpleNamespace(check=lambda: None, load_record=lambda *a, **kw: None)
+    layout = SimpleNamespace(raw=raw, meta=raw / "_meta", subs=raw / "sec/submissions",
+                             subs_meta=raw / "_meta/submissions", cover_cache=lambda: cache)
+    url = acq.SUBMISSIONS.format(name=f"CIK{cik}.json")
+    payload = json.dumps({"cik": cik, "filings": {"recent": {
+        "accessionNumber": [f"{cik}-19-000001"], "form": ["10-K"], "filingDate": ["2019-06-01"],
+        "primaryDocument": ["primary.htm"], "acceptanceDateTime": ["2019-12-20T19:30:00Z"]}}}).encode()
+    with (patch.object(Path, "is_file", return_value=False), patch.object(Path, "read_bytes", return_value=payload),
+          patch.object(acq, "recorded", side_effect=lambda path, meta: {"url": url, "http_status": 200}
+                       if path.name.startswith("CIK") else None),
+          patch.object(acq, "user_agent", side_effect=ValueError("SEC contact required")) as agent,
+          patch.object(acq.urllib.request, "urlopen", side_effect=AssertionError("network forbidden")) as network):
+        result = acq.fetch_cover_issuer((cik, layout))
+        assert result["status"] == "failed" and len(result["errors"]) == 1
+        assert result["errors"][0]["url"].endswith("FilingSummary.xml")
+        assert result["errors"][0]["message"] == "SEC contact required"
+        assert agent.call_count == 1 and network.call_count == 0
+
+
+def test_probe_byte_reporting_without_temporary_directory_writes():
+    import tools_probe_cover as probe
+
+    cik = "9000000001"
+    outcome = {"cik": cik, "status": "ok", "evidence": [{"tickers": ["ZZA"]}], "errors": [], "bytes_downloaded": 1234}
+    layout = SimpleNamespace(cover_cache=lambda: SimpleNamespace(check=lambda: None))
+    module = SimpleNamespace(cik_text=acq.cik_text, LIMITERS={}, Limiter=acq.Limiter,
+                             Layout=lambda *a, **kw: layout, fetch_cover_issuer=lambda task: outcome)
+    spec = SimpleNamespace(loader=SimpleNamespace(exec_module=lambda module: None))
+    with (patch.object(probe.importlib.util, "spec_from_file_location", return_value=spec),
+          patch.object(probe.importlib.util, "module_from_spec", return_value=module),
+          patch.object(probe.tempfile, "TemporaryDirectory", return_value=nullcontext("readonly-probe")),
+          patch.object(Path, "glob", return_value=iter(())), patch("builtins.print") as output):
+        assert probe.main(["--repo", str(acq.ROOT), "--root", "readonly-source", cik]) == 0
+        rows = [json.loads(call.args[0]) for call in output.call_args_list]
+        assert rows[0]["execution_allowed"] is False
+        assert rows[1]["cik"] == cik and rows[1]["bytes_downloaded"] == 1234
+        assert rows[2] == {"requested": 1, "failed": [], "bytes_downloaded": 1234}
+
+
+def test_cover_summary_uses_named_report_and_rejects_submission_filename():
+    payload = (Path(__file__).parent / "fixtures/sec_cover/FilingSummary.xml").read_bytes()
+    assert acq.cover_report_name(payload.replace(b"R1.htm", b"R7.htm")) == "R7.htm"
+    with pytest.raises(ValueError, match="unsafe/missing"):
+        acq.cover_report_name(payload.replace(b"R1.htm", b"submission.txt"))
+
+
+@pytest.fixture
+def memory_cover(monkeypatch):
+    """Exercise real transport, extraction and caching with no filesystem writes."""
+    raw = Path("readonly-cover-fixture")
+    storage = acq.CoverCache.__new__(acq.CoverCache)
+    storage.lock, storage.reason, storage.used = acq.threading.Lock(), None, 0
+    layout = SimpleNamespace(raw=raw, meta=raw / "_meta", subs=raw / "sec/submissions",
+                             subs_meta=raw / "_meta/submissions", cover_cache=lambda: storage,
+                             cover_cache_budget=acq.COVER_CACHE_BUDGET)
+    storage.layout = layout
+    saved = {}
+    original_read, original_stat = Path.read_bytes, Path.stat
+
+    def store(path, payload, validator):
+        # Guard every attempted atomic write, including transient payload writes.
+        item = json.loads(payload)
+        assert set(item) == {"record", "record_sha256"}
+        assert "<" not in payload.decode(), "raw response reached the disk writer"
+        saved[path] = payload
+
+    monkeypatch.setattr(acq, "atomic_write_bytes", store)
+    monkeypatch.setattr(Path, "read_bytes", lambda path: saved[path] if path in saved else original_read(path))
+    monkeypatch.setattr(Path, "stat", lambda path, **kw: SimpleNamespace(st_size=len(saved[path]))
+                        if path in saved else original_stat(path, **kw))
+    monkeypatch.setattr(Path, "is_file", lambda path: path in saved)
+    monkeypatch.setattr(acq, "recorded", lambda *a, **kw: None)
+    monkeypatch.setattr(acq.LIMITERS["sec"], "wait", lambda: None)
+    return layout, saved
+
+
+@pytest.mark.parametrize("mode", ["report", "early", "late", "ignored_early", "ignored_late", "missing"])
+def test_cover_record_only_cache_report_preference_and_streaming(monkeypatch, memory_cover, mode):
+    layout, saved = memory_cover
+    cik, accession = "9000000001", "9000000001-19-000001"
+    fixtures = Path(__file__).parent / "fixtures/sec_cover"
+    report = (fixtures / "9000000001-R1.htm").read_bytes()
+    first = b'<ix:nonNumeric name="dei:EntityCentralIndexKey">9000000001</ix:nonNumeric>'
+    second = b'<ix:nonNumeric name="dei:TradingSymbol">ZZA</ix:nonNumeric>'
+    late = "late" in mode
+    padding = b" " * (2 * acq.COVER_RANGE_BYTES - len(first) - 20) if late else b""
+    body = first + padding + (second if mode != "missing" else b"") + b" " * acq.COVER_FILE_CAP
+    submissions = json.dumps({"cik": cik, "filings": {"recent": {
+        "accessionNumber": [accession], "form": ["10-K"], "filingDate": ["2019-12-20"],
+        "primaryDocument": ["primary.htm"], "acceptanceDateTime": ["2019-12-20T19:30:00Z"]}}}).encode()
+    requests, responses, received = [], [], []
+
+    class Response(io.BytesIO):
+        def read(self, size=-1):
+            chunk = super().read(size)
+            received.append((self.url, chunk))
+            return chunk
+
+    def urlopen(request, **kwargs):
+        name = request.full_url.rsplit("/", 1)[-1]
+        range_header = request.get_header("Range")
+        requests.append((name, range_header))
+        status, headers = 200, {}
+        if name.startswith("CIK"):
+            payload = submissions
+        elif name == "FilingSummary.xml":
+            payload = (fixtures / "FilingSummary.xml").read_bytes().replace(b"R1.htm", b"R7.htm")
+        elif name == "R7.htm":
+            payload = report if mode == "report" else b"<html>no DEI facts</html>"
+        else:
+            assert name == "primary.htm" and mode != "report"
+            start, end = map(int, range_header.removeprefix("bytes=").split("-"))
+            if mode.startswith("ignored"):
+                payload = body
+            else:
+                payload = body[start:end + 1]
+                status, headers = 206, {"Content-Range": f"bytes {start}-{end}/{len(body)}"}
+        response = Response(payload)
+        response.url, response.status, response.headers = name, status, headers
+        responses.append(response)
+        return response
+
+    monkeypatch.setattr(acq.urllib.request, "urlopen", urlopen)
+    result = acq.fetch_cover_issuer((cik, layout))
+    assert result["status"] == "ok" and all(r.closed for r in responses)
+    assert result["bytes_downloaded"] == sum(len(chunk) for _, chunk in received)
+    assert requests[:3] == [(f"CIK{cik}.json", None), ("FilingSummary.xml", None), ("R7.htm", None)]
+    primary = [header for name, header in requests if name == "primary.htm"]
+    source_bytes = b"".join(chunk for name, chunk in received if name == ("R7.htm" if mode == "report" else "primary.htm"))
+    if mode == "missing":
+        assert len(source_bytes) == acq.COVER_FILE_CAP and not saved
+        assert result["evidence"][0]["tickers"] == [] and result["errors"]
+        return
+    assert len(saved) == 1 and not result["errors"]
+    path, encoded = next(iter(saved.items()))
+    assert path.suffix == ".json"
+    row = json.loads(encoded)["record"]
+    assert row == result["evidence"][0]
+    assert row["sha256"] == acq.sha256(source_bytes) and row["bytes"] == len(source_bytes)
+    assert row["tickers"] == ["ZZA"] and row["entity_central_index_key"] == cik
+    if mode == "report":
+        assert not primary
+    else:
+        assert primary[0] == f"bytes=0-{acq.COVER_RANGE_BYTES - 1}"
+        assert len(source_bytes) == (2 * acq.COVER_RANGE_BYTES + acq.COVER_READ_BYTES if late else acq.COVER_READ_BYTES)
+        assert len(primary) == (3 if mode == "late" else 1)
+        if mode == "late":
+            assert primary[1:] == [f"bytes={acq.COVER_RANGE_BYTES}-{2 * acq.COVER_RANGE_BYTES - 1}",
+                                   f"bytes={2 * acq.COVER_RANGE_BYTES}-{4 * acq.COVER_RANGE_BYTES - 1}"]
+    assert len(encoded) * 610 * 29 < 20 * 1024**2
+    assert acq.COVER_CACHE_BUDGET < 100 * 1024**2
+    before = len(requests)
+    resumed = acq.fetch_cover_issuer((cik, layout))
+    assert resumed["evidence"] == result["evidence"]
+    assert yaml.safe_dump(resumed["evidence"], sort_keys=False) == yaml.safe_dump(result["evidence"], sort_keys=False)
+    assert requests[before:] == [(f"CIK{cik}.json", None)]
+    assert resumed["bytes_downloaded"] == len(submissions)
+
+
+def test_cover_records_cache_detects_modified_extraction(monkeypatch, memory_cover):
+    layout, saved = memory_cover
+    cik, accession = "9000000001", "9000000001-19-000001"
+    base = f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/{accession.replace('-', '')}/"
+    row = acq.parse_cover((Path(__file__).parent / "fixtures/sec_cover/inline-cover.htm").read_bytes(),
+                          cik=cik, accession=accession, form="10-K", acceptance="2019-12-20T19:30:00Z",
+                          source=base + "primary.htm", filing_date="2019-12-20")
+    path = layout.raw / "sec/covers" / cik / (accession + ".json")
+    cache = layout.cover_cache()
+    cache.store_record(path, row)
+    identity = dict(cik=cik, accession=accession, form="10-K", filed="2019-12-20",
+                    accepted="2019-12-20T19:30:00Z", base=base)
+    assert cache.load_record(path, **identity) == row
+    saved[path] = saved[path].replace(b'"tickers":["ZZA"]', b'"tickers":["ZZZ"]')
+    assert cache.load_record(path, **identity) is None

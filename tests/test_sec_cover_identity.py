@@ -1,5 +1,6 @@
 """Offline synthetic SEC cover evidence and complete-window identity rules."""
 from pathlib import Path
+import hashlib
 from types import SimpleNamespace
 
 import pytest
@@ -160,3 +161,35 @@ def test_headerless_cover_uses_submissions_utc_without_second_shift():
     row = parse_cover(payload, cik="9000000001", accession="9000000001-19-000001", form="10-K",
                       acceptance="2019-12-20T19:30:00.000Z", source="fixture")
     assert row["known_at"] == "2019-12-20T19:30:00+00:00"
+
+
+@pytest.mark.parametrize("fixture,form,tickers", [
+    ("9000000001-R1.htm", "10-K", ["ZZA"]),
+    ("9000000002-R1.htm", "20-F/A", ["ZZB", "ZZC"]),
+    ("inline-cover.htm", "10-Q/A", ["ZZA"]),
+])
+def test_small_rendered_and_inline_cover_fixtures(fixture, form, tickers):
+    cik = "9000000002" if fixture.startswith("9000000002") else "9000000001"
+    row = parse_cover((FIXTURES / fixture).read_bytes(), cik=cik, accession=f"{cik}-19-000001",
+                      form=form, acceptance="2019-12-20T19:30:00.000Z", source="fixture")
+    assert row["tickers"] == tickers
+    assert row["known_at"] == "2019-12-20T19:30:00+00:00"
+
+
+def test_rendered_labels_alone_cannot_supply_dei_evidence():
+    payload = (FIXTURES / "9000000001-R1.htm").read_bytes().replace(b"defref_dei_", b"untrusted_")
+    with pytest.raises(ValueError, match="cover evidence"):
+        parse_cover(payload, cik="9000000001", accession="9000000001-19-000001", form="10-K",
+                    acceptance="2019-12-20T19:30:00Z", source="fixture")
+
+
+def test_extracted_cover_keeps_filing_identity_and_exact_received_byte_provenance():
+    payload = (FIXTURES / "9000000002-R1.htm").read_bytes() + b"<!-- received bytes -->"
+    row = parse_cover(payload, cik="9000000002", accession="9000000002-19-000001", form="20-F/A",
+                      acceptance="2019-12-20T19:30:00Z", source="https://example.invalid/R7.htm",
+                      filing_date="2019-12-20")
+    assert row["form"] == "20-F/A" and row["filing_date"] == "2019-12-20"
+    assert row["entity_central_index_key"] == "9000000002" and row["tickers"] == ["ZZB", "ZZC"]
+    assert row["sha256"] == hashlib.sha256(payload).hexdigest() and row["bytes"] == len(payload)
+    assert row["source"] == "https://example.invalid/R7.htm"
+    assert all(not isinstance(value, bytes) for value in row.values())

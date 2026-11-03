@@ -8,13 +8,16 @@ An unreadable filing breaks continuity; an unreadable issuer scan binds nothing.
 from __future__ import annotations
 
 from datetime import datetime, time, timedelta, timezone
+import hashlib
 from html.parser import HTMLParser
 import re
 from zoneinfo import ZoneInfo
 
 from etf_cockpit.data.sec_cik_history import cik_text
 
-FORMS = {"10-K", "10-Q", "20-F", "40-F"}
+FORMS = {form + suffix for form in ("10-K", "10-Q", "20-F", "40-F") for suffix in ("", "/A")}
+# First SEC cover-tagging period; earlier filings cannot establish this evidence.
+DEFAULT_COVER_START = "2019-06-01"
 
 
 def acceptance_utc(value: str) -> str:
@@ -70,8 +73,45 @@ class _Cover(HTMLParser):
         self.depth = max(0, self.depth - 1)
 
 
+class _CoverReport(HTMLParser):
+    """Read rendered report values only from rows carrying explicit DEI concepts."""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.facts = {"dei:tradingsymbol": [], "dei:entitycentralindexkey": []}
+        self.cells = []
+        self.cell = None
+        self.concept = None
+        self.concept_cell = None
+
+    def handle_starttag(self, tag, attrs):
+        if tag == "tr":
+            self.cells, self.cell, self.concept, self.concept_cell = [], None, None, None
+        if tag in {"td", "th"}:
+            self.cell = []
+            self.cells.append(self.cell)
+        for _, value in attrs:
+            for concept in re.findall(r"(?:defref_dei_|dei:)(TradingSymbol|EntityCentralIndexKey)\b", value or "", re.I):
+                name = "dei:" + concept.lower()
+                if self.concept is not None and self.concept != name:
+                    raise ValueError("conflicting cover report concepts")
+                self.concept, self.concept_cell = name, len(self.cells) - 1
+
+    def handle_data(self, data):
+        if self.cell is not None:
+            self.cell.append(data)
+
+    def handle_endtag(self, tag):
+        if tag in {"td", "th"}:
+            self.cell = None
+        if tag == "tr" and self.concept is not None:
+            values = ["".join(cell).strip() for cell in self.cells[self.concept_cell + 1:]]
+            self.facts[self.concept].extend(value for value in values if value)
+            self.concept = None
+
+
 def parse_cover(payload: bytes, *, cik: str, accession: str, form: str,
-                acceptance: str | None, source: str) -> dict:
+                acceptance: str | None, source: str, filing_date: str | None = None) -> dict:
     """A CIK candidate becomes evidence only through the filed DEI cover facts."""
     cik = cik_text(cik)
     if form not in FORMS or not re.fullmatch(r"\d{10}-\d{2}-\d{6}", accession) or not source:
@@ -93,11 +133,17 @@ def parse_cover(payload: bytes, *, cik: str, accession: str, form: str,
     parser.close()
     if parser.active:
         raise ValueError("unclosed cover facts")
+    if not any(parser.facts.values()):
+        parser = _CoverReport()
+        parser.feed(text)
+        parser.close()
     ids = {cik_text(item) for item in parser.facts["dei:entitycentralindexkey"]}
     symbols = set(parser.facts["dei:tradingsymbol"])
     if ids != {cik} or not symbols or any(not re.fullmatch(r"[A-Z0-9][A-Z0-9.\-]{0,19}", s) for s in symbols):
         raise ValueError("missing/conflicting CIK or TradingSymbol cover evidence")
-    return {"cik": cik, "accession": accession, "known_at": known, "tickers": sorted(symbols), "source": source}
+    return {"cik": cik, "accession": accession, "form": form, "filing_date": filing_date,
+            "known_at": known, "tickers": sorted(symbols), "entity_central_index_key": next(iter(ids)),
+            "source": source, "sha256": hashlib.sha256(payload).hexdigest(), "bytes": len(payload)}
 
 
 def identity_spans(evidence: list[dict]) -> list[dict]:
