@@ -84,6 +84,8 @@ def test_pass_runs_refresh_rescore_gate_publish_then_bots(monkeypatch, tmp_path:
     ]
     payload = json.loads(result.to_json())
     assert payload["readiness"]["snapshot_id"] == "b" * 64
+    assert payload["paper_bot_execution"]["ledger_price_basis"] == "as_traded_units_gross_cash_dividends"
+    assert payload["paper_bot_execution"]["dividend_policy"].startswith("gross cash")
     assert payload["execution_allowed"] is False
 
 

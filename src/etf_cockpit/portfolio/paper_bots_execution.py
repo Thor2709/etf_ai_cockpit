@@ -62,6 +62,7 @@ REPLAY_RECORD_TYPE = "paper_bot_replay_execution"
 PRICE_FILE_RELATIVE = Path("data") / "validated" / "prices" / "prices_daily.parquet"
 EXECUTION_ALLOWED = False
 NETWORK_ACCESS_ALLOWED = False
+LEDGER_PRICE_BASIS = "as_traded_units_gross_cash_dividends"
 _PENDING_SHADOW_MARKERS = ("No eligible benchmark session", "Benchmark execution close is unavailable")
 _AVAILABLE_BUYING_POWER = re.compile(r"available buying power is ([0-9.]+)")
 _MAX_WARNINGS = 12
@@ -214,6 +215,73 @@ class PriceBook:
         """The first available price session of every instrument (known on that day, never earlier)."""
 
         return {instrument: dates[0] for instrument, dates in self._dates.items() if dates}
+
+    def action_available_at(self, bar: Mapping[str, Any]) -> datetime | None:
+        # available_at is action authority; a later ingestion time must not replace it.
+        return bots._parse_timestamp(bar.get("available_at", bar.get("known_at"))) or (
+            self.known_at if "available_at" not in bar and "known_at" not in bar else None
+        )
+
+    def action_bars(self, instrument: str) -> list[dict[str, Any]]:
+        return list(self._bars.get(instrument.upper(), {}).values())
+
+    @staticmethod
+    def require_actions(bar: Mapping[str, Any], instrument: str) -> None:
+        evidenced = bar.get("actions_evidenced")
+        if type(evidenced).__name__ not in {"bool", "bool_"} or not bool(evidenced):
+            raise PaperLedgerError(f"corporate_actions_unaccounted: {instrument}: actions_evidenced is not true")
+        for column in ("dividends", "stock_splits"):
+            value = bots._finite_number(bar.get(column))
+            if value is None or value < 0:
+                raise PaperLedgerError(f"corporate_actions_unaccounted: {instrument}: invalid {column}")
+
+    def split_scale(self, instrument: str, day: date) -> Decimal:
+        """Undo the provider's *subsequent* split adjustments, including reverse splits.
+
+        This is a unit conversion of the stored snapshot, never future cash or an
+        action signal. Without it a 10:1 split already embedded in old OHLC would
+        be counted twice when the ledger multiplies the old units by ten.
+        """
+        scale = Decimal(1)
+        for bar in self.action_bars(instrument):
+            if bar["date"].date() > day:
+                self.require_actions(bar, instrument)
+                ratio = Decimal(str(bar["stock_splits"]))
+                if ratio:
+                    scale *= ratio
+        return scale
+
+    def split_ratio_between(self, instrument: str, start: date, end: date, *, known_by: datetime | None = None) -> Decimal:
+        ratio = Decimal(1)
+        for bar in self.action_bars(instrument):
+            if start < bar["date"].date() <= end:
+                self.require_actions(bar, instrument)
+                value = Decimal(str(bar["stock_splits"]))
+                if value:
+                    available = self.action_available_at(bar)
+                    if available is None or (known_by is not None and available > known_by):
+                        raise PaperLedgerError(f"corporate_actions_unaccounted: {instrument}: split not known at sizing/fill time")
+                    ratio *= value
+        return ratio
+
+    def ledger_bar(self, instrument: str, day: date, *, known_by: datetime | None = None) -> dict[str, Any] | None:
+        """OHLC and cash distributions in actual units on the bar date.
+
+        Provider OHLC/dividends are split-adjusted, adjusted_close additionally
+        assumes reinvestment. The ledger uses nominal units and gross cash only;
+        adjusted_close must never be used as a position mark as well.
+        """
+        bar = self.bar(instrument, day, known_by=known_by)
+        if bar is None:
+            return None
+        self.require_actions(bar, instrument)
+        scale = self.split_scale(instrument, day)
+        result = dict(bar)
+        for column in ("open", "high", "low", "close", "dividends"):
+            value = bots._finite_number(bar.get(column))
+            if value is not None:
+                result[column] = float(Decimal(str(value)) * scale)
+        return result
 
     def benchmark_frame(self) -> pd.DataFrame:
         rows = self._frame.loc[self._frame["_instrument"] == self.benchmark_id.upper()] if not self._frame.empty else self._frame
@@ -609,6 +677,7 @@ def _execute_bot(context: _Context, bot_id: str, decisions: list[dict[str, Any]]
         _fund(context, ledger, decision, entry, initial=decision is decisions[0])
         if decision.get("strategy") == "benchmark":
             continue  # B0 trades through its cash-flow-matched shadow account
+        _sync_corporate_actions(context, ledger, decision["_known_at"])
         plan = _plan(context, ledger, decision, decision_date)
         following = decisions[decision_index + 1:decision_index + 2]
         # Stage A targets are complete portfolios: omission of an instrument means a zero target.
@@ -617,7 +686,83 @@ def _execute_bot(context: _Context, bot_id: str, decisions: list[dict[str, Any]]
     if decisions:
         through = datetime.combine(context.cutoff.date(), time.min, tzinfo=timezone.utc) - timedelta(microseconds=1)
         written.extend(_liquidate_delistings(context, ledger, decisions[-1], through))
+        _sync_corporate_actions(context, ledger, context.cutoff)
     return written
+
+
+def _sync_corporate_actions(context: _Context, ledger: PaperLedger, through: datetime) -> None:
+    """Record actions once, at ex-date midnight, entitled to prior-close inventory.
+
+    A bar's available_at gates knowledge independently of its effective date. No
+    tax/withholding policy exists in PaperLedger: distributions are gross cash.
+    Sold instruments remain in scope, including actions reported after the sale.
+    """
+    events = ledger._read_events()
+    first_fills: dict[str, date] = {}
+    for event in events:
+        if event["event_type"] == "fill_recorded":
+            instrument = str(event["payload"]["instrument_id"])
+            day = datetime.fromisoformat(event["occurred_at"]).date()
+            first_fills[instrument] = min(first_fills.get(instrument, day), day)
+    actions = []
+    for instrument, first_day in first_fills.items():
+        if not context.book.action_bars(instrument):
+            raise PaperLedgerError(f"corporate_actions_unaccounted: {instrument}: action history missing")
+        for bar in context.book.action_bars(instrument):
+            day = bar["date"].date()
+            if not first_day <= day < min(through.date() + timedelta(days=1), context.cutoff.date()):
+                continue
+            context.book.require_actions(bar, instrument)
+            available = context.book.action_available_at(bar)
+            if available is None:
+                raise PaperLedgerError(f"corporate_actions_unaccounted: {instrument}: action availability missing")
+            ratio = float(bar["stock_splits"]) or 1.0
+            dividend = float(bar["dividends"])
+            if available > min(through, context.cutoff):
+                if through >= context.cutoff:
+                    raise PaperLedgerError(f"corporate_actions_unaccounted: {instrument}: action evidence not yet available")
+                continue
+            if ratio != 1 or dividend:
+                actions.append((day, instrument, bar, available, ratio))
+    for day, instrument, bar, available, ratio in sorted(actions, key=lambda item: (item[0], item[1])):
+        if ratio != 1:
+            # Old replay ledgers may already have bought split-adjusted units.
+            # Never multiply those units again. Forward fills made before a new
+            # split instead match the restored nominal opening quote.
+            state = ledger._replay(events)
+            policy = state.get("cost_policy")
+            adverse = float(policy["adverse_bps"]) / 10000 if policy else 0.0
+            for event in events:
+                fill = event["payload"]
+                fill_day = datetime.fromisoformat(event["occurred_at"]).date()
+                if (event["event_type"] != "fill_recorded" or fill["instrument_id"] != instrument
+                        or fill["side"] != "buy" or fill_day >= day):
+                    continue
+                nominal_fill = context.book.ledger_bar(instrument, fill_day)
+                reference = float(fill["price"]) / (1 + adverse)
+                if nominal_fill is None or not math.isclose(reference, float(nominal_fill["open"]), rel_tol=1e-8):
+                    raise PaperLedgerError(f"corporate_actions_unaccounted: {instrument}: legacy fill price basis unverified")
+        nominal = context.book.ledger_bar(instrument, day)
+        # Provider distributions on a split day are per post-split unit, whereas
+        # the ledger credits the prior-close quantity before multiplying units.
+        dividend = float(nominal["dividends"]) * ratio
+        when = datetime.combine(day, time.min, tzinfo=timezone.utc)
+        currency = bots._real_text(bar.get("currency"))
+        # Freeze conversion at the effective boundary, using the last evidenced
+        # rate then available, so a later provider refresh cannot change the cash.
+        fx_time = when
+        fx = 1.0 if not dividend else None if currency is None else _eur_per_unit(context, currency, fx_time)
+        if fx is None:
+            raise PaperLedgerError(f"corporate_actions_unaccounted: {instrument}: dividend FX unavailable")
+        terms = {"instrument": instrument, "ex_date": day.isoformat(), "split_ratio": ratio,
+                 "gross_dividend": dividend, "fx_rate": fx,
+                 "price_basis": LEDGER_PRICE_BASIS}
+        ledger.apply_corporate_action(
+            instrument, action_id="botaction_" + _record_id(instrument, day.isoformat())[:24],
+            split_ratio=ratio, cash_dividend_per_unit=dividend, fx_rate=fx,
+            source_authority="paper_bot_provider_actions_gross", source_checksum=bots._sha256_json(terms),
+            occurred_at=when, available_at=available,
+        )
 
 
 def _liquidate_delistings(context: _Context, ledger: PaperLedger, decision: Mapping[str, Any], through: datetime) -> list[dict[str, Any]]:
@@ -628,6 +773,7 @@ def _liquidate_delistings(context: _Context, ledger: PaperLedger, decision: Mapp
     for when, instrument, delisting_day in context.book.delistings(through):
         if when < decision["_decided_at"] and not ledger.external_flows():
             continue
+        _sync_corporate_actions(context, ledger, when)
         event_id = _record_id(ledger.account_id, instrument, delisting_day.isoformat(), when.isoformat(), "delisting")
         if context.store.get(context.track.record_type, event_id) is not None:
             continue
@@ -705,7 +851,20 @@ def _sizing_price(context: _Context, decision: Mapping[str, Any], instrument_id:
         day = date.fromisoformat(day_text)
         if not 0 <= (decision_date - day).days <= int(context.config["sizing_price_max_age_days"]):
             return None
-        return Decimal(str(price)), day_text
+        scale = context.book.split_scale(instrument_id, day)
+        if scale != 1:
+            nominal = context.book.ledger_bar(instrument_id, day)
+            if nominal is None:
+                return None
+            # A forward decision captured before a fresh split already has nominal
+            # units; a backfill built from this snapshot has adjusted units.
+            nominal_close = float(nominal["close"])
+            if math.isclose(price, nominal_close / float(scale), rel_tol=1e-8):
+                price *= float(scale)
+            elif not math.isclose(price, nominal_close, rel_tol=1e-8):
+                return None
+        unit_scale = context.book.split_ratio_between(instrument_id, day, decision_date, known_by=decision.get("_known_at"))
+        return Decimal(str(price)) / unit_scale, day_text
     default_cutoff = datetime.combine(decision_date, time.max, tzinfo=timezone.utc)
     known_by = min(decision.get("_known_at", default_cutoff), decision.get("_decided_at", default_cutoff))
     bar = context.book.last_bar(instrument_id, decision_date - timedelta(days=1), known_by=known_by)
@@ -715,6 +874,9 @@ def _sizing_price(context: _Context, decision: Mapping[str, Any], instrument_id:
     if (decision_date - day).days > int(context.config["sizing_price_max_age_days"]):
         return None
     close = bots._finite_number(bar.get("close"))
+    if close is not None:
+        close *= float(context.book.split_scale(instrument_id, day))
+        close /= float(context.book.split_ratio_between(instrument_id, day, decision_date, known_by=known_by))
     return (Decimal(str(close)), day.isoformat()) if close and close > 0 else None
 
 
@@ -953,6 +1115,7 @@ def _intent(
     return {
         "intent_id": _record_id(str(decision["decision_id"]), instrument, side),
         "instrument_id": instrument, "side": side, "planned_quantity": str(quantity), "target_weight": str(weight),
+        "quantity_basis_date": decision["_decided_at"].date().isoformat(),
         "sizing_price": None if price is None else str(price[0]), "sizing_price_date": None if price is None else price[1],
         "currency": currency, "sizing_fx_rate": fx_rate, "reason": reason,
         "unavailable_reason": reason if price is None else None,
@@ -996,6 +1159,8 @@ def _run_intents(
         written.append(record)
 
     for index, session in enumerate(usable[: max(retries + 1, split_sessions)]):
+        action_cutoff = _fill_datetime(context.config, session)
+        _sync_corporate_actions(context, ledger, min(action_cutoff, superseded_at) if superseded_at else action_cutoff)
         # Closures after the next decision belong to its plan; the loop still records the superseded buys as missed.
         if superseded_at is None or _fill_datetime(context.config, session) < superseded_at:
             written.extend(_liquidate_delistings(context, ledger, decision, _fill_datetime(context.config, session)))
@@ -1024,7 +1189,8 @@ def _run_intents(
             remainder = Decimal(str(record.get("remaining_quantity", "0")))
             if record["status"] == "filled" and remainder > 0:
                 entry["split"] = True
-                entry["intent"] = {**intent, "planned_quantity": str(remainder), "parent_intent_id": intent["intent_id"]}
+                entry["intent"] = {**intent, "planned_quantity": str(remainder), "parent_intent_id": intent["intent_id"],
+                                   "quantity_basis_date": session.isoformat()}
                 if index + 1 >= split_sessions:
                     save(_record(context, decision, entry["intent"], session, "missed", "max_order_split_sessions_exhausted"), entry)
                     entry["final"] = True
@@ -1091,6 +1257,7 @@ def _record(
         "quantity": "0", "reference_open": None, "fill_price": None, "fee": "0", "spread_slippage_cost": "0",
         "fill_id": None, "order_id": None, "exec_config_hash": context.exec_hash, "execution_allowed": False,
         "recorded_at": bots._time_text(context.cutoff),
+        "ledger_price_basis": LEDGER_PRICE_BASIS,
         "occurred_at": bots._time_text(intent.get("liquidation_at") or _fill_datetime(context.config, session)) if session else bots._time_text(context.cutoff),
     }
     record.update(fields)
@@ -1231,6 +1398,15 @@ def _attempt(
            if intent.get("delisting_day") else context.book.bar(instrument, session))
     if bar is None:
         return miss(f"no_session_data: provider outage, halt or missing bar on {session.isoformat()}")
+    try:
+        context.book.require_actions(bar, instrument)
+        nominal = context.book.ledger_bar(instrument, bar["date"].date())
+        if nominal is None:
+            return miss("corporate_actions_unaccounted: nominal price unavailable")
+        bar = nominal
+    except PaperLedgerError as exc:
+        context.warnings.append(str(exc))
+        return miss(str(exc))
     if "known_at" in bar:
         bar_known = bots._parse_timestamp(bar.get("known_at"))
         if bar_known is None or bar_known > fill_time:
@@ -1244,6 +1420,11 @@ def _attempt(
     bar_currency = bots._real_text(bar.get("currency"))
     if bar_currency is not None and bar_currency.upper() != currency:
         return miss(f"currency_mismatch: the session bar is quoted in {bar_currency}, the order in {currency}")
+
+    basis_day = date.fromisoformat(intent.get("quantity_basis_date", session.isoformat()))
+    quantity_scale = context.book.split_ratio_between(instrument, basis_day, session, known_by=fill_time)
+    if quantity_scale != 1:
+        intent = {**intent, "planned_quantity": str(Decimal(str(intent["planned_quantity"])) * quantity_scale)}
 
     policy = context.policy
     adverse = policy.adverse_bps / Decimal(10000)
@@ -1408,6 +1589,13 @@ def _sync_shadow(context: _Context, bot_id: str) -> None:
         return
     if context.benchmark_check.status != "available":
         context.warnings.append("VWCE reference series unavailable: " + ", ".join(context.benchmark_check.reasons))
+        return
+    try:
+        for bar in context.book.action_bars(context.book.benchmark_id):
+            if bar["date"].date() < context.cutoff.date():
+                context.book.require_actions(bar, context.book.benchmark_id)
+    except PaperLedgerError as exc:
+        context.warnings.append(str(exc))
         return
     shadow = PaperLedger(context.track.ledger_root, account_id=shadow_id_for(bot_id))
     try:

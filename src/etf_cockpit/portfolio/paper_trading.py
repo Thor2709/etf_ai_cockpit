@@ -279,7 +279,7 @@ class PaperLedger:
             )
 
     def confirmed_fill_ids(self, *, account_id: str, as_of: datetime) -> frozenset[str]:
-        """Confirm actual paper cash postings from the same verified prefix as cash_balance.
+        """Confirm actual paper cash postings from the same verified events as cash_balance.
 
         Paper cash posts at fill_recorded; settlement still governs when sale
         proceeds can be spent. A lifecycle-only fill is never confirmed here.
@@ -288,16 +288,20 @@ class PaperLedger:
         return self.projected_fill_ids(account_id=account_id, as_of=as_of)
 
     def _events_through(self, as_of: datetime) -> list[dict[str, object]]:
-        """Return the log prefix up to the first event dated after ``as_of`` (shared by cash and fill projections).
+        """Select events effective by ``as_of`` in deterministic ledger append order.
 
-        The ledger does not enforce monotonic ``occurred_at``, so both projections must cut the same prefix.
+        Event times need not be monotonic; cash and fill projections must scan the
+        entire verified log and apply the same time and availability cutoffs.
         """
 
         cutoff = as_of.astimezone(timezone.utc)
         events: list[dict[str, object]] = []
         for event in self._read_events():
             if _event_time(event) > cutoff:
-                break
+                continue
+            if event["event_type"] == "corporate_action" and event["payload"].get("available_at"):
+                if datetime.fromisoformat(event["payload"]["available_at"]) > cutoff:
+                    continue
             events.append(event)
         return events
 
@@ -1334,6 +1338,7 @@ class PaperLedger:
         source_checksum: str = "",
         fx_rate: float | None = None,
         occurred_at: datetime | None = None,
+        available_at: datetime | None = None,
     ) -> PaperAccountSnapshot:
         ratio = _positive(split_ratio, "split_ratio")
         dividend_decimal = _decimal_number(cash_dividend_per_unit, "cash_dividend_per_unit", non_negative=True)
@@ -1373,6 +1378,7 @@ class PaperLedger:
                     "split_ratio": ratio,
                     "cash_dividend_per_unit": str(dividend_decimal),
                     "fx_rate": str(dividend_fx_decimal),
+                    **({"available_at": _timestamp(available_at)} if available_at is not None else {}),
                     **provenance,
                 },
                 occurred_at=occurred_at,
