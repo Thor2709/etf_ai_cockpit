@@ -35,6 +35,7 @@ from etf_cockpit.analysis.stock_universe import (
     is_non_bank_financial_sector,
     live_decision_time,
     records_from_config,
+    with_as_traded_factors,
 )
 from etf_cockpit.data.stock_fundamentals import load_stock_config
 from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_group, parquet_payload, validate_parquet_file
@@ -1758,7 +1759,7 @@ def build_universe_simple_scores(
         )
         if stock_decision_time is not None:
             known &= dates <= pd.to_datetime(stock_decision_time, utc=True)
-        prices = prices.loc[known].copy()
+        prices = with_as_traded_factors(prices).loc[known].copy()
     latest_prices = _latest_price_lookup(prices)
     price_quality = _price_quality_lookup(prices)
     liquidity = _price_liquidity_lookup(

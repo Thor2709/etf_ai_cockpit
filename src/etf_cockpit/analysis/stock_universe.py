@@ -139,12 +139,47 @@ def _price_frame(prices: pd.DataFrame, instrument_id: str) -> pd.DataFrame:
     return frame.dropna(subset=["date"]).sort_values("date")
 
 
+def with_as_traded_factors(prices: pd.DataFrame) -> pd.DataFrame:
+    """Carry split-only adjustment evidence across a caller's decision-time cut.
+
+    Compute from the full stored series, before truncation. Existing factors came
+    from an upstream full-series call and must survive subsequent truncations.
+    No price or other future observation contributes to these factors.
+    """
+
+    if "as_traded_split_factor" in prices or prices.empty:
+        return prices
+    result = prices.copy()
+    factors = np.full(len(prices), np.nan)
+    groups = prices.groupby("etf_id", dropna=False).indices.values() if "etf_id" in prices else [np.arange(len(prices))]
+    for positions in groups:
+        frame = prices.iloc[positions]
+        if not {"date", "stock_splits", "actions_evidenced"} <= set(frame.columns):
+            continue
+        if not frame["actions_evidenced"].map(lambda value: isinstance(value, (bool, np.bool_)) and bool(value)).all():
+            continue
+        dates = pd.to_datetime(frame["date"], errors="coerce", utc=True)
+        splits = pd.to_numeric(frame["stock_splits"], errors="coerce")
+        if dates.isna().any() or dates.dt.date.duplicated().any():
+            continue
+        if splits.isna().any() or not np.isfinite(splits).all() or (splits < 0).any():
+            continue
+        order = np.argsort(dates.to_numpy())
+        ratios = splits.to_numpy(dtype=float)[order]
+        ratios[ratios == 0] = 1.0
+        # The split on the bar date is already reflected in its traded price.
+        with np.errstate(over="ignore", under="ignore"):
+            factors[np.asarray(positions)[order]] = np.r_[np.cumprod(ratios[:0:-1])[::-1], 1.0]
+    result["as_traded_split_factor"] = factors
+    return result
+
+
 def as_traded_close(frame: pd.DataFrame, when: date) -> tuple[float | None, str | None]:
     """Restore a stored split-adjusted close to its traded units on ``when``.
 
-    ``frame`` must contain the instrument's full stored history, including splits
-    after the decision date. Those events only undo the provider's retrospective
-    price adjustment; their prices and other future information are never used.
+    ``frame`` contains either the full stored split history or per-bar factors
+    prepared by ``with_as_traded_factors`` before decision-time truncation.
+    Later splits only undo the provider's retrospective price adjustment.
     Missing or ambiguous action evidence fails closed, including legacy rows.
     """
 
@@ -172,7 +207,12 @@ def as_traded_close(frame: pd.DataFrame, when: date) -> tuple[float | None, str 
         return None, "split_history_invalid: as-traded valuation price is unavailable"
     # Zero is the provider's explicit no-event marker. A split on d is already
     # reflected in d's traded price, so only strictly later events are reversed.
-    factor = math.prod(float(ratio) for ratio in splits[(dates > when) & (splits != 0)])
+    if "as_traded_split_factor" in frame:
+        factor = sm._finite(rows.iloc[0]["as_traded_split_factor"])
+        if factor is None or factor <= 0:
+            return None, "split_history_invalid: full-series split factor is unavailable"
+    else:
+        factor = math.prod(float(ratio) for ratio in splits[(dates > when) & (splits != 0)])
     value = sm._finite(close * factor)
     if value is None or value <= 0:
         return None, "split_history_invalid: restored valuation price is non-finite or non-positive"
