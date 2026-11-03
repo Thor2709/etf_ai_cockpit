@@ -17,8 +17,6 @@ if str(SOURCE) not in sys.path:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Refresh, gate and run the local daily paper accounts.")
     parser.add_argument("--root", required=True, type=Path, help="Runtime data root with configs/universe.yaml.")
-    parser.add_argument("--ai-account", default="ai-paper")
-    parser.add_argument("--initial-cash-eur", type=float, default=40_000)
     parser.add_argument("--monthly-contribution-eur", type=float, default=0)
     parser.add_argument("--dry-run", action="store_true", help="Refresh, gate and publish but skip paper decisions and account opening.")
     args = parser.parse_args(argv)
@@ -32,8 +30,6 @@ def main(argv: list[str] | None = None) -> int:
 
     result = run_daily_paper(
         runtime_root,
-        ai_account=args.ai_account,
-        initial_cash_eur=args.initial_cash_eur,
         monthly_contribution_eur=args.monthly_contribution_eur,
         dry_run=args.dry_run,
     )

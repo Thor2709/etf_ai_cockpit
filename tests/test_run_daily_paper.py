@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timezone
+from decimal import Decimal
 import json
 from pathlib import Path
+import runpy
 from types import SimpleNamespace
+
+import pytest
 
 from etf_cockpit.application import daily_paper
 from etf_cockpit.core.file_guard import PersistentFileGuard
@@ -100,6 +104,69 @@ def test_ai_account_is_idempotent_and_does_not_add_cash_on_second_run(monkeypatc
     assert records[0]["event_type"] == "account_opened"
     assert records[0]["payload"]["initial_cash"] == "40000.0"
     assert records[0]["payload"]["base_currency"] == "EUR"
+
+
+@pytest.mark.parametrize("opening_cash", [1, Decimal("1"), Decimal("40000.0000000000000001")])
+def test_application_refuses_nondefault_cash_without_writes(monkeypatch, tmp_path: Path, opening_cash) -> None:
+    events: list[str] = []
+    _wire_pipeline(monkeypatch, events)
+    root = tmp_path / "runtime"
+
+    with pytest.raises(ValueError, match="opening cash of exactly EUR 40,000"):
+        daily_paper.run_daily_paper(root, initial_cash_eur=opening_cash, now=_NOW)
+
+    assert events == []
+    assert not root.exists()
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_application_refuses_another_account_without_writes(monkeypatch, tmp_path: Path) -> None:
+    events: list[str] = []
+    _wire_pipeline(monkeypatch, events)
+    root = tmp_path / "runtime"
+
+    with pytest.raises(ValueError, match="AI account id 'ai-paper'"):
+        daily_paper.run_daily_paper(root, ai_account="another-account", now=_NOW)
+
+    assert events == []
+    assert not root.exists()
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_cli_rejects_overrides_and_default_opens_fixed_account(monkeypatch, tmp_path: Path, capsys) -> None:
+    script = Path(__file__).resolve().parents[1] / "scripts" / "run_daily_paper.py"
+    main = runpy.run_path(str(script))["main"]
+    events: list[str] = []
+    open_account = daily_paper._open_ai_account
+    _wire_pipeline(monkeypatch, events)
+    monkeypatch.setattr(daily_paper, "_open_ai_account", open_account)
+    # Stub only the CLI root prerequisite; no configuration file is created or edited.
+    is_file = Path.is_file
+    config_path = tmp_path / "configs" / "universe.yaml"
+    monkeypatch.setattr(Path, "is_file", lambda path: path == config_path or is_file(path))
+    monkeypatch.setenv("ETF_COCKPIT_ROOT", str(tmp_path))
+
+    for option, value in [("--ai-account", "another-account"), ("--initial-cash-eur", "1")]:
+        with pytest.raises(SystemExit) as exc_info:
+            main(["--root", str(tmp_path), option, value])
+        assert exc_info.value.code == 2
+        assert f"unrecognized arguments: {option} {value}" in capsys.readouterr().err
+        assert events == []
+        assert list(tmp_path.iterdir()) == []
+
+    assert main(["--root", str(tmp_path)]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ai_account"]["account_id"] == "ai-paper"
+    assert payload["ai_account"]["cash"] == 40_000
+    assert payload["ai_account"]["monthly_contribution_eur"] == 0
+    assert payload["execution_allowed"] is False
+    # Exact Decimal cash is accepted and an earlier opening remains idempotent.
+    assert daily_paper.run_daily_paper(tmp_path, initial_cash_eur=Decimal("40000"), now=_NOW).exit_code == 0
+    ledger_path = tmp_path / "data" / "operations" / "paper" / "accounts" / "ai-paper" / "ledger.jsonl"
+    records = [json.loads(line) for line in ledger_path.read_text(encoding="utf-8").splitlines()]
+    assert len(records) == 1
+    assert records[0]["event_type"] == "account_opened"
+    assert Decimal(records[0]["payload"]["initial_cash"]) == Decimal("40000")
 
 
 def test_second_concurrent_driver_is_refused_by_shared_writer_lock(monkeypatch, tmp_path: Path) -> None:

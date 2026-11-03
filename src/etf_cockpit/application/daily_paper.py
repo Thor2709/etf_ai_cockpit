@@ -5,7 +5,7 @@ lock is acquired without waiting; price refresh uses the existing five-year
 provider default; the readiness decision is the latest VWCE session strictly
 before the current UTC date and no later than the refreshed snapshot; readiness
 uses the existing policy with one selected decision session; the AI paper
-account defaults to ``ai-paper`` with EUR 40,000 opening cash and EUR 0 monthly
+account is fixed to ``ai-paper`` with EUR 40,000 opening cash and EUR 0 monthly
 contribution. ``--dry-run`` still refreshes, scores, checks and publishes, but
 skips B0-B3 decisions/execution and opening the AI account. Synthetic sample
 data is disabled for this workflow. The external AI client remains responsible
@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
+from decimal import Decimal
 import hashlib
 import json
 import math
@@ -39,6 +40,10 @@ from etf_cockpit.portfolio.paper_bots_execution import run_paper_bot_execution
 from etf_cockpit.portfolio.paper_trading import PaperLedger
 from etf_cockpit.application.scoreboard_publication import SCOREBOARD_PUBLICATION_BINDING_ENTITY_TYPE
 from etf_cockpit.application.score_backfill import CALENDAR_INSTRUMENT_ID
+
+
+AI_ACCOUNT_ID = "ai-paper"
+AI_INITIAL_CASH_EUR = 40_000.0
 
 
 @dataclass(frozen=True)
@@ -209,19 +214,19 @@ def _open_ai_account(root: Path, account_id: str, initial_cash_eur: float):
 def run_daily_paper(
     root: Path,
     *,
-    ai_account: str = "ai-paper",
-    initial_cash_eur: float = 40_000,
+    ai_account: str = AI_ACCOUNT_ID,
+    initial_cash_eur: Decimal | float = AI_INITIAL_CASH_EUR,
     monthly_contribution_eur: float = 0,
     dry_run: bool = False,
     now: datetime | None = None,
 ) -> DailyPaperResult:
     """Refresh and publish once, gate the newest completed session, and run paper-only stages."""
 
+    if ai_account != AI_ACCOUNT_ID:
+        raise ValueError(f"Daily paper requires AI account id {AI_ACCOUNT_ID!r}.")
+    if initial_cash_eur != AI_INITIAL_CASH_EUR:
+        raise ValueError(f"Daily paper requires opening cash of exactly EUR {AI_INITIAL_CASH_EUR:,.0f}.")
     resolved_root = Path(root).expanduser().resolve()
-    if not ai_account.strip():
-        return DailyPaperResult("blocked", "configuration", {"error": "AI account id must not be blank."})
-    if isinstance(initial_cash_eur, bool) or not math.isfinite(float(initial_cash_eur)) or initial_cash_eur <= 0:
-        return DailyPaperResult("blocked", "configuration", {"error": "Initial EUR cash must be finite and positive."})
     if (
         isinstance(monthly_contribution_eur, bool)
         or not math.isfinite(float(monthly_contribution_eur))
