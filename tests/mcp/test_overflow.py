@@ -182,3 +182,82 @@ def test_large_data_tools_fit_budget_and_preserve_full_overflow(monkeypatch, lar
         for collection in ("price_return_comparison", "drawdown_comparison"):
             series = default_data[collection]["ONE|TWO"]
             assert len(series["x"]) == len(series["a"]) == len(series["b"]) == 252
+
+
+@pytest.mark.parametrize("rows", [list(range(5000)), [{"id": i, "evidence": '"\\\n\u00e9' * 100} for i in range(5000)]])
+def test_full_tool_result_budget_counts_both_representations(monkeypatch, tmp_path, rows):
+    from etf_cockpit.mcp.serialise import tool_result_dict
+
+    monkeypatch.delenv("ETF_COCKPIT_MCP_MAX_CHARS", raising=False)
+    _large_tool(monkeypatch, {"rows": rows})
+    context = _context(tmp_path)
+    result = invoke_tool("wide", {}, context=context)
+    wire = tool_result_dict(result)
+    text = wire["content"][0]["text"]
+    assert len(json.dumps(wire["structuredContent"], separators=(",", ":"))) + len(text) <= 32_000
+    assert len(json.dumps(wire, ensure_ascii=True, separators=(",", ":"))) <= 32_000
+    assert result["truncated"] is True
+    assert _read_link(result["resource_link"], context)["data"] == {"rows": rows}
+
+
+@pytest.mark.parametrize("transport", ["stdio", "http"])
+@pytest.mark.parametrize("payload", [
+    {"rows": [1, None], "evidence": 'quoted "text"\n\u00e9'},
+    {"rows": list(range(5000))},
+    {"token=" + "k" * 17000: None},
+])
+def test_tool_text_is_compact_json_equal_to_structured_payload(monkeypatch, tmp_path, transport, payload):
+    import sys
+
+    from etf_cockpit.mcp import http, server
+
+    # Exercise both real transport handlers without importing the optional SDK.
+    monkeypatch.setitem(sys.modules, "mcp.types", SimpleNamespace(CallToolResult=lambda **fields: fields))
+    _large_tool(monkeypatch, payload)
+    spec = replace(registry.find_tool("wide"), name="scores_ranked")
+    monkeypatch.setattr(registry, "find_tool", lambda _name: spec)
+    context = _context(tmp_path)
+    if transport == "stdio":
+        handler = server._handler(spec, context, RuntimeError)
+    else:
+        token = SimpleNamespace(client_id="test", scopes=["cockpit:read"])
+        monkeypatch.setattr(http, "_access_token_getter", lambda: lambda: token)
+        handler = http._tool_handler(spec, template=context, grants={"cockpit:read": frozenset({"read"})}, tool_error=RuntimeError)
+    wire = handler()
+    text = wire["content"][0]["text"]
+    structured = wire["structuredContent"]
+    assert json.loads(text) == structured
+    assert text == json.dumps(structured, ensure_ascii=True, sort_keys=True, separators=(",", ":"), allow_nan=False)
+    assert wire["isError"] is False
+    assert len(json.dumps(wire, ensure_ascii=True, separators=(",", ":"))) <= 32_000
+
+
+def test_environment_budget_caps_full_result_and_invalid_values_fail_startup(monkeypatch, tmp_path):
+    from etf_cockpit.mcp import http, server
+    from etf_cockpit.mcp.serialise import response_char_limit, tool_result_dict
+
+    variable = "ETF_COCKPIT_MCP_MAX_CHARS"
+    payload = {f"summary-{i}-" + "k" * 80: "e" * 160 for i in range(20)}
+    payload.update(rows=list(range(5000)), next_cursor="c" * 2048)
+    _large_tool(monkeypatch, payload)
+    for limit in (8000, 4000, 200000):
+        monkeypatch.setenv(variable, str(limit))
+        assert response_char_limit() == limit
+        result = invoke_tool("wide", {}, context=_context(tmp_path))
+        wire = tool_result_dict(result)
+        assert len(json.dumps(wire, ensure_ascii=True, separators=(",", ":"))) <= limit
+        assert json.loads(wire["content"][0]["text"]) == wire["structuredContent"]
+        if limit <= 8000:
+            assert result["truncated"] is True
+            assert result["resource_link"]["uri"].startswith("cockpit://overflow/")
+
+    def unexpected_sdk_load():
+        raise AssertionError("Invalid budget must fail before loading the SDK")
+
+    monkeypatch.setattr(server, "_load_sdk", unexpected_sdk_load)
+    for invalid in ("invalid", "", "8000.5", "3999", "200001"):
+        monkeypatch.setenv(variable, invalid)
+        with pytest.raises(ValueError, match=variable):
+            server.create_server(session=object())
+        with pytest.raises(ValueError, match=variable):
+            http.create_http_server(token_verifier=None, config={})

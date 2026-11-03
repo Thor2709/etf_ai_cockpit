@@ -11,6 +11,7 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 import json
 import math
+import os
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -23,6 +24,18 @@ from etf_cockpit.mcp.envelope import Envelope, Provenance
 
 DEFAULT_DATAFRAME_ROW_CAP = 500
 RESPONSE_CHAR_LIMIT = 32_000
+
+
+def response_char_limit() -> int:
+    """Read and validate the complete tools/call result budget."""
+    variable = "ETF_COCKPIT_MCP_MAX_CHARS"
+    try:
+        limit = int(os.environ.get(variable, str(RESPONSE_CHAR_LIMIT)))
+    except ValueError:
+        raise ValueError(f"{variable} must be an integer from 4000 to 200000") from None
+    if not 4000 <= limit <= 200_000:
+        raise ValueError(f"{variable} must be an integer from 4000 to 200000")
+    return limit
 
 
 def normalise(value: Any, *, dataframe_row_cap: int = DEFAULT_DATAFRAME_ROW_CAP) -> Any:
@@ -119,17 +132,37 @@ def envelope_dict(envelope: Envelope) -> dict[str, Any]:
     return redact_secrets(normalise(envelope.model_dump(mode="python")))
 
 
+def tool_result_dict(result: Any) -> dict[str, Any]:
+    """Build both protocol representations without the optional SDK's pretty JSON."""
+    envelope = result if isinstance(result, Envelope) else build_envelope(result)
+    structured = envelope_dict(envelope)
+    return {
+        "content": [{"type": "text", "text": to_json(structured)}],
+        "structuredContent": structured,
+        "isError": False,
+    }
+
+
 def enforce_response_budget(result: Any, *, root: Path) -> Any:
-    """Budget the complete envelope once, after a tool's natural pagination.
+    """Budget the complete tools/call result once, after natural pagination.
 
     Oversized results retain their full redacted envelope in a root-local JSON
     resource, available for 24 hours. The inline result contains only bounded
     summaries and a preview; it never substitutes values for missing evidence.
     """
+    limit = response_char_limit()
+
+    def fits(value: Any) -> bool:
+        # Plain values are enveloped again by the transport. Allow for the
+        # fractional timestamp growing by seven characters in each copy.
+        timestamp_margin = 0 if isinstance(value, Envelope) else 14
+        encoded_result = json.dumps(tool_result_dict(value), ensure_ascii=True, separators=(",", ":"), allow_nan=False)
+        return len(encoded_result) + timestamp_margin <= limit
+
     envelope = result if isinstance(result, Envelope) else build_envelope(result)
     full = envelope_dict(envelope)
     encoded = to_json(full)
-    if len(encoded) <= RESPONSE_CHAR_LIMIT:
+    if fits(result):
         return result
 
     from etf_cockpit.mcp.resources import write_overflow
@@ -163,12 +196,18 @@ def enforce_response_budget(result: Any, *, root: Path) -> Any:
         "execution_allowed": False,
         "next_cursor": envelope.next_cursor if envelope.next_cursor and len(envelope.next_cursor) <= 2048 else None,
     }
-    if len(to_json(envelope_dict(build_envelope(compact)))) > RESPONSE_CHAR_LIMIT:
+    if not fits(compact):
         compact["preview"] = _bounded_preview(payload, depth=2)
-    if len(to_json(envelope_dict(build_envelope(compact)))) > RESPONSE_CHAR_LIMIT:
+    if not fits(compact):
         compact["preview"] = None
-    if len(to_json(envelope_dict(build_envelope(compact)))) > RESPONSE_CHAR_LIMIT:
+    if not fits(compact):
         compact = {key: compact[key] for key in ("rows_total", "truncated", "resource_link", "execution_allowed", "next_cursor")}
+    if not fits(compact):
+        compact["next_cursor"] = None
+    if not fits(compact):
+        from etf_cockpit.mcp.errors import MCPToolError
+
+        raise MCPToolError("RESPONSE_BUDGET_EXCEEDED", "The overflow summary exceeds the response budget", "Read the overflow resource.")
     if isinstance(result, Envelope):
         # Oversized metadata is available in the full resource as well.
         return build_envelope(compact)

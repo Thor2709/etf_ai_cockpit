@@ -24,6 +24,8 @@ The helper `scripts/mcp_tunnel.ps1` is disabled unless called with `-Enabled`. S
 
 ## Output and safety
 
+Set `ETF_COCKPIT_MCP_MAX_CHARS` before starting either transport to control the complete `tools/call` result budget. The default is `32000` characters (the 8k-token budget); accepted values are integers from `4000` to `200000`, inclusive. An invalid value stops startup with an error naming the variable. The limit counts both `structuredContent` and the compact JSON text in `content`, including their serialized result wrapper and escaping. Oversized responses return a smaller preview and a read-only `cockpit://overflow/{id}` resource link to the full redacted JSON, available for 24 hours. No YAML configuration change is needed.
+
 MCP results use the standard envelope and existing tool paging. Most list tools default to 25 rows and cap a page at 100 rows; continue with the returned cursor. Missing evidence remains unavailable and is never replaced with zero. Research and paper writes require a fresh valid confirmation token, and all remote calls use the normal MCP audit and rate-limit checks. An OAuth scope does not bypass risk, data-quality, authority, or confirmation gates.
 
 The MCP SDK publishes OAuth protected-resource metadata for compatible clients. See the [MCP Python SDK authorization guide](https://github.com/modelcontextprotocol/python-sdk/blob/main/docs/run/authorization.md), [Claude Code MCP documentation](https://docs.anthropic.com/en/docs/claude-code/mcp), [Codex MCP documentation](https://developers.openai.com/codex/mcp), and [ChatGPT custom MCP server setup](https://help.openai.com/en/articles/12584461-connecting-custom-mcp-servers-in-chatgpt) for client-specific setup and current availability.
