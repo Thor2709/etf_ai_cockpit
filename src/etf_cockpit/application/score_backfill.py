@@ -27,7 +27,8 @@ import pandas as pd
 
 from etf_cockpit.application.feature_service import FeatureService
 from etf_cockpit.data.replay_membership import (
-    DELISTING_UNVERIFIED_STATUS, ListingHistory, MEMBERSHIP_POLICY, STRICT_MODE, SURVIVORSHIP_MODES, delisting_unverified_instruments,
+    DELISTING_UNVERIFIED_STATUS, ETF_UNIVERSE_CAVEAT, ListingHistory, MAX_STALE_BUSINESS_DAYS, MEMBERSHIP_POLICY,
+    OBSERVED_TRADING_STATUS, STRICT_MODE, SURVIVORSHIP_MODES, delisting_unverified_instruments,
     unverified_instruments,
 )
 from etf_cockpit.application.reference_context import (
@@ -70,7 +71,6 @@ CALENDAR_INSTRUMENT_ID = "VWCE"  # the benchmark calendar defines the sessions (
 DEFAULT_EVERY_SESSIONS = 5  # weekly
 CHECKPOINT_RUNS = 20  # persist the store after this many newly scored sessions
 MIN_HISTORY_ROWS = 252  # eligibility: at least this many price rows before the date (the engine's own history gate)
-MAX_STALE_BUSINESS_DAYS = 5  # eligibility: a price within the last 5 trading days (the engine's staleness gate, tightened)
 # Replay-universe liquidity gate for stocks and equity certificates (not ETFs: single-venue ETF volume understates their liquidity).
 # The score engine has a liquidity score ladder but no hard gate, so this is the only gate; thresholds are the owner-set defaults.
 LIQUIDITY_WINDOW_SESSIONS = 63
@@ -91,8 +91,9 @@ WITHHELD_SOURCES = (
     "etf_structure_confidence_caps",
 )
 SURVIVORSHIP_CAVEAT = (
-    "SURVIVORSHIP: listing intervals are applied using their knowledge times. Instruments without listing history "
-    "are survivorship-unverified and explicitly ineligible; missing historical identities or prices are never invented."
+    "SURVIVORSHIP: listing intervals and bounded ETF observed-trading evidence are applied using their knowledge times. "
+    "Instruments without either are survivorship-unverified and explicitly ineligible; "
+    "missing historical identities or prices are never invented."
 )
 _BASE_HISTORY_EXTRA = (
     "analysis_status",
@@ -233,6 +234,7 @@ def backfill_score_history(
         return BackfillResult("unavailable", None, reason="No stored price history to score.")
     frame["date"] = _as_dates(frame["date"])
     frame = frame[frame["etf_id"].astype(str).isin(set(config.universe.enabled_ids))].copy()
+    membership = membership.with_observed_trading(frame, config)
     if survivorship_mode != STRICT_MODE:
         first_dates = frame.groupby(frame["etf_id"].astype(str))["date"].min()
         membership = membership.with_price_history({key: value for key, value in first_dates.items()}, survivorship_mode)
@@ -290,6 +292,7 @@ def backfill_score_history(
             "pit_policy_version": PIT_POLICY_VERSION,
             "withheld_sources": list(WITHHELD_SOURCES),
             "survivorship_caveat": SURVIVORSHIP_CAVEAT,
+            "etf_universe_caveat": ETF_UNIVERSE_CAVEAT,
             "membership_policy": MEMBERSHIP_POLICY,
             "survivorship_unverified": unverified_instruments(eligibility_log),
             "survivorship_mode": survivorship_mode,
@@ -424,6 +427,7 @@ def score_as_of(
         membership = ListingHistory.from_root(ROOT)
     config = _historical_config(config, membership)
     log_config = config
+    membership = membership.with_observed_trading(prices, config)
     snapshot = membership.snapshot(as_of, config.universe.enabled_ids)
     excluded = {**snapshot.reasons, **dict(excluded or {})}
     config = config.model_copy(update={"universe": config.universe.model_copy(update={
@@ -529,6 +533,7 @@ def score_as_of(
         return None, eligibility
     run = _history_run(ranked, run_id, created_at, as_of, inputs_hash, eligibility, version_registry_signature, baselines)
     run["membership_policy"] = MEMBERSHIP_POLICY
+    run["membership_status"] = run["instrument_id"].map(eligibility.set_index("instrument_id")["membership_status"])
     run["membership_inputs_hash"] = snapshot.fingerprint
     run["snapshot_hash"] = _content_hash(run)
     return run, eligibility
@@ -546,6 +551,7 @@ def _membership_log(eligibility, snapshot):
     eligibility["membership_status"] = eligibility["instrument_id"].map(
         lambda key: "survivorship_unverified" if key in snapshot.unverified_ids
         else DELISTING_UNVERIFIED_STATUS if key in snapshot.delisting_unverified_ids
+        else OBSERVED_TRADING_STATUS if key in snapshot.observed_trading_ids
         else "listed" if key in snapshot.eligible_ids else "outside_listing_interval"
     )
     eligibility["membership_inputs_hash"] = snapshot.fingerprint

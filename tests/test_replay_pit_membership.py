@@ -4,10 +4,11 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 
 import pandas as pd
+import pytest
 
 from etf_cockpit.application import score_backfill
 from etf_cockpit.data.replay_membership import (
-    ListingHistory, MEMBERSHIP_POLICY, MembershipPriceBook, unverified_instruments,
+    ListingHistory, MEMBERSHIP_POLICY, MembershipPriceBook, OBSERVED_TRADING_STATUS, replay_preflight, unverified_instruments,
 )
 from etf_cockpit.data.universe_membership import import_licensed_history
 from tests.test_score_backfill import AS_OF, _config, _eur_ids, _prices
@@ -187,3 +188,122 @@ def test_licensed_history_and_parallel_session_outputs_are_deterministic(tmp_pat
         pd.testing.assert_frame_equal(first[0], second[0])
         pd.testing.assert_frame_equal(first[1], second[1])
         assert first[0]["execution_allowed"].eq(False).all()
+
+
+def _observed_bar(instrument="VWCE", day="2026-10-15", **overrides):
+    return {"etf_id": instrument, "date": day, "close": 100.0, "volume": 1000,
+            "source": "yfinance", "available_at": f"{day}T20:00:00+00:00", **overrides}
+
+
+def test_strict_etf_recent_genuine_bar_admits_only_its_window():
+    history = ListingHistory().with_observed_trading(pd.DataFrame([_observed_bar()]), _config())
+    assert not history.snapshot(date(2026, 10, 14), ["VWCE"]).eligible_ids  # no backdating
+    snapshot = history.snapshot(date(2026, 10, 22), ["VWCE"])  # exactly five business days
+    assert snapshot.eligible_ids == snapshot.observed_trading_ids == ("VWCE",)
+    assert not snapshot.unverified_ids and not snapshot.delisting_unverified_ids
+    assert not history.snapshot(date(2026, 10, 23), ["VWCE"]).eligible_ids
+    assert history.delistings(datetime(2026, 11, 1, tzinfo=timezone.utc)) == ()
+    assert history.fingerprint() != ListingHistory().fingerprint()
+    log = score_backfill._membership_log(pd.DataFrame({"instrument_id": ["VWCE"]}), snapshot)
+    assert log["membership_status"].tolist() == [OBSERVED_TRADING_STATUS]
+
+
+def test_strict_etf_bar_after_cutoff_cannot_prove_listing():
+    history = ListingHistory().with_observed_trading(pd.DataFrame([_observed_bar()]), _config())
+    assert not history.snapshot(datetime(2026, 10, 15, 19, tzinfo=timezone.utc), ["VWCE"]).eligible_ids
+    assert history.snapshot(datetime(2026, 10, 15, 20, tzinfo=timezone.utc), ["VWCE"]).eligible_ids == ("VWCE",)
+    assert MembershipPriceBook(_book(), history).bar("VWCE", date(2026, 10, 15)) is None
+
+
+def test_strict_etf_last_bar_outside_window_is_unverified():
+    history = ListingHistory().with_observed_trading(pd.DataFrame([_observed_bar()]), _config())
+    assert history.snapshot(date(2026, 10, 23), ["VWCE"]).unverified_ids == ("VWCE",)
+
+
+def test_future_observed_bars_cannot_change_past_snapshot():
+    prices = pd.DataFrame([_observed_bar()])
+    original = ListingHistory().with_observed_trading(prices, _config())
+    later = ListingHistory().with_observed_trading(
+        pd.concat([prices, pd.DataFrame([_observed_bar(day="2026-10-20")])]), _config(),
+    )
+    assert original.snapshot(date(2026, 10, 15), ["VWCE"]) == later.snapshot(date(2026, 10, 15), ["VWCE"])
+
+
+@pytest.mark.parametrize("changes", [
+    {"source": "synthetic_sample"}, {"source": "forward_fill"}, {"is_filled": True},
+    {"is_synthetic": True}, {"available_at": None}, {"available_at": "2026-10-15T12:00:00"},
+    {"source": None}, {"volume": 0}, {"close": float("nan")},
+])
+def test_strict_etf_requires_genuine_traded_bar(changes):
+    history = ListingHistory().with_observed_trading(pd.DataFrame([_observed_bar(**changes)]), _config())
+    assert history.snapshot(date(2026, 10, 15), ["VWCE"]).unverified_ids == ("VWCE",)
+
+
+def test_strict_stock_without_listing_scope_stays_unverified_despite_bars():
+    config = _config()
+    stock = _eur_ids(config, "stock", 1)[0]
+    history = ListingHistory().with_observed_trading(pd.DataFrame([_observed_bar(stock)]), config)
+    assert history.snapshot(date(2026, 10, 15), [stock]).unverified_ids == (stock,)
+    listed = ListingHistory((_interval(stock),)).with_observed_trading(pd.DataFrame([_observed_bar(stock)]), config)
+    assert listed.snapshot(date(2026, 10, 15), [stock]).eligible_ids == (stock,)
+
+
+def test_observed_trading_cannot_override_a_known_listing_closure():
+    history = ListingHistory((_interval("VWCE", end="2026-10-15"),)).with_observed_trading(
+        pd.DataFrame([_observed_bar()]), _config(),
+    )
+    snapshot = history.snapshot(date(2026, 10, 15), ["VWCE"])
+    assert not snapshot.eligible_ids and not snapshot.observed_trading_ids
+    assert snapshot.reasons["VWCE"] == "outside_listing_interval"
+
+
+def test_benchmark_preflight_observed_every_session_passes_but_long_gap_fails():
+    days = [day.date() for day in pd.bdate_range("2026-10-15", periods=12)]
+    prices = pd.DataFrame([_observed_bar(day=day.isoformat()) for day in days])
+    history = pd.DataFrame([{"as_of_date": days[0].isoformat(), "run_completed_at": f"{days[0]}T23:59:59+00:00",
+                             "instrument_id": "AAA", "membership_policy": MEMBERSHIP_POLICY}])
+    book = _book(sessions=days)
+    cutoff = datetime(2026, 11, 3, tzinfo=timezone.utc)
+    membership = ListingHistory((_interval("AAA"),)).with_observed_trading(prices, _config())
+    assert replay_preflight(history, membership, book, cutoff) is None
+    gap = membership.with_observed_trading(prices.iloc[:1], _config())
+    assert replay_preflight(history, gap, book, cutoff) == f"Benchmark listing membership is unverified or ineligible on {days[6]}."
+    # Real books derive sessions from benchmark bars; a resumed quote must not
+    # hide the missing sessions in between two genuine observations.
+    missing = {("VWCE", day) for day in days[1:-1]}
+    gap_book = _book(sessions=days, missing=missing)
+    assert gap_book.sessions == [days[0], days[-1]]
+    resumed = membership.with_observed_trading(prices.iloc[[0, -1]], _config())
+    assert replay_preflight(history, resumed, gap_book, cutoff) == f"Benchmark listing membership is unverified or ineligible on {days[6]}."
+
+
+def test_from_root_loads_observed_etf_bars_without_a_listing_store(tmp_path):
+    (tmp_path / "configs").mkdir()
+    (tmp_path / "configs/universe.yaml").write_text("etfs:\n  - {id: VWCE, name: VWCE, ticker: VWCE, role: core, instrument_type: etf}\n")
+    path = tmp_path / "data/validated/prices/prices_daily.parquet"
+    path.parent.mkdir(parents=True)
+    pd.DataFrame([_observed_bar()]).to_parquet(path)
+    snapshot = ListingHistory.from_root(tmp_path).snapshot(date(2026, 10, 15), ["VWCE"])
+    assert snapshot.observed_trading_ids == ("VWCE",)
+
+
+def test_backfill_observed_trading_persists_status_and_universe_caveat(tmp_path):
+    from etf_cockpit.data.score_history_backfill import load_backfill_manifest, load_backfill_score_history
+
+    config = _config()
+    prices = _prices(config)
+    prices["available_at"] = prices["date"].map(lambda day: f"{day}T20:00:00+00:00")
+    result = score_backfill.backfill_score_history(
+        tmp_path, AS_OF, AS_OF, config=config, prices=prices, fx_rates=pd.DataFrame(),
+    )
+    assert result.status == "available" and result.runs_written == 1
+    log = result.eligibility.set_index("instrument_id")
+    assert log.loc["VWCE", "membership_status"] == OBSERVED_TRADING_STATUS
+    stock = _eur_ids(config, "stock", 1)[0]
+    assert not log.loc[stock, "eligible"] and log.loc[stock, "membership_status"] == "survivorship_unverified"
+    history = load_backfill_score_history(tmp_path)
+    assert history["membership_status"].eq(OBSERVED_TRADING_STATUS).all()
+    assert history["execution_allowed"].eq(False).all()
+    manifest = load_backfill_manifest(tmp_path)
+    assert "current listings; closed ETFs are absent" in manifest["etf_universe_caveat"]
+    assert "bounded ETF observed-trading evidence" in manifest["survivorship_caveat"]
