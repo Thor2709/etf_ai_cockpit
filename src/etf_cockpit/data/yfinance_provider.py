@@ -72,11 +72,13 @@ class YFinanceProvider(DataProvider, PriceProvider):
         default_currency: str = "EUR",
         instrument_metadata: dict[str, dict[str, object]] | None = None,
         retrieval_root: Path | None = None,
+        session: Any = None,
     ):
         self.section = section or ProviderSection()
         self.default_currency = default_currency
         self.instrument_metadata = instrument_metadata or {}
         self.retrieval_root = Path(retrieval_root) if retrieval_root is not None else None
+        self.session = session
 
     @classmethod
     def from_config(cls, config: AppConfig) -> "YFinanceProvider":
@@ -331,6 +333,7 @@ class YFinanceProvider(DataProvider, PriceProvider):
             progress=False,
             threads=False,
             group_by="column",
+            **({"session": self.session} if self.session is not None else {}),
         )
         if frame is None or frame.empty:
             return pd.DataFrame()
@@ -359,7 +362,7 @@ class YFinanceProvider(DataProvider, PriceProvider):
             }
         )
         out = out.dropna(subset=["open", "high", "low", "close", "adjusted_close"])
-        divisor = _minor_unit_divisor(yf, symbol)
+        divisor = _minor_unit_divisor(yf, symbol, session=self.session)
         if divisor != 1:
             for column in ("open", "high", "low", "close", "adjusted_close", "dividends", "capital_gains"):
                 out[column] = out[column] / divisor
@@ -572,11 +575,11 @@ _MINOR_UNIT_CURRENCIES = {"GBp": 100.0, "GBX": 100.0, "ILA": 100.0, "ZAc": 100.0
 _MINOR_UNIT_SUFFIXES = (".L", ".IL", ".TA", ".JO")
 
 
-def _minor_unit_divisor(yf: Any, symbol: str) -> float:
+def _minor_unit_divisor(yf: Any, symbol: str, *, session: Any = None) -> float:
     if not str(symbol).upper().endswith(_MINOR_UNIT_SUFFIXES) or not hasattr(yf, "Ticker"):
         return 1.0
     try:
-        currency = yf.Ticker(symbol).fast_info["currency"]
+        currency = yf.Ticker(symbol, **({"session": session} if session is not None else {})).fast_info["currency"]
     except Exception:  # pragma: no cover - provider metadata is best effort
         currency = None
     return _MINOR_UNIT_CURRENCIES.get(str(currency), 1.0)
