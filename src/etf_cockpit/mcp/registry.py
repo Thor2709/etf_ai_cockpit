@@ -314,6 +314,13 @@ def invoke_tool(name: str, arguments: Mapping[str, Any], *, context: CallContext
     output_hash: str | None = None
     result: Any = None
     reason_code: str | None = None
+
+    def finish(value: Any) -> Any:
+        from etf_cockpit.core.paths import ROOT
+        from etf_cockpit.mcp.serialise import enforce_response_budget
+
+        return enforce_response_budget(value, root=Path(getattr(active.session, "root", None) or ROOT))
+
     try:
         spec = find_tool(name)
         if spec.tier not in active.enabled_tiers or not profile_allows(spec.name, active.profile, spec.profiles):
@@ -357,7 +364,7 @@ def invoke_tool(name: str, arguments: Mapping[str, Any], *, context: CallContext
                         raise ConfirmationError("This write tool has no safe dry-run preview")
                     with use_call_context(active):
                         preview_result = spec.preview_function(**payload)
-                    result = {"preview": preview_result, "confirm_token": preview_result.get("confirm_token")}
+                    result = finish({"preview": preview_result, "confirm_token": preview_result.get("confirm_token")})
                     output_hash = hash_arguments(result)
                     outcome = "ok"
                     return result
@@ -375,7 +382,7 @@ def invoke_tool(name: str, arguments: Mapping[str, Any], *, context: CallContext
                         if key not in {"confirm_token", "confirmation_arguments"}
                     }
                 issued = issue_confirmation_token(payload, context=active)
-                result = {"preview": preview_result, "confirm_token": issued}
+                result = finish({"preview": preview_result, "confirm_token": issued})
                 output_hash = hash_arguments(result)
                 outcome = "ok"
                 return result
@@ -388,6 +395,7 @@ def invoke_tool(name: str, arguments: Mapping[str, Any], *, context: CallContext
                 raise ConfirmationError()
         with use_call_context(active):
             result = spec.function(**handler_args)
+        result = finish(result)
         output_hash = hash_arguments(result)
         outcome = "ok"
         return result

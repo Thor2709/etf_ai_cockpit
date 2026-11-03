@@ -99,6 +99,61 @@ def test_look_through_missing_publication_fails_closed_but_explicit_time_works(m
     assert calls == [instant] and result["decision_time"] == "2026-10-30T00:00:00Z"
 
 
+@pytest.mark.parametrize("missing_knowledge", [None, "2026-10-30T21:00:00", "invalid"])
+def test_look_through_and_ranked_share_publication_record_without_transactional_binding(monkeypatch, tmp_path, missing_knowledge):
+    import pandas as pd
+
+    from etf_cockpit.application import scoreboard_publication, score_views
+    from etf_cockpit.mcp import tools_scores
+
+    path = tmp_path / "data" / "derived" / "scoreboard.parquet"
+    path.parent.mkdir(parents=True)
+    pd.DataFrame([{"instrument_id": "FUND", "known_at": "2026-10-30T21:00:00Z"}]).to_parquet(path)
+    snapshot = SimpleNamespace(config=SimpleNamespace(universe=SimpleNamespace(etfs=())))
+    active = _context()
+    active.session = SimpleNamespace(root=tmp_path, snapshot=snapshot)
+    monkeypatch.setattr(tools_scores, "_snapshot", lambda: (active.session, snapshot))
+    monkeypatch.setattr(score_views, "published_scores", lambda *_args: [])
+    monkeypatch.setattr(scoreboard_publication, "score_rank_authority", lambda: {})
+    calls = []
+    monkeypatch.setattr(mcp_etf_views, "etf_look_through_view", lambda instrument, time: calls.append(time) or {"coverage": None})
+
+    ranked = invoke_tool("scores_ranked", {}, context=active)
+    result = invoke_tool("etf_look_through", {"instrument_id": "FUND"}, context=active)
+    assert ranked["scoreboard_status"] == "available"
+    assert datetime.fromisoformat(ranked["publication"]["known_at"]) == calls[0]
+    assert result["decision_time"] == "2026-10-30T21:00:00Z"
+    # An available publication without a knowledge time still fails closed.
+    pd.DataFrame([{"instrument_id": "FUND", "known_at": missing_knowledge}]).to_parquet(path)
+    from etf_cockpit.mcp.errors import MCPToolError
+
+    with pytest.raises(MCPToolError, match="SCOREBOARD_KNOWLEDGE_UNAVAILABLE"):
+        invoke_tool("etf_look_through", {"instrument_id": "FUND"}, context=active)
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize("arguments,missing", [
+    ({"action": "add"}, ("instrument_id", "fields.name")),
+    ({"action": "add", "instrument_id": "NEW"}, ("fields.name",)),
+    ({"action": "add", "fields": {"name": "New"}}, ("instrument_id",)),
+    ({"action": "edit"}, ("instrument_id", "fields")),
+    ({"action": "edit", "instrument_id": "OLD"}, ("fields",)),
+    ({"action": "disable"}, ("instrument_id",)),
+    ({"action": "enable"}, ("instrument_id",)),
+])
+def test_universe_change_preview_names_missing_action_fields(monkeypatch, arguments, missing):
+    from etf_cockpit.application import mcp_universe_ops
+    from etf_cockpit.mcp.errors import InvalidArgumentsError
+
+    calls = []
+    monkeypatch.setattr(mcp_universe_ops, "preview_universe_change", lambda *_a, **_kw: calls.append(True))
+    with pytest.raises(InvalidArgumentsError) as refusal:
+        invoke_tool("universe_change_preview", arguments, context=_context())
+    assert all(field in refusal.value.message for field in missing)
+    assert "__init__" not in refusal.value.message
+    assert calls == []
+
+
 @pytest.mark.parametrize("submission_route", ["session", "api"])
 def test_refresh_submission_binds_dedupe_to_normalised_request(submission_route):
     from etf_cockpit.mcp.registry import use_call_context

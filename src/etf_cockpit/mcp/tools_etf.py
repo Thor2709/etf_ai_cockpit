@@ -10,7 +10,6 @@ evidence fails closed. Disclosures are read only; imports use two-phase confirma
 from __future__ import annotations
 
 from datetime import date, datetime
-import hashlib
 from pathlib import Path
 from typing import Any
 
@@ -72,27 +71,16 @@ def etf_look_through(instrument_id: str | None = None, portfolio: bool = False, 
 
 
 def _published_decision_time() -> datetime:
-    from etf_cockpit.application import scoreboard_publication
+    from etf_cockpit.mcp.tools_scores import _published_scoreboard_record
     from etf_cockpit.core.paths import ROOT
 
     root = Path(getattr(current_call_context().session, "root", ROOT)).resolve()
     try:
-        digest = hashlib.sha256((root / "data" / "derived" / "scoreboard.parquet").read_bytes()).hexdigest()
-        with scoreboard_publication.TransactionalStore(root, read_only=True) as store:
-            bindings = store.list(scoreboard_publication.SCOREBOARD_PUBLICATION_BINDING_ENTITY_TYPE)
-        times = []
-        for record in bindings:
-            binding = record.payload
-            if binding.get("scoreboard_sha256") != digest:
-                continue
-            if binding.get("schema_version") != "scoreboard_publication_binding.v1" or binding.get("execution_allowed") is not False:
-                raise ValueError("invalid publication binding")
-            known_at = datetime.fromisoformat(str(binding["known_at"]).replace("Z", "+00:00"))
-            completed = datetime.fromisoformat(str(binding["score_completed_at"]).replace("Z", "+00:00"))
-            if known_at.tzinfo is None or completed.tzinfo is None or known_at < completed:
-                raise ValueError("invalid publication time")
-            times.append(known_at)
-        return max(times)
+        record = _published_scoreboard_record(root)
+        known_at = datetime.fromisoformat(str(record.get("known_at")).replace("Z", "+00:00"))
+        if known_at.tzinfo is None:
+            raise ValueError("invalid publication knowledge time")
+        return known_at
     except Exception:
         raise MCPToolError("SCOREBOARD_KNOWLEDGE_UNAVAILABLE", "The published scoreboard knowledge time is unavailable", "Publish a verified scoreboard or supply decision_time explicitly.") from None
 

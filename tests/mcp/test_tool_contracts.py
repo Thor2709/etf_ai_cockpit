@@ -3,7 +3,8 @@
 The isolated driver seeds once and calls every read-tier declaration, including
 full-profile tools. Parametrised assertions report each tool independently.
 Missing fixture evidence may fail closed; omitted optional arguments must not
-produce INVALID_ARGUMENTS. Sizes include the same envelope as the stdio server.
+produce INVALID_ARGUMENTS. Exactly-one-of tools receive one documented alternative.
+Sizes include the same envelope as the stdio server.
 """
 
 from __future__ import annotations
@@ -49,6 +50,7 @@ REQUIRED_ARGUMENTS = {
     "score_history": {"instrument_id": "VWCE"},
     "settings_change_preview": {"changes": {}},
 }
+DOCUMENTED_ALTERNATIVES = {"audit_validate": {"text": "{}"}}
 
 
 @pytest.fixture(scope="module")
@@ -94,7 +96,7 @@ def _drive(root):
     for spec in READ_TOOLS:
         reason = None
         try:
-            value = invoke_tool(spec.name, REQUIRED_ARGUMENTS.get(spec.name, {}), context=active)
+            value = invoke_tool(spec.name, {**REQUIRED_ARGUMENTS.get(spec.name, {}), **DOCUMENTED_ALTERNATIVES.get(spec.name, {})}, context=active)
             response = envelope_dict(build_envelope(value))
         except MCPToolError as exc:
             reason = exc.reason_code
