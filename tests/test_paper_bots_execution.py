@@ -855,7 +855,7 @@ def test_the_script_runs_the_execution_and_the_replay_flag_selects_the_replay(mo
     calls.clear()
     assert module.main(["--replay"]) == 1
     assert calls == ["replay"]
-    assert "conditional historical simulation" in capsys.readouterr().out
+    assert "Paper bots conditional historical simulation partial:" in capsys.readouterr().out
 
 
 def test_monthly_contributions_are_mirrored_into_the_shadow_and_never_paid_twice(monkeypatch, tmp_path: Path) -> None:
