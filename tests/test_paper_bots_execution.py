@@ -853,7 +853,7 @@ def test_the_script_runs_the_execution_and_the_replay_flag_selects_the_replay(mo
     assert module.main(["--as-of", "2026-10-30T12:00:00+00:00"]) == 0
     assert calls == ["record", "execute"]
     calls.clear()
-    assert module.main(["--replay"]) == 0
+    assert module.main(["--replay"]) == 1
     assert calls == ["replay"]
     assert "conditional historical simulation" in capsys.readouterr().out
 
