@@ -439,6 +439,14 @@ def test_parallel_cover_acquisition_equals_serial_and_preserves_existing_config(
         assert acq.step_cover(layout, workers) == result
         # Only submissions indexes are refreshed; filing records resume directly.
         assert all("/submissions/" in url for url in calls[before:])
+        assert not list(layout.subs.iterdir())
+        # Cover acquisition keeps indexes in memory. Ingestion also needs the
+        # SEC acquisition step's submissions and historical acceptance dates.
+        for cik in ("9000000001", "9000000002"):
+            (layout.subs / f"CIK{cik}.json").write_bytes(
+                (fixtures / f"univ1_sp500/submissions_{cik}.json").read_bytes())
+        page = "CIK9000000001-submissions-001.json"
+        (layout.subs / page).write_bytes((fixtures / f"univ1_sp500/{page}").read_bytes())
         report = ingest_sp500.ingest(dated, root=layout.root, workers=1)
         assert report["status"] == "complete", report
         assert report["coverage"]["intervals"] == 3
