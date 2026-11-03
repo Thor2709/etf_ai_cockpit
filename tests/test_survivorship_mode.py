@@ -60,7 +60,7 @@ def test_delisting_is_never_inferred_from_prices():
     assert not verified.snapshot(far, ["AAA"]).eligible_ids and verified.snapshot(far, ["AAA"]).delisting_unverified_ids == ()
 
 
-def test_replay_flag_admits_labels_and_default_fails_closed(monkeypatch, tmp_path):
+def test_replay_flag_admits_labels_and_default_fails_closed(monkeypatch, tmp_path, readiness_pass):
     from etf_cockpit.portfolio import paper_bots_execution as execution
     from etf_cockpit.portfolio.paper_bots_replay import run_historical_replay
     from etf_cockpit.portfolio.paper_bots_report import build_paper_bots_overview

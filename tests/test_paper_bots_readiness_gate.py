@@ -13,6 +13,18 @@ from etf_cockpit.portfolio.paper_bots import run_paper_bots
 from etf_cockpit.portfolio.paper_bots_replay import run_historical_replay
 
 
+def test_readiness_pass_is_not_autouse_and_absent_fixture_fails_closed(request, tmp_path: Path) -> None:
+    assert "readiness_pass" not in request.fixturenames
+    day = date(2026, 10, 14)
+
+    failure = data_readiness.paper_bot_readiness_failure(tmp_path, day, day)
+
+    assert failure is not None
+    assert "DATA READINESS" in failure and "FAIL" in failure
+    assert "failing checks/families:" in failure
+    assert list(tmp_path.rglob("*")) == []
+
+
 def test_replay_blocked_by_readiness_writes_nothing(tmp_path: Path) -> None:
     cutoff = datetime(2026, 10, 30, 12, tzinfo=timezone.utc)
     history = pd.DataFrame([{"as_of_date": "2026-10-14"}])

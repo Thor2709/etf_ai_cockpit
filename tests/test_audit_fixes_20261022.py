@@ -22,6 +22,9 @@ from tests.test_paper_bots_execution import (
 )
 
 
+pytestmark = pytest.mark.usefixtures("readiness_pass")
+
+
 def _backtest_panel(count=1, *, currency="EUR"):
     config = load_config()
     members = [item for item in config.universe.etfs if item.id in config.universe.enabled_ids][:count]

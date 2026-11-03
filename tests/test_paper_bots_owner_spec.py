@@ -16,6 +16,8 @@ from etf_cockpit.portfolio.paper_trading import PaperLedger
 from tests import test_paper_bots as stage_a
 from tests.test_paper_bots_execution import _allow, _book, _by, _execute, _plans, _ready, _records
 
+pytestmark = pytest.mark.usefixtures("readiness_pass")
+
 NAV = Decimal("40000")
 LOT = Decimal("1")
 

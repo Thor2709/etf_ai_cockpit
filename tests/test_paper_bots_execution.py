@@ -17,6 +17,8 @@ from etf_cockpit.portfolio.paper_trading import PaperLedger, PaperLedgerError
 from tests._pit_listing import verified_listing_history  # noqa: F401 (autouse)
 from tests.test_paper_bots import _NOW, _rows, _run_fixture, _scoreboard
 
+pytestmark = pytest.mark.usefixtures("readiness_pass")
+
 DECISION_DAY = date(2026, 10, 14)  # _NOW is 12:00 UTC on this Wednesday; the recorder only accepts the current day
 SESSIONS = [day.date() for day in pd.bdate_range("2026-10-01", "2026-12-31")]
 RUN_AT = datetime(2026, 10, 30, 12, 0, tzinfo=timezone.utc)

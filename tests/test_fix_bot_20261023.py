@@ -18,6 +18,9 @@ from tests.test_paper_bots_execution import (
 )
 
 
+pytestmark = pytest.mark.usefixtures("readiness_pass")
+
+
 def test_pinned_baseline_and_unavailable_slots_survive_live_policy_bump(monkeypatch, tmp_path):
     first = _decisions(monkeypatch, tmp_path)
     original = {r["bot_family"]: r for r in first.records}

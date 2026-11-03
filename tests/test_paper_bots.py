@@ -17,6 +17,8 @@ from etf_cockpit.portfolio import paper_bots
 from etf_cockpit.signals.canonical_scoring import load_score_policy
 
 
+pytestmark = pytest.mark.usefixtures("readiness_pass")
+
 # Fixed recorder clock: the forward recorder only accepts the current UTC day, so tests that build
 # "minutes ago" cutoffs must not depend on the real wall clock (fails within minutes after 00:00 UTC).
 _NOW = datetime(2026, 10, 14, 12, 0, tzinfo=timezone.utc)

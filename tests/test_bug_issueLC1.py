@@ -16,6 +16,9 @@ from tests.test_paper_bots import _NOW, _rows, _run_fixture, _scoreboard
 from tests.test_paper_bots_execution import _allow, _book, _exec_config, _history_with_columns
 
 
+pytestmark = pytest.mark.usefixtures("readiness_pass")
+
+
 def _decide(monkeypatch, root: Path, rows: list[dict], lane: str, board=None):
     if lane == "live":
         if board is None:
