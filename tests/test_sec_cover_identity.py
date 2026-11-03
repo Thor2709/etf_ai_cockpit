@@ -9,13 +9,15 @@ from etf_cockpit.data.sec_cover_identity import acceptance_utc, identity_spans, 
 FIXTURES = Path(__file__).parent / "fixtures" / "sec_cover"
 
 
-def cover(cik="9000000001", *, accepted="2019-12-20T14:30:00Z", ticker="ZZA"):
+def cover(cik="9000000001", *, accepted="2019-12-20T14:30:00", ticker="ZZA"):
     payload = (FIXTURES / f"{cik}-19-000001.txt").read_bytes()
     payload = payload.replace(b"<ACCEPTANCE-DATETIME>20191220143000", b"<ACCEPTANCE-DATETIME>" + accepted[:19].replace(
         "-", "").replace(":", "").replace("T", "").encode())
     if cik == "9000000001":
         payload = payload.replace(b">ZZA<", f">{ticker}<".encode())
-    return parse_cover(payload, cik=cik, accession=f"{cik}-19-000001", form="10-K", acceptance=accepted,
+    # The helper's accepted argument supplies header wall time; submissions is UTC.
+    submitted = acceptance_utc(accepted.removesuffix("Z")).replace("+00:00", "Z")
+    return parse_cover(payload, cik=cik, accession=f"{cik}-19-000001", form="10-K", acceptance=submitted,
                        source=f"https://www.sec.gov/synthetic/{cik}")
 
 
@@ -45,7 +47,8 @@ def test_cover_before_start_binds_at_acceptance_et_to_utc():
     assert ciks[0]["valid_from"] == "2019-12-21"
     assert "provider symbol ZZA" in instruments[0]["source"]
     assert "9000000001-19-000001" in instruments[0]["source"]
-    assert acceptance_utc("2020-07-01T14:30:00Z") == "2020-07-01T18:30:00+00:00"
+    assert acceptance_utc("2020-07-01T14:30:00Z") == "2020-07-01T14:30:00+00:00"
+    assert acceptance_utc("20200701143000") == "2020-07-01T18:30:00+00:00"
 
 
 def test_acceptance_on_start_day_cannot_backdate_midnight():
@@ -104,7 +107,7 @@ def test_changed_ticker_set_closes_even_a_retained_class():
 def test_missing_unparseable_or_conflicting_cover_fails_closed(mutation):
     with pytest.raises(ValueError):
         parse_cover(mutation((FIXTURES / "9000000001-19-000001.txt").read_bytes()), cik="9000000001",
-                    accession="9000000001-19-000001", form="10-K", acceptance="2019-12-20T14:30:00Z", source="fixture")
+                    accession="9000000001-19-000001", form="10-K", acceptance="2019-12-20T19:30:00Z", source="fixture")
 
 
 def test_unreadable_filing_breaks_continuity_and_failed_scan_binds_nothing():
@@ -128,7 +131,32 @@ def test_reentry_reuses_one_cik_span_without_duplicate_bindings():
     assert not rejected and len(ciks) == 1 and len(instruments) == 2
 
 
-@pytest.mark.parametrize("stamp", ["2020-11-01T01:30:00Z", "2020-03-08T02:30:00Z", "2020-01-01"])
+@pytest.mark.parametrize("stamp", ["2020-11-01T01:30:00", "2020-03-08T02:30:00", "2020-01-01"])
 def test_uncertain_acceptance_is_rejected(stamp):
     with pytest.raises(ValueError):
         acceptance_utc(stamp)
+
+
+@pytest.mark.parametrize("header,submitted,expected", [
+    ("20191220143000", "2019-12-20T19:30:00.000Z", "2019-12-20T19:30:00+00:00"),
+    ("20170802163128", "2017-08-02T20:31:28.000Z", "2017-08-02T20:31:28+00:00"),
+])
+def test_header_eastern_and_submissions_utc_describe_same_instant(header, submitted, expected):
+    payload = (FIXTURES / "9000000001-19-000001.txt").read_bytes().replace(b"20191220143000", header.encode())
+    row = parse_cover(payload, cik="9000000001", accession="9000000001-19-000001", form="10-K",
+                      acceptance=submitted, source="fixture")
+    assert row["known_at"] == expected
+    assert row["tickers"] == ["ZZA"]
+
+
+def test_genuinely_conflicting_acceptance_still_fails_closed():
+    with pytest.raises(ValueError, match="conflicting acceptanceDateTime"):
+        parse_cover((FIXTURES / "9000000001-19-000001.txt").read_bytes(), cik="9000000001",
+                    accession="9000000001-19-000001", form="10-K", acceptance="2019-12-20T20:30:00Z", source="fixture")
+
+
+def test_headerless_cover_uses_submissions_utc_without_second_shift():
+    payload = (FIXTURES / "9000000001-19-000001.txt").read_bytes().replace(b"<ACCEPTANCE-DATETIME>20191220143000", b"")
+    row = parse_cover(payload, cik="9000000001", accession="9000000001-19-000001", form="10-K",
+                      acceptance="2019-12-20T19:30:00.000Z", source="fixture")
+    assert row["known_at"] == "2019-12-20T19:30:00+00:00"

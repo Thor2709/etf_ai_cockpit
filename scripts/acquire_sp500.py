@@ -27,6 +27,7 @@ import gzip
 import hashlib
 import html as html_lib
 import json
+import logging
 import os
 import re
 import subprocess
@@ -156,13 +157,13 @@ def http_get(url: str, host: str, *, tries: int = 5, allow_404: bool = False) ->
                             THROTTLE_PAUSE if exc.code in {403, 429} else 0.0)
                 LIMITERS[host].defer(delay)
                 if attempt == tries - 1:
-                    raise RuntimeError(f"{host}: HTTP {exc.code}; exhausted {tries} attempts; acquisition stopped") from None
+                    raise RuntimeError(f"{host}: HTTP {exc.code}; exhausted {tries} attempts; acquisition stopped") from exc
             finally:
                 exc.close()
         except (urllib.error.URLError, TimeoutError, ConnectionError) as exc:
             LIMITERS[host].defer(delay)
             if attempt == tries - 1:
-                raise RuntimeError(f"{host}: {type(exc).__name__}; exhausted {tries} attempts; acquisition stopped") from None
+                raise RuntimeError(f"{host}: {type(exc).__name__}; exhausted {tries} attempts; acquisition stopped: {exc}") from exc
     raise RuntimeError("unreachable")
 
 
@@ -485,6 +486,22 @@ def step_sec(layout: Layout, workers: int) -> dict:
     return summary
 
 
+def cover_failure(exc: Exception, *, cik: str, url: str, http_status: int | None,
+                  accession: str | None = None) -> dict:
+    """Keep transport causes and request context in both machine output and logs."""
+    cause = exc
+    while cause.__cause__ is not None:
+        cause = cause.__cause__
+    error = {"exception_type": type(cause).__name__, "message": str(cause),
+             "reason": f"{type(exc).__name__}: {exc}",
+             "http_status": cause.code if isinstance(cause, urllib.error.HTTPError) else http_status,
+             "url": url}
+    if accession is not None:
+        error["accession"] = accession
+    logging.getLogger(__name__).warning("SEC cover failure %s", json.dumps({"cik": cik, **error}, sort_keys=True))
+    return error
+
+
 def fetch_cover_issuer(task: tuple[str, Layout]) -> dict:
     """One issuer per worker; all HTTP calls use the process-wide SEC limiter.
 
@@ -494,21 +511,26 @@ def fetch_cover_issuer(task: tuple[str, Layout]) -> dict:
     """
     cik, layout = task
     evidence, errors = [], []
+    url, http_status, accession = SUBMISSIONS.format(name=f"CIK{cik}.json"), None, None
     try:
         name = f"CIK{cik}.json"
-        fetch_recorded(SUBMISSIONS.format(name=name), "sec", layout.subs / name, layout.subs_meta)
+        meta = fetch_recorded(url, "sec", layout.subs / name, layout.subs_meta)
+        http_status = meta.get("http_status")
         main = json.loads((layout.subs / name).read_bytes())
         if cik_text(main["cik"]) != cik:
             raise ValueError("submissions CIK mismatch")
-        pages = [main.get("filings", {}).get("recent", {})]
+        pages = [(main.get("filings", {}).get("recent", {}), url, http_status)]
         for entry in main.get("filings", {}).get("files", []):
             page = entry["name"]
             if Path(page).name != page or not re.fullmatch(r"CIK\d{10}-submissions-\d+\.json", page):
                 raise ValueError("unsafe submissions page")
-            fetch_recorded(SUBMISSIONS.format(name=page), "sec", layout.subs / page, layout.subs_meta)
-            pages.append(json.loads((layout.subs / page).read_bytes()))
+            url, http_status = SUBMISSIONS.format(name=page), None
+            meta = fetch_recorded(url, "sec", layout.subs / page, layout.subs_meta)
+            http_status = meta.get("http_status")
+            pages.append((json.loads((layout.subs / page).read_bytes()), url, http_status))
         filings = {}
-        for page in pages:
+        for page, url, http_status in pages:
+            accession = None
             accessions, forms = page.get("accessionNumber", []), page.get("form", [])
             if len(accessions) != len(forms):
                 raise ValueError("incomplete submissions filing index")
@@ -527,8 +549,10 @@ def fetch_cover_issuer(task: tuple[str, Layout]) -> dict:
         for accession, (form, accepted) in sorted(filings.items()):
             url = f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/{accession.replace('-', '')}/{accession}.txt"
             target = layout.raw / "sec" / "covers" / cik / f"{accession}.txt"
+            http_status = None
+            meta = fetch_recorded(url, "sec", target, layout.meta / "covers" / cik)
+            http_status = meta.get("http_status")
             try:
-                fetch_recorded(url, "sec", target, layout.meta / "covers" / cik)
                 evidence.append(parse_cover(target.read_bytes(), cik=cik, accession=accession,
                                             form=form, acceptance=accepted, source=url))
             except (ValueError, UnicodeError) as exc:
@@ -536,14 +560,14 @@ def fetch_cover_issuer(task: tuple[str, Layout]) -> dict:
                 # trustworthy acceptance, fail the whole issuer scan closed.
                 if str(exc) == "conflicting acceptanceDateTime":
                     raise
+                errors.append(cover_failure(exc, cik=cik, url=url, http_status=http_status, accession=accession))
                 stamp = acceptance_utc(accepted or "")
                 evidence.append({"cik": cik, "accession": accession, "known_at": stamp,
                                  "tickers": [], "source": url})
-                errors.append({"accession": accession, "reason": str(exc)})
         return {"cik": cik, "status": "ok", "evidence": evidence, "errors": errors}
     except Exception as exc:
         return {"cik": cik, "status": "failed", "evidence": evidence,
-                "errors": errors + [{"reason": f"{type(exc).__name__}: {exc}"}]}
+                "errors": errors + [cover_failure(exc, cik=cik, url=url, http_status=http_status, accession=accession)]}
 
 
 def step_cover(layout: Layout, workers: int) -> dict:
@@ -599,7 +623,9 @@ def step_cover(layout: Layout, workers: int) -> dict:
     destination = layout.raw / f"run_config_cover_v1_{sha256(payload)}.yaml"
     atomic_write_bytes(destination, payload, lambda p: yaml.safe_load(p.read_text()))
     return {"config": str(destination), "cik_bindings": len(ciks), "instrument_bindings": len(instruments),
-            "unbound_intervals": len(rejected), "failed": [r["cik"] for r in results if r["status"] == "failed"]}
+            "unbound_intervals": len(rejected), "failed": [r["cik"] for r in results if r["status"] == "failed"],
+            "issuer_outcomes": [{"cik": r["cik"], "status": r["status"], "evidence_count": len(r["evidence"]),
+                                 "errors": r["errors"]} for r in results]}
 
 
 # ---------------------------------------------------------------- step: prices
@@ -830,8 +856,9 @@ def main(argv=None) -> int:
         out = step_report(layout)
     else:
         return step_ingest(layout, "run_config_block.yaml" if args.step == "ingest-block" else "run_config.yaml", args.workers)
-    print(json.dumps({key: value for key, value in out.items() if key not in {"results", "members", "ciks", "flags", "files"}},
-                     sort_keys=True, default=str)[:3000])
+    rendered = json.dumps({key: value for key, value in out.items() if key not in {"results", "members", "ciks", "flags", "files"}},
+                          sort_keys=True, default=str)
+    print(rendered if args.step == "cover-evidence" else rendered[:3000])
     if args.step in {"sec", "cover-evidence"} and out["failed"]:
         return 1
     return 0
