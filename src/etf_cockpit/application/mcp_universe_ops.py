@@ -6,7 +6,7 @@ existing local CSV/XLSX/paste formats and never call identity providers.
 
 from __future__ import annotations
 
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Mapping
 
@@ -22,14 +22,26 @@ from etf_cockpit.data.universe_store import (
     add_record,
     disable_record,
     edit_record,
+    import_legacy_universe,
     load_universe,
     save_universe,
     validate_universe,
 )
 
 
-def universe_snapshot() -> dict[str, object]:
+def _import_snapshot():
     snapshot = load_universe(Path(ROOT))
+    primary = Path(ROOT) / "configs" / "universe.yaml"
+    if not snapshot.path.exists() and primary.is_file():
+        # Reuse the migration reader without writing during a preview. The
+        # canonical initializer save_universe expects revision "" before the
+        # JSON store exists, and commits the legacy records with the new rows.
+        snapshot = replace(snapshot, records=import_legacy_universe(primary).records)
+    return snapshot
+
+
+def universe_snapshot() -> dict[str, object]:
+    snapshot = _import_snapshot()
     return {"records": snapshot.records, "revision": snapshot.revision, "integrity_errors": snapshot.integrity_errors}
 
 
@@ -131,7 +143,7 @@ def preview_universe_import(
 ) -> dict[str, object]:
     if source == "savings_bank_gap":
         rows = missing_savings_banks(Path(ROOT))
-        return {"source_kind": "savings_bank_gap", "candidates": rows, "errors": [], "valid": bool(rows), "expected_revision": load_universe(Path(ROOT)).revision}
+        return {"source_kind": "savings_bank_gap", "candidates": rows, "errors": [], "valid": bool(rows), "expected_revision": _import_snapshot().revision}
     report = dry_run_universe_import(source, source_kind=source_kind, provider_name=provider_name, correction_overlays=correction_overlays)
     manifest = build_universe_manifest(report)
     return {
@@ -144,7 +156,7 @@ def preview_universe_import(
         "warnings": report.warnings,
         "valid": report.valid,
         "manifest_id": manifest.manifest_id,
-        "expected_revision": load_universe(Path(ROOT)).revision,
+        "expected_revision": _import_snapshot().revision,
     }
 
 
@@ -156,7 +168,7 @@ def commit_universe_import(
     correction_overlays: Mapping[int | str, Mapping[str, object]] | None = None,
     expected_revision: str | None = None,
 ) -> dict[str, object]:
-    current = load_universe(Path(ROOT))
+    current = _import_snapshot()
     if expected_revision is not None and expected_revision != current.revision:
         raise ValueError("universe revision changed; request a fresh preview")
     if current.integrity_errors:
