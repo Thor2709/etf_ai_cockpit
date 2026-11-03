@@ -1,8 +1,8 @@
 """MCP score and analysis tools.
 
 Open defaults: ranked and research lists use 25 rows per page, score history
-uses one year and at most 500 points, detail defaults to overview and score,
-comparisons use one year, and selection uses the app's configured medium risk
+uses the supported stored-price range "1Y" (365 days) and at most 500 points,
+detail defaults to overview and score, comparisons also use "1Y", and selection uses the app's configured medium risk
 profile without persisting a run. Candidate analysis defaults to five years and
 uses only requested identifiers found in the local candidate input and verified
 stored prices. Network candidate refresh requires allow_network=True. Other job
@@ -28,7 +28,7 @@ from typing import Any, Mapping, Sequence
 
 from etf_cockpit.core.paths import ROOT
 from etf_cockpit.mcp.errors import InvalidArgumentsError, MCPToolError
-from etf_cockpit.mcp.paging import CursorCodec, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, validate_page_size
+from etf_cockpit.mcp.paging import CursorCodec, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, page_rows, validate_page_size
 from etf_cockpit.mcp.registry import current_call_context, tool
 
 
@@ -199,7 +199,7 @@ def score_explain(instrument_id: str) -> dict[str, Any]:
 
 
 @tool(tier="read", description="Read stored score history for one instrument over the requested range.", read_only_hint=True, idempotent_hint=True, profiles=("full",))
-def score_history(instrument_id: str, range: str = "1y") -> dict[str, Any]:
+def score_history(instrument_id: str, range: str = "1Y") -> dict[str, Any]:
     from etf_cockpit.application.score_explain import load_score_history
 
     session, _snapshot_value = _snapshot()
@@ -236,20 +236,23 @@ def screen_run(
         requested_fields=tuple(fields or ()),
     )
     offset = _CURSORS.decode(cursor, filters={"query": result.query_checksum}) if cursor else 0
-    selected = result.rows[offset : offset + page_size + 1]
-    has_more = len(selected) > page_size
-    page = list(selected[:page_size])
-    return {
-        "rows": page,
+    summary = {
         "total_input": result.total_input,
         "total_matched": result.total_matched,
+        "rows_total": len(result.rows),
         "available_fields": list(result.available_fields),
         "unavailable_fields": list(result.unavailable_fields),
         "warnings": list(result.warnings),
         "query_checksum": result.query_checksum,
-        "next_cursor": _CURSORS.encode(offset + page_size, filters={"query": result.query_checksum}) if has_more else None,
         "execution_allowed": False,
     }
+    from etf_cockpit.mcp.serialise import to_json
+
+    page = page_rows(result.rows, offset=offset, limit=page_size,
+                     max_chars=30_000 - len(to_json(summary)), root=Path(session.root))
+    following = offset + len(page)
+    return {**summary, "rows": page,
+            "next_cursor": _CURSORS.encode(following, filters={"query": result.query_checksum}) if following < len(result.rows) else None}
 
 
 def _project_detail_value(value: Any) -> Any:
@@ -304,7 +307,7 @@ def instrument_detail(instrument_id: str, sections: Sequence[str] | None = None)
 
 
 @tool(tier="read", description="Compare 2 to 5 instruments using canonical scores and stored comparison evidence.", read_only_hint=True, idempotent_hint=True)
-def compare_instruments(ids: Sequence[str], range: str = "1y") -> dict[str, Any]:
+def compare_instruments(ids: Sequence[str], range: str = "1Y") -> dict[str, Any]:
     from etf_cockpit.application.score_explain import compare_instruments as compare_service
 
     session, snapshot = _snapshot()

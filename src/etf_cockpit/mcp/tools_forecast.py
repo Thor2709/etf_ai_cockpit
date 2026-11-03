@@ -5,7 +5,8 @@ Forecast Lab uses the caller's exact horizon, optional model computation is off,
 and a forecast run always covers the full configured enabled universe. Stress
 defaults to current holdings, a 1-day horizon, 100,000 EUR notional, and 25
 contributors per page (maximum 100); a saved scenario keeps its stored horizon
-unless the caller supplies one. Reverse stress uses the canonical 5.0 maximum
+unless the caller supplies one. Omitting all scenario inputs returns unavailable;
+no shock or scenario is invented. Reverse stress uses the canonical 5.0 maximum
 shock bound and has no time horizon.
 """
 
@@ -421,7 +422,14 @@ def stress_test(
             raise InvalidArgumentsError("reverse stress results do not have additional pages")
     else:
         selected_loss_limit = None
-        if (scenario is None) == (shocks is None):
+        if scenario is None and shocks is None:
+            return {
+                "status": "unavailable", "portfolio": selected_portfolio,
+                "scenario": None, "loss": None, "total_pnl": None,
+                "unavailable_reason": "stress_scenario_unavailable: supply scenario or shocks",
+                "next_cursor": None, "execution_allowed": False,
+            }
+        if scenario is not None and shocks is not None:
             raise InvalidArgumentsError("provide exactly one saved scenario identifier or shocks mapping")
 
     session, snapshot = _snapshot()

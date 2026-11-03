@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date
+import inspect
 import json
 from pathlib import Path
 from threading import Barrier, Event, Lock
@@ -103,6 +104,63 @@ def test_screen_run_pages_through_canonical_query_service(monkeypatch: pytest.Mo
     assert second["rows"] == [{"instrument_id": "two"}]
     assert second["next_cursor"] is None
     assert len(built) == len(queried) == 2
+
+
+def test_screen_run_default_page_bounds_wide_rows_without_losing_any(monkeypatch, tmp_path):
+    from etf_cockpit.application import decision_views, screening_data
+    from etf_cockpit.mcp.paging import DEFAULT_PAGE_SIZE
+    from etf_cockpit.mcp.serialise import build_envelope, envelope_dict
+
+    rows = [{"instrument_id": str(index), "evidence": "wide row " * 600, "score": None} for index in range(60)]
+    result = SimpleNamespace(rows=rows, total_input=70, total_matched=60, available_fields=("instrument_id",),
+                             unavailable_fields=("missing",), warnings=("missing evidence",), query_checksum="wide")
+    monkeypatch.setattr(tools_scores, "_snapshot", lambda: (SimpleNamespace(root=tmp_path), object()))
+    monkeypatch.setattr(screening_data, "load_screening_fundamentals", lambda _root: pd.DataFrame())
+    monkeypatch.setattr(decision_views, "build_screen_rows", lambda *_args: pd.DataFrame())
+    monkeypatch.setattr(screening_data, "run_screen_query", lambda *_args, **_kwargs: result)
+    received = []
+    cursor = None
+    while True:
+        page = tools_scores.screen_run(**({"cursor": cursor} if cursor else {}))
+        assert len(json.dumps(envelope_dict(build_envelope(page)), separators=(",", ":"))) <= 32_000
+        assert 0 < len(page["rows"]) <= DEFAULT_PAGE_SIZE
+        assert page["rows_total"] == page["total_matched"] == 60
+        assert page["total_input"] == 70 and page["warnings"] == ["missing evidence"]
+        received.extend(page["rows"])
+        cursor = page["next_cursor"]
+        if cursor is None:
+            break
+    assert received == rows
+
+
+def test_score_history_omitted_range_is_supported(monkeypatch, tmp_path):
+    from etf_cockpit.application import score_explain
+    from etf_cockpit.application.ui_views.stock_research import RANGE_DAYS
+
+    monkeypatch.setattr(tools_scores, "_snapshot", lambda: (SimpleNamespace(root=tmp_path), object()))
+    result = tools_scores.score_history("VWCE")
+    assert inspect.signature(tools_scores.score_history).parameters["range"].default == "1Y"
+    assert "1Y" in RANGE_DAYS and RANGE_DAYS["1Y"] == 365
+    assert result == score_explain.load_score_history("VWCE", range_key="1Y", root=tmp_path)
+
+
+def test_screen_run_links_individually_oversized_row(monkeypatch, tmp_path):
+    from etf_cockpit.application import decision_views, screening_data
+
+    rows = [{"instrument_id": "large", "evidence": "x" * 40_000}, {"instrument_id": "small", "score": None}]
+    result = SimpleNamespace(rows=rows, total_input=2, total_matched=2, available_fields=(),
+                             unavailable_fields=(), warnings=(), query_checksum="oversized")
+    monkeypatch.setattr(tools_scores, "_snapshot", lambda: (SimpleNamespace(root=tmp_path), object()))
+    monkeypatch.setattr(screening_data, "load_screening_fundamentals", lambda _root: pd.DataFrame())
+    monkeypatch.setattr(decision_views, "build_screen_rows", lambda *_args: pd.DataFrame())
+    monkeypatch.setattr(screening_data, "run_screen_query", lambda *_args, **_kwargs: result)
+    page = tools_scores.screen_run()
+    link = page["rows"][0]
+    assert link["type"] == "resource_link"
+    assert json.loads((tmp_path / link["uri"].removeprefix("cockpit://exports/")).read_text(encoding="utf-8")) == rows[0]
+    assert page["rows"][1] == rows[1] and page["rows_total"] == 2
+    assert page["next_cursor"] is None
+    assert len(json.dumps(page)) <= 32_000
 
 
 def test_score_detail_and_rank_tools_delegate_to_application_services(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

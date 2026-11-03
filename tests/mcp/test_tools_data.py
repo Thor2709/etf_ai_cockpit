@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
 import hashlib
+import json
 from pathlib import Path
 import sqlite3
 from types import SimpleNamespace
@@ -14,6 +15,88 @@ from etf_cockpit.mcp.errors import ConfirmationError
 from etf_cockpit.mcp.registry import CallContext, RateLimiter, invoke_tool
 from etf_cockpit.mcp import tools_data, tools_etf, tools_universe
 from etf_cockpit.data.universe_store import UniverseRecord
+
+
+def test_validate_prices_pages_both_collections_and_preserves_summary(monkeypatch, tmp_path):
+    from etf_cockpit.mcp.paging import DEFAULT_PAGE_SIZE
+    from etf_cockpit.mcp.registry import use_call_context
+    from etf_cockpit.mcp.serialise import build_envelope, envelope_dict
+
+    issues = [{"id": index, "detail": "issue " * 300, "value": None} for index in range(70)]
+    metadata = [{"dataset": str(index), "detail": "metadata " * 200} for index in range(65)]
+    report = {"issues": issues, "dataset_metadata": metadata, "status": "Blocked",
+              "analysis_allowed": False, "as_of_date": None, "unavailable_reason": "missing evidence"}
+    monkeypatch.setattr(mcp_data_views, "validate_prices_view", lambda **_kwargs: report)
+    active = _context()
+    active.session = SimpleNamespace(root=tmp_path)
+    with use_call_context(active):
+        first = tools_data.data_validate_prices()
+        for key, cursor_arg, next_key, expected in (
+            ("issues", "cursor", "next_cursor", issues),
+            ("dataset_metadata", "metadata_cursor", "metadata_next_cursor", metadata),
+        ):
+            page = first
+            received = []
+            while True:
+                assert len(json.dumps(envelope_dict(build_envelope(page)), separators=(",", ":"))) <= 32_000
+                assert 0 < len(page[key]) <= DEFAULT_PAGE_SIZE
+                assert page["rows_total"] == 135 and page[f"{key}_rows_total"] == len(expected)
+                assert page["status"] == "Blocked" and page["analysis_allowed"] is False
+                assert page["as_of_date"] is None and page["unavailable_reason"] == "missing evidence"
+                received.extend(page[key])
+                if page[next_key] is None:
+                    break
+                page = tools_data.data_validate_prices(**{cursor_arg: page[next_key]})
+            assert received == expected
+
+
+@pytest.mark.parametrize("portfolio", [False, True])
+def test_look_through_default_uses_latest_matching_publication_knowledge(monkeypatch, tmp_path, portfolio):
+    from etf_cockpit.application import scoreboard_publication
+    from etf_cockpit.data.local_storage import TransactionalStore
+
+    scoreboard = tmp_path / "data" / "derived" / "scoreboard.parquet"
+    scoreboard.parent.mkdir(parents=True)
+    scoreboard.write_bytes(b"published scoreboard bytes")
+    digest = hashlib.sha256(scoreboard.read_bytes()).hexdigest()
+    with TransactionalStore(tmp_path) as store:
+        for name, known_at, checksum in (
+            ("old", "2026-10-20T21:00:00Z", digest),
+            ("latest", "2026-10-30T21:00:00Z", digest),
+            ("unrelated", "2026-11-02T21:00:00Z", "0" * 64),
+        ):
+            store.put_many([(scoreboard_publication.SCOREBOARD_PUBLICATION_BINDING_ENTITY_TYPE, name, {
+                "schema_version": "scoreboard_publication_binding.v1", "known_at": known_at,
+                "score_completed_at": "2026-10-20T20:00:00Z", "scoreboard_sha256": checksum,
+                "execution_allowed": False,
+            })], immutable=True)
+    calls = []
+    monkeypatch.setattr(mcp_etf_views, "etf_look_through_view", lambda instrument, time: calls.append((instrument, time)) or {"coverage": None})
+    monkeypatch.setattr(mcp_etf_views, "portfolio_look_through_view", lambda snapshot, time: calls.append((snapshot, time)) or {"coverage": None})
+    snapshot = SimpleNamespace(facts_known_at="2026-11-03T12:00:00Z")
+    active = _context()
+    active.session = SimpleNamespace(root=tmp_path, snapshot=snapshot)
+    # No optional arguments at all selects the portfolio; instrument-only calls
+    # omit decision_time too. Neither uses the newer in-memory snapshot time.
+    result = invoke_tool("etf_look_through", {} if portfolio else {"instrument_id": "FUND"}, context=active)
+    assert calls == [(snapshot if portfolio else "FUND", datetime(2026, 10, 30, 21, tzinfo=timezone.utc))]
+    assert result["decision_time"] == "2026-10-30T21:00:00Z"
+    assert result["coverage"] is None
+
+
+def test_look_through_missing_publication_fails_closed_but_explicit_time_works(monkeypatch, tmp_path):
+    from etf_cockpit.mcp.errors import MCPToolError
+
+    calls = []
+    monkeypatch.setattr(mcp_etf_views, "etf_look_through_view", lambda instrument, time: calls.append(time) or {"coverage": None})
+    active = _context()
+    active.session = SimpleNamespace(root=tmp_path)
+    with pytest.raises(MCPToolError, match="SCOREBOARD_KNOWLEDGE_UNAVAILABLE"):
+        invoke_tool("etf_look_through", {"instrument_id": "FUND"}, context=active)
+    assert calls == []
+    instant = datetime(2026, 10, 30, tzinfo=timezone.utc)
+    result = invoke_tool("etf_look_through", {"instrument_id": "FUND", "decision_time": instant}, context=active)
+    assert calls == [instant] and result["decision_time"] == "2026-10-30T00:00:00Z"
 
 
 @pytest.mark.parametrize("submission_route", ["session", "api"])

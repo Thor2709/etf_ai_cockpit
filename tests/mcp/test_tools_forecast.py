@@ -18,6 +18,14 @@ from etf_cockpit.mcp.registry import CallContext, find_tool, invoke_tool
 from etf_cockpit.portfolio.stress_testing import StressResult
 
 
+def test_stress_test_omitted_optional_scenario_fails_closed():
+    result = tools_forecast.stress_test()
+    assert result["status"] == "unavailable"
+    assert result["scenario"] is result["loss"] is result["total_pnl"] is None
+    assert result["execution_allowed"] is False
+    assert result["unavailable_reason"] == "stress_scenario_unavailable: supply scenario or shocks"
+
+
 def test_forecast_get_paginates_simple_returns_and_keeps_unavailable_values_null(monkeypatch: pytest.MonkeyPatch) -> None:
     from tests.test_forecast_lab import _forecasts
 
