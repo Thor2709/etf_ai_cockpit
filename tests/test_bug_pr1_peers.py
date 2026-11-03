@@ -55,7 +55,11 @@ def _universe(monkeypatch: pytest.MonkeyPatch, periods: dict[str, list[sm.Period
     monkeypatch.setattr(store, "periods_for", lambda iid, _frame, _chain: periods.get(iid, []))
     monkeypatch.setattr(su, "load_user_peers", lambda _root: {"T": picks_for_t})
     prices = pd.DataFrame(
-        {"etf_id": ids, "date": pd.to_datetime(["2026-02-27"] * len(ids)), "close": [50.0] * len(ids), "currency": ["EUR"] * len(ids), "dividends": [0.0] * len(ids)}
+        {
+            "etf_id": ids, "date": pd.to_datetime(["2026-02-27"] * len(ids)), "close": [50.0] * len(ids),
+            "currency": ["EUR"] * len(ids), "dividends": [0.0] * len(ids),
+            "stock_splits": [0.0] * len(ids), "actions_evidenced": [True] * len(ids),
+        }
     )
     return su.build_universe_evidence(records, prices, NOW, config=CONFIG)
 
@@ -210,6 +214,7 @@ def test_month_end_history_is_dated_by_the_last_stored_price() -> None:
             "date": pd.to_datetime(["2026-01-29", "2026-02-26", "2026-02-27", "2026-03-02"]),
             "close": [10.0, 11.0, 12.0, 13.0],
             "currency": ["EUR"] * 4,
+            "stock_splits": [0.0] * 4, "actions_evidenced": [True] * 4,
         }
     )
     market = su.market_inputs(frame, None, "EUR", datetime(2026, 3, 3, tzinfo=UTC), pd.DataFrame(columns=store.FX_COLUMNS), CONFIG)
@@ -240,7 +245,10 @@ def test_market_cap_in_the_listing_currency_without_a_quote_currency_is_not_size
 
 
 def test_completed_month_is_kept_when_the_last_price_is_before_the_calendar_month_end() -> None:
-    frame = pd.DataFrame({"date": pd.to_datetime(["2026-01-29", "2026-02-27"]), "close": [10.0, 12.0], "currency": ["EUR"] * 2})
+    frame = pd.DataFrame({
+        "date": pd.to_datetime(["2026-01-29", "2026-02-27"]), "close": [10.0, 12.0], "currency": ["EUR"] * 2,
+        "stock_splits": [0.0] * 2, "actions_evidenced": [True] * 2,
+    })
     market = su.market_inputs(frame, None, "EUR", datetime(2026, 3, 3, tzinfo=UTC), pd.DataFrame(columns=store.FX_COLUMNS), CONFIG)
     assert market.price_series == ((date(2026, 1, 29), 10.0), (date(2026, 2, 27), 12.0))
 

@@ -39,6 +39,7 @@ def _cbuk_evidence(root):
     fx = store.read_fx(root)
     prices = pd.DataFrame({
         "date": pd.to_datetime(["2025-09-30"]), "close": [50.0], "currency": ["GBP"],
+        "stock_splits": [0.0], "actions_evidenced": [True],
     })
     market = market_inputs(prices, None, "EUR", DECISION, fx, config)
     period = sm.Period(

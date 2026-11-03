@@ -204,7 +204,7 @@ def test_scoring_paths_restore_pre_split_valuation_without_future_price_rows(pat
     stock = config.universe.by_id()["UCG"].model_copy(update={"sector": "Technology"})
     config = config.model_copy(update={"universe": config.universe.model_copy(update={"etfs": [stock]})})
     decision = datetime(2022, 10, 18, 12, tzinfo=timezone.utc)
-    prices = _series("UCG", list(pd.bdate_range("2021-01-04", "2024-06-11")), 0).assign(actions_evidenced=True)
+    prices = _series("UCG", list(pd.bdate_range("2021-01-04", "2024-06-11")), 0, volume=10_000.0).assign(actions_evidenced=True)
     for column in ("open", "high", "low", "close", "adjusted_close"):
         prices[column] = 11.888
         prices.loc[prices["date"] >= date(2024, 6, 10), column] = 121.0

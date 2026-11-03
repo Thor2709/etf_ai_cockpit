@@ -90,7 +90,10 @@ def test_p03_n007() -> None:
 
 def test_k01() -> None:
     config = load_stock_config()
-    prices = pd.DataFrame({"date": pd.to_datetime(["2026-10-01"]), "close": [15.0], "currency": ["GBP"]})
+    prices = pd.DataFrame({
+        "date": pd.to_datetime(["2026-10-01"]), "close": [15.0], "currency": ["GBP"],
+        "stock_splits": [0.0], "actions_evidenced": [True],
+    })
     decision = datetime(2026, 10, 9, 12, 0, tzinfo=timezone.utc)
     market = su.market_inputs(prices, {"quote_currency": "GBp"}, "GBP", decision, pd.DataFrame(columns=store.FX_COLUMNS), config)
     # The stored close is already in major units, so it must be labelled GBP (not GBp, which would divide by 100 again).
