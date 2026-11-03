@@ -36,7 +36,7 @@ from etf_cockpit.core.config import load_config
 from etf_cockpit.core.session_log import redact_text
 from etf_cockpit.data.local_storage import TransactionalStore
 from etf_cockpit.portfolio.paper_bots import run_paper_bots
-from etf_cockpit.portfolio.paper_bots_execution import run_paper_bot_execution
+from etf_cockpit.portfolio.paper_bots_execution import LEDGER_PRICE_BASIS, run_paper_bot_execution
 from etf_cockpit.portfolio.paper_trading import PaperLedger
 from etf_cockpit.application.scoreboard_publication import SCOREBOARD_PUBLICATION_BINDING_ENTITY_TYPE
 from etf_cockpit.application.score_backfill import CALENDAR_INSTRUMENT_ID
@@ -292,7 +292,11 @@ def run_daily_paper(
                     "rescore": rescore_message,
                     "readiness": readiness_summary,
                     "paper_bots": {"status": paper_bots.status, "appended": paper_bots.appended},
-                    "paper_bot_execution": {"status": execution.status, "appended": execution.appended},
+                    "paper_bot_execution": {
+                        "status": execution.status, "appended": execution.appended,
+                        "ledger_price_basis": LEDGER_PRICE_BASIS,
+                        "dividend_policy": "gross cash; no withholding or automatic reinvestment",
+                    },
                     "ai_account": {
                         "account_id": account.account_id,
                         "status": account.status,

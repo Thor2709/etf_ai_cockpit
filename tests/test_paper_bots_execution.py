@@ -43,6 +43,8 @@ def _book(
             open_price = (opens or {}).get(instrument, {}).get(day, level * (1 + 0.001 * index))
             row = {"etf_id": instrument, "date": pd.Timestamp(day), "open": open_price, "high": open_price * 1.01,
                    "low": open_price * 0.99, "close": open_price * 1.002, "adjusted_close": open_price * 1.002,
+                   "actions_evidenced": True, "stock_splits": 0.0, "dividends": 0.0,
+                   "available_at": f"{day}T00:00:00Z",
                    "volume": (volume or {}).get((instrument, day), 1000.0), "currency": (currencies or {}).get(instrument, "EUR")}
             if instrument == "VWCE":
                 row.update(_vwce_columns())
@@ -410,7 +412,8 @@ def test_the_sizing_fallback_never_uses_the_decision_day_close() -> None:
     def price(decision_day_close: float | None) -> tuple[Decimal, str] | None:
         days = [date(2026, 10, 12), date(2026, 10, 13)] + ([DECISION_DAY] if decision_day_close else [])
         rows = [{"etf_id": "AAA", "date": pd.Timestamp(day), "open": 20.0, "high": 21.0, "low": 19.0, "close": 20.5,
-                 "adjusted_close": 20.5, "volume": 1000.0, "currency": "EUR"} for day in days]
+                 "adjusted_close": 20.5, "volume": 1000.0, "currency": "EUR",
+                 "actions_evidenced": True, "dividends": 0.0, "stock_splits": 0.0} for day in days]
         if decision_day_close:
             rows[-1]["close"] = decision_day_close
         context = SimpleNamespace(book=execution.PriceBook(pd.DataFrame(rows), known_at=RUN_AT), config={"sizing_price_max_age_days": 7})

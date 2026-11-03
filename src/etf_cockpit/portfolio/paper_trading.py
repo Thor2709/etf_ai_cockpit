@@ -298,6 +298,9 @@ class PaperLedger:
         for event in self._read_events():
             if _event_time(event) > cutoff:
                 break
+            if event["event_type"] == "corporate_action" and event["payload"].get("available_at"):
+                if datetime.fromisoformat(event["payload"]["available_at"]) > cutoff:
+                    continue
             events.append(event)
         return events
 
@@ -1334,6 +1337,7 @@ class PaperLedger:
         source_checksum: str = "",
         fx_rate: float | None = None,
         occurred_at: datetime | None = None,
+        available_at: datetime | None = None,
     ) -> PaperAccountSnapshot:
         ratio = _positive(split_ratio, "split_ratio")
         dividend_decimal = _decimal_number(cash_dividend_per_unit, "cash_dividend_per_unit", non_negative=True)
@@ -1373,6 +1377,7 @@ class PaperLedger:
                     "split_ratio": ratio,
                     "cash_dividend_per_unit": str(dividend_decimal),
                     "fx_rate": str(dividend_fx_decimal),
+                    **({"available_at": _timestamp(available_at)} if available_at is not None else {}),
                     **provenance,
                 },
                 occurred_at=occurred_at,

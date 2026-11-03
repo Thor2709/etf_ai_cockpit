@@ -75,6 +75,9 @@ def test_captured_price_age_and_per_bar_knowledge_fail_closed(tmp_path):
         {"instrument_id": "VWCE", "date": "2026-10-12", "close": 100.0, "known_at": "2026-10-12T18:00:00Z"},
         {"instrument_id": "VWCE", "date": "2026-10-13", "close": 999.0, "known_at": "2026-10-20T18:00:00Z"},
     ])
+    frame["actions_evidenced"] = True
+    frame["dividends"] = 0.0
+    frame["stock_splits"] = 0.0
     path = tmp_path / execution.PRICE_FILE_RELATIVE
     path.parent.mkdir(parents=True)
     frame.to_parquet(path)
@@ -94,7 +97,7 @@ def test_captured_price_age_and_per_bar_knowledge_fail_closed(tmp_path):
     assert not execution.PriceBook.from_root(tmp_path).usable
 
 
-def test_valuation_uses_each_buy_lot_and_realises_its_adjusted_basis(tmp_path):
+def test_valuation_requires_action_evidence_instead_of_synthetic_adjusted_returns(tmp_path):
     days = [date(2026, 10, 14), date(2026, 10, 15), date(2026, 10, 16)]
     for post_action in (50.0, 90.0):  # split-like and dividend-like adjusted histories
         frame = pd.DataFrame([{"instrument_id": "VWCE", "date": day, "close": raw,
@@ -111,12 +114,10 @@ def test_valuation_uses_each_buy_lot_and_realises_its_adjusted_basis(tmp_path):
                               3: (15, 3000 - 5 * post_action)}[count]
             return {"positions": {"VWCE": {"quantity": quantity, "currency": "EUR"}}, "cash": cash}
         ledger = SimpleNamespace(_read_events=lambda: events, _replay=replay, account_id="valuation-fixture")
-        snapshots = reports._ledger_snapshots(ledger, book, {"max_stale_mark_sessions": 5}, RUN_AT, days, None, root=tmp_path)
-        assert snapshots["total_value"].tolist() == pytest.approx([4000.0] * 3)
-        raw = frame.copy()
-        raw.loc[2, "adjusted_close"] = float("nan")
-        raw_book = execution.PriceBook(raw, known_at=RUN_AT)
-        assert reports._mark(raw_book, "VWCE", days[-1], 100 / post_action, 5) == post_action
+        with pytest.raises(PaperLedgerError, match="corporate_actions_unaccounted"):
+            reports._ledger_snapshots(ledger, book, {"max_stale_mark_sessions": 5}, RUN_AT, days, None, root=tmp_path)
+        with pytest.raises(PaperLedgerError, match="corporate_actions_unaccounted"):
+            reports._mark(book, "VWCE", days[-1], 100 / post_action, 5)
 
 
 def test_historical_report_excludes_future_decisions_records_and_ledger_events(monkeypatch, tmp_path):
@@ -221,7 +222,9 @@ def test_cash_shortfall_cannot_reduce_a_buy_below_five_hundred_euro(monkeypatch,
 
 
 def _known_book(rows: list[tuple[date, float, str]]) -> execution.PriceBook:
-    frame = pd.DataFrame([{"instrument_id": "VWCE", "date": day, "close": close, "adjusted_close": close, "known_at": known}
+    frame = pd.DataFrame([{"instrument_id": "VWCE", "date": day, "close": close, "adjusted_close": close, "known_at": known,
+                           "actions_evidenced": True, "dividends": 0.0, "stock_splits": 0.0,
+                           "available_at": f"{day}T00:00:00Z"}
                           for day, close, known in rows])
     return execution.PriceBook(frame, known_at=None)
 
@@ -275,6 +278,7 @@ def test_rmn_superseded_split_sell_remainder_is_missed_not_continued(monkeypatch
         return execution._record(ctx, dec, item, session, "filled", None, quantity="5", remaining_quantity="5")
     monkeypatch.setattr(execution, "_attempt", attempt)
     monkeypatch.setattr(execution, "_liquidate_delistings", lambda *a, **k: [])
+    monkeypatch.setattr(execution, "_sync_corporate_actions", lambda *a, **k: None)
     monkeypatch.setattr(execution, "_awaits_settlement", lambda *a, **k: False)
     superseded_at = datetime(2026, 10, 15, 9, 30, tzinfo=timezone.utc)
     written = execution._run_intents(context, None, decision, {"status": "planned", "intents": [intent]}, sessions,

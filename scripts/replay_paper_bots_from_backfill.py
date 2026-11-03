@@ -114,6 +114,7 @@ def _run(argv: list[str] | None = None) -> int:
         print(SURVIVORSHIP_UNVERIFIED_BANNER)
         print("!" * 100)
     print(f"replay: status={result.status} label={result.label!r} appended={result.appended}")
+    print(f"ledger price basis: {execution.LEDGER_PRICE_BASIS}; dividends: gross cash, no withholding or automatic reinvestment")
     if result.reason:
         print(f"reason: {result.reason}")
     for warning in result.warnings:
