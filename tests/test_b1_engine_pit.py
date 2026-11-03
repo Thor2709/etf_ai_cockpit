@@ -43,7 +43,7 @@ def _pit_run(monkeypatch, *, missing: str | None = None):
     sessions = list(xcals.get_calendar("XETR").sessions_in_range("2022-01-03", str(DAY)))
     frames = []
     for seed, instrument in enumerate(selected):
-        frame = _series(instrument, sessions, seed, volume=100_000.0)
+        frame = _series(instrument, sessions, seed, volume=100_000.0).assign(actions_evidenced=True)
         rng = np.random.default_rng(seed)
         # A positive, low-volatility path supplies an actual candidate signal.
         level = 50 * np.exp(np.cumsum(rng.normal(0.001, 0.002, len(frame))))

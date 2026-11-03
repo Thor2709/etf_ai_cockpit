@@ -664,7 +664,10 @@ def test_fix7_quarter_conflict_resolution_does_not_depend_on_the_monetary_scale(
 
 
 def test_fix2_provider_market_cap_reaches_the_check_and_identity_blocks_roe_and_pb() -> None:
-    prices = pd.DataFrame({"date": pd.to_datetime(["2026-10-08"]), "close": [50.0], "currency": ["USD"]})
+    prices = pd.DataFrame({
+        "date": pd.to_datetime(["2026-10-08"]), "close": [50.0], "currency": ["USD"],
+        "stock_splits": [0.0], "actions_evidenced": [True],
+    })
     fx = pd.DataFrame({"pair": ["USDEUR"], "date": ["2026-10-08"], "rate": [0.5], "known_at": [datetime(2026, 10, 8, 20, tzinfo=UTC)]})
     snapshot = {"quote_currency": "USD", "market_cap_provider": 100000.0, "known_at": datetime(2026, 10, 9, tzinfo=UTC)}
     market = su.market_inputs(prices, snapshot, "EUR", DECISION, fx, CONFIG)

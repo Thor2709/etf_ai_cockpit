@@ -26,6 +26,7 @@ from typing import Any
 import pandas as pd
 
 from etf_cockpit.application.feature_service import FeatureService
+from etf_cockpit.analysis.stock_universe import with_as_traded_factors
 from etf_cockpit.data.replay_membership import (
     DELISTING_UNVERIFIED_STATUS, ETF_UNIVERSE_CAVEAT, ListingHistory, MAX_STALE_BUSINESS_DAYS, MEMBERSHIP_POLICY,
     OBSERVED_TRADING_STATUS, STRICT_MODE, SURVIVORSHIP_MODES, delisting_unverified_instruments,
@@ -433,7 +434,9 @@ def score_as_of(
     config = config.model_copy(update={"universe": config.universe.model_copy(update={
         "etfs": [item for item in config.universe.etfs if item.id in snapshot.eligible_ids and item.id not in excluded]
     })})
-    known = prices.loc[(_as_dates(prices["date"]) <= as_of) & ~prices["etf_id"].astype(str).isin(excluded)].copy()
+    known = with_as_traded_factors(prices).loc[
+        (_as_dates(prices["date"]) <= as_of) & ~prices["etf_id"].astype(str).isin(excluded)
+    ].copy()
     known = known.loc[known["etf_id"].astype(str).isin(config.universe.enabled_ids)]
     known["date"] = _as_dates(known["date"])
     if not config.universe.enabled_ids:
@@ -779,7 +782,7 @@ def _inputs_hash(config: AppConfig, known: pd.DataFrame, fx: pd.DataFrame | None
     digest = hashlib.sha256()
     digest.update(as_of.isoformat().encode())
     digest.update(",".join(sorted(config.universe.enabled_ids)).encode())
-    columns = [column for column in ("etf_id", "date", "close", "adjusted_close", "volume", "currency") if column in known.columns]
+    columns = [column for column in ("etf_id", "date", "close", "adjusted_close", "volume", "currency", "as_traded_split_factor") if column in known.columns]
     if not known.empty:
         ordered = known[columns].astype({"date": str}).sort_values(["etf_id", "date"], kind="stable")
         digest.update(pd.util.hash_pandas_object(ordered, index=False).to_numpy().tobytes())

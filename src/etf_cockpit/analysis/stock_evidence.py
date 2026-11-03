@@ -34,15 +34,19 @@ ANALYST_MAX_AGE_DAYS = 120  # 90-day estimate lookback plus 30 days; scoring.ana
 
 @dataclass(frozen=True)
 class MarketInputs:
-    """Decision-time market data; every value must already be known at the decision time."""
+    """Valuation data in as-traded share units, restored before construction.
 
-    price: float | None = None  # last close in ``price_currency`` (a minor unit such as GBp is allowed)
+    Stored-series callers use ``stock_universe.as_traded_close``; these prices
+    must never be passed to returns, momentum or risk calculations.
+    """
+
+    price: float | None = None  # as-traded close in ``price_currency`` (a minor unit such as GBp is allowed)
     price_currency: str | None = None
     price_date: date | None = None
     fx_to_reporting: float | None = None  # reporting-currency units per one major quote-currency unit at ``price_date``
     dividends_per_share_12m: float | None = None  # quote-currency units, trailing 12 months
     dividend_reason: str | None = None
-    price_series: tuple[tuple[date, float], ...] = ()  # month-end closes for the valuation history
+    price_series: tuple[tuple[date, float], ...] = ()  # as-traded month-end closes for valuation history
     shares_fallback: float | None = None
     shares_fallback_known_at: datetime | None = None
     unavailable_reason: str | None = None
@@ -864,7 +868,9 @@ class _Builder:
     def dividend_yield(self) -> None:
         market = self.market
         base = sm.dividend_yield(market.dividends_per_share_12m, market.price)
-        if market.dividends_per_share_12m is None and market.price is not None:
+        if market.price is None and market.unavailable_reason:
+            base = _missing("dividend_yield", market.unavailable_reason, base.formula)
+        elif market.dividends_per_share_12m is None and market.price is not None:
             base = _missing("dividend_yield", market.dividend_reason or "no dividend history is stored for this instrument", base.formula)
         self.metrics["dividend_yield"] = _from(
             "dividend_yield", base, basis="12 months", as_of=market.price_date.isoformat() if market.price_date else None, source="price file dividends"
