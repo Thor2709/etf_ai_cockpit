@@ -1,7 +1,10 @@
 """Read-only, knowledge-time-aware listing membership for historical scoring.
 
 The configured watchlist is not listing history. Only listing scopes from the
-existing append-only membership store establish eligibility. Intervals are
+existing append-only membership store establish stock eligibility. Strict ETFs
+may also use recent genuine provider bars, known by the cutoff, as bounded
+observed-trading evidence. This never establishes an open listing interval.
+Intervals are
 half-open; prices are never used to invent a delisting date.
 
 Optional, explicit and OFF by default (``survivorship_mode``): a listing may be
@@ -13,7 +16,7 @@ Such admissions are always labelled ``survivorship_unverified``.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, time, timezone
 import hashlib
 import json
@@ -22,6 +25,10 @@ import sqlite3
 from typing import Mapping
 
 import pandas as pd
+import numpy as np
+
+from etf_cockpit.core.config import AppConfig, load_config
+from etf_cockpit.data.duckdb_store import SYNTHETIC_PRICE_SOURCES
 
 
 MEMBERSHIP_POLICY = "replay_listing_membership.v1"
@@ -30,6 +37,9 @@ UNVERIFIED_DELISTINGS_MODE = "unverified-delistings"
 SURVIVORSHIP_MODES = (STRICT_MODE, UNVERIFIED_DELISTINGS_MODE)
 PRICE_LISTING_EVIDENCE = "listing_from_price_history"
 DELISTING_UNVERIFIED_STATUS = "listed_delisting_unverified"
+OBSERVED_TRADING_STATUS = "etf_observed_trading"
+MAX_STALE_BUSINESS_DAYS = 5
+ETF_UNIVERSE_CAVEAT = "ETF universe is drawn from current listings; closed ETFs are absent. Observed trading proves only the decision's staleness window."
 SURVIVORSHIP_UNVERIFIED_BANNER = (
     "SURVIVORSHIP UNVERIFIED: survivorship-mode unverified-delistings is on; the instruments below have a listing date derived from "
     "their first price but no verified delisting history, so delisted or merged names may be missing and results are biased upward. "
@@ -44,6 +54,7 @@ class MembershipSnapshot:
     reasons: dict[str, str]
     fingerprint: str
     delisting_unverified_ids: tuple[str, ...] = ()
+    observed_trading_ids: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -54,6 +65,56 @@ class ListingHistory:
     # Listing evidence derived from first price dates; consulted only in survivorship mode "unverified-delistings".
     price_listings: tuple[dict[str, object], ...] = ()
     survivorship_mode: str = STRICT_MODE
+    observed_trading: dict[str, tuple[dict[str, object], ...]] = field(default_factory=dict)
+
+    def with_observed_trading(self, prices: pd.DataFrame, config: AppConfig) -> ListingHistory:
+        """Attach ETF-only provider observations; missing knowledge/provenance fails closed.
+
+        The five-business-day window is the backfill's existing staleness gate.
+        Explicit synthetic/fill flags and non-trading rows cannot prove listing.
+        Stored listing records retain precedence over these observations.
+        """
+        required = {"etf_id", "date", "available_at", "source", "close", "volume"}
+        if not required.issubset(prices.columns):
+            return replace(self, observed_trading={})
+        etfs = {key for key, item in config.universe.by_id().items() if item.instrument_type.casefold() == "etf"}
+        frame = prices.loc[prices["etf_id"].isin(etfs)].copy()
+        source = frame["source"].astype("string").str.strip().str.casefold()
+        genuine = source.notna() & source.ne("") & ~source.isin(SYNTHETIC_PRICE_SOURCES)
+        genuine &= ~source.str.contains("synthetic|sample|fill|interpolat", na=True)
+        for column in ("is_synthetic", "synthetic", "is_filled", "filled"):
+            if column in frame:
+                genuine &= frame[column].eq(False)  # unknown flags do not prove a genuine bar
+        for column in ("close", "volume"):
+            values = pd.to_numeric(frame[column], errors="coerce")
+            genuine &= values.gt(0) & np.isfinite(values)
+        observations: dict[str, list[dict[str, object]]] = {}
+        for row in frame.loc[genuine].to_dict("records"):
+            try:
+                day = pd.Timestamp(row["date"]).date()
+                known = _timestamp(row["available_at"])
+                if pd.isna(day) or pd.isna(known):
+                    continue
+            except (TypeError, ValueError):
+                continue
+            observations.setdefault(str(row["etf_id"]), []).append({
+                "date": day.isoformat(), "available_at": known.isoformat(), "source": str(row["source"]),
+            })
+        return replace(self, observed_trading={
+            key: tuple(sorted(rows, key=lambda row: (row["date"], row["available_at"], row["source"])))
+            for key, rows in observations.items()
+        })
+
+    def _observed_at(self, when: date | datetime, ids: set[str]) -> dict[str, list[dict[str, object]]]:
+        if self.survivorship_mode != STRICT_MODE:
+            return {}
+        cutoff = _timestamp(when)
+        day = cutoff.date()
+        return {key: visible for key in sorted(ids) if (visible := [
+            row for row in self.observed_trading.get(key, ())
+            if str(row["date"]) <= day.isoformat() and _timestamp(row["available_at"]) <= cutoff
+            and int(np.busday_count(str(row["date"]), day.isoformat())) <= MAX_STALE_BUSINESS_DAYS
+        ])}
 
     def with_price_history(self, first_dates: Mapping[str, date], survivorship_mode: str = UNVERIFIED_DELISTINGS_MODE) -> ListingHistory:
         """Attach ``listing_from_price_history`` evidence: listed from the first price date, known at the end of that day.
@@ -78,6 +139,15 @@ class ListingHistory:
 
     @classmethod
     def from_root(cls, root: Path) -> ListingHistory:
+        root = Path(root)
+        history = cls._listing_records(root)
+        prices_path = root / "data/validated/prices/prices_daily.parquet"
+        if not prices_path.is_file():
+            return history
+        return history.with_observed_trading(pd.read_parquet(prices_path), load_config(root / "configs"))
+
+    @classmethod
+    def _listing_records(cls, root: Path) -> ListingHistory:
         path = Path(root) / "data/derived/universe_membership/membership.sqlite"
         if not path.is_file():
             return cls()
@@ -146,7 +216,9 @@ class ListingHistory:
         price_listed = self._price_listed(known_ids, when)
         active |= price_listed
         ids = sorted(set(map(str, instrument_ids)))
-        unverified = tuple(key for key in ids if key not in known_ids and key not in price_listed)
+        observed = self._observed_at(when, set(ids) - known_ids)
+        active |= observed.keys()
+        unverified = tuple(key for key in ids if key not in known_ids and key not in price_listed and key not in observed)
         delisting_unverified = tuple(key for key in ids if key in price_listed)
         reasons = {key: "survivorship_unverified: no listing history known as of this date" if key in unverified
                    else "outside_listing_interval" for key in ids if key not in active}
@@ -159,15 +231,19 @@ class ListingHistory:
         if self.survivorship_mode == UNVERIFIED_DELISTINGS_MODE:  # strict fingerprints stay byte-identical
             material["survivorship_mode"] = self.survivorship_mode
             material["price_listed"] = sorted(price_listed.intersection(ids))
+        if observed:
+            material["observed_trading"] = observed
         fingerprint = hashlib.sha256(json.dumps(material, sort_keys=True).encode()).hexdigest()
         return MembershipSnapshot(
-            tuple(key for key in ids if key in active), unverified, reasons, fingerprint, delisting_unverified,
+            tuple(key for key in ids if key in active), unverified, reasons, fingerprint, delisting_unverified, tuple(observed),
         )
 
     def fingerprint(self) -> str:
         """Invalidate resumable backfills when any membership input changes."""
         extra = (self.survivorship_mode, *self.price_listings) if self.survivorship_mode == UNVERIFIED_DELISTINGS_MODE else ()
         records = [json.dumps(row, sort_keys=True, default=str) for row in (*self.revisions, *self.captures, *extra)]
+        if self.survivorship_mode == STRICT_MODE and self.observed_trading:
+            records.append(json.dumps(self.observed_trading, sort_keys=True))
         return hashlib.sha256(json.dumps(sorted(records)).encode()).hexdigest()
 
     def delistings(self, cutoff: datetime) -> tuple[tuple[datetime, str, date], ...]:
@@ -240,7 +316,13 @@ def replay_preflight(history: pd.DataFrame, membership: ListingHistory, book, cu
         if snapshot.reasons:
             return f"Stored scores violate listing membership on {day}; recompute the backfill."
     first = date.fromisoformat(str(history["as_of_date"].min()))
-    for day in book.sessions:
+    benchmark_days = set(book.sessions)
+    if membership.survivorship_mode == STRICT_MODE and book.benchmark_id in membership.observed_trading:
+        # A book's benchmark sessions omit its missing bars. Check the existing
+        # business-day staleness window throughout the interval as well, so a
+        # gap (including a missing tail) cannot erase the dates that expose it.
+        benchmark_days.update(stamp.date() for stamp in pd.bdate_range(first, cutoff.date(), inclusive="left"))
+    for day in sorted(benchmark_days):
         if first <= day < cutoff.date() and book.benchmark_id not in membership.snapshot(day, [book.benchmark_id]).eligible_ids:
             return f"Benchmark listing membership is unverified or ineligible on {day}."
     return None

@@ -29,9 +29,10 @@ import pandas as pd
 import yaml
 
 from etf_cockpit.core.paths import CODE_CONFIG_DIR, CONFIG_DIR, ROOT
+from etf_cockpit.core.config import load_config
 from etf_cockpit.data.duckdb_store import SYNTHETIC_PRICE_SOURCES, load_prices
 from etf_cockpit.data.fx_data import EurRateBook, load_fx_rates, major_currency
-from etf_cockpit.data.replay_membership import ListingHistory
+from etf_cockpit.data.replay_membership import ETF_UNIVERSE_CAVEAT, OBSERVED_TRADING_STATUS, ListingHistory, _timestamp
 from etf_cockpit.data.score_history_backfill import (
     load_backfill_eligibility,
     load_backfill_manifest,
@@ -46,11 +47,15 @@ _CONFIG_NAME = "data_readiness_v1.yaml"
 CONFIG_PATH = CONFIG_DIR / _CONFIG_NAME if (CONFIG_DIR / _CONFIG_NAME).is_file() else CODE_CONFIG_DIR / _CONFIG_NAME
 PRICES_RELATIVE_PATH = Path("data") / "clean" / "prices.parquet"
 FX_RELATIVE_PATH = Path("data") / "clean" / "fx.parquet"
-CHECKS = ("scored_run", "pit_membership", "universe_counts", "family_completeness", "prices", "fx", "gate_results")
+INDEX_COVERAGE_RELATIVE_PATH = Path("data/derived/universe_membership/index_coverage.parquet")
+# Index scopes currently declared in universe_membership_v1.yaml; venue listing scopes are not index cohorts.
+INDEX_SCOPE_PREFIXES = ("listing:sp500:", "listing:stoxx600:")
+CHECKS = ("scored_run", "pit_membership", "index_coverage", "universe_counts", "family_completeness", "prices", "fx", "gate_results")
 CAVEATS = (
-    "Prices carry no per-bar known_at: price knowledge time is the file time, so price point-in-time is bounded by the dated rows only.",
+    "ETF observed-trading evidence requires per-bar available_at; undated price knowledge cannot establish it.",
     "Family availability is read from the stored score rows (pit_terms_unavailable, missing_components); it is not re-derived.",
     "Delisted prices without a free source stay unverified (D9).",
+    ETF_UNIVERSE_CAVEAT,
 )
 
 
@@ -71,10 +76,11 @@ class ReadinessThresholds:
     max_gate_wiring_failures: int
     gate_results_column: str
     max_gap_ids_listed: int
+    min_index_member_coverage: float = 0.95
 
 
 def load_thresholds(path: Path = CONFIG_PATH) -> ReadinessThresholds:
-    """Read the versioned thresholds; any missing or invalid entry raises ``ValueError`` (the gate never guesses a threshold)."""
+    """Read versioned thresholds; index coverage defaults to 0.95, other missing/invalid entries raise ``ValueError``."""
 
     try:
         raw = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
@@ -84,7 +90,7 @@ def load_thresholds(path: Path = CONFIG_PATH) -> ReadinessThresholds:
         raise ValueError("data readiness thresholds must be a mapping")
 
     def number(key: str, *, integer: bool, low: float, high: float | None = None) -> Any:
-        value = raw.get(key)
+        value = raw.get(key, 0.95 if key == "min_index_member_coverage" else None)
         if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(float(value)):
             raise ValueError(f"data readiness threshold {key} must be a finite number")
         if integer and float(value) != int(value):
@@ -120,6 +126,7 @@ def load_thresholds(path: Path = CONFIG_PATH) -> ReadinessThresholds:
         max_gate_wiring_failures=number("max_gate_wiring_failures", integer=True, low=0),
         gate_results_column=column.strip(),
         max_gap_ids_listed=number("max_gap_ids_listed", integer=True, low=0),
+        min_index_member_coverage=number("min_index_member_coverage", integer=False, low=0.0001, high=1.0),
     )
 
 
@@ -134,6 +141,7 @@ class ReadinessInputs:
     membership: ListingHistory | None = None
     unavailable: dict[str, str] = field(default_factory=dict)
     manifest: dict[str, object] = field(default_factory=dict)
+    index_coverage: pd.DataFrame | None = None
 
 
 def load_inputs(root: Path) -> ReadinessInputs:
@@ -159,11 +167,12 @@ def load_inputs(root: Path) -> ReadinessInputs:
     fx_path = root / FX_RELATIVE_PATH
     fx = attempt("fx", lambda: load_fx_rates(fx_path) if fx_path.is_file() else pd.DataFrame())
     inputs.fx = fx if fx is not None else pd.DataFrame()
-    membership_path = root / "data" / "derived" / "universe_membership" / "membership.sqlite"
-    if membership_path.is_file():
-        inputs.membership = attempt("membership", lambda: ListingHistory.from_root(root))
-    else:
-        inputs.unavailable["membership"] = f"listing membership store is missing: {membership_path.as_posix()}"
+    def membership_input():
+        return ListingHistory.from_root(root).with_observed_trading(inputs.prices, load_config(root / "configs"))
+
+    inputs.membership = attempt("membership", membership_input)
+    coverage_path = root / INDEX_COVERAGE_RELATIVE_PATH
+    inputs.index_coverage = attempt("index_coverage", lambda: pd.read_parquet(coverage_path))
     return inputs
 
 
@@ -235,6 +244,8 @@ class ReadinessReport:
         for name, result in self.interval.items():
             lines.append(f"  interval {name}: {'ok' if result.passed else 'FAIL'} - {result.detail}")
         for item in self.dates:
+            coverage = item.checks["index_coverage"]
+            lines.append(f"{item.day} index_coverage: {'ok' if coverage.passed else 'FAIL'} - {coverage.detail}")
             if item.passed:
                 lines.append(f"{item.day} PASS")
                 continue
@@ -321,6 +332,10 @@ class _Context:
         self.history = _by_day(inputs.history)
         self.eligibility = _by_day(inputs.eligibility)
         self.price_dates: dict[str, np.ndarray] = {}
+        self.first_stored_price: dict[str, date] = {}
+        if {"etf_id", "date"}.issubset(inputs.prices.columns):
+            dated = inputs.prices.assign(date=pd.to_datetime(inputs.prices["date"], errors="coerce").dt.date).dropna(subset=["date"])
+            self.first_stored_price = dated.groupby("etf_id")["date"].min().to_dict()
         # instrument -> (sorted unique dates, currencies quoted on each date): currency is resolved as of each decision date.
         self.currency_rows: dict[str, tuple[np.ndarray, list[frozenset[str]]]] = {}
         if self.prices_usable:
@@ -417,6 +432,7 @@ def _evaluate_date(day: date, context: _Context) -> DateReport:
     run = context.history.get(iso)
     log = context.eligibility.get(iso)
     checks: dict[str, CheckResult] = {}
+    coverage = _index_coverage_check(day, context)
     if run is None or run.empty:
         checks["scored_run"] = _fail(context.reason("history", "no stored score run for this decision date"))
     elif log is None or log.empty:
@@ -431,9 +447,11 @@ def _evaluate_date(day: date, context: _Context) -> DateReport:
         reason = reason.removeprefix("unavailable: ")
         for name in CHECKS[1:]:
             checks[name] = _fail(f"unavailable: {reason}")
+        checks["index_coverage"] = coverage  # independent of admitted/scored rows
         return DateReport(iso, checks)
     cap = context.thresholds.max_gap_ids_listed
     checks["pit_membership"] = _membership_check(day, admitted, log, context, cap)
+    checks["index_coverage"] = coverage
     checks["universe_counts"] = _counts_check(run, admitted, context.thresholds)
     checks["family_completeness"] = _family_check(run, admitted, context, cap)
     checks["prices"] = _price_check(day, admitted, context, cap)
@@ -449,17 +467,85 @@ def _membership_check(day: date, admitted: list[str], log: pd.DataFrame, context
     if "membership_status" not in log.columns:
         return _fail("unavailable: eligibility log has no membership_status")
     status = dict(zip(log["instrument_id"].astype(str), log["membership_status"].astype(str)))
-    logged = [key for key in admitted if status.get(key) != "listed"]
     try:
         snapshot = membership.snapshot(day, admitted)
     except Exception as exc:
         return _fail(f"unavailable: listing membership cannot be evaluated ({type(exc).__name__})")
+    observed = set(snapshot.observed_trading_ids)  # populated only from canonical ETF kinds
+    logged = [key for key in admitted if status.get(key) != (OBSERVED_TRADING_STATUS if key in observed else "listed")]
     unverified = set(snapshot.unverified_ids) | set(snapshot.delisting_unverified_ids)
     recomputed = [key for key in admitted if key not in snapshot.eligible_ids or key in unverified]
     bad = sorted(set(logged) | set(recomputed))
     if bad:
         return _result(False, f"{len(bad)} of {len(admitted)} admitted instruments lack verified membership", {"unverified": bad}, cap=cap)
-    return CheckResult(True, f"{len(admitted)} admitted instruments verified")
+    return CheckResult(True, f"{len(admitted)} admitted instruments verified ({len(observed)} ETF observed-trading)")
+
+
+def _index_coverage_check(day: date, context: _Context) -> CheckResult:
+    """Count the source cohort, including members absent from the listing ledger.
+
+    Coverage is a stored-price existence check, not a scoreability/staleness gate.
+    Half-open dates and both knowledge times are applied independently.
+    """
+    membership = context.inputs.membership
+    scopes = {str(row["scope"]) for row in (*membership.revisions, *membership.captures)
+              if str(row["scope"]).startswith(INDEX_SCOPE_PREFIXES)} if membership is not None else set()
+    frame = context.inputs.index_coverage
+    if frame is None:
+        if membership is None:
+            return _fail("unavailable: listing scopes and index coverage sidecar are unavailable")
+        if scopes:
+            return _fail(context.reason("index_coverage", "unavailable: index coverage sidecar is missing"))
+        return CheckResult(True, "no listing index scopes; members=0, covered=0, unbound=0, no_price=0",
+                           counts={"members": 0, "covered": 0, "unbound": 0, "no_price": 0})
+    required = {"scope", "source_ticker", "instrument_id", "valid_from", "valid_to", "member_known_at",
+                "identity_known_at", "binding_status", "reason"}
+    if not required.issubset(frame.columns):
+        return _fail("unavailable: index coverage sidecar lacks " + ", ".join(sorted(required - set(frame.columns))))
+    if not scopes.issubset(set(frame["scope"])):
+        return _fail("unavailable: index coverage sidecar omits listing index scopes")
+    cutoff = _timestamp(day)
+    active = []
+    try:
+        for row in frame.to_dict("records"):
+            if not isinstance(row["scope"], str) or not row["scope"].startswith("listing:"):
+                raise ValueError("invalid scope")
+            if not isinstance(row["source_ticker"], str) or not row["source_ticker"].strip():
+                raise ValueError("missing source ticker")
+            start = date.fromisoformat(row["valid_from"])
+            end = None if pd.isna(row["valid_to"]) else date.fromisoformat(row["valid_to"])
+            known = _timestamp(row["member_known_at"])
+            identity = None if pd.isna(row["identity_known_at"]) else _timestamp(row["identity_known_at"])
+            if pd.isna(known) or (identity is not None and pd.isna(identity)) or (end is not None and end <= start):
+                raise ValueError("invalid dates")
+            if row["binding_status"] not in {"bound", "unbound"}:
+                raise ValueError("invalid binding status")
+            if start <= day and (end is None or day < end) and known <= cutoff:
+                active.append((row, identity))
+    except (TypeError, ValueError):
+        return _fail("unavailable: malformed index coverage sidecar")
+    keys = [(row["scope"], row["source_ticker"]) for row, _ in active]
+    if len(keys) != len(set(keys)):
+        return _fail("unavailable: overlapping index coverage member rows")
+    members = len(active)
+    covered = unbound = no_price = identity_unavailable = 0
+    first_prices = context.first_stored_price
+    for row, identity in active:
+        if row["binding_status"] != "bound":
+            unbound += 1
+        elif pd.isna(row["instrument_id"]) or identity is None or identity > cutoff:
+            identity_unavailable += 1
+        elif row["instrument_id"] not in first_prices or first_prices[row["instrument_id"]] > day:
+            no_price += 1
+        else:
+            covered += 1
+    counts = {"members": members, "covered": covered, "unbound": unbound, "no_price": no_price,
+              "identity_unavailable": identity_unavailable}
+    # Empty known cohorts impose no coverage requirement; missing scopes above still fail closed.
+    share = covered / members if members else 1.0
+    detail = (f"members={members}, covered={covered}, unbound={unbound}, no_price={no_price}, "
+              f"identity_unavailable={identity_unavailable}; coverage {share:.1%}, need {context.thresholds.min_index_member_coverage:.1%}")
+    return CheckResult(share >= context.thresholds.min_index_member_coverage, detail, counts=counts)
 
 
 def _counts_check(run: pd.DataFrame, admitted: list[str], thresholds: ReadinessThresholds) -> CheckResult:

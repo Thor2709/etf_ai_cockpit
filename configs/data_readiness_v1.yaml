@@ -11,6 +11,8 @@ decision_cadence_sessions: 5
 # D10: at least this many scoreable stocks and ETFs per decision date (scored with a final score and admitted by the eligibility log).
 min_scoreable_stocks: 200
 min_scoreable_etfs: 10
+# default: at least 95% of known active index members must have a dated identity binding and a stored price by the decision date.
+min_index_member_coverage: 0.95
 # default: only exact "Stock" / "ETF" rows count (certificates and equity certificates never inflate the counts). Case-insensitive.
 stock_count_asset_types: [stock]
 etf_count_asset_types: [etf]
