@@ -204,7 +204,7 @@ def test_backfill_writes_only_its_own_store_and_never_the_live_history(tmp_path:
     assert second.runs_written == 0 and second.runs_kept == first.runs_written  # resumable, nothing recomputed
 
 
-def test_the_replay_reads_the_backfill_store_on_request_and_trades_through_normal_paper_execution(monkeypatch, tmp_path: Path) -> None:
+def test_the_replay_reads_the_backfill_store_on_request_and_trades_through_normal_paper_execution(monkeypatch, tmp_path: Path, readiness_pass) -> None:
     from etf_cockpit.portfolio.paper_bots_replay import run_historical_replay
 
     october = datetime(2026, 10, 5, 12, 0, tzinfo=timezone.utc)

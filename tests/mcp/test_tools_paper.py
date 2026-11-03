@@ -302,7 +302,8 @@ def test_manual_liquidity_uses_canonical_point_in_time_volume(manual_evidence, m
     current = pd.read_parquet(price_path)
     rows = []
     for offset in range(1, 21):
-        day = fixture.now - timedelta(days=offset)
+        # Keep history before the fixture bar even just after UTC midnight.
+        day = datetime.fromisoformat(current.iloc[0]["known_at"]) - timedelta(days=offset)
         row = {"instrument_id": "VWCE", "date": day.date().isoformat(), "close": 100.0,
                "known_at": day.isoformat(), "volume": 100000.0}
         if history_kind == "future_known":
