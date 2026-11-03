@@ -4,8 +4,9 @@ Open defaults: tools without an explicit profile are visible only in full; calls
 read-only access unless the server launch configuration grants additional tiers. Call context
 defaults are the core profile, read tier, local client id, and an empty store revision.
 Rate limits are rolling windows shared across clients and processes under the data root: 20 paper
-order placements/day, 10 ticket exports/day, and 4 data refreshes/hour. Admitted attempts
-count even if confirmation or the handler fails; rate refusals do not consume tokens.
+order placements/day, 10 ticket exports/day, and 4 data refreshes/hour. Tokenless previews
+do not reserve write quota. Admitted commit attempts count even if confirmation or the
+handler fails; rate refusals do not consume tokens.
 Counters persist in logs/mcp_rate_limits.sqlite3; unavailable quota storage refuses the call.
 Write handlers provide a side-effect-free ``preview`` callback: a call without a token returns
 that preview and a 15-minute, client/revision-bound token; a call with the token commits once.
@@ -347,8 +348,10 @@ def invoke_tool(name: str, arguments: Mapping[str, Any], *, context: CallContext
             signature.bind(**validation_args)
         except TypeError as exc:
             raise InvalidArgumentsError(str(exc)) from None
-        active.rate_limiter.acquire(spec.name)
         write_dispatch = spec.tier in WRITE_TIERS and not bool(spec.annotations.get("readOnlyHint"))
+        # A tokenless write is a side-effect-free preview, not a quota reservation.
+        if not ((write_dispatch or spec.requires_confirmation) and safe_args.get("confirm_token") is None):
+            active.rate_limiter.acquire(spec.name)
         if write_dispatch or spec.requires_confirmation:
             token = safe_args.get("confirm_token")
             excluded = {"confirm_token", "store_revision"}

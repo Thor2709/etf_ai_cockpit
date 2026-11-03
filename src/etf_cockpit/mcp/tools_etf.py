@@ -82,7 +82,13 @@ def _published_decision_time() -> datetime:
             raise ValueError("invalid publication knowledge time")
         return known_at
     except Exception:
-        raise MCPToolError("SCOREBOARD_KNOWLEDGE_UNAVAILABLE", "The published scoreboard knowledge time is unavailable", "Publish a verified scoreboard or supply decision_time explicitly.") from None
+        raise MCPToolError(
+            "SCOREBOARD_KNOWLEDGE_UNAVAILABLE",
+            "The published scoreboard knowledge time is unavailable",
+            "Run the local headless rescore workflow (HeadlessSession.rescore) to republish the scoreboard "
+            "and record its scoreboard_publication_binding. Resolve any score_history_warning from that job "
+            "before retrying, or supply an explicit timezone-aware decision_time.",
+        ) from None
 
 
 @tool(tier="read", description="Compare direct ETF holdings overlap and optionally include the current portfolio.", read_only_hint=True, idempotent_hint=True)

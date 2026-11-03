@@ -132,6 +132,24 @@ def test_look_through_and_ranked_share_publication_record_without_transactional_
     assert len(calls) == 1
 
 
+def test_look_through_missing_knowledge_names_republication_job(monkeypatch, tmp_path):
+    from etf_cockpit.mcp import tools_scores
+    from etf_cockpit.mcp.errors import MCPToolError
+
+    monkeypatch.setattr(tools_scores, "_published_scoreboard_record", lambda root: {
+        "status": "available", "row_count": 81, "execution_allowed": False,
+    })
+    active = _context()
+    active.session = SimpleNamespace(root=tmp_path)
+    with pytest.raises(MCPToolError, match="SCOREBOARD_KNOWLEDGE_UNAVAILABLE") as exc_info:
+        invoke_tool("etf_look_through", {"instrument_id": "FUND"}, context=active)
+    assert exc_info.value.next_step == (
+        "Run the local headless rescore workflow (HeadlessSession.rescore) to republish the scoreboard "
+        "and record its scoreboard_publication_binding. Resolve any score_history_warning from that job "
+        "before retrying, or supply an explicit timezone-aware decision_time."
+    )
+
+
 @pytest.mark.parametrize("arguments,missing", [
     ({"action": "add"}, ("instrument_id", "fields.name")),
     ({"action": "add", "instrument_id": "NEW"}, ("fields.name",)),
