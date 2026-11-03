@@ -12,6 +12,7 @@ import yaml
 
 from etf_cockpit.data.sec_cik_history import map_cik
 from etf_cockpit.data.sec_pit_facts import acceptance_index, fact_known_at, select_facts
+from etf_cockpit.data.stock_fundamentals import PERIOD_COLUMNS, _write, append_period_rows, store_paths
 from etf_cockpit.data.sp500_history import (
     build_intervals, cross_validate, intervals_from_fja, parse_fja_csv, parse_wikipedia_changes,
 )
@@ -346,6 +347,82 @@ def test_parallel_ingestion_equals_serial_and_resume(tmp_path):
     assert ingest(config, root=serial, workers=1) == a
     pd.testing.assert_frame_equal(first, pd.read_parquet(serial / path))
     assert membership_rows(serial) == memberships
+
+
+def _fundamental_fact(known_at, revenue, *, instrument_id="synthetic-instrument-a"):
+    row = {column: None for column in PERIOD_COLUMNS}
+    row.update(instrument_id=instrument_id, period_end="2020-12-31", period_type="FY", fiscal_year=2020,
+               currency="USD", source="sec", source_ref="synthetic filing", known_at=known_at,
+               available_at=known_at, revenue=revenue)
+    return row
+
+
+def test_batch_fundamentals_match_legacy_vintage_rows_with_restatements_and_suppression():
+    instrument_id = "synthetic-instrument-a"
+    existing = pd.DataFrame([
+        _fundamental_fact("2019-01-01T00:00:00+00:00", 90),
+        _fundamental_fact("2020-01-01T00:00:00+00:00", 100),
+        _fundamental_fact("2022-01-01T00:00:00+00:00", 110),
+    ], columns=PERIOD_COLUMNS)
+    rows = [
+        _fundamental_fact("2021-01-01T00:00:00+00:00", 100),  # suppressed before later restatement
+        _fundamental_fact("2022-01-01T00:00:00+00:00", 110),  # existing digest
+        _fundamental_fact("2023-01-01T00:00:00+00:00", 110),  # suppressed after restatement
+        _fundamental_fact("2024-01-01T00:00:00+00:00", 115),
+        _fundamental_fact("2025-01-01T00:00:00+00:00", 115),  # suppressed unchanged vintage
+    ]
+    legacy = existing.copy()
+    digests = {ingest_sp500._fingerprint(row) for row in existing.to_dict("records")}
+    identities = {}
+
+    def identity(row):
+        return tuple(str(row.get(key)) for key in ("period_end", "period_type", "source", "known_at"))
+
+    for row in existing.to_dict("records"):
+        identities.setdefault(identity(row), set()).add(ingest_sp500._fingerprint(row))
+    for raw in sorted(rows, key=lambda item: (item["known_at"], item["period_end"], item["period_type"], item["source"])):
+        row = {**raw, "instrument_id": instrument_id}
+        digest = ingest_sp500._fingerprint(row)
+        if digest in digests:
+            continue
+        if identity(row) in identities and digest not in identities[identity(row)]:
+            raise AssertionError("fixture unexpectedly conflicts with stored vintage")
+        visible = legacy[legacy["known_at"].astype(str) <= raw["known_at"]]
+        candidate, added = append_period_rows(visible, instrument_id, [raw])
+        if added:
+            digests.add(digest)
+            legacy = pd.concat([legacy, candidate.tail(added)], ignore_index=True)
+
+    additions = ingest_sp500._pending_facts(existing, instrument_id, rows)
+    batched = pd.concat([existing, pd.DataFrame(additions, columns=PERIOD_COLUMNS)], ignore_index=True)
+    sort_columns = ["instrument_id", "known_at", "period_end", "period_type", "source"]
+    pd.testing.assert_frame_equal(
+        legacy[PERIOD_COLUMNS].sort_values(sort_columns, kind="mergesort").reset_index(drop=True),
+        batched[PERIOD_COLUMNS].sort_values(sort_columns, kind="mergesort").reset_index(drop=True),
+    )
+
+
+def test_partial_fundamentals_store_resumes_to_clean_store(tmp_path):
+    config = ingest_config(tmp_path)
+    clean_root, partial_root = tmp_path / "clean", tmp_path / "partial"
+    clean_report = ingest(config, root=clean_root, workers=1)
+    assert clean_report["status"] == "complete", clean_report
+    path = Path("data/clean/stock_fundamentals.parquet")
+    clean = pd.read_parquet(clean_root / path)
+    first_instrument = clean.iloc[0]["instrument_id"]
+    _write(store_paths(partial_root)["periods"], clean[clean["instrument_id"] == first_instrument])
+
+    resumed = ingest(config, root=partial_root, workers=2)
+    assert resumed["status"] == "complete", resumed
+    actual = pd.read_parquet(partial_root / path)
+    pd.testing.assert_frame_equal(clean, actual)
+
+
+def test_changed_fundamental_at_existing_known_at_still_raises():
+    existing = pd.DataFrame([_fundamental_fact("2020-01-01T00:00:00+00:00", 100)], columns=PERIOD_COLUMNS)
+    changed = _fundamental_fact("2020-01-01T00:00:00+00:00", 101)
+    with pytest.raises(ValueError, match="changed fundamentals at existing known_at"):
+        ingest_sp500._pending_facts(existing, "synthetic-instrument-a", [changed])
 
 
 def test_ingestion_persists_membership_through_store(tmp_path):

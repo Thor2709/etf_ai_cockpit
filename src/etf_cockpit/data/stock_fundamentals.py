@@ -210,6 +210,72 @@ def append_period_rows(existing: pd.DataFrame, instrument_id: str, rows: Iterabl
     return combined, len(added)
 
 
+def append_period_rows_batch(
+    existing: pd.DataFrame,
+    instrument_id: str,
+    rows: Iterable[Mapping[str, Any]],
+    *,
+    should_skip: Callable[[Mapping[str, Any]], bool] | None = None,
+    on_append: Callable[[Mapping[str, Any]], None] | None = None,
+) -> list[dict[str, Any]]:
+    """Return rows ``append_period_rows`` would append across ordered vintages.
+
+    The existing visible history is sorted and indexed once. As each knowledge
+    time advances, only newly visible rows are added to the latest-version map.
+    Callbacks let ingestion retain its durable-digest checks in the same order
+    as the original one-row-at-a-time path.
+    """
+    mine = existing.loc[existing["instrument_id"].astype(str) == instrument_id]
+    ordered = mine.sort_values("known_at").copy()
+    ordered["__visible_at"] = ordered["known_at"].astype(str)
+    ordered["__rank"] = range(len(ordered))
+    visible = ordered.sort_values("__visible_at", kind="mergesort").to_dict("records")
+    latest: dict[tuple[str, ...], dict[str, Any]] = {}
+    latest_order: dict[tuple[str, ...], tuple[str, int]] = {}
+
+    def version_key(row: Mapping[str, Any]) -> tuple[str, ...]:
+        key = (str(row["period_end"]), str(row["period_type"]), str(row["source"]))
+        if str(row["period_type"]) == "SHARES":
+            key += (str(row.get("source_ref")), str(row.get("available_at")), str(row.get("known_at")))
+        return key
+
+    def same_as_previous(previous: Mapping[str, Any], record: Mapping[str, Any]) -> bool:
+        return all(
+            _same(previous.get(name), record.get(name))
+            for name in (*PERIOD_FIELDS, *FIELD_CURRENCY_COLUMNS, *ANALYST_FIELDS, *STATE_COLUMNS, "currency")
+        )
+
+    added: list[dict[str, Any]] = []
+    next_visible = 0
+    next_rank = len(ordered)
+    for row in rows:
+        cutoff = str(row["known_at"])
+        while next_visible < len(visible) and visible[next_visible]["__visible_at"] <= cutoff:
+            stored = visible[next_visible]
+            key = version_key(stored)
+            order = (stored["__visible_at"], int(stored["__rank"]))
+            if order >= latest_order.get(key, ("", -1)):
+                latest[key] = stored
+                latest_order[key] = order
+            next_visible += 1
+
+        if should_skip is not None and should_skip(row):
+            continue
+        key = version_key(row)
+        record = {column: row.get(column) for column in PERIOD_COLUMNS}
+        record["instrument_id"] = instrument_id
+        previous = latest.get(key)
+        if previous is not None and same_as_previous(previous, record):
+            continue
+        added.append(record)
+        latest[key] = record
+        latest_order[key] = (cutoff, next_rank)
+        next_rank += 1
+        if on_append is not None:
+            on_append(row)
+    return added
+
+
 # ---------------------------------------------------------------------------------------------
 # Point-in-time view
 # ---------------------------------------------------------------------------------------------

@@ -3,8 +3,8 @@
 Inputs are recorded local files only. Supply a configured membership baseline,
 announcement evidence, SEC identity observation date, and sourced instrument-ID
 bindings. No ticker/CIK-derived instrument IDs are minted. Unknown source shapes
-or identity evidence fail closed. Issuer parsing runs in bounded subprocesses;
-only the parent publishes, in CIK order. Resume compares durable store rows,
+or identity evidence fail closed. Issuer facts and vintage merges run in bounded
+subprocesses; only the parent publishes, in CIK order. Resume compares durable store rows,
 not a potentially stale success log. A crash between the two stores can leave
 one ahead; rerunning repairs the missing appends without rewriting history.
 
@@ -25,6 +25,7 @@ import argparse
 from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
 import sqlite3
@@ -47,7 +48,7 @@ from etf_cockpit.data.sp500_history import (
     parse_wikipedia_changes,
 )
 from etf_cockpit.data.stock_fundamentals import (
-    PERIOD_COLUMNS, _write, append_period_rows, load_stock_config, store_paths,
+    PERIOD_COLUMNS, _write, append_period_rows_batch, load_stock_config, store_paths,
 )
 from etf_cockpit.data.stock_sources import IDENTITY_SEC_CONCEPTS, parse_edgar_companyfacts
 from etf_cockpit.data.universe_membership import import_licensed_history
@@ -68,6 +69,16 @@ def _json(payload: bytes) -> dict:
     if not isinstance(result, dict):
         raise ValueError("expected JSON object")
     return result
+
+
+def _json_default(value):
+    if pd.isna(value):
+        return None
+    if hasattr(value, "item"):
+        return value.item()
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    raise TypeError(f"cannot serialize {type(value).__name__}")
 
 
 def _read_member(location: str, member: str) -> dict:
@@ -221,6 +232,35 @@ def _issuer(task: dict) -> dict:
             rows.extend(_period_rows(payload, selected, task["stock_config"], stamp, reference, bucket))
         if not rows:
             raise ValueError("no usable fundamentals at cutoff")
+        if task.get("prepare_fundamentals"):
+            by_id = {}
+            for target in task["fundamental_targets"]:
+                instrument_id = target["instrument_id"]
+                known = target["known_at"]
+                by_id[instrument_id] = min(by_id.get(instrument_id, known), known)
+            if len(by_id) > 1:
+                raise ValueError("multiple listing identities for one CIK require share-class evidence")
+            pending = []
+            pending_error = None
+            for instrument_id, known in sorted(by_id.items()):
+                visible_rows = [{**row, "known_at": max(row["known_at"], known)} for row in rows]
+                # Identity can become known after several financial vintages:
+                # only the last visible vintage per period is then publishable.
+                collapsed = {}
+                for row in visible_rows:
+                    collapsed[(row["period_end"], row["period_type"], row["source"], row["known_at"])] = row
+                existing = pd.DataFrame(task["existing_facts"].get(instrument_id, []), columns=PERIOD_COLUMNS)
+                try:
+                    pending.extend(_pending_facts(existing, instrument_id, list(collapsed.values())))
+                except Exception as exc:
+                    pending_error = f"{type(exc).__name__}: {exc}"
+                    break
+            result = {"cik": cik, "status": "ready", "fact_rows": len(rows), "pending_facts": pending}
+            if pending_error is not None:
+                result["pending_error"] = pending_error
+            if skipped is not None:
+                result["skipped_facts"] = dict(sorted(skipped.items()))
+            return result
         result = {"cik": cik, "status": "ready", "rows": rows}
         if skipped is not None:
             result["skipped_facts"] = dict(sorted(skipped.items()))
@@ -239,13 +279,20 @@ def _fingerprint(row: dict) -> str:
     return hashlib.sha256(json.dumps(payload, sort_keys=True, allow_nan=False).encode()).hexdigest()
 
 
-def _append_facts(root: Path, instrument_id: str, rows: list[dict]) -> None:
-    path = store_paths(root)["periods"]
+def _default_workers() -> int:
+    return max(1, min(16, (os.cpu_count() or 1) - 2))
+
+
+def _read_existing_facts(path: Path) -> pd.DataFrame:
     # The canonical reader treats corruption as empty; ingestion must never
     # replace an unreadable existing store with a partial reconstruction.
     frame = pd.read_parquet(path) if path.exists() else pd.DataFrame(columns=PERIOD_COLUMNS)
     if not set(PERIOD_COLUMNS) <= set(frame.columns):
         raise ValueError("existing fundamentals schema incomplete")
+    return frame
+
+
+def _pending_facts(frame: pd.DataFrame, instrument_id: str, rows: list[dict]) -> list[dict]:
     mine = frame[frame["instrument_id"].astype(str) == instrument_id]
     existing = {_fingerprint(row) for row in mine.to_dict("records")}
     identities = {}
@@ -253,31 +300,29 @@ def _append_facts(root: Path, instrument_id: str, rows: list[dict]) -> None:
         return tuple(str(row.get(key)) for key in ("period_end", "period_type", "source", "known_at"))
     for row in mine.to_dict("records"):
         identities.setdefault(identity(row), set()).add(_fingerprint(row))
-    pending = []
-    for raw in sorted(rows, key=lambda item: (item["known_at"], item["period_end"], item["period_type"], item["source"])):
+
+    def should_skip(raw: dict) -> bool:
         row = {**raw, "instrument_id": instrument_id}
         digest = _fingerprint(row)
         if digest in existing:
-            continue
+            return True
         if identity(row) in identities and digest not in identities[identity(row)]:
             raise ValueError("changed fundamentals at existing known_at")
-        # Replaying a vintage previously suppressed as unchanged must not add it
-        # merely because a later restatement is now the latest row in the store.
-        visible = frame[frame["known_at"].astype(str) <= raw["known_at"]]
-        candidate, would_add = append_period_rows(visible, instrument_id, [raw])
-        if not would_add:
-            continue
-        pending.append(raw)
-        existing.add(digest)
-        frame = pd.concat([frame, candidate.tail(would_add)], ignore_index=True)
-    if pending:
-        _write(path, frame)
+        return False
+
+    def mark_appended(raw: dict) -> None:
+        existing.add(_fingerprint({**raw, "instrument_id": instrument_id}))
+
+    ordered = sorted(rows, key=lambda item: (item["known_at"], item["period_end"], item["period_type"], item["source"]))
+    # Replaying a vintage suppressed as unchanged remains suppressed even after
+    # later restatements: the batch helper advances the same visible prefix.
+    return append_period_rows_batch(mine, instrument_id, ordered, should_skip=should_skip, on_append=mark_appended)
 
 
 def _run_issuer_process(task: dict) -> dict:
     """Anonymous stdio pipes work on Windows without multiprocessing IPC ACLs."""
     process = subprocess.run([sys.executable, str(Path(__file__).resolve()), "--issuer-worker"],
-                             input=json.dumps(task), text=True, capture_output=True, check=False)
+                             input=json.dumps(task, default=_json_default), text=True, capture_output=True, check=False)
     if process.returncode:
         return {"cik": task["cik"], "status": "failed", "rows": [],
                 "reason": f"issuer process exited {process.returncode}"}
@@ -311,8 +356,9 @@ def _append_membership(root: Path, rows: list[dict], config: dict) -> None:
         existing.setdefault((row["instrument_id"], row["valid_from"]), []).append(expected)
 
 
-def ingest(config: dict, *, root: Path, workers: int = 8) -> dict:
+def ingest(config: dict, *, root: Path, workers: int | None = None) -> dict:
     """Return a deterministic report; membership must precede issuer fundamentals."""
+    workers = _default_workers() if workers is None else workers
     if workers < 1 or config.get("execution_allowed") is not False:
         raise ValueError("positive workers and execution_allowed=false required")
     if not config.get("source") or not config.get("licence_ref"):
@@ -414,37 +460,74 @@ def ingest(config: dict, *, root: Path, workers: int = 8) -> dict:
                                     "valid_from": row["valid_from"], "valid_to": row["valid_to"], "known_at": known,
                                     "snapshot_date": row["valid_from"], "snapshot_complete": False}
         issuer["memberships"].extend(revisions.values())
-    tasks = [{"cik": cik, "config": config, "stock_config": load_stock_config(ROOT), "submissions_member": members[cik]}
-             for cik in sorted(issuers)]
+    facts_path = store_paths(root)["periods"]
+    try:
+        existing_facts = _read_existing_facts(facts_path)
+        facts_error = None
+    except Exception as exc:
+        existing_facts = pd.DataFrame(columns=PERIOD_COLUMNS)
+        facts_error = exc
+    existing_by_instrument = {
+        str(instrument_id): group
+        for instrument_id, group in existing_facts.groupby(existing_facts["instrument_id"].astype(str), sort=False)
+    } if facts_error is None and not existing_facts.empty else {}
+    tasks = []
+    for cik in sorted(issuers):
+        bindings = {}
+        for instrument_id, known in issuers[cik]["bindings"]:
+            bindings[instrument_id] = min(bindings.get(instrument_id, known), known)
+        existing_rows = {
+            instrument_id: existing_by_instrument[instrument_id].to_dict("records")
+            for instrument_id in bindings if instrument_id in existing_by_instrument
+        }
+        tasks.append({
+            "cik": cik, "config": config, "stock_config": load_stock_config(ROOT),
+            "submissions_member": members[cik], "prepare_fundamentals": facts_error is None,
+            "fundamental_targets": [
+                {"instrument_id": instrument_id, "known_at": known}
+                for instrument_id, known in sorted(bindings.items())
+            ],
+            "existing_facts": existing_rows,
+        })
     if workers == 1:
         results = list(map(_issuer, tasks))
     else:
+        # Each task runs in its own issuer subprocess; threads only manage the
+        # concurrent stdio subprocesses and never share parsed issuer state.
         with ThreadPoolExecutor(max_workers=workers) as pool:
             results = list(pool.map(_run_issuer_process, tasks))
+    pending_facts = []
+    pending_statuses = []
     for result in results:
         cik = result["cik"]
-        status = {key: value for key, value in result.items() if key != "rows"}
+        status = {key: value for key, value in result.items() if key not in {"rows", "pending_facts", "pending_error"}}
         if result["status"] == "ready":
             try:
-                bindings = issuers[cik]["bindings"]
-                by_id = {}
-                for instrument_id, known in bindings:
-                    by_id[instrument_id] = min(by_id.get(instrument_id, known), known)
-                if len(by_id) > 1:
+                if len({instrument_id for instrument_id, _known in issuers[cik]["bindings"]}) > 1:
                     raise ValueError("multiple listing identities for one CIK require share-class evidence")
                 _append_membership(root, issuers[cik]["memberships"], config)
-                for instrument_id, known in sorted(by_id.items()):
-                    rows = [{**row, "known_at": max(row["known_at"], known)} for row in result["rows"]]
-                    # Identity can become known after several financial vintages:
-                    # only the last visible vintage per period is then publishable.
-                    collapsed = {}
-                    for row in rows:
-                        collapsed[(row["period_end"], row["period_type"], row["source"], row["known_at"])] = row
-                    _append_facts(root, instrument_id, list(collapsed.values()))
-                status.update(status="ingested", fact_rows=len(result["rows"]))
+                if facts_error is not None:
+                    raise facts_error
+                if result.get("pending_error") is not None:
+                    status.update(status="failed", reason=result["pending_error"])
+                else:
+                    issuer_pending = result.get("pending_facts", [])
+                    status.update(status="ingested", fact_rows=result.get("fact_rows", len(result.get("rows", []))))
+                    pending_facts.extend(issuer_pending)
+                    if issuer_pending:
+                        pending_statuses.append(status)
             except Exception as exc:
                 status.update(status="failed", reason=f"{type(exc).__name__}: {exc}")
         report["issuers"].append(status)
+    if pending_facts:
+        try:
+            additions = pd.DataFrame(pending_facts, columns=PERIOD_COLUMNS)
+            updated = pd.concat([existing_facts, additions], ignore_index=True)
+            _write(facts_path, updated)
+        except Exception as exc:
+            reason = f"{type(exc).__name__}: {exc}"
+            for status in pending_statuses:
+                status.update(status="failed", reason=reason)
     report["status"] = "complete" if report["issuers"] and not report["unmapped"] and all(
         item["status"] == "ingested" for item in report["issuers"]) else "partial"
     return report
@@ -454,7 +537,7 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, default=ROOT / "configs" / "sp500_universe_v1.yaml")
     parser.add_argument("--root", type=Path, required=True)
-    parser.add_argument("--workers", type=int, default=8)
+    parser.add_argument("--workers", type=int, default=_default_workers())
     parser.add_argument("--report", type=Path, required=True)
     args = parser.parse_args(argv)
     config = yaml.safe_load(args.config.read_text(encoding="utf-8"))
