@@ -3,7 +3,7 @@
 Run outside the sandbox with network access and the SEC contact User-Agent set:
     python C:/dev/queues/DATA/probe_cover.py --repo C:/dev/fx-EVf1
 Optional positional CIKs replace the three defaults. The source root is read only;
-selected issuer caches are copied into a disposable temporary root before fetching.
+existing submissions are read in place; extracted covers use a disposable root.
 """
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ def main(argv=None) -> int:
     parser.add_argument("--root", type=Path, default=Path("C:/dev/queues/DATA/work2"))
     parser.add_argument("--workers", type=int, default=3)
     parser.add_argument("--sec-rate", type=float, default=8)
-    parser.add_argument("--cover-cache-budget-bytes", type=int, default=2 * 1024**3)
+    parser.add_argument("--cover-cache-budget-bytes", type=int, default=32 * 1024**2)
     parser.add_argument("ciks", nargs="*", default=["0000320193", "0001045810", "0000789019"])
     args = parser.parse_args(argv)
     if args.workers < 1 or not 0 < args.sec_rate <= 8 or args.cover_cache_budget_bytes < 1:
@@ -39,18 +39,11 @@ def main(argv=None) -> int:
     outcomes = []
     with tempfile.TemporaryDirectory(prefix="sec-cover-probe-") as temporary:
         layout = acq.Layout(Path(temporary), cover_cache_budget=args.cover_cache_budget_bytes)
+        layout.cached_submissions = (source / "sec/submissions", source / "_meta/submissions")
         try:
             cache = layout.cover_cache()
             cache.check()
-            for cik in ciks:
-                for path in (source / "sec/submissions").glob(f"CIK{cik}*.json"):
-                    if path.stat().st_size > acq.COVER_FILE_CAP:
-                        continue
-                    meta = acq.recorded(path, source / "_meta/submissions")
-                    if meta is not None:
-                        cache.store(layout.subs / path.name, layout.subs_meta, path.read_bytes(),
-                                    url=meta["url"], status=meta.get("http_status", 200))
-            # Cover evidence is fetched afresh; never copy legacy full submissions.
+            # Cover evidence is fetched afresh; no raw responses are copied or saved.
         except acq.CoverRunAborted as exc:
             print(json.dumps({"status": "aborted", "reason": str(exc), "execution_allowed": False}), flush=True)
             return 1
@@ -69,7 +62,8 @@ def main(argv=None) -> int:
                 outcomes.append(outcome)
                 print(json.dumps(outcome, sort_keys=True), flush=True)
     failed = [r["cik"] for r in outcomes if r["status"] == "failed"]
-    print(json.dumps({"requested": len(ciks), "failed": failed}), flush=True)
+    print(json.dumps({"requested": len(ciks), "failed": failed,
+                      "bytes_downloaded": sum(r["bytes_downloaded"] for r in outcomes)}), flush=True)
     return int(bool(failed))
 
 

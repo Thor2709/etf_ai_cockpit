@@ -8,6 +8,7 @@ An unreadable filing breaks continuity; an unreadable issuer scan binds nothing.
 from __future__ import annotations
 
 from datetime import datetime, time, timedelta, timezone
+import hashlib
 from html.parser import HTMLParser
 import re
 from zoneinfo import ZoneInfo
@@ -110,7 +111,7 @@ class _CoverReport(HTMLParser):
 
 
 def parse_cover(payload: bytes, *, cik: str, accession: str, form: str,
-                acceptance: str | None, source: str) -> dict:
+                acceptance: str | None, source: str, filing_date: str | None = None) -> dict:
     """A CIK candidate becomes evidence only through the filed DEI cover facts."""
     cik = cik_text(cik)
     if form not in FORMS or not re.fullmatch(r"\d{10}-\d{2}-\d{6}", accession) or not source:
@@ -140,7 +141,9 @@ def parse_cover(payload: bytes, *, cik: str, accession: str, form: str,
     symbols = set(parser.facts["dei:tradingsymbol"])
     if ids != {cik} or not symbols or any(not re.fullmatch(r"[A-Z0-9][A-Z0-9.\-]{0,19}", s) for s in symbols):
         raise ValueError("missing/conflicting CIK or TradingSymbol cover evidence")
-    return {"cik": cik, "accession": accession, "known_at": known, "tickers": sorted(symbols), "source": source}
+    return {"cik": cik, "accession": accession, "form": form, "filing_date": filing_date,
+            "known_at": known, "tickers": sorted(symbols), "entity_central_index_key": next(iter(ids)),
+            "source": source, "sha256": hashlib.sha256(payload).hexdigest(), "bytes": len(payload)}
 
 
 def identity_spans(evidence: list[dict]) -> list[dict]:

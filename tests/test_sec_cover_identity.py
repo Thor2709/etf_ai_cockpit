@@ -1,5 +1,6 @@
 """Offline synthetic SEC cover evidence and complete-window identity rules."""
 from pathlib import Path
+import hashlib
 from types import SimpleNamespace
 
 import pytest
@@ -180,3 +181,15 @@ def test_rendered_labels_alone_cannot_supply_dei_evidence():
     with pytest.raises(ValueError, match="cover evidence"):
         parse_cover(payload, cik="9000000001", accession="9000000001-19-000001", form="10-K",
                     acceptance="2019-12-20T19:30:00Z", source="fixture")
+
+
+def test_extracted_cover_keeps_filing_identity_and_exact_received_byte_provenance():
+    payload = (FIXTURES / "9000000002-R1.htm").read_bytes() + b"<!-- received bytes -->"
+    row = parse_cover(payload, cik="9000000002", accession="9000000002-19-000001", form="20-F/A",
+                      acceptance="2019-12-20T19:30:00Z", source="https://example.invalid/R7.htm",
+                      filing_date="2019-12-20")
+    assert row["form"] == "20-F/A" and row["filing_date"] == "2019-12-20"
+    assert row["entity_central_index_key"] == "9000000002" and row["tickers"] == ["ZZB", "ZZC"]
+    assert row["sha256"] == hashlib.sha256(payload).hexdigest() and row["bytes"] == len(payload)
+    assert row["source"] == "https://example.invalid/R7.htm"
+    assert all(not isinstance(value, bytes) for value in row.values())
