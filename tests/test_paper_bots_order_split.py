@@ -13,6 +13,9 @@ from etf_cockpit.portfolio.paper_trading import PaperLedger
 from tests.test_paper_bots_execution import _book, _by, _execute, _plans, _ready, _records
 
 
+pytestmark = pytest.mark.usefixtures("readiness_pass")
+
+
 def _at(day: int) -> datetime:
     return datetime(2026, 10, day, 12, tzinfo=timezone.utc)
 

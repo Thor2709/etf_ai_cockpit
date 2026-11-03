@@ -18,16 +18,26 @@ from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", default=os.environ.get("ETF_COCKPIT_ROOT"), help="data root (defaults to ETF_COCKPIT_ROOT)")
     parser.add_argument("--as-of", type=date.fromisoformat, default=None, help="replay cutoff date (default: the day after the last VWCE price)")
+    parser.add_argument("--start", type=date.fromisoformat, default=None, help="first included score date (YYYY-MM-DD)")
+    parser.add_argument("--end", type=date.fromisoformat, default=None, help="last included score date (YYYY-MM-DD)")
+    parser.add_argument(
+        "--decision-dates", type=int, default=None,
+        help="select exactly the first N distinct benchmark score dates after filtering by start/end",
+    )
     parser.add_argument(
         "--survivorship-mode", choices=("strict", "unverified-delistings"), default="strict",
         help="strict (default): fail closed without verified listing history. unverified-delistings: also admit instruments listed "
         "from their first price date whose delisting is unverified; the report is labelled survivorship_unverified",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
+    if args.start is not None and args.end is not None and args.end < args.start:
+        parser.error("--end must not be before --start")
+    if args.decision_dates is not None and args.decision_dates < 1:
+        parser.error("--decision-dates must be at least 1")
     if args.root:
         os.environ["ETF_COCKPIT_ROOT"] = str(Path(args.root).resolve())
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
@@ -39,6 +49,8 @@ def main() -> int:
     from etf_cockpit.portfolio import paper_bots_execution as execution
     from etf_cockpit.portfolio.paper_bots_replay import run_historical_replay
     from etf_cockpit.portfolio.paper_bots_report import build_paper_bots_overview
+
+    import pandas as pd
 
     history = load_backfill_score_history(ROOT)
     eligibility = load_backfill_eligibility(ROOT)
@@ -55,8 +67,37 @@ def main() -> int:
     else:
         sessions = [day for day in book.sessions]
         cutoff_day = (max(sessions) + timedelta(days=1)) if sessions else date.today()
+    if "as_of_date" not in history.columns:
+        print("Replay refused: backfill history has no as_of_date column; no writes were made.")
+        return 1
+    score_days = pd.to_datetime(history["as_of_date"], errors="coerce").dt.date
+    include = score_days.notna() & (score_days <= cutoff_day)
+    if args.start is not None:
+        include &= score_days >= args.start
+    if args.end is not None:
+        include &= score_days <= args.end
+    filtered_history = history.loc[include].copy()
+    if args.decision_dates is not None:
+        benchmark_sessions = set(book.sessions)
+        available_dates = sorted({day for day in score_days.loc[include] if day in benchmark_sessions})
+        if len(available_dates) < args.decision_dates:
+            print(
+                f"Replay refused: requested {args.decision_dates} distinct benchmark score dates, "
+                f"found {len(available_dates)}; no writes were made."
+            )
+            return 1
+        selected_dates = set(available_dates[:args.decision_dates])
+        filtered_history = filtered_history.loc[
+            pd.to_datetime(filtered_history["as_of_date"], errors="coerce").dt.date.isin(selected_dates)
+        ].copy()
+    if filtered_history.empty:
+        print("Replay refused: no score dates match the requested interval; no writes were made.")
+        return 1
     as_of = datetime.combine(cutoff_day, time(12, 0), tzinfo=timezone.utc)
-    result = run_historical_replay(as_of, root=ROOT, price_book=book, now=datetime.now(timezone.utc), history_source="backfill", survivorship_mode=args.survivorship_mode)
+    result = run_historical_replay(
+        as_of, root=ROOT, history=filtered_history, price_book=book, now=datetime.now(timezone.utc),
+        history_source="backfill", survivorship_mode=args.survivorship_mode,
+    )
     if result.survivorship_unverified:
         print("!" * 100)
         print(SURVIVORSHIP_UNVERIFIED_BANNER)
@@ -66,7 +107,7 @@ def main() -> int:
         print(f"reason: {result.reason}")
     for warning in result.warnings:
         print(f"warning: {warning}")
-    if result.status == "unavailable":
+    if result.status != "available":
         return 1
     overview = build_paper_bots_overview(ROOT, as_of=as_of, price_book=book)
     replay = overview.get("replay")
@@ -74,7 +115,7 @@ def main() -> int:
     with TransactionalStore(track.store_root, read_only=True) as store:
         decisions = [dict(item.payload) for item in store.list(track.decision_type)]
         records = [dict(item.payload) for item in store.list(track.record_type)]
-    print(f"period: {history['as_of_date'].min()} .. {history['as_of_date'].max()} ({history['run_id'].nunique()} scored sessions)")
+    print(f"period: {filtered_history['as_of_date'].min()} .. {filtered_history['as_of_date'].max()} ({filtered_history['run_id'].nunique()} scored sessions)")
     print(f"decisions: {len(decisions)} ({Counter(item.get('status') for item in decisions)}); by bot: {Counter(item.get('bot_family') for item in decisions)}")
     print(f"paper records: {Counter(item.get('status') for item in records)}")
     print("unfilled orders by reason:")

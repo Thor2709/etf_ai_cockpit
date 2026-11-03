@@ -23,7 +23,7 @@ def _interval(instrument, *, start="2020-01-01", end=None, known="2020-01-01T00:
     }
 
 
-def test_membership_half_open_boundaries_and_fill_session_gate(monkeypatch, tmp_path):
+def test_membership_half_open_boundaries_and_fill_session_gate(monkeypatch, tmp_path, readiness_pass):
     history = ListingHistory((_interval("VWCE", start="2026-10-15", end="2026-10-19"),))
     assert not history.snapshot(date(2026, 10, 14), ["VWCE"]).eligible_ids
     assert history.snapshot(date(2026, 10, 15), ["VWCE"]).eligible_ids == ("VWCE",)
@@ -86,7 +86,7 @@ def test_scoring_removes_prelisting_and_delisted_peers_and_restores_retained_ide
     assert not identity.enabled  # caller's present-day configuration stays intact
 
 
-def test_delisting_liquidates_held_position_at_last_available_price_and_is_idempotent(monkeypatch, tmp_path):
+def test_delisting_liquidates_held_position_at_last_available_price_and_is_idempotent(monkeypatch, tmp_path, readiness_pass):
     from etf_cockpit.portfolio import paper_bots_execution as execution
     from etf_cockpit.portfolio.paper_bots_replay import run_historical_replay
     from etf_cockpit.portfolio.paper_trading import PaperLedger

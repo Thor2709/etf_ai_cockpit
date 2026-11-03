@@ -34,7 +34,7 @@ def main(argv: list[str] | None = None) -> int:
             print(replay.reason)
         for warning in replay.warnings:
             print(f"Warning: {warning}")
-        return 1 if replay.status == "unavailable" else 0
+        return 0 if replay.status == "available" else 1
     result = run_paper_bots(as_of)
     print(f"Paper bots {result.status}: as_of={result.as_of or 'unavailable'} appended={result.appended}")
     if result.reason:
@@ -46,6 +46,8 @@ def main(argv: list[str] | None = None) -> int:
             f"{record.get('bot_family', 'unknown')} {record.get('bot_id', 'unavailable')}: "
             f"{record.get('status', 'unavailable')}"
         )
+    if result.status != "available":
+        return 1
     # Stage B: fill the frozen decisions at the next session open, then mirror the flows into the VWCE shadow accounts.
     execution = run_paper_bot_execution(as_of)
     print(f"Paper bot execution {execution.status}: as_of={execution.as_of or 'unavailable'} appended={execution.appended}")
@@ -53,7 +55,7 @@ def main(argv: list[str] | None = None) -> int:
         print(execution.reason)
     for warning in execution.warnings:
         print(f"Warning: {warning}")
-    return 1 if result.status == "unavailable" and execution.status == "unavailable" else 0
+    return 0 if execution.status == "available" else 1
 
 
 if __name__ == "__main__":
