@@ -11,7 +11,9 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 import json
 import math
+import os
 from collections.abc import Mapping
+from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel
@@ -21,6 +23,19 @@ from etf_cockpit.mcp.envelope import Envelope, Provenance
 
 
 DEFAULT_DATAFRAME_ROW_CAP = 500
+RESPONSE_CHAR_LIMIT = 32_000
+
+
+def response_char_limit() -> int:
+    """Read and validate the complete tools/call result budget."""
+    variable = "ETF_COCKPIT_MCP_MAX_CHARS"
+    try:
+        limit = int(os.environ.get(variable, str(RESPONSE_CHAR_LIMIT)))
+    except ValueError:
+        raise ValueError(f"{variable} must be an integer from 4000 to 200000") from None
+    if not 4000 <= limit <= 200_000:
+        raise ValueError(f"{variable} must be an integer from 4000 to 200000")
+    return limit
 
 
 def normalise(value: Any, *, dataframe_row_cap: int = DEFAULT_DATAFRAME_ROW_CAP) -> Any:
@@ -115,3 +130,93 @@ def envelope_dict(envelope: Envelope) -> dict[str, Any]:
     """Return the full contract shape, preserving explicit null metadata fields."""
 
     return redact_secrets(normalise(envelope.model_dump(mode="python")))
+
+
+def tool_result_dict(result: Any) -> dict[str, Any]:
+    """Build both protocol representations without the optional SDK's pretty JSON."""
+    envelope = result if isinstance(result, Envelope) else build_envelope(result)
+    structured = envelope_dict(envelope)
+    return {
+        "content": [{"type": "text", "text": to_json(structured)}],
+        "structuredContent": structured,
+        "isError": False,
+    }
+
+
+def enforce_response_budget(result: Any, *, root: Path) -> Any:
+    """Budget the complete tools/call result once, after natural pagination.
+
+    Oversized results retain their full redacted envelope in a root-local JSON
+    resource, available for 24 hours. The inline result contains only bounded
+    summaries and a preview; it never substitutes values for missing evidence.
+    """
+    limit = response_char_limit()
+
+    def fits(value: Any) -> bool:
+        # Plain values are enveloped again by the transport. Allow for the
+        # fractional timestamp growing by seven characters in each copy.
+        timestamp_margin = 0 if isinstance(value, Envelope) else 14
+        encoded_result = json.dumps(tool_result_dict(value), ensure_ascii=True, separators=(",", ":"), allow_nan=False)
+        return len(encoded_result) + timestamp_margin <= limit
+
+    envelope = result if isinstance(result, Envelope) else build_envelope(result)
+    full = envelope_dict(envelope)
+    encoded = to_json(full)
+    if fits(result):
+        return result
+
+    from etf_cockpit.mcp.resources import write_overflow
+
+    link = write_overflow(root, encoded)
+    payload = full["data"]
+    collections = []
+
+    def count_rows(value: Any) -> None:
+        if isinstance(value, dict):
+            for item in value.values():
+                count_rows(item)
+        elif isinstance(value, list):
+            collections.append(len(value))
+
+    count_rows(payload)
+    rows_total = max(collections, default=0)
+    if isinstance(payload, dict) and isinstance(payload.get("rows_total"), int):
+        rows_total = payload["rows_total"]
+    summary = {
+        key[:80]: _bounded_preview(value)
+        for key, value in list(payload.items())[:20]
+        if not isinstance(value, (dict, list))
+    } if isinstance(payload, dict) else {}
+    compact = {
+        **summary,
+        "rows_total": rows_total,
+        "preview": _bounded_preview(payload),
+        "truncated": True,
+        "resource_link": link,
+        "execution_allowed": False,
+        "next_cursor": envelope.next_cursor if envelope.next_cursor and len(envelope.next_cursor) <= 2048 else None,
+    }
+    if not fits(compact):
+        compact["preview"] = _bounded_preview(payload, depth=2)
+    if not fits(compact):
+        compact["preview"] = None
+    if not fits(compact):
+        compact = {key: compact[key] for key in ("rows_total", "truncated", "resource_link", "execution_allowed", "next_cursor")}
+    if not fits(compact):
+        compact["next_cursor"] = None
+    if not fits(compact):
+        from etf_cockpit.mcp.errors import MCPToolError
+
+        raise MCPToolError("RESPONSE_BUDGET_EXCEEDED", "The overflow summary exceeds the response budget", "Read the overflow resource.")
+    if isinstance(result, Envelope):
+        # Oversized metadata is available in the full resource as well.
+        return build_envelope(compact)
+    return compact
+
+
+def _bounded_preview(value: Any, depth: int = 0) -> Any:
+    if isinstance(value, dict):
+        return {key[:80]: _bounded_preview(item, depth + 1) for key, item in list(value.items())[:5]} if depth < 3 else {}
+    if isinstance(value, list):
+        return [_bounded_preview(item, depth + 1) for item in value[:3]] if depth < 3 else []
+    return value[:160] if isinstance(value, str) else value

@@ -10,7 +10,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 from pathlib import Path
+import re
+import time
 from typing import Any, Mapping
+from uuid import uuid4
 
 from etf_cockpit.mcp.envelope import Envelope
 from etf_cockpit.mcp.errors import MCPToolError
@@ -42,6 +45,7 @@ RESOURCE_SPECS = (
     ResourceSpec("cockpit://policy/{name}", "Policy", "One allow-listed local policy bundle.", ("name",), "settings_get"),
     ResourceSpec("cockpit://methodology/{topic}", "Methodology", "One allow-listed local methodology source.", ("topic",)),
     ResourceSpec("cockpit://exports/{path}", "Local export", "A bounded root-local report or export file.", ("path",)),
+    ResourceSpec("cockpit://overflow/{id}", "Tool overflow", "Full tool response JSON, available for 24 hours after creation.", ("id",)),
 )
 
 _POLICY_NAMES = frozenset({
@@ -52,6 +56,7 @@ _METHODOLOGY_TOPICS = frozenset({"score_engine_v3", "forecast_promotion", "gloss
 _EXPORT_PREFIXES = (Path("exports"), Path("data") / "chatgpt_exports", Path("data") / "reports", Path("data") / "derived")
 _EXPORT_EXTENSIONS = frozenset({".json", ".csv", ".md", ".txt"})
 _EXPORT_LIMIT_BYTES = 1_048_576
+OVERFLOW_TTL_SECONDS = 24 * 60 * 60
 
 
 def resource_specs() -> tuple[ResourceSpec, ...]:
@@ -61,6 +66,8 @@ def resource_specs() -> tuple[ResourceSpec, ...]:
 def read_resource(spec: ResourceSpec, arguments: Mapping[str, Any], context: CallContext) -> str:
     """Read a resource with the same service implementation and launch session as its mirrored tool."""
 
+    if spec.uri == "cockpit://overflow/{id}":
+        return _read_overflow(str(arguments.get("id", "")), _root(context))
     if spec.tool_name:
         tool_spec = find_tool(spec.tool_name)
         values = dict(spec.tool_arguments or {})
@@ -86,6 +93,47 @@ def _root(context: CallContext) -> Path:
     from etf_cockpit.core.paths import ROOT
 
     return Path(getattr(context.session, "root", None) or ROOT).resolve()
+
+
+def _overflow_path(root: Path, call_id: str) -> Path:
+    if re.fullmatch(r"[0-9a-f]{32}", call_id) is None:
+        raise MCPToolError("RESOURCE_PATH_INVALID", "The overflow id is invalid", "Use an id returned by a tool resource_link.")
+    root = root.resolve()
+    directory = (root / "runtime" / "mcp_overflow").resolve()
+    path = (directory / f"{call_id}.json").resolve()
+    if not directory.is_relative_to(root) or not path.is_relative_to(directory):
+        raise MCPToolError("RESOURCE_PATH_INVALID", "The overflow path is outside the data root", "Repair the local overflow directory.")
+    return path
+
+
+def write_overflow(root: Path, encoded: str) -> dict[str, str]:
+    """Store the full redacted response; expired files are refused after 24 hours.
+
+    Expiry is enforced on reads. Files may be removed by local runtime cleanup;
+    no business data or publication authority is changed by this cache.
+    """
+    call_id = uuid4().hex
+    path = _overflow_path(root, call_id)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path = _overflow_path(root, call_id)
+        with path.open("x", encoding="utf-8") as stream:
+            stream.write(encoded)
+    except OSError:
+        raise MCPToolError("OVERFLOW_UNAVAILABLE", "The full response could not be stored", "Restore write access to runtime/mcp_overflow and retry.") from None
+    return {"type": "resource_link", "uri": f"cockpit://overflow/{call_id}", "name": path.name, "mimeType": "application/json"}
+
+
+def _read_overflow(call_id: str, root: Path) -> str:
+    path = _overflow_path(root, call_id)
+    try:
+        if path.is_file() and 0 <= time.time() - path.stat().st_mtime < OVERFLOW_TTL_SECONDS:
+            return path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
+        pass
+    return to_json(envelope_dict(build_envelope(
+        {"status": "unavailable"}, unavailable_reason="overflow is missing, expired, or unreadable",
+    )))
 
 
 def _read_methodology(topic: str, context: CallContext) -> dict[str, object]:

@@ -64,6 +64,21 @@ def identity_get(instrument_id: str) -> dict[str, object]:
 
 
 def _preview_change(action: str, instrument_id: str | None = None, fields: dict[str, object] | None = None, expected_revision: str | None = None) -> dict[str, object]:
+    if action not in {"add", "edit", "disable", "enable"}:
+        raise InvalidArgumentsError("action must be add, edit, disable, or enable")
+    if fields is not None and not isinstance(fields, dict):
+        raise InvalidArgumentsError("fields must be an object")
+    values = fields or {}
+    missing = []
+    resolved_id = instrument_id or (values.get("instrument_id") if action == "add" else None)
+    if not isinstance(resolved_id, str) or not resolved_id.strip():
+        missing.append("instrument_id")
+    if action == "add" and (not isinstance(values.get("name"), str) or not values["name"].strip()):
+        missing.append("fields.name")
+    if action == "edit" and not values:
+        missing.append("fields (at least one field to edit)")
+    if missing:
+        raise InvalidArgumentsError(f"{action} requires: {', '.join(missing)}")
     try:
         return normalise(mcp_universe_ops.preview_universe_change(action, instrument_id, fields, expected_revision=expected_revision))
     except (KeyError, TypeError, ValueError) as exc:

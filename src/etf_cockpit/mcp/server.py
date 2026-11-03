@@ -8,12 +8,11 @@ from __future__ import annotations
 
 from functools import wraps
 import inspect
-from typing import Any
+from typing import Any, get_type_hints
 
-from etf_cockpit.mcp.envelope import Envelope
 from etf_cockpit.mcp.errors import MCPServerUnavailable, MCPToolError
 from etf_cockpit.mcp.registry import CallContext, ToolSpec, invoke_tool, list_tools as _list_tools
-from etf_cockpit.mcp.serialise import build_envelope, envelope_dict
+from etf_cockpit.mcp.serialise import response_char_limit, tool_result_dict
 from etf_cockpit.mcp.tiers import normalise_profile, parse_tiers
 from etf_cockpit.mcp.worker import start_server_worker
 
@@ -61,6 +60,12 @@ def _load_sdk() -> tuple[Any, Any, Any]:
     return MCPServer, ToolError, ToolAnnotations
 
 
+def _protocol_result(result: Any) -> Any:
+    from mcp.types import CallToolResult
+
+    return CallToolResult(**tool_result_dict(result))
+
+
 def _handler(spec: ToolSpec, context: CallContext, tool_error: type[Exception]):
     @wraps(spec.function)
     def invoke(**arguments: Any) -> Any:
@@ -68,12 +73,19 @@ def _handler(spec: ToolSpec, context: CallContext, tool_error: type[Exception]):
             result = invoke_tool(spec.name, arguments, context=context)
         except MCPToolError as exc:
             raise tool_error(f"{exc.reason_code}: {exc.message}. {exc.next_step}") from None
-        envelope = result if isinstance(result, Envelope) else build_envelope(result)
-        return envelope_dict(envelope)
+        return _protocol_result(result)
 
+    try:
+        type_hints = get_type_hints(spec.function, include_extras=True)
+    except Exception as exc:
+        raise MCPServerUnavailable(f"Could not resolve annotations for MCP tool {spec.name!r}") from exc
     signature = inspect.signature(spec.function)
-    invoke.__signature__ = signature.replace(return_annotation=spec.output_model)  # type: ignore[attr-defined]
-    invoke.__annotations__ = dict(getattr(spec.function, "__annotations__", {}))
+    parameters = [
+        parameter.replace(annotation=type_hints.get(name, parameter.annotation))
+        for name, parameter in signature.parameters.items()
+    ]
+    invoke.__signature__ = signature.replace(parameters=parameters, return_annotation=spec.output_model)  # type: ignore[attr-defined]
+    invoke.__annotations__ = type_hints
     invoke.__annotations__["return"] = spec.output_model
     return invoke
 
@@ -87,6 +99,7 @@ def create_server(
 ):
     """Build a local stdio MCPServer after launch authorization is fixed."""
 
+    response_char_limit()
     MCPServer, tool_error, annotation_type = _load_sdk()
     selected_profile = normalise_profile(profile)
     selected_tiers = parse_tiers(tiers)

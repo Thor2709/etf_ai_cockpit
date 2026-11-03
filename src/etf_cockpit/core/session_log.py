@@ -40,6 +40,9 @@ _SECRET_VALUE_RE = re.compile(
     r"(?P<value>[^'\"\s,;}\]]+)"
 )
 _REDACTED_SECRET_VALUE = "***redacted***"
+# MCP confirmation tokens are client-bound, single-use, short-lived capabilities,
+# not credentials. Only this exact field may pass the secret-key matcher.
+_NON_SECRET_KEY_ALLOWLIST = frozenset({"confirm_token"})
 
 
 def init_session_log(
@@ -397,7 +400,7 @@ def _redact(value: Any) -> Any:
         redacted: dict[str, Any] = {}
         for key, item in value.items():
             key_text = str(key)
-            if SECRET_KEY_RE.search(key_text):
+            if key_text not in _NON_SECRET_KEY_ALLOWLIST and SECRET_KEY_RE.search(key_text):
                 redacted[key_text] = "***redacted***" if item is not None and item != "" else item
             else:
                 redacted[key_text] = _redact(item)

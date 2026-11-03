@@ -2,7 +2,9 @@
 
 Open defaults: holdings and document pages contain 25 rows; holdings gaps are
 omitted unless requested. Look-through keeps the canonical 90-day freshness and
-0.80 coverage gates. Disclosures are read only; imports use two-phase confirmation.
+0.80 coverage gates. Its default cutoff is the latest published scoreboard's
+knowledge time; omitting an instrument selects the portfolio. Missing publication
+evidence fails closed. Disclosures are read only; imports use two-phase confirmation.
 """
 
 from __future__ import annotations
@@ -58,12 +60,35 @@ def etf_holdings(instrument_id: str, as_of: date, top_n: int = 25, include_gaps:
 @tool(tier="read", description="Read fail-closed point-in-time exposure for one ETF or the portfolio.", read_only_hint=True, idempotent_hint=True, profiles=("core", "full"))
 def etf_look_through(instrument_id: str | None = None, portfolio: bool = False, decision_time: datetime | None = None) -> dict[str, object]:
     if decision_time is None:
-        raise InvalidArgumentsError("decision_time is required")
-    if portfolio:
-        return normalise(mcp_etf_views.portfolio_look_through_view(_snapshot(), decision_time))
-    if not instrument_id or not instrument_id.strip():
-        raise InvalidArgumentsError("instrument_id is required unless portfolio=true")
-    return normalise(mcp_etf_views.etf_look_through_view(instrument_id, decision_time))
+        decision_time = _published_decision_time()
+    if portfolio or instrument_id is None:
+        result = mcp_etf_views.portfolio_look_through_view(_snapshot(), decision_time)
+    else:
+        if not instrument_id.strip():
+            raise InvalidArgumentsError("instrument_id must not be empty")
+        result = mcp_etf_views.etf_look_through_view(instrument_id, decision_time)
+    return normalise({**result, "decision_time": decision_time})
+
+
+def _published_decision_time() -> datetime:
+    from etf_cockpit.mcp.tools_scores import _published_scoreboard_record
+    from etf_cockpit.core.paths import ROOT
+
+    root = Path(getattr(current_call_context().session, "root", ROOT)).resolve()
+    try:
+        record = _published_scoreboard_record(root)
+        known_at = datetime.fromisoformat(str(record.get("known_at")).replace("Z", "+00:00"))
+        if known_at.tzinfo is None:
+            raise ValueError("invalid publication knowledge time")
+        return known_at
+    except Exception:
+        raise MCPToolError(
+            "SCOREBOARD_KNOWLEDGE_UNAVAILABLE",
+            "The published scoreboard knowledge time is unavailable",
+            "Run the local headless rescore workflow (HeadlessSession.rescore) to republish the scoreboard "
+            "and record its scoreboard_publication_binding. Resolve any score_history_warning from that job "
+            "before retrying, or supply an explicit timezone-aware decision_time.",
+        ) from None
 
 
 @tool(tier="read", description="Compare direct ETF holdings overlap and optionally include the current portfolio.", read_only_hint=True, idempotent_hint=True)

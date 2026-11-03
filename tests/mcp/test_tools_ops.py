@@ -157,7 +157,18 @@ def test_settings_and_resource_catalogue_use_canonical_readers(tmp_path: Path, m
         result = tools_ops.settings_get("controls")
     assert result == {"controls": {"output_currency": "EUR"}, "revision": "rev-1", "settings_version": 3}
     assert calls == [(tmp_path.resolve(), "controls")]
-    assert len(resource_specs()) == 13
+    assert len(resource_specs()) == 14
+    import json
+
+    from etf_cockpit.mcp.resources import read_resource
+
+    overflow = next(item for item in resource_specs() if item.uri == "cockpit://overflow/{id}")
+    read_context = _context(tmp_path)
+    read_context.enabled_tiers = frozenset({"read"})
+    before = set(tmp_path.rglob("*"))
+    assert json.loads(read_resource(overflow, {"id": "0" * 32}, read_context))["execution_allowed"] is False
+    assert set(tmp_path.rglob("*")) == before
+    assert overflow.tool_name is None
     assert {item.name for item in prompt_specs()} == {
         "health_check", "weekly_review", "research_best_etfs", "research_best_stocks", "assess_web_candidates",
         "sentiment_paper_trade", "add_instrument", "explain_instrument", "monthly_decision", "bots_review",
@@ -182,7 +193,8 @@ def test_settings_and_resource_catalogue_use_canonical_readers(tmp_path: Path, m
 
     monkeypatch.setattr(server_module, "_load_sdk", lambda: (FakeServer, RuntimeError, lambda **kwargs: kwargs))
     server = server_module.create_server(profile="core", tiers=("read",))
-    assert len(server.resources) == 13
+    assert len(server.resources) == 14
+    assert overflow.uri in server.resources
     assert len(server.prompts) == 10
     assert "execution_allowed is always false" in server.instructions
 

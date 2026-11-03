@@ -22,7 +22,7 @@ from uuid import uuid4
 
 from etf_cockpit.application import mcp_data_views
 from etf_cockpit.mcp.errors import InvalidArgumentsError, MCPToolError
-from etf_cockpit.mcp.paging import CursorCodec, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, validate_page_size
+from etf_cockpit.mcp.paging import CursorCodec, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, page_rows, validate_page_size
 from etf_cockpit.mcp.registry import current_call_context, issue_confirmation_token, tool
 from etf_cockpit.mcp.serialise import normalise
 
@@ -154,8 +154,29 @@ def data_provider_status(probe: bool = False, cursor: str | None = None, limit: 
 
 
 @tool(tier="read", description="Run the canonical stored-price quality validation without committing data.", read_only_hint=True, idempotent_hint=True)
-def data_validate_prices() -> dict[str, object]:
-    return normalise(mcp_data_views.validate_prices_view(**_root_arguments()))
+def data_validate_prices(cursor: str | None = None, limit: int = DEFAULT_PAGE_SIZE, metadata_cursor: str | None = None) -> dict[str, object]:
+    try:
+        size = validate_page_size(limit)
+    except ValueError as exc:
+        raise InvalidArgumentsError(str(exc)) from None
+    result = normalise(mcp_data_views.validate_prices_view(**_root_arguments()))
+    from etf_cockpit.core.paths import ROOT
+    from etf_cockpit.mcp.serialise import to_json
+
+    root = _root_arguments().get("root", ROOT)
+    summary = {key: value for key, value in result.items() if key not in {"issues", "dataset_metadata"}}
+    budget = (29_000 - len(to_json(summary))) // 2
+    counts = {}
+    for key, supplied_cursor, next_key in (("issues", cursor, "next_cursor"), ("dataset_metadata", metadata_cursor, "metadata_next_cursor")):
+        rows = list(result.get(key) or ())
+        filters = {"tool": "data_validate_prices", "collection": key, "as_of_date": result.get("as_of_date")}
+        offset = _CURSORS.decode(supplied_cursor, filters=filters) if supplied_cursor else 0
+        page = page_rows(rows, offset=offset, limit=size, max_chars=budget, root=root)
+        following = offset + len(page)
+        summary[key] = page
+        summary[next_key] = _CURSORS.encode(following, filters=filters) if following < len(rows) else None
+        summary[f"{key}_rows_total"] = counts[key] = len(rows)
+    return {**summary, "rows_total": sum(counts.values())}
 
 
 @tool(tier="edit", description="Refresh one configured data source and optionally rescore; the dry run is side-effect-free.", read_only_hint=False, open_world_hint=True, preview=_preview_refresh)

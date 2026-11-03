@@ -20,11 +20,10 @@ from typing import Any, Mapping, get_type_hints
 from urllib.parse import urlsplit
 
 from etf_cockpit.core.paths import CODE_CONFIG_DIR, CONFIG_DIR, ROOT
-from etf_cockpit.mcp.envelope import Envelope
 from etf_cockpit.mcp.errors import AuthorizationError, MCPServerUnavailable, MCPToolError
 from etf_cockpit.mcp.registry import CallContext, ToolSpec, invoke_tool, list_tools
-from etf_cockpit.mcp.serialise import build_envelope, envelope_dict
-from etf_cockpit.mcp.server import SERVER_INSTRUCTIONS, SERVER_NAME
+from etf_cockpit.mcp.serialise import build_envelope as build_envelope, response_char_limit
+from etf_cockpit.mcp.server import SERVER_INSTRUCTIONS, SERVER_NAME, _protocol_result
 from etf_cockpit.mcp.tiers import normalise_profile
 from etf_cockpit.mcp.worker import start_server_worker
 
@@ -186,11 +185,13 @@ def _tool_handler(spec: ToolSpec, *, template: CallContext, grants: Mapping[str,
             )
         except MCPToolError as exc:
             raise tool_error(f"{exc.reason_code}: {exc.message}. {exc.next_step}") from None
-        envelope = result if isinstance(result, Envelope) else build_envelope(result)
-        return envelope_dict(envelope)
+        return _protocol_result(result)
 
     signature = inspect.signature(spec.function)
-    type_hints = get_type_hints(spec.function)
+    try:
+        type_hints = get_type_hints(spec.function, include_extras=True)
+    except Exception as exc:
+        raise MCPServerUnavailable(f"Could not resolve annotations for MCP tool {spec.name!r}") from exc
     parameters = [
         parameter.replace(annotation=type_hints.get(name, parameter.annotation))
         for name, parameter in signature.parameters.items()
@@ -212,6 +213,7 @@ def create_http_server(
 ):
     """Build an OAuth-protected Streamable HTTP server without starting it."""
 
+    response_char_limit()
     selected_config = dict(config) if config is not None else load_mcp_config(config_path)
     remote = _remote_config(selected_config)
     grants = scope_tier_map(selected_config)

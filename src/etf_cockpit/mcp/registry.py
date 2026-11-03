@@ -4,8 +4,9 @@ Open defaults: tools without an explicit profile are visible only in full; calls
 read-only access unless the server launch configuration grants additional tiers. Call context
 defaults are the core profile, read tier, local client id, and an empty store revision.
 Rate limits are rolling windows shared across clients and processes under the data root: 20 paper
-order placements/day, 10 ticket exports/day, and 4 data refreshes/hour. Admitted attempts
-count even if confirmation or the handler fails; rate refusals do not consume tokens.
+order placements/day, 10 ticket exports/day, and 4 data refreshes/hour. Tokenless previews
+do not reserve write quota. Admitted commit attempts count even if confirmation or the
+handler fails; rate refusals do not consume tokens.
 Counters persist in logs/mcp_rate_limits.sqlite3; unavailable quota storage refuses the call.
 Write handlers provide a side-effect-free ``preview`` callback: a call without a token returns
 that preview and a 15-minute, client/revision-bound token; a call with the token commits once.
@@ -314,6 +315,13 @@ def invoke_tool(name: str, arguments: Mapping[str, Any], *, context: CallContext
     output_hash: str | None = None
     result: Any = None
     reason_code: str | None = None
+
+    def finish(value: Any) -> Any:
+        from etf_cockpit.core.paths import ROOT
+        from etf_cockpit.mcp.serialise import enforce_response_budget
+
+        return enforce_response_budget(value, root=Path(getattr(active.session, "root", None) or ROOT))
+
     try:
         spec = find_tool(name)
         if spec.tier not in active.enabled_tiers or not profile_allows(spec.name, active.profile, spec.profiles):
@@ -340,8 +348,10 @@ def invoke_tool(name: str, arguments: Mapping[str, Any], *, context: CallContext
             signature.bind(**validation_args)
         except TypeError as exc:
             raise InvalidArgumentsError(str(exc)) from None
-        active.rate_limiter.acquire(spec.name)
         write_dispatch = spec.tier in WRITE_TIERS and not bool(spec.annotations.get("readOnlyHint"))
+        # A tokenless write is a side-effect-free preview, not a quota reservation.
+        if not ((write_dispatch or spec.requires_confirmation) and safe_args.get("confirm_token") is None):
+            active.rate_limiter.acquire(spec.name)
         if write_dispatch or spec.requires_confirmation:
             token = safe_args.get("confirm_token")
             excluded = {"confirm_token", "store_revision"}
@@ -357,7 +367,7 @@ def invoke_tool(name: str, arguments: Mapping[str, Any], *, context: CallContext
                         raise ConfirmationError("This write tool has no safe dry-run preview")
                     with use_call_context(active):
                         preview_result = spec.preview_function(**payload)
-                    result = {"preview": preview_result, "confirm_token": preview_result.get("confirm_token")}
+                    result = finish({"preview": preview_result, "confirm_token": preview_result.get("confirm_token")})
                     output_hash = hash_arguments(result)
                     outcome = "ok"
                     return result
@@ -375,7 +385,7 @@ def invoke_tool(name: str, arguments: Mapping[str, Any], *, context: CallContext
                         if key not in {"confirm_token", "confirmation_arguments"}
                     }
                 issued = issue_confirmation_token(payload, context=active)
-                result = {"preview": preview_result, "confirm_token": issued}
+                result = finish({"preview": preview_result, "confirm_token": issued})
                 output_hash = hash_arguments(result)
                 outcome = "ok"
                 return result
@@ -388,6 +398,7 @@ def invoke_tool(name: str, arguments: Mapping[str, Any], *, context: CallContext
                 raise ConfirmationError()
         with use_call_context(active):
             result = spec.function(**handler_args)
+        result = finish(result)
         output_hash = hash_arguments(result)
         outcome = "ok"
         return result

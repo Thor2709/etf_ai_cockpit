@@ -12,9 +12,10 @@ import hmac
 import json
 import secrets
 import time
+from pathlib import Path
 from typing import Any
 
-from etf_cockpit.mcp.errors import InvalidCursorError
+from etf_cockpit.mcp.errors import InvalidCursorError, MCPToolError
 
 
 DEFAULT_PAGE_SIZE = 25
@@ -26,6 +27,38 @@ def validate_page_size(value: int, *, maximum: int = MAX_PAGE_SIZE) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value < 1 or value > maximum:
         raise ValueError(f"page size must be between 1 and {maximum}")
     return value
+
+
+def page_rows(rows: Any, *, offset: int, limit: int, max_chars: int, root: Path) -> list[Any]:
+    """Fit whole rows into a JSON budget; link any individually oversized row.
+
+    Callers advance their cursor by the actual number returned, not the requested
+    limit. Leave room for summaries, cursors and the protocol envelope separately.
+    """
+    from etf_cockpit.mcp.serialise import normalise, to_json
+
+    page: list[Any] = []
+    used = 2
+    for row in rows[offset : offset + limit]:
+        safe = normalise(row)
+        encoded = to_json(safe)
+        if used + len(encoded) + 1 > max_chars:
+            if page:
+                break
+            relative = Path("exports") / "mcp" / f"row-{hashlib.sha256(encoded.encode('utf-8')).hexdigest()}.json"
+            destination = (root / relative).resolve()
+            if not destination.is_relative_to(root.resolve()):
+                raise MCPToolError("EXPORT_PATH_INVALID", "The overflow export is outside the data root", "Repair the local export directory.")
+            try:
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                destination.write_text(encoded, encoding="utf-8")
+            except OSError:
+                raise MCPToolError("EXPORT_UNAVAILABLE", "The oversized row could not be exported", "Restore write access to the local export directory.") from None
+            safe = {"type": "resource_link", "uri": f"cockpit://exports/{relative.as_posix()}", "name": destination.name, "mimeType": "application/json"}
+            encoded = to_json(safe)
+        page.append(safe)
+        used += len(encoded) + 1
+    return page
 
 
 class CursorCodec:

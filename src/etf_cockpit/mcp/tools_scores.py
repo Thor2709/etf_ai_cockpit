@@ -1,8 +1,10 @@
 """MCP score and analysis tools.
 
 Open defaults: ranked and research lists use 25 rows per page, score history
-uses one year and at most 500 points, detail defaults to overview and score,
-comparisons use one year, and selection uses the app's configured medium risk
+uses the latest stored session's "1Y" (365 days) window and at most 500 points;
+"all" retains every stored session through the central overflow resource.
+Detail defaults to overview and score, comparisons use "1Y" and the most recent
+252 aligned series points (max_points=None retains all through overflow), and selection uses the app's configured medium risk
 profile without persisting a run. Candidate analysis defaults to five years and
 uses only requested identifiers found in the local candidate input and verified
 stored prices. Network candidate refresh requires allow_network=True. Other job
@@ -28,7 +30,7 @@ from typing import Any, Mapping, Sequence
 
 from etf_cockpit.core.paths import ROOT
 from etf_cockpit.mcp.errors import InvalidArgumentsError, MCPToolError
-from etf_cockpit.mcp.paging import CursorCodec, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, validate_page_size
+from etf_cockpit.mcp.paging import CursorCodec, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, page_rows, validate_page_size
 from etf_cockpit.mcp.registry import current_call_context, tool
 
 
@@ -130,7 +132,7 @@ def scores_ranked(
         score_coverage,
         score_gate_failed,
     )
-    from etf_cockpit.application.scoreboard_publication import score_rank_authority, scoreboard_status
+    from etf_cockpit.application.scoreboard_publication import score_rank_authority
 
     try:
         page_size = validate_page_size(top_n, maximum=MAX_PAGE_SIZE)
@@ -156,7 +158,7 @@ def scores_ranked(
     page = selected[offset : offset + page_size + 1]
     has_more = len(page) > page_size
     page = page[:page_size]
-    status = scoreboard_status(root=Path(session.root))
+    status = _published_scoreboard_record(Path(session.root))
     scoreboard_age_seconds = None
     if status.get("status") == "available":
         try:
@@ -187,7 +189,52 @@ def scores_ranked(
             "scoreboard_age_seconds": scoreboard_age_seconds,
         })
     next_cursor = _CURSORS.encode(offset + page_size, filters=filters) if has_more else None
-    return {"rows": rows, "next_cursor": next_cursor, "scoreboard_status": status.get("status", "unavailable"), "execution_allowed": False}
+    return {"rows": rows, "next_cursor": next_cursor, "scoreboard_status": status.get("status", "unavailable"), "publication": status, "execution_allowed": False}
+
+
+def _published_scoreboard_record(root: Path) -> dict[str, Any]:
+    """One publication record for ranked scores and the look-through cutoff.
+
+    Prefer an explicit knowledge time on the published record; legacy published
+    files may carry it in their rows. Exact-byte transactional bindings remain
+    supported. File modification and in-memory snapshot times are never evidence.
+    """
+    from etf_cockpit.application import scoreboard_publication
+
+    record = dict(scoreboard_publication.scoreboard_status(root=root))
+    if record.get("known_at") is not None:
+        return record
+    path = root / "data" / "derived" / "scoreboard.parquet"
+    try:
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        with scoreboard_publication.TransactionalStore(root, read_only=True) as store:
+            bindings = store.list(scoreboard_publication.SCOREBOARD_PUBLICATION_BINDING_ENTITY_TYPE)
+        times = []
+        for stored in bindings:
+            binding = stored.payload
+            if binding.get("scoreboard_sha256") != digest:
+                continue
+            if binding.get("schema_version") != "scoreboard_publication_binding.v1" or binding.get("execution_allowed") is not False:
+                continue
+            known = datetime.fromisoformat(str(binding.get("known_at")).replace("Z", "+00:00"))
+            completed = datetime.fromisoformat(str(binding.get("score_completed_at")).replace("Z", "+00:00"))
+            if known.tzinfo is not None and completed.tzinfo is not None and known >= completed:
+                times.append(known)
+        if times:
+            record["known_at"] = max(times).isoformat()
+            return record
+    except Exception:
+        pass
+    if record.get("status") == "available":
+        try:
+            frame = scoreboard_publication.load_simple_scoreboard(path, root=root)
+            if "known_at" in frame and not frame.empty:
+                times = [datetime.fromisoformat(str(value).replace("Z", "+00:00")) for value in frame["known_at"]]
+                if all(value.tzinfo is not None for value in times):
+                    record["known_at"] = max(times).isoformat()
+        except Exception:
+            pass
+    return record
 
 
 @tool(tier="read", description="Explain one canonical score and its critical evidence gates.", read_only_hint=True, idempotent_hint=True)
@@ -199,12 +246,13 @@ def score_explain(instrument_id: str) -> dict[str, Any]:
 
 
 @tool(tier="read", description="Read stored score history for one instrument over the requested range.", read_only_hint=True, idempotent_hint=True, profiles=("full",))
-def score_history(instrument_id: str, range: str = "1y") -> dict[str, Any]:
+def score_history(instrument_id: str, range: str = "1Y") -> dict[str, Any]:
     from etf_cockpit.application.score_explain import load_score_history
 
     session, _snapshot_value = _snapshot()
     try:
-        return load_score_history(instrument_id.strip(), range_key=range, root=Path(session.root))
+        options = {"limit": 2**63 - 1} if range == "all" else {}
+        return load_score_history(instrument_id.strip(), range_key=range, root=Path(session.root), **options)
     except ValueError as exc:
         raise InvalidArgumentsError(str(exc)) from None
 
@@ -236,20 +284,23 @@ def screen_run(
         requested_fields=tuple(fields or ()),
     )
     offset = _CURSORS.decode(cursor, filters={"query": result.query_checksum}) if cursor else 0
-    selected = result.rows[offset : offset + page_size + 1]
-    has_more = len(selected) > page_size
-    page = list(selected[:page_size])
-    return {
-        "rows": page,
+    summary = {
         "total_input": result.total_input,
         "total_matched": result.total_matched,
+        "rows_total": len(result.rows),
         "available_fields": list(result.available_fields),
         "unavailable_fields": list(result.unavailable_fields),
         "warnings": list(result.warnings),
         "query_checksum": result.query_checksum,
-        "next_cursor": _CURSORS.encode(offset + page_size, filters={"query": result.query_checksum}) if has_more else None,
         "execution_allowed": False,
     }
+    from etf_cockpit.mcp.serialise import to_json
+
+    page = page_rows(result.rows, offset=offset, limit=page_size,
+                     max_chars=30_000 - len(to_json(summary)), root=Path(session.root))
+    following = offset + len(page)
+    return {**summary, "rows": page,
+            "next_cursor": _CURSORS.encode(following, filters={"query": result.query_checksum}) if following < len(result.rows) else None}
 
 
 def _project_detail_value(value: Any) -> Any:
@@ -304,14 +355,25 @@ def instrument_detail(instrument_id: str, sections: Sequence[str] | None = None)
 
 
 @tool(tier="read", description="Compare 2 to 5 instruments using canonical scores and stored comparison evidence.", read_only_hint=True, idempotent_hint=True)
-def compare_instruments(ids: Sequence[str], range: str = "1y") -> dict[str, Any]:
+def compare_instruments(ids: Sequence[str], range: str = "1Y", max_points: int | None = 252) -> dict[str, Any]:
     from etf_cockpit.application.score_explain import compare_instruments as compare_service
+    from etf_cockpit.mcp.serialise import normalise
 
+    if max_points is not None and (isinstance(max_points, bool) or not isinstance(max_points, int) or max_points < 1):
+        raise InvalidArgumentsError("max_points must be a positive integer or null")
     session, snapshot = _snapshot()
     try:
-        return compare_service(snapshot, ids, range_key=range, root=Path(session.root))
+        result = normalise(compare_service(snapshot, ids, range_key=range, root=Path(session.root)))
     except ValueError as exc:
         raise InvalidArgumentsError(str(exc)) from None
+    for collection in ("price_return_comparison", "drawdown_comparison"):
+        for series in result.get(collection, {}).values():
+            total = len(series.get("x", []))
+            if max_points is not None and total > max_points:
+                for key in ("x", "a", "b"):
+                    series[key] = series[key][-max_points:]
+                series.update(rows_total=total, truncated=True)
+    return result
 
 
 @tool(tier="read", description="Show canonical attractiveness and evidence coverage by configured sector.", read_only_hint=True, idempotent_hint=True, profiles=("full",))
