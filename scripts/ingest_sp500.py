@@ -55,6 +55,8 @@ from etf_cockpit.data.universe_membership import import_licensed_history
 
 
 ROOT = Path(__file__).resolve().parents[1]
+COVERAGE_COLUMNS = ["scope", "source_ticker", "instrument_id", "valid_from", "valid_to", "member_known_at",
+                    "identity_known_at", "binding_status", "reason"]
 
 
 def _json(payload: bytes) -> dict:
@@ -165,8 +167,11 @@ def _period_rows(payload: dict, selected: list[dict], config: dict, stamp: str, 
             raw["start"] = fact["start"]
         units.setdefault(fact["unit"], []).append(raw)
     rows = parse_edgar_companyfacts(visible, config, source_ref=reference, preselected_vintage=True)
+    updated_ends = {fact["end"] for fact in periods.values() if fact["known_at"] == stamp}
+    rows = [row for row in rows if row["period_end"] in updated_ends]
     for row in rows:
-        row.update(known_at=stamp, available_at=stamp)
+        accessions = sorted({f["accn"] for f in periods.values() if f["end"] == row["period_end"]})
+        row.update(known_at=stamp, available_at=stamp, source_ref=reference + ":" + ",".join(accessions))
     shares = {}
     for fact in selected:
         if fact["tag"] != "dei:EntityCommonStockSharesOutstanding":
@@ -238,12 +243,13 @@ def _issuer(task: dict) -> dict:
                 instrument_id = target["instrument_id"]
                 known = target["known_at"]
                 by_id[instrument_id] = min(by_id.get(instrument_id, known), known)
-            if len(by_id) > 1:
+            if len(by_id) > 1 and not task.get("share_class_evidence"):
                 raise ValueError("multiple listing identities for one CIK require share-class evidence")
             pending = []
             pending_error = None
             for instrument_id, known in sorted(by_id.items()):
-                visible_rows = [{**row, "known_at": max(row["known_at"], known)} for row in rows]
+                visible_rows = [{**row, "known_at": max(row["known_at"], known),
+                                 "available_at": max(row["available_at"], known)} for row in rows]
                 # Identity can become known after several financial vintages:
                 # only the last visible vintage per period is then publishable.
                 collapsed = {}
@@ -251,7 +257,7 @@ def _issuer(task: dict) -> dict:
                     collapsed[(row["period_end"], row["period_type"], row["source"], row["known_at"])] = row
                 existing = pd.DataFrame(task["existing_facts"].get(instrument_id, []), columns=PERIOD_COLUMNS)
                 try:
-                    pending.extend(_pending_facts(existing, instrument_id, list(collapsed.values())))
+                    pending.extend(_pending_facts(existing, instrument_id, list(collapsed.values()), preserve_vintages=True))
                 except Exception as exc:
                     pending_error = f"{type(exc).__name__}: {exc}"
                     break
@@ -292,7 +298,7 @@ def _read_existing_facts(path: Path) -> pd.DataFrame:
     return frame
 
 
-def _pending_facts(frame: pd.DataFrame, instrument_id: str, rows: list[dict]) -> list[dict]:
+def _pending_facts(frame: pd.DataFrame, instrument_id: str, rows: list[dict], *, preserve_vintages: bool = False) -> list[dict]:
     mine = frame[frame["instrument_id"].astype(str) == instrument_id]
     existing = {_fingerprint(row) for row in mine.to_dict("records")}
     identities = {}
@@ -314,6 +320,18 @@ def _pending_facts(frame: pd.DataFrame, instrument_id: str, rows: list[dict]) ->
         existing.add(_fingerprint({**raw, "instrument_id": instrument_id}))
 
     ordered = sorted(rows, key=lambda item: (item["known_at"], item["period_end"], item["period_type"], item["source"]))
+    if preserve_vintages:
+        # Distinct filing knowledge is evidence even when the reported value is
+        # unchanged. Digest checks retain idempotence and same-time immutability.
+        additions = []
+        for row in ordered:
+            if not should_skip(row):
+                record = {column: row.get(column) for column in PERIOD_COLUMNS}
+                record["instrument_id"] = instrument_id
+                additions.append(record)
+                mark_appended(row)
+                identities.setdefault(identity(row), set()).add(_fingerprint(record))
+        return additions
     # Replaying a vintage suppressed as unchanged remains suppressed even after
     # later restatements: the batch helper advances the same visible prefix.
     return append_period_rows_batch(mine, instrument_id, ordered, should_skip=should_skip, on_append=mark_appended)
@@ -354,6 +372,30 @@ def _append_membership(root: Path, rows: list[dict], config: dict) -> None:
             raise ValueError("changed/backdated membership knowledge")
         import_licensed_history([row], source=config["source"], licence_ref=config["licence_ref"], root=root)
         existing.setdefault((row["instrument_id"], row["valid_from"]), []).append(expected)
+
+
+def _publish_coverage(root: Path, rows: list[dict], *, scope: str, cutoff: str) -> dict:
+    """Atomic scope replacement; retain every other scope and no revision duplicates.
+
+    Calendar member-days are half-open and clipped at as_of's UTC date. This is
+    an identity coverage census, independent of whether issuer facts ingest.
+    Callers serialize ingestion just as they serialize the membership ledger.
+    """
+    path = root / "data" / "derived" / "universe_membership" / "index_coverage.parquet"
+    incoming = pd.DataFrame(rows, columns=COVERAGE_COLUMNS)
+    old = pd.read_parquet(path) if path.exists() else pd.DataFrame(columns=COVERAGE_COLUMNS)
+    if list(old.columns) != COVERAGE_COLUMNS:
+        raise ValueError("existing index coverage schema mismatch")
+    combined = pd.concat([old.loc[old.scope != scope], incoming], ignore_index=True)
+    _write(path, combined[COVERAGE_COLUMNS])
+    by_reason = {}
+    for row in rows:
+        reason = row["reason"] or "bound"
+        bucket = by_reason.setdefault(reason, {"intervals": 0, "member_days": 0})
+        end = min(row["valid_to"] or cutoff[:10], cutoff[:10])
+        bucket["intervals"] += 1
+        bucket["member_days"] += max(0, (pd.Timestamp(end) - pd.Timestamp(row["valid_from"])).days)
+    return {"intervals": len(rows), "by_reason": dict(sorted(by_reason.items())), "member_days_end_exclusive": cutoff[:10]}
 
 
 def ingest(config: dict, *, root: Path, workers: int | None = None) -> dict:
@@ -423,22 +465,49 @@ def ingest(config: dict, *, root: Path, workers: int | None = None) -> dict:
     final = {}
     for row in right:
         final[(row["ticker"], row["valid_from"])] = row
-    issuers, instrument_ciks = {}, {}
+    issuers, instrument_ciks, coverage = {}, {}, []
+    cover_mode = config.get("identity_policy") == "sec_cover_v1"
     for key, interval in sorted(final.items()):
-        mapping = map_cik(interval["ticker"], interval["valid_from"], interval["valid_to"], company_tickers=tickers,
-                          submissions=identities, observed_at=config["identity_observed_at"], security_name=interval.get("name"),
-                          bindings=config["cik_bindings"])
-        bindings = [item for item in config["instrument_bindings"] if item["ticker"] == interval["ticker"]
-                    and item["valid_from"] <= interval["valid_from"] and (item.get("valid_to") is None or
-                    (interval["valid_to"] is not None and interval["valid_to"] <= item["valid_to"]))]
+        census = {"scope": config["scope"], "source_ticker": interval["ticker"], "instrument_id": None,
+                  "valid_from": interval["valid_from"], "valid_to": interval["valid_to"],
+                  "member_known_at": knowledge(interval["known_at"]), "identity_known_at": None,
+                  "binding_status": "unbound", "reason": None}
+        coverage.append(census)
+        try:
+            mapping = map_cik(interval["ticker"], interval["valid_from"], interval["valid_to"],
+                              company_tickers={} if cover_mode else tickers,
+                              submissions=[] if cover_mode else identities, observed_at=config["identity_observed_at"],
+                              security_name=None if cover_mode else interval.get("name"), bindings=config["cik_bindings"])
+            bindings = [item for item in config["instrument_bindings"] if item["ticker"] == interval["ticker"]
+                        and day(item["valid_from"]) <= interval["valid_from"] and (item.get("valid_to") is None or
+                        (interval["valid_to"] is not None and interval["valid_to"] <= day(item["valid_to"])))]
+            for item in bindings:
+                if not item.get("source") or not item.get("instrument_id"):
+                    raise ValueError("instrument binding requires approved ID and source")
+                knowledge(item["known_at"])
+        except (KeyError, TypeError, ValueError):
+            if not cover_mode:
+                raise
+            census["reason"] = "invalid_identity_evidence"
+            report["unmapped"].append({**interval, "status": "unmapped", "reason": census["reason"]})
+            continue
         if mapping["status"] != "mapped" or len(bindings) != 1:
-            report["unmapped"].append({**mapping, "reason": mapping.get("reason", "missing_or_ambiguous_instrument_binding")})
+            reasons = [r["reason"] for r in config.get("identity_unbound", [])
+                       if (r["ticker"], r["valid_from"]) == key]
+            census["reason"] = reasons[0] if cover_mode and reasons else mapping.get("reason", "missing_or_ambiguous_instrument_binding")
+            report["unmapped"].append({**mapping, "reason": census["reason"]})
             continue
         binding = bindings[0]
         if not binding.get("source") or not binding.get("instrument_id"):
             raise ValueError("instrument binding requires approved ID and source")
         identity_known = max(mapping["known_at"], knowledge(binding["known_at"]))
+        census["identity_known_at"] = identity_known
+        if cover_mode and identity_known > interval["valid_from"] + "T00:00:00+00:00":
+            census["reason"] = "cover_evidence_after_window_start"
+            report["unmapped"].append({**mapping, "reason": census["reason"]})
+            continue
         if identity_known > cutoff:
+            census["reason"] = "identity_not_known_at_cutoff"
             report["unmapped"].append({**mapping, "reason": "identity_not_known_at_cutoff"})
             continue
         cik = mapping["cik"]
@@ -446,8 +515,10 @@ def ingest(config: dict, *, root: Path, workers: int | None = None) -> dict:
         if assigned != cik:
             raise ValueError("one canonical instrument ID resolves to conflicting CIKs")
         if cik not in members:
+            census["reason"] = "submissions_missing"
             report["unmapped"].append({**mapping, "reason": "submissions_missing"})
             continue
+        census.update(instrument_id=binding["instrument_id"], binding_status="bound")
         issuer = issuers.setdefault(cik, {"bindings": [], "memberships": []})
         issuer["bindings"].append((binding["instrument_id"], identity_known))
         revisions = {}
@@ -488,6 +559,7 @@ def ingest(config: dict, *, root: Path, workers: int | None = None) -> dict:
                 for instrument_id, known in sorted(bindings.items())
             ],
             "existing_facts": existing_rows,
+            "share_class_evidence": cover_mode,
         })
     if workers == 1:
         results = list(map(_issuer, tasks))
@@ -503,7 +575,7 @@ def ingest(config: dict, *, root: Path, workers: int | None = None) -> dict:
         status = {key: value for key, value in result.items() if key not in {"rows", "pending_facts", "pending_error"}}
         if result["status"] == "ready":
             try:
-                if len({instrument_id for instrument_id, _known in issuers[cik]["bindings"]}) > 1:
+                if not cover_mode and len({instrument_id for instrument_id, _known in issuers[cik]["bindings"]}) > 1:
                     raise ValueError("multiple listing identities for one CIK require share-class evidence")
                 _append_membership(root, issuers[cik]["memberships"], config)
                 if facts_error is not None:
@@ -528,6 +600,7 @@ def ingest(config: dict, *, root: Path, workers: int | None = None) -> dict:
             reason = f"{type(exc).__name__}: {exc}"
             for status in pending_statuses:
                 status.update(status="failed", reason=reason)
+    report["coverage"] = _publish_coverage(root, coverage, scope=config["scope"], cutoff=cutoff)
     report["status"] = "complete" if report["issuers"] and not report["unmapped"] and all(
         item["status"] == "ingested" for item in report["issuers"]) else "partial"
     return report

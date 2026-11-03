@@ -351,3 +351,113 @@ def test_generated_config_ingests_fixture_end_to_end(monkeypatch, tmp_path):
     # Source timing does not backdate identities observed at acquisition time.
     assert set(frame.known_at) == {"2026-11-02T00:00:00.000000Z"}
     assert (tmp_path / "data/clean/stock_fundamentals.parquet").is_file()
+
+
+def test_parallel_cover_acquisition_equals_serial_and_preserves_existing_config(monkeypatch, tmp_path):
+    from etf_cockpit.data import universe_store
+
+    fixtures = Path(__file__).parent / "fixtures"
+    records = [record("synthetic-a", "ZZA", "US5949181045"), record("synthetic-b", "ZZB", "US0378331005"),
+               record("synthetic-c", "ZZC", "US0231351067")]
+    monkeypatch.setattr(universe_store, "load_universe", lambda _: SimpleNamespace(
+        integrity_errors=[], records=records, revision=1))
+    monkeypatch.setattr(acq, "now", lambda: "2021-06-01T12:00:00+00:00")
+    calls = []
+
+    def get(url, host):
+        assert host == "sec"
+        calls.append(url)
+        if "search-index" in url:
+            return 200, json.dumps({"hits": {"hits": [{"_id": "9000000002", "_source": {
+                "entity": "Synthetic Former Issuer"}}]}}).encode()
+        if "/submissions/" in url:
+            cik = url.split("CIK")[-1].removesuffix(".json")
+            return 200, json.dumps({"cik": cik, "name": "Synthetic fixture issuer", "tickers": [], "formerNames": [],
+                                   "filings": {"files": [], "recent": {
+                "accessionNumber": [f"{cik}-19-000001"], "form": ["10-K"],
+                "filingDate": ["2019-12-20"], "acceptanceDateTime": ["2019-12-20T14:30:00Z"]}}}).encode()
+        return 200, (fixtures / "sec_cover" / url.rsplit("/", 1)[-1]).read_bytes()
+
+    monkeypatch.setattr(acq, "http_get", get)
+    outcomes = []
+    for lane, workers in (("serial", 1), ("parallel", 2)):
+        layout = acq.Layout(tmp_path / lane)
+        company = layout.sources / "company_tickers.json"
+        company.write_bytes((fixtures / "univ1_sp500/company_tickers.json").read_bytes())
+        config = yaml.safe_load((acq.ROOT / "configs/sp500_universe_v1.yaml").read_text())
+        config.update({"execution_allowed": False, "company_tickers": str(company),
+                  "history_csv": str(fixtures / "univ1_sp500/history.csv"),
+                  "wikipedia_html": str(fixtures / "univ1_sp500/changes.html"),
+                  "csv_shape": {"date_column": "date", "tickers_column": "tickers"},
+                  "wikipedia_table_id": "synthetic-changes", "cross_validation": "report",
+                  "baseline_known_at": "2019-12-31", "baseline_names": {},
+                  "announcement_policy": "effective_date_conservative", "announcements": [],
+                  "baseline_source": "synthetic fixture", "licence_ref": "synthetic fixture",
+                  "identity_observed_at": "2026-11-03", "companyfacts": str(layout.facts), "submissions": str(layout.subs)})
+        for cik in ("9000000001", "9000000002"):
+            (layout.facts / f"CIK{cik}.json").write_bytes((fixtures / f"univ1_sp500/CIK{cik}.json").read_bytes())
+        original = yaml.safe_dump(config).encode()
+        (layout.raw / "run_config.yaml").write_bytes(original)
+        resolved = {"members": {"ZZA": {"current": True}, "ZZB": {"current": False, "name": "Synthetic Former Issuer"},
+                                "ZZC": {"current": True}},
+                    "ciks": {"ZZA": {"cik": "9000000001"}, "ZZB": {"cik": "9000000002", "candidate_only": True}}}
+        (layout.raw / "resolve.json").write_text(json.dumps(resolved))
+        result = acq.step_cover(layout, workers)
+        assert (layout.raw / "run_config.yaml").read_bytes() == original
+        generated = Path(result["config"])
+        assert generated.name.startswith("run_config_cover_v1_")
+        assert acq.sha256(generated.read_bytes()) in generated.name
+        dated = yaml.safe_load(generated.read_text())
+        assert dated["identity_policy"] == "sec_cover_v1" and dated["execution_allowed"] is False
+        assert {r["ticker"] for r in dated["instrument_bindings"]} == {"ZZA", "ZZB", "ZZC"}
+        assert all(r["known_at"] == "2019-12-20T19:30:00+00:00" for r in dated["cik_bindings"])
+        for meta in (layout.meta / "covers").rglob("*.meta.json"):
+            item = json.loads(meta.read_text())
+            assert item["url"].startswith("https://www.sec.gov/Archives/")
+            assert item["sha256"] == acq.sha256(Path(item["path"]).read_bytes())
+        assert len(list((layout.raw / "sec/covers").rglob("*.txt"))) == 2
+        before = len(calls)
+        assert acq.step_cover(layout, workers) == result
+        assert len(calls) == before  # All raw responses resume from verified caches.
+        report = ingest_sp500.ingest(dated, root=layout.root, workers=1)
+        assert report["status"] == "complete", report
+        assert report["coverage"]["intervals"] == 3
+        facts = acq.pd.read_parquet(layout.root / "data/clean/stock_fundamentals.parquet")
+        assert facts.known_at.str.startswith(("2020", "2021")).all()
+        assert {"synthetic-a", "synthetic-b", "synthetic-c"} == set(facts.instrument_id)
+        outcomes.append({k: dated[k] for k in ("cik_bindings", "instrument_bindings", "identity_unbound", "cover_evidence")})
+    assert outcomes[0] == outcomes[1]
+    # An unavailable competing current claimant must not let the older CIK win.
+    company.write_text(json.dumps({"0": {"ticker": "ZZA", "cik_str": "9000000002", "title": "Synthetic claimant"}}))
+    original_fetch = acq.fetch_cover_issuer
+    monkeypatch.setattr(acq, "fetch_cover_issuer", lambda task: {
+        "cik": task[0], "status": "failed", "evidence": [], "errors": [{"reason": "synthetic failure"}]
+    } if task[0] == "9000000002" else original_fetch(task))
+    failure = acq.step_cover(layout, workers=2)
+    rejected = yaml.safe_load(Path(failure["config"]).read_text())
+    assert failure["failed"] == ["9000000002"]
+    assert not rejected["instrument_bindings"]
+    assert {r["reason"] for r in rejected["identity_unbound"]} == {"incomplete_cover_scan", "no_cover_identity_for_window"}
+
+
+def test_cover_scan_missing_acceptance_uses_filing_header(monkeypatch, tmp_path):
+    layout = acq.Layout(tmp_path)
+    cik = "9000000001"
+    fixture = Path(__file__).parent / "fixtures/sec_cover/9000000001-19-000001.txt"
+
+    def get(url, host):
+        if "submissions" in url:
+            return 200, json.dumps({"cik": cik, "filings": {"files": [], "recent": {
+                "accessionNumber": [f"{cik}-19-000001"], "form": ["10-K"]}}}).encode()
+        return 200, fixture.read_bytes()
+
+    monkeypatch.setattr(acq, "http_get", get)
+    result = acq.fetch_cover_issuer((cik, layout))
+    assert result["status"] == "ok" and result["evidence"][0]["known_at"] == "2019-12-20T19:30:00+00:00"
+
+
+def test_cover_http_requests_share_global_sec_limiter(monkeypatch, clock):
+    calls = respond_after_errors(monkeypatch, clock, [])
+    for _ in range(3):
+        acq.http_get("https://www.sec.gov/Archives/synthetic.txt", "sec")
+    assert calls == [0, 1 / 8, 2 / 8]

@@ -6,7 +6,8 @@ company_tickers, then SEC submissions + companyfacts for current AND former
 members, then Yahoo prices. Everything lands under
 ``<root>/data/raw/univ1_sp500``; ``scripts/ingest_sp500.py`` stays offline.
 
-Rules: known_at is the actual fetch time; SEC <= 7 req/s in total, other hosts
+Rules: observation known_at is the actual fetch time; opt-in cover identities
+use filing acceptance evidence. SEC <= 8 req/s in total, other hosts
 1 req/s; retries with backoff; every step resumes from on-disk files whose
 checksum matches their sidecar. Instrument IDs are NEVER minted: bindings come
 only from the verified universe store (US ISIN, verified, exact ticker) and
@@ -50,9 +51,12 @@ if str(ROOT / "src") not in sys.path:
 # Repository imports follow the standalone CLI's sys.path bootstrap.
 from etf_cockpit.core.atomic_io import atomic_write_bytes  # noqa: E402
 from etf_cockpit.data.sec_cik_history import cik_text  # noqa: E402
-from etf_cockpit.data.sp500_history import fja_events, parse_fja_csv, parse_wikipedia_changes  # noqa: E402
+from etf_cockpit.data.sec_cover_identity import FORMS, acceptance_utc, parse_cover, select_bindings  # noqa: E402
+from etf_cockpit.data.sp500_history import (  # noqa: E402
+    fja_events, intervals_from_fja, parse_fja_csv, parse_wikipedia_changes,
+)
 
-SEC_RATE, OTHER_RATE = 7.0, 1.0
+SEC_RATE, OTHER_RATE = 8.0, 1.0
 RETRY_INITIAL, RETRY_CAP, THROTTLE_PAUSE = 5.0, 60.0, 60.0
 FJA_REPO, FJA_FILE = "fja05680/sp500", "S&P 500 Historical Components & Changes (Updated).csv"
 WIKI_HISTORY = "https://en.wikipedia.org/wiki/Historical_components_of_the_S%26P_500"
@@ -392,8 +396,9 @@ def search_names(names: dict, layout: Layout, workers: int) -> dict:
     wanted = sorted({name for name in names.values() if name} - set(cache))
 
     def one(name: str):
-        status, payload = http_get(NAME_SEARCH.format(query=urllib.parse.quote(name)), "sec")
-        hits = json.loads(payload).get("hits", {}).get("hits", [])
+        target = layout.raw / "sec" / "name_search" / (sha256(name.encode()) + ".json")
+        fetch_recorded(NAME_SEARCH.format(query=urllib.parse.quote(name)), "sec", target, layout.meta / "name_search")
+        hits = json.loads(target.read_bytes()).get("hits", {}).get("hits", [])
         return name, [{"cik": hit["_id"], "entity": hit["_source"].get("entity", "")} for hit in hits]
 
     with ThreadPoolExecutor(max_workers=workers) as pool:
@@ -478,6 +483,123 @@ def step_sec(layout: Layout, workers: int) -> dict:
     atomic_write_bytes(layout.raw / "sec_status.json", json.dumps(summary, sort_keys=True, indent=1).encode(),
                        lambda p: json.loads(p.read_text()))
     return summary
+
+
+def fetch_cover_issuer(task: tuple[str, Layout]) -> dict:
+    """One issuer per worker; all HTTP calls use the process-wide SEC limiter.
+
+    Full submission text preserves the SEC header and primary cover document in
+    one immutable response. Missing acceptance in old submissions pages can be
+    recovered only from the actual filing header, never from its filing date.
+    """
+    cik, layout = task
+    evidence, errors = [], []
+    try:
+        name = f"CIK{cik}.json"
+        fetch_recorded(SUBMISSIONS.format(name=name), "sec", layout.subs / name, layout.subs_meta)
+        main = json.loads((layout.subs / name).read_bytes())
+        if cik_text(main["cik"]) != cik:
+            raise ValueError("submissions CIK mismatch")
+        pages = [main.get("filings", {}).get("recent", {})]
+        for entry in main.get("filings", {}).get("files", []):
+            page = entry["name"]
+            if Path(page).name != page or not re.fullmatch(r"CIK\d{10}-submissions-\d+\.json", page):
+                raise ValueError("unsafe submissions page")
+            fetch_recorded(SUBMISSIONS.format(name=page), "sec", layout.subs / page, layout.subs_meta)
+            pages.append(json.loads((layout.subs / page).read_bytes()))
+        filings = {}
+        for page in pages:
+            accessions, forms = page.get("accessionNumber", []), page.get("form", [])
+            if len(accessions) != len(forms):
+                raise ValueError("incomplete submissions filing index")
+            accepts = page.get("acceptanceDateTime", [None] * len(accessions))
+            if len(accepts) != len(accessions):
+                raise ValueError("incomplete submissions acceptance index")
+            for accession, form, accepted in zip(accessions, forms, accepts):
+                if form not in FORMS:
+                    continue
+                if not re.fullmatch(r"\d{10}-\d{2}-\d{6}", accession):
+                    raise ValueError("invalid accession")
+                item = (form, accepted or None)
+                if accession in filings and filings[accession] != item:
+                    raise ValueError("conflicting submissions filing index")
+                filings[accession] = item
+        for accession, (form, accepted) in sorted(filings.items()):
+            url = f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/{accession.replace('-', '')}/{accession}.txt"
+            target = layout.raw / "sec" / "covers" / cik / f"{accession}.txt"
+            try:
+                fetch_recorded(url, "sec", target, layout.meta / "covers" / cik)
+                evidence.append(parse_cover(target.read_bytes(), cik=cik, accession=accession,
+                                            form=form, acceptance=accepted, source=url))
+            except (ValueError, UnicodeError) as exc:
+                # A dated unreadable cover terminates continuity. Without a
+                # trustworthy acceptance, fail the whole issuer scan closed.
+                if str(exc) == "conflicting acceptanceDateTime":
+                    raise
+                stamp = acceptance_utc(accepted or "")
+                evidence.append({"cik": cik, "accession": accession, "known_at": stamp,
+                                 "tickers": [], "source": url})
+                errors.append({"accession": accession, "reason": str(exc)})
+        return {"cik": cik, "status": "ok", "evidence": evidence, "errors": errors}
+    except Exception as exc:
+        return {"cik": cik, "status": "failed", "evidence": evidence,
+                "errors": errors + [{"reason": f"{type(exc).__name__}: {exc}"}]}
+
+
+def step_cover(layout: Layout, workers: int) -> dict:
+    """Opt-in historical identities; preserve run_config.yaml byte-for-byte.
+
+    Scan every available cover of each candidate issuer, without a date limit.
+    Existing resolution residues and exact normalised former security names are
+    candidates only. They never supply binding knowledge or effective dates.
+    """
+    from etf_cockpit.data.universe_store import load_universe
+
+    config = yaml.safe_load((layout.raw / "run_config.yaml").read_text(encoding="utf-8"))
+    if config.get("execution_allowed") is not False:
+        raise ValueError("execution_allowed=false required")
+    resolved = json.loads((layout.raw / "resolve.json").read_text())
+    names = {t: info.get("name") for t, info in resolved["members"].items() if not info["current"]}
+    cache = search_names(names, layout, workers)
+    candidate_tickers = {t: set() for t in resolved["members"]}
+    for ticker, item in resolved["ciks"].items():
+        candidate_tickers.setdefault(ticker, set()).add(cik_text(item["cik"]))
+    for ticker, name in names.items():
+        if name and name_key(name):
+            candidate_tickers[ticker].update(cik_text(hit["cik"]) for hit in cache.get(name, [])
+                                             if name_key(hit["entity"]) == name_key(name))
+    # Include current SEC claimants for former tickers as recycling evidence.
+    tickers = json.loads(Path(config["company_tickers"]).read_bytes())
+    for ticker in candidate_tickers:
+        candidate_tickers[ticker].update(cik_text(r["cik_str"]) for r in tickers.values() if r["ticker"] == sec_ticker(ticker))
+    candidates = set().union(*candidate_tickers.values())
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        results = list(pool.map(fetch_cover_issuer, [(cik, layout) for cik in sorted(candidates)]))
+    evidence = [row for result in results for row in result["evidence"]]
+    snapshots = parse_fja_csv(Path(config["history_csv"]).read_text(encoding="utf-8"), **config["csv_shape"])
+    events = parse_wikipedia_changes(Path(config["wikipedia_html"]).read_text(encoding="utf-8"),
+                                     table_id=config["wikipedia_table_id"])
+    later = [e for e in events if e["date"] > max(snapshots[-1]["date"], config.get("history_start") or snapshots[0]["date"])]
+    intervals = intervals_from_fja(
+        snapshots, config["announcements"], baseline_known_at=config["baseline_known_at"],
+        baseline_names=config["baseline_names"], extra_events=later if config["cross_validation"] == "report" else [],
+        announcement_policy=config.get("announcement_policy", "required"), history_start=config.get("history_start"))
+    final = {(r["ticker"], r["valid_from"]): r for r in intervals}
+    store = load_universe(layout.root)
+    if store.integrity_errors:
+        raise ValueError("universe store has integrity errors")
+    failed = {r["cik"] for r in results if r["status"] == "failed"}
+    ciks, instruments, rejected = select_bindings(
+        evidence, list(final.values()), list(store.records), revision=str(store.revision),
+        failed_ciks=failed, incomplete_tickers={t for t, ids in candidate_tickers.items() if ids & failed})
+    config.update(cik_bindings=ciks, instrument_bindings=instruments, identity_policy="sec_cover_v1",
+                  identity_unbound=rejected, as_of=now(),
+                  cover_evidence={"version": 1, "issuers": results})
+    payload = yaml.safe_dump(config, sort_keys=False, width=200).encode()
+    destination = layout.raw / f"run_config_cover_v1_{sha256(payload)}.yaml"
+    atomic_write_bytes(destination, payload, lambda p: yaml.safe_load(p.read_text()))
+    return {"config": str(destination), "cik_bindings": len(ciks), "instrument_bindings": len(instruments),
+            "unbound_intervals": len(rejected), "failed": [r["cik"] for r in results if r["status"] == "failed"]}
 
 
 # ---------------------------------------------------------------- step: prices
@@ -679,12 +801,16 @@ def step_commit_prices(layout: Layout) -> dict:
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, required=True)
-    parser.add_argument("--step", required=True, choices=["sources", "resolve", "sec", "prices", "config",
+    parser.add_argument("--step", required=True, choices=["sources", "resolve", "sec", "cover-evidence", "prices", "config",
                                                           "ingest-block", "ingest", "commit-prices", "report"])
     parser.add_argument("--workers", type=int, default=8)
+    parser.add_argument("--sec-rate", type=float, default=SEC_RATE)
     args = parser.parse_args(argv)
     if args.workers < 1:
         parser.error("--workers must be positive")
+    if not 0 < args.sec_rate <= 8:
+        parser.error("--sec-rate must be positive and <=8")
+    LIMITERS["sec"] = Limiter(args.sec_rate)
     layout = Layout(args.root.resolve())
     if args.step == "sources":
         out = step_sources(layout)
@@ -692,6 +818,8 @@ def main(argv=None) -> int:
         out = step_resolve(layout, args.workers)
     elif args.step == "sec":
         out = step_sec(layout, args.workers)
+    elif args.step == "cover-evidence":
+        out = step_cover(layout, args.workers)
     elif args.step == "prices":
         out = step_prices(layout, args.workers)
     elif args.step == "config":
@@ -704,7 +832,7 @@ def main(argv=None) -> int:
         return step_ingest(layout, "run_config_block.yaml" if args.step == "ingest-block" else "run_config.yaml", args.workers)
     print(json.dumps({key: value for key, value in out.items() if key not in {"results", "members", "ciks", "flags", "files"}},
                      sort_keys=True, default=str)[:3000])
-    if args.step == "sec" and out["failed"]:
+    if args.step in {"sec", "cover-evidence"} and out["failed"]:
         return 1
     return 0
 

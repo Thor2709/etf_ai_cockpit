@@ -551,4 +551,104 @@ def test_cli_report_unmapped_and_missing_issuer_fail_closed(tmp_path):
     result = json.loads(report.read_text())
     assert result["execution_allowed"] is False
     assert result["unmapped"] and result["status"] == "partial"
-    assert not (tmp_path / "output" / "data").exists()
+    coverage = pd.read_parquet(tmp_path / "output/data/derived/universe_membership/index_coverage.parquet")
+    assert len(coverage) == 3 and set(coverage.binding_status) == {"unbound"}
+    assert not (tmp_path / "output/data/derived/universe_membership/membership.sqlite").exists()
+
+
+def test_cover_config_coverage_exact_columns_bound_and_unbound_scope_replacement(tmp_path):
+    config = ingest_config(tmp_path)
+    config["identity_policy"] = "sec_cover_v1"
+    config["cik_bindings"] = [r for r in config["cik_bindings"] if r["ticker"] != "ZZB"]
+    config["identity_unbound"] = [{"ticker": "ZZB", "valid_from": "2020-01-01", "reason": "no_cover_identity_for_window"}]
+    root = tmp_path / "output"
+    report = ingest(config, root=root, workers=1)
+    path = root / "data/derived/universe_membership/index_coverage.parquet"
+    frame = pd.read_parquet(path)
+    assert list(frame.columns) == ["scope", "source_ticker", "instrument_id", "valid_from", "valid_to", "member_known_at",
+                                   "identity_known_at", "binding_status", "reason"]
+    assert len(frame) == 3 and set(frame.binding_status) == {"bound", "unbound"}
+    missing = frame.loc[frame.source_ticker == "ZZB"].iloc[0]
+    assert pd.isna(missing.instrument_id) and missing.valid_to == "2020-07-01"
+    assert missing.reason == "no_cover_identity_for_window" and pd.isna(missing.identity_known_at)
+    assert report["coverage"]["by_reason"]["no_cover_identity_for_window"] == {"intervals": 1, "member_days": 182}
+    assert all("2022" not in r[4] for r in membership_rows(root))
+    other = {**config, "scope": "listing:synthetic:all"}
+    ingest(other, root=root, workers=1)
+    ingest(config, root=root, workers=1)
+    updated = pd.read_parquet(path)
+    assert len(updated) == 6 and set(updated.scope) == {config["scope"], other["scope"]}
+    pd.testing.assert_frame_equal(frame, updated.loc[updated.scope == config["scope"]].reset_index(drop=True))
+
+
+def test_closed_interval_and_reentry_keep_entry_exit_revisions(tmp_path):
+    config = ingest_config(tmp_path)
+    history = tmp_path / "reentry.csv"
+    history.write_text('date,tickers\n2020-01-01,"ZZA,ZZB"\n2020-07-01,"ZZA,ZZC"\n'
+                       '2020-08-01,"ZZC"\n2020-09-01,"ZZA,ZZC"\n')
+    config.update(history_csv=str(history), cross_validation="report", identity_policy="sec_cover_v1",
+                  announcement_policy="effective_date_conservative", announcements=[])
+    root = tmp_path / "output"
+    report = ingest(config, root=root, workers=1)
+    assert report["status"] == "complete", report
+    rows = [r for r in membership_rows(root) if r[1] == "synthetic-instrument-a"]
+    assert [(r[2], r[3]) for r in rows] == [("2020-01-01", None), ("2020-01-01", "2020-08-01"), ("2020-09-01", None)]
+    assert rows[0][4] != rows[1][4] != rows[2][4]
+    frame = pd.read_parquet(root / "data/derived/universe_membership/index_coverage.parquet")
+    assert len(frame.loc[frame.source_ticker == "ZZA"]) == 2
+
+
+def test_distinct_filing_vintages_one_period_kept_even_when_value_unchanged(tmp_path):
+    config = ingest_config(tmp_path)
+    payload = json.loads((FIXTURES / "CIK9000000001.json").read_text())
+    payload["facts"]["us-gaap"]["Revenues"]["units"]["USD"][-1]["val"] = 100
+    archive = tmp_path / "unchanged.zip"
+    with zipfile.ZipFile(archive, "w") as out:
+        out.writestr("CIK9000000001.json", json.dumps(payload))
+        out.writestr("CIK9000000002.json", (FIXTURES / "CIK9000000002.json").read_bytes())
+    config.update(companyfacts=str(archive), identity_policy="sec_cover_v1")
+    root = tmp_path / "output"
+    report = ingest(config, root=root, workers=1)
+    assert report["status"] == "complete", report
+    frame = pd.read_parquet(root / "data/clean/stock_fundamentals.parquet")
+    vintages = frame.loc[(frame.instrument_id == "synthetic-instrument-a") & (frame.period_type == "FY")]
+    assert vintages.revenue.tolist() == [100, 100]
+    assert vintages.known_at.nunique() == 2 and vintages.source_ref.nunique() == 2
+    assert vintages.known_at.str.startswith("2021").all()
+    before = frame.copy()
+    assert ingest(config, root=root, workers=1)["status"] == "complete"
+    pd.testing.assert_frame_equal(before, pd.read_parquet(root / "data/clean/stock_fundamentals.parquet"))
+
+
+def test_reingest_earlier_identity_knowledge_still_rejected_by_ledger(tmp_path):
+    config = ingest_config(tmp_path)
+    later = deepcopy(config)
+    for binding in later["cik_bindings"] + later["instrument_bindings"]:
+        binding["known_at"] = "2021-04-01T00:00:00Z"
+    root = tmp_path / "output"
+    assert ingest(later, root=root, workers=1)["status"] == "complete"
+    checkpoint = membership_rows(root)
+    report = ingest(config, root=root, workers=1)
+    assert report["status"] == "partial"
+    assert all(r["status"] == "failed" and "changed/backdated membership knowledge" in r["reason"] for r in report["issuers"])
+    assert membership_rows(root) == checkpoint
+
+
+def test_today_only_identity_stays_invisible_historically(tmp_path):
+    config = ingest_config(tmp_path)
+    for row in config["cik_bindings"] + config["instrument_bindings"]:
+        row["known_at"] = "2021-05-15T12:00:00Z"
+    root = tmp_path / "output"
+    assert ingest(config, root=root, workers=1)["status"] == "complete"
+    assert membership_frame(config["scope"], "2021-05-01T00:00:00Z", root=root).empty
+    frame = pd.read_parquet(root / "data/clean/stock_fundamentals.parquet")
+    assert set(frame.known_at) == {"2021-05-15T12:00:00+00:00"}
+
+
+def test_cover_mode_late_or_invalid_evidence_is_unbound(tmp_path):
+    config = ingest_config(tmp_path)
+    config["identity_policy"] = "sec_cover_v1"
+    config["cik_bindings"][0]["known_at"] = "2020-02-01T12:00:00Z"
+    config["instrument_bindings"][1].pop("known_at")
+    report = ingest(config, root=tmp_path / "output", workers=1)
+    assert {r["reason"] for r in report["unmapped"]} == {"cover_evidence_after_window_start", "invalid_identity_evidence"}
