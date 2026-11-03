@@ -185,6 +185,11 @@ def test_b0_is_the_vwce_shadow_account_so_its_relative_wealth_is_zero(monkeypatc
     book = _ready(monkeypatch, tmp_path)
     _execute(tmp_path, book)
     overview = build_paper_bots_overview(tmp_path, as_of=RUN_AT, price_book=book)
+    for bot in overview["forward"]["bots"]:
+        assert bot["dividend_policy"] == (
+            "gross cash; no withholding or automatic reinvestment; "
+            "may differ from reinvested adjusted-close returns"
+        )
     b0 = next(bot for bot in overview["forward"]["bots"] if bot["family"] == "B0")
     assert b0["status"] == "available", b0["reason"]
     assert b0["metrics"]["compounded_relative_wealth"] == 0.0

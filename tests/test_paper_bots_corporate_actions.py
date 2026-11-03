@@ -95,16 +95,38 @@ def test_dividend_rerun_and_restart_are_idempotent(tmp_path):
     assert len(_actions(reopened)) == 1
 
 
-def test_ex_date_total_return_parity_within_one_basis_point(tmp_path):
+@pytest.mark.parametrize(("closes", "dividends"), [
+    ((100, 98, 98), (0, 2, 0)),
+    ((100, 98, 110), (0, 2, 0)),
+    ((100, 101.75, 110.125), (0, 1.25, 0.375)),
+])
+def test_cash_dividend_nav_parity_within_one_billionth(tmp_path, closes, dividends):
     ledger = _ledger(tmp_path, cash=1000)
-    before = ledger.snapshot().cash + 10 * 100
-    _sync(tmp_path, ledger, _book())
-    after = ledger.snapshot().cash + 10 * 98
-    adjusted_return = 98 / 98 - 1
-    assert abs((after / before - 1) - adjusted_return) < 0.0001
+    quantity = Decimal("10")
+    rows = []
+    adjusted = 100.0
+    for index, (day, close, dividend) in enumerate(zip(DAYS, closes, dividends, strict=True)):
+        if index:
+            adjusted *= (close + dividend) / closes[index - 1]
+        rows.append({"instrument_id": "VWCE", "date": day, "open": close, "close": close,
+                     "adjusted_close": adjusted, "currency": "EUR", "dividends": dividend,
+                     "stock_splits": 0.0, "actions_evidenced": True, "available_at": _at(day).isoformat()})
+    book = execution.PriceBook(pd.DataFrame(rows), known_at=RUN_AT)
+    credited_cash = Decimal(0)
+    expected_values = []
+    for day, close, dividend in zip(DAYS, closes, dividends, strict=True):
+        _sync(tmp_path, ledger, book, through=_at(day, 12))
+        credited_cash += quantity * Decimal(str(dividend))
+        expected_nav = quantity * Decimal(str(close)) + credited_cash
+        snapshot = ledger.snapshot()
+        assert snapshot.positions[0].quantity == quantity
+        assert snapshot.cash == pytest.approx(float(credited_cash), rel=1e-9, abs=0)
+        nav = snapshot.cash + snapshot.positions[0].quantity * close
+        assert nav == pytest.approx(float(expected_nav), rel=1e-9, abs=0)
+        expected_values.append(float(expected_nav))
     # The report must not additionally credit adjusted-close synthetic returns.
-    snapshots = reports._ledger_snapshots(ledger, _book(), {"max_stale_mark_sessions": 5}, RUN_AT, DAYS, None, root=tmp_path)
-    assert snapshots["total_value"].tolist() == pytest.approx([1000] * 3)
+    snapshots = reports._ledger_snapshots(ledger, book, {"max_stale_mark_sessions": 5}, RUN_AT, DAYS, None, root=tmp_path)
+    assert snapshots["total_value"].tolist() == pytest.approx(expected_values, rel=1e-9, abs=0)
 
 
 @pytest.mark.parametrize("ratio", [10.0, 0.2])

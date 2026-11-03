@@ -187,7 +187,10 @@ def _bot_report(
         "metrics": {}, "uncertainty": _uncertainty(None, None, config), "trade_log": [], "missed_fills": 0,
         "execution_allowed": False,
         "ledger_price_basis": execution.LEDGER_PRICE_BASIS,
-        "dividend_policy": "gross cash; no withholding or automatic reinvestment",
+        "dividend_policy": (
+            "gross cash; no withholding or automatic reinvestment; "
+            "may differ from reinvested adjusted-close returns"
+        ),
     }
     ledger = _CutoffLedger(track.ledger_root, account_id=execution.account_id_for(bot_id), cutoff=cutoff, recorded_fills=recorded_fills)
     shadow = _CutoffLedger(track.ledger_root, account_id=execution.shadow_id_for(bot_id), cutoff=cutoff, recorded_fills=recorded_fills)
