@@ -244,3 +244,123 @@ def test_parallel_identity_validation_is_byte_identical_to_serial() -> None:
     parallel = importer.classify_census(companies, candidates, identity_workers=4)
 
     assert importer.audit_bytes(parallel) == importer.audit_bytes(serial)
+
+
+@pytest.fixture
+def yaml_only_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    root = tmp_path / "runtime"
+    configs = root / "configs"
+    configs.mkdir(parents=True)
+    (configs / "universe.yaml").write_text(
+        "schema_version: 1\netfs:\n" + "".join(
+            f"  - id: CORE{index}\n    name: Core {index}\n    ticker: CORE{index}\n"
+            "    isin: needs_verification\n    analysis_tier: primary\n    enabled: false\n"
+            for index in range(59)
+        ),
+        encoding="utf-8",
+    )
+    assert not (configs / "universe_store.json").exists()
+    monkeypatch.setattr(mcp_universe_ops, "ROOT", root)
+    return root
+
+
+def _write_etf_inputs(path: Path, count: int) -> tuple[Path, Path]:
+    census = path / "companies.csv"
+    census.write_text("name,holding_isin,verified\n", encoding="utf-8")
+    candidates = path / "universe_candidates.json"
+    candidates.write_text(json.dumps({"records": [
+        _candidate(f"ETF{index}", f"ETF{index}", "needs_verification", asset_type="etf",
+                   isin_status="needs_verification", enabled=False)
+        for index in range(count)
+    ]}), encoding="utf-8")
+    return census, candidates
+
+
+def test_all_220_etfs_include_ten_unresolved_in_exactly_one_bucket(
+    yaml_only_root: Path, tmp_path: Path,
+) -> None:
+    census, candidates = _write_etf_inputs(tmp_path, 210)
+    unresolved = [{"isin": f"UNRESOLVED{index}", "name": f"Unresolved {index}"} for index in range(10)]
+    (tmp_path / "universe_unresolved_etfs.json").write_text(json.dumps(unresolved), encoding="utf-8")
+    audit = yaml_only_root / "audit.csv"
+
+    assert importer.main([
+        "--root", str(yaml_only_root), "--census", str(census), "--candidates", str(candidates),
+        "--expected-company-rows", "0", "--audit", str(audit), "--dry-run",
+    ]) == 0  # Deliberately use the default expected ETF count of 220.
+
+    with audit.open(encoding="utf-8", newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    assert len(rows) == 220
+    assert all(row["source"] == "etf" and row["bucket"] in importer.BUCKETS for row in rows)
+    assert len({row["source_row"] for row in rows}) == 220
+    assert sum(row["bucket"] == "disabled" for row in rows) == 210
+    quarantined = [row for row in rows if row["bucket"] == "quarantined"]
+    assert len(quarantined) == 10
+    assert {row["isin"] for row in quarantined} == {row["isin"] for row in unresolved}
+    assert all(row["reason"] == "ticker unresolved" for row in quarantined)
+
+
+def test_yaml_only_root_previews_with_canonical_revision_and_commits_stage_100(yaml_only_root: Path) -> None:
+    entries = tuple(_entry(index) for index in range(100))
+    yaml_path = yaml_only_root / "configs" / "universe.yaml"
+    yaml_before = yaml_path.read_bytes()
+    snapshot = mcp_universe_ops.universe_snapshot()
+    preview = mcp_universe_ops.preview_universe_import([entry.record for entry in entries], source_kind="provider")
+
+    assert preview["valid"] is True
+    # Empty is the canonical optimistic revision for an uninitialized JSON store.
+    assert preview["expected_revision"] == snapshot["revision"] == load_universe(yaml_only_root).revision == ""
+    assert len(snapshot["records"]) == 59
+    assert not (yaml_only_root / "configs" / "universe_store.json").exists()
+    assert importer.run_stages(entries, root=yaml_only_root, stages="100,all") == (100,)
+
+    saved = load_universe(yaml_only_root)
+    assert saved.revision
+    assert not saved.integrity_errors
+    assert len(saved.records) == 159
+    assert {row.instrument_id for row in saved.records} == (
+        {f"CORE{index}" for index in range(59)} | {f"ID{index}" for index in range(100)}
+    )
+    assert yaml_path.read_bytes() == yaml_before
+
+
+@pytest.mark.parametrize("initialized", [False, True])
+def test_dry_run_previews_every_stage_writes_audit_and_preserves_revision(
+    yaml_only_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str], initialized: bool,
+) -> None:
+    if initialized:
+        save_universe(mcp_universe_ops.universe_snapshot()["records"], "", root=yaml_only_root)
+    before_revision = load_universe(yaml_only_root).revision
+    before_files = {path.relative_to(yaml_only_root): path.read_bytes() for path in yaml_only_root.rglob("*") if path.is_file()}
+    census, candidates = _write_etf_inputs(tmp_path, 1005)
+    audit = yaml_only_root / "audit.csv"
+    preview_sizes = []
+    original_preview = mcp_universe_ops.preview_universe_import
+
+    def preview(source, **kwargs):
+        preview_sizes.append(len(source))
+        return original_preview(source, **kwargs)
+
+    def forbidden_commit(*args, **kwargs):
+        pytest.fail("dry run called the canonical commit operation")
+
+    monkeypatch.setattr(mcp_universe_ops, "preview_universe_import", preview)
+    monkeypatch.setattr(mcp_universe_ops, "commit_universe_import", forbidden_commit)
+
+    assert importer.main([
+        "--root", str(yaml_only_root), "--census", str(census), "--candidates", str(candidates),
+        "--expected-company-rows", "0", "--expected-etf-rows", "1005", "--stages", "100,1000,all",
+        "--audit", str(audit), "--dry-run",
+    ]) == 0
+
+    assert preview_sizes == [100, 900, 5]
+    assert load_universe(yaml_only_root).revision == before_revision
+    after_files = {path.relative_to(yaml_only_root): path.read_bytes() for path in yaml_only_root.rglob("*") if path.is_file() and path != audit}
+    assert after_files == before_files
+    with audit.open(encoding="utf-8", newline="") as handle:
+        assert len(list(csv.DictReader(handle))) == 1005
+    summary = capsys.readouterr().out
+    assert "previewed stage sizes: 100,900,5" in summary
+    assert "committed stage sizes: none (dry run)" in summary

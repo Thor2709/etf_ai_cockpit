@@ -131,6 +131,14 @@ def read_candidate_records(path: Path) -> tuple[Mapping[str, object], ...]:
     return tuple(_normalise_mapping(record, label=f"candidate record {index}") for index, record in enumerate(records, 1))
 
 
+def read_unresolved_etfs(path: Path) -> tuple[Mapping[str, object], ...]:
+    with path.open("r", encoding="utf-8") as handle:
+        records = json.load(handle, object_pairs_hook=_duplicate_json_keys)
+    if not isinstance(records, list) or not all(isinstance(record, Mapping) for record in records):
+        raise ValueError("unresolved ETF JSON must be a list of objects")
+    return tuple(_normalise_mapping(record, label=f"unresolved ETF {index}") for index, record in enumerate(records, 1))
+
+
 def _candidate_index(records: Sequence[Mapping[str, object]]) -> dict[str, Mapping[str, object]]:
     by_isin: dict[str, list[Mapping[str, object]]] = defaultdict(list)
     for record in records:
@@ -553,6 +561,7 @@ def classify_census(
     identity_workers: int = 4,
     existing_records: Sequence[UniverseRecord] = (),
     funds_of_funds: frozenset[str] = frozenset(),
+    unresolved_etfs: Sequence[Mapping[str, object]] = (),
 ) -> tuple[AuditEntry, ...]:
     if identity_workers < 1:
         raise ValueError("identity_workers must be positive")
@@ -567,6 +576,14 @@ def classify_census(
             entries = list(executor.map(lambda job: _company_entry(job, candidates_by_isin), company_jobs))
             etfs = list(executor.map(lambda job: _etf_entry(job, funds_of_funds), etf_jobs))
         entries.extend(item for item in etfs if item is not None)
+    entries.extend(
+        AuditEntry(
+            "etf", len(candidate_records) + index, _text(record.get("instrument_id")),
+            _text(record.get("isin")).upper(), _text(record.get("ticker")),
+            "quarantined", "ticker unresolved",
+        )
+        for index, record in enumerate(unresolved_etfs, 1)
+    )
     return _deduplicate_and_reject_collisions(entries, existing_records)
 
 
@@ -637,6 +654,7 @@ def run_stages(
     root: Path,
     stages: str = "100,1000,all",
     ops: object = mcp_universe_ops,
+    dry_run: bool = False,
 ) -> tuple[int, ...]:
     rows = [dict(entry.record) for entry in entries if entry.record is not None]
     targets = parse_stages(stages, len(rows))
@@ -661,13 +679,15 @@ def run_stages(
         if preview.get("source_checksum") != expected_checksum:
             raise ValueError("universe preview checksum does not match staged rows")
         revision = preview.get("expected_revision")
-        if not isinstance(revision, str) or not revision:
+        # The canonical revision is "" until the JSON store is initialized.
+        if not isinstance(revision, str):
             raise ValueError("universe preview did not return a revision")
         if len(preview.get("candidates", ())) != len(batch):
             raise ValueError("universe preview did not preserve every staged candidate")
-        result = ops.commit_universe_import(batch, source_kind="provider", expected_revision=revision)
-        if result.get("execution_allowed") is not False:
-            raise ValueError("canonical universe importer returned an unsafe execution state")
+        if not dry_run:
+            result = ops.commit_universe_import(batch, source_kind="provider", expected_revision=revision)
+            if result.get("execution_allowed") is not False:
+                raise ValueError("canonical universe importer returned an unsafe execution state")
         committed.append(len(batch))
     return tuple(committed)
 
@@ -679,8 +699,9 @@ def import_census(
     audit: Path,
     stages: str = "100,1000,all",
     ops: object = mcp_universe_ops,
+    dry_run: bool = False,
 ) -> tuple[int, ...]:
-    committed = run_stages(entries, root=root, stages=stages, ops=ops)
+    committed = run_stages(entries, root=root, stages=stages, ops=ops, dry_run=dry_run)
     write_audit(entries, audit)
     return committed
 
@@ -695,8 +716,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--root", required=True, type=Path)
     parser.add_argument("--census", required=True, type=Path)
     parser.add_argument("--candidates", required=True, type=Path)
+    parser.add_argument("--unresolved-etfs", type=Path, help="defaults to adjacent universe_unresolved_etfs.json when present")
     parser.add_argument("--stages", default="100,1000,all")
     parser.add_argument("--audit", required=True, type=Path)
+    parser.add_argument("--dry-run", action="store_true", help="preview every stage and write the audit without committing")
     parser.add_argument("--holdings", type=Path, help="holdings folder; defaults to the sibling holdings_u1i directory")
     parser.add_argument("--identity-workers", type=int, default=4)
     parser.add_argument("--expected-company-rows", type=int, default=11_737)
@@ -707,24 +730,28 @@ def main(argv: Sequence[str] | None = None) -> int:
             raise ValueError("identity-workers must be positive")
         companies = read_companies(args.census)
         candidate_records = read_candidate_records(args.candidates)
-        etf_count = sum(_text(record.get("asset_type")).casefold() in {"etf", "exchange_traded_fund"} for record in candidate_records)
+        unresolved_path = args.unresolved_etfs or (args.candidates.parent / "universe_unresolved_etfs.json")
+        unresolved = read_unresolved_etfs(unresolved_path) if args.unresolved_etfs or unresolved_path.exists() else ()
+        etf_count = sum(_text(record.get("asset_type")).casefold() in {"etf", "exchange_traded_fund"} for record in candidate_records) + len(unresolved)
         _expected_count(len(companies), args.expected_company_rows, "company census")
         _expected_count(etf_count, args.expected_etf_rows, "ETF census")
         holdings_path = args.holdings or (args.candidates.parent / "holdings_u1i")
         holdings = fund_of_funds_from_holdings(holdings_path)
-        existing = load_universe(args.root.resolve())
-        if existing.integrity_errors:
-            raise ValueError("universe integrity errors block import: " + "; ".join(existing.integrity_errors))
+        mcp_universe_ops.ROOT = args.root.resolve()
+        existing = mcp_universe_ops.universe_snapshot()
+        if existing["integrity_errors"]:
+            raise ValueError("universe integrity errors block import: " + "; ".join(existing["integrity_errors"]))
         entries = classify_census(
             companies,
             candidate_records,
             identity_workers=args.identity_workers,
-            existing_records=existing.records,
+            existing_records=existing["records"],
             funds_of_funds=holdings,
+            unresolved_etfs=unresolved,
         )
         _expected_count(sum(entry.source == "company" for entry in entries), args.expected_company_rows, "company audit")
         _expected_count(sum(entry.source == "etf" for entry in entries), args.expected_etf_rows, "ETF audit")
-        committed = import_census(entries, root=args.root, audit=args.audit, stages=args.stages)
+        stage_sizes = import_census(entries, root=args.root, audit=args.audit, stages=args.stages, dry_run=args.dry_run)
         counts = Counter(entry.bucket for entry in entries)
         print(
             "census rows: "
@@ -732,7 +759,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             f"etfs={sum(entry.source == 'etf' for entry in entries)}"
         )
         print("audit buckets: " + " ".join(f"{bucket}={counts[bucket]}" for bucket in sorted(BUCKETS)))
-        print("committed stage sizes: " + ",".join(str(value) for value in committed))
+        if args.dry_run:
+            print("previewed stage sizes: " + ",".join(str(value) for value in stage_sizes))
+        print("committed stage sizes: " + ("none (dry run)" if args.dry_run else ",".join(str(value) for value in stage_sizes)))
         return 0
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         print(f"import refused: {exc}", file=sys.stderr)
