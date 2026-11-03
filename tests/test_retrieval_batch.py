@@ -235,6 +235,8 @@ def test_yfinance_fetch_prices_uses_retrieval_layer_and_preserves_provider_resul
                 "Close": [10.2],
                 "Adj Close": [10.1],
                 "Volume": [100],
+                "Dividends": [0.0],
+                "Stock Splits": [0.0],
             },
             index=pd.to_datetime(["2026-08-01"]),
         )
@@ -273,6 +275,8 @@ def test_yfinance_default_providers_do_not_share_persistent_cache(
                 "Close": [10.2],
                 "Adj Close": [10.1],
                 "Volume": [100],
+                "Dividends": [0.0],
+                "Stock Splits": [0.0],
             },
             index=pd.to_datetime(["2026-08-01"]),
         )
@@ -306,6 +310,8 @@ def test_yfinance_explicit_retrieval_root_reuses_cache_and_checkpoint(
                 "Close": [10.2],
                 "Adj Close": [10.1],
                 "Volume": [100],
+                "Dividends": [0.0],
+                "Stock Splits": [0.0],
             },
             index=pd.to_datetime(["2026-08-01"]),
         )

@@ -72,11 +72,13 @@ class YFinanceProvider(DataProvider, PriceProvider):
         default_currency: str = "EUR",
         instrument_metadata: dict[str, dict[str, object]] | None = None,
         retrieval_root: Path | None = None,
+        session: Any = None,
     ):
         self.section = section or ProviderSection()
         self.default_currency = default_currency
         self.instrument_metadata = instrument_metadata or {}
         self.retrieval_root = Path(retrieval_root) if retrieval_root is not None else None
+        self.session = session
 
     @classmethod
     def from_config(cls, config: AppConfig) -> "YFinanceProvider":
@@ -103,13 +105,14 @@ class YFinanceProvider(DataProvider, PriceProvider):
         return cls(section, default_currency=config.targets.base_currency, instrument_metadata=metadata)
 
     def fetch_daily_prices(self, symbol: str, start: date, end: date) -> pd.DataFrame:
-        return self._download_one(symbol=symbol, etf_id=symbol, start_date=start, end_date=end)
+        return self._download_one(symbol=symbol, etf_id=symbol, start_date=start, end_date=end, require_actions=True)
 
     def validate_symbol(self, symbol: str) -> bool:
         try:
             end = date.today()
             start = years_before(end, 1)
-            return not self.fetch_daily_prices(symbol, start, end).empty
+            # A listing probe does not publish prices or claim action evidence.
+            return not self._download_one(symbol=symbol, etf_id=symbol, start_date=start, end_date=end).empty
         except Exception:
             return False
 
@@ -136,7 +139,7 @@ class YFinanceProvider(DataProvider, PriceProvider):
             checkpoint_path=(retrieval_root / "checkpoint.json") if retrieval_root is not None else None,
             max_retries=0,
             adjusted=False,
-            adapter_version="yfinance-download-v1",
+            adapter_version="yfinance-download-v2-actions-evidenced",
             limiter=provider_rate_limiter(self.name, max_calls_per_window=60, window_seconds=60.0),
             encode=encode_frame,
             decode=decode_frame,
@@ -151,6 +154,7 @@ class YFinanceProvider(DataProvider, PriceProvider):
                 etf_id=yahoo_symbol,
                 start_date=start_date,
                 end_date=end_date,
+                require_actions=True,
             ),
         )
         frames: list[pd.DataFrame] = []
@@ -320,7 +324,8 @@ class YFinanceProvider(DataProvider, PriceProvider):
             return configured
         return {symbol: symbol for symbol in symbols if symbol}
 
-    def _download_one(self, *, symbol: str, etf_id: str, start_date: date, end_date: date) -> pd.DataFrame:
+    def _download_one(self, *, symbol: str, etf_id: str, start_date: date, end_date: date,
+                      require_actions: bool = False) -> pd.DataFrame:
         yf = _import_yfinance()
         frame = yf.download(
             symbol,
@@ -331,10 +336,13 @@ class YFinanceProvider(DataProvider, PriceProvider):
             progress=False,
             threads=False,
             group_by="column",
+            **({"session": self.session} if self.session is not None else {}),
         )
         if frame is None or frame.empty:
             return pd.DataFrame()
         frame = _flatten_download_frame(frame)
+        if require_actions and not {"Dividends", "Stock Splits"} <= set(frame.columns):
+            raise ValueError("corporate_action_columns_missing")
         required = {"Open", "High", "Low", "Close"}
         missing = required - set(frame.columns)
         if missing:
@@ -353,13 +361,13 @@ class YFinanceProvider(DataProvider, PriceProvider):
                 "provider_symbol": symbol,
                 "source": self.name,
                 "is_adjusted": "Adj Close" in frame.columns,
-                "dividends": _numeric_frame_column(frame, "Dividends", default=0.0),
-                "stock_splits": _numeric_frame_column(frame, "Stock Splits", default=0.0),
+                "dividends": _numeric_frame_column(frame, "Dividends", default=0.0, fill=not require_actions),
+                "stock_splits": _numeric_frame_column(frame, "Stock Splits", default=0.0, fill=not require_actions),
                 "capital_gains": _numeric_frame_column(frame, "Capital Gains", default=0.0),
             }
         )
         out = out.dropna(subset=["open", "high", "low", "close", "adjusted_close"])
-        divisor = _minor_unit_divisor(yf, symbol)
+        divisor = _minor_unit_divisor(yf, symbol, session=self.session)
         if divisor != 1:
             for column in ("open", "high", "low", "close", "adjusted_close", "dividends", "capital_gains"):
                 out[column] = out[column] / divisor
@@ -572,11 +580,11 @@ _MINOR_UNIT_CURRENCIES = {"GBp": 100.0, "GBX": 100.0, "ILA": 100.0, "ZAc": 100.0
 _MINOR_UNIT_SUFFIXES = (".L", ".IL", ".TA", ".JO")
 
 
-def _minor_unit_divisor(yf: Any, symbol: str) -> float:
+def _minor_unit_divisor(yf: Any, symbol: str, *, session: Any = None) -> float:
     if not str(symbol).upper().endswith(_MINOR_UNIT_SUFFIXES) or not hasattr(yf, "Ticker"):
         return 1.0
     try:
-        currency = yf.Ticker(symbol).fast_info["currency"]
+        currency = yf.Ticker(symbol, **({"session": session} if session is not None else {})).fast_info["currency"]
     except Exception:  # pragma: no cover - provider metadata is best effort
         currency = None
     return _MINOR_UNIT_CURRENCIES.get(str(currency), 1.0)
