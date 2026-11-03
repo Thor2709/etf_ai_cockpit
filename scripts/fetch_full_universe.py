@@ -26,6 +26,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--staging", type=Path, required=True)
     parser.add_argument("--promote", action="store_true")
     parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--only-missing", action="store_true",
+                        help="refetch only report status=missing; reuse staged evidence, including coverage gaps; same window/universe required")
     args = parser.parse_args(argv)
     try:
         report = fetch_full_universe(FetchOptions(**vars(args)))
