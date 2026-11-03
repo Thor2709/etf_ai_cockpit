@@ -578,11 +578,23 @@ def fetch_full_universe(options: FetchOptions, *, provider_factory=ProviderChain
         previous = {}
         if options.only_missing:
             previous_report = json.loads((options.staging / "report.json").read_text(encoding="utf-8"))
-            if any(previous_report.get(key) != report[key] for key in ("start", "end", "universe_revision")):
+            if any(key in previous_report and previous_report[key] != report[key]
+                   for key in ("start", "end", "universe_revision")):
                 raise ValueError("--only-missing requires the same window and universe revision as the staged report")
             previous = {(row["kind"], row["identifier"]): row for row in previous_report["rows"]}
-            if len(previous) != len(previous_report["rows"]) or set(previous) != {(item.kind, item.identifier) for item in items}:
-                raise ValueError("--only-missing report items do not match the current fetch items")
+            if len(previous) != len(previous_report["rows"]):
+                raise ValueError("--only-missing report contains duplicate items")
+            report = {**previous_report, **report}
+            report.pop("message", None)
+            current_keys = {(item.kind, item.identifier) for item in items}
+            report["rows"] = [row for key, row in previous.items() if key not in current_keys]
+            report["selected"] = sum(previous.get((item.kind, item.identifier), {}).get("status") == "missing"
+                                     for item in items)
+            if report["selected"] == 0:
+                report.update(rows=list(previous.values()), missing=sum(row["status"] == "missing" for row in previous.values()),
+                              message="No matching missing instruments selected; nothing to fetch.")
+                atomic_write_bytes(options.staging / "report.json", json.dumps(report, indent=2).encode(), validator=_json_validator)
+                return report
         canonical = {"prices": pd.DataFrame(), "fx": pd.DataFrame()}
         if options.resume or any(row["status"] == "resumed_canonical" for row in previous.values()):
             canonical = {"prices": _read(options.root / "data/validated/prices/prices_daily.parquet"), "fx": _read(options.root / "data/clean/fx.parquet")}
@@ -592,6 +604,8 @@ def fetch_full_universe(options: FetchOptions, *, provider_factory=ProviderChain
             row = {"kind": item.kind, "identifier": item.identifier, "dropped_rows": []}
             old = previous.get((item.kind, item.identifier))
             if options.only_missing:
+                if old is None:
+                    continue
                 if old["status"] == "missing":
                     pending.append(item)
                     continue
