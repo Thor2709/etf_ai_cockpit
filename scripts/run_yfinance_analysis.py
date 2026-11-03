@@ -48,14 +48,18 @@ from etf_cockpit.signals.signal_pipeline import generate_signals
 from etf_cockpit.data.duckdb_store import load_holdings, write_features
 
 
-def main() -> int:
+def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run the full cockpit analysis from Yahoo Finance data.")
     parser.add_argument("--years", type=int, default=5)
     parser.add_argument("--as-of", type=str, default="")
     parser.add_argument("--no-commit", action="store_true", help="Fetch and analyse yfinance data without replacing the clean price store.")
     parser.add_argument("--skip-reference", action="store_true", help="Do not fetch Yahoo metadata/top-holdings.")
     parser.add_argument("--skip-models", action="store_true", help="Run algorithms/backtest but skip TimesFM/Toto/baseline forecast generation.")
-    args = parser.parse_args()
+    return parser.parse_args()
+
+
+def main(args: argparse.Namespace | None = None) -> int:
+    args = _parse_args() if args is None else args
 
     config = load_config()
     provider = YFinanceProvider.from_config(config)
@@ -276,4 +280,5 @@ def _fetch_reference_data(provider: YFinanceProvider, config, *, skip: bool) -> 
 
 
 if __name__ == "__main__":
-    raise SystemExit(run_cli(main, record_paper_bots=True))
+    args = _parse_args()
+    raise SystemExit(run_cli(lambda: main(args), record_paper_bots=True))

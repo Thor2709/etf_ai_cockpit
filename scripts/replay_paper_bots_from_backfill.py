@@ -19,6 +19,17 @@ from pathlib import Path
 
 
 def main(argv: list[str] | None = None) -> int:
+    previous_root = os.environ.get("ETF_COCKPIT_ROOT")
+    try:
+        return _run(argv)
+    finally:
+        if previous_root is None:
+            os.environ.pop("ETF_COCKPIT_ROOT", None)
+        else:
+            os.environ["ETF_COCKPIT_ROOT"] = previous_root
+
+
+def _run(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", default=os.environ.get("ETF_COCKPIT_ROOT"), help="data root (defaults to ETF_COCKPIT_ROOT)")
     parser.add_argument("--as-of", type=date.fromisoformat, default=None, help="replay cutoff date (default: the day after the last VWCE price)")
