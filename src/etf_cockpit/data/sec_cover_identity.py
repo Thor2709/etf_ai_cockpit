@@ -1,7 +1,7 @@
 """Dated SEC cover identities; pure parsing and conservative window selection.
 
-Acceptance strings (including SEC's trailing-Z spelling) are interpreted as
-America/New_York wall time by the DATA-EV evidence policy. Date-granular binding
+SEC header timestamps are America/New_York wall time; submissions timestamps
+with a trailing Z are UTC. Date-granular binding
 windows start on the next UTC day unless acceptance is exactly UTC midnight.
 An unreadable filing breaks continuity; an unreadable issuer scan binds nothing.
 """
@@ -18,13 +18,15 @@ FORMS = {"10-K", "10-Q", "20-F", "40-F"}
 
 
 def acceptance_utc(value: str) -> str:
-    """Do not use the financial-fact next-day availability convention here."""
+    """Normalise header wall time and submissions UTC without shifting either twice."""
     if re.fullmatch(r"\d{14}", value):
         wall = datetime.strptime(value, "%Y%m%d%H%M%S")
     else:
         if not re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z?", value):
             raise ValueError("invalid acceptanceDateTime")
         wall = datetime.fromisoformat(value.removesuffix("Z"))
+        if value.endswith("Z"):
+            return wall.replace(tzinfo=timezone.utc).isoformat()
     zone = ZoneInfo("America/New_York")
     first, second = wall.replace(tzinfo=zone, fold=0), wall.replace(tzinfo=zone, fold=1)
     if first.utcoffset() != second.utcoffset():

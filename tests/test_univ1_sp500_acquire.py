@@ -375,7 +375,7 @@ def test_parallel_cover_acquisition_equals_serial_and_preserves_existing_config(
             return 200, json.dumps({"cik": cik, "name": "Synthetic fixture issuer", "tickers": [], "formerNames": [],
                                    "filings": {"files": [], "recent": {
                 "accessionNumber": [f"{cik}-19-000001"], "form": ["10-K"],
-                "filingDate": ["2019-12-20"], "acceptanceDateTime": ["2019-12-20T14:30:00Z"]}}}).encode()
+                "filingDate": ["2019-12-20"], "acceptanceDateTime": ["2019-12-20T19:30:00.000Z"]}}}).encode()
         return 200, (fixtures / "sec_cover" / url.rsplit("/", 1)[-1]).read_bytes()
 
     monkeypatch.setattr(acq, "http_get", get)
@@ -436,6 +436,8 @@ def test_parallel_cover_acquisition_equals_serial_and_preserves_existing_config(
     failure = acq.step_cover(layout, workers=2)
     rejected = yaml.safe_load(Path(failure["config"]).read_text())
     assert failure["failed"] == ["9000000002"]
+    assert next(r for r in failure["issuer_outcomes"] if r["cik"] == "9000000002")["errors"] == [
+        {"reason": "synthetic failure"}]
     assert not rejected["instrument_bindings"]
     assert {r["reason"] for r in rejected["identity_unbound"]} == {"incomplete_cover_scan", "no_cover_identity_for_window"}
 
@@ -461,3 +463,110 @@ def test_cover_http_requests_share_global_sec_limiter(monkeypatch, clock):
     for _ in range(3):
         acq.http_get("https://www.sec.gov/Archives/synthetic.txt", "sec")
     assert calls == [0, 1 / 8, 2 / 8]
+
+
+@pytest.mark.parametrize("failure,expected_type,status", [
+    ("not_found", "HTTPError", 404), ("throttled", "HTTPError", 403),
+    ("transport", "URLError", None), ("conflict", "ValueError", 200),
+    ("user_agent", "ValueError", None),
+])
+def test_fixture_issuer_failure_records_request_and_reason(monkeypatch, tmp_path, clock, caplog,
+                                                          failure, expected_type, status):
+    cik, accession = "9000000001", "9000000001-19-000001"
+    fixture = Path(__file__).parent / "fixtures/sec_cover" / f"{accession}.txt"
+    real_get = acq.http_get
+
+    def get(url, host):
+        if "/submissions/" in url:
+            return 200, json.dumps({"cik": cik, "filings": {"files": [], "recent": {
+                "accessionNumber": [accession], "form": ["10-K"],
+                "acceptanceDateTime": ["2019-12-20T20:30:00Z"]}}}).encode()
+        if failure == "conflict":
+            return 200, fixture.read_bytes()
+        return real_get(url, host, tries=1)
+
+    error = urllib.error.URLError("offline transport unavailable") if failure == "transport" else http_error(status or 404)
+    respond_after_errors(monkeypatch, clock, [error])
+    monkeypatch.setattr(acq, "http_get", get)
+    if failure == "user_agent":
+        def missing_agent():
+            raise ValueError("SEC contact required")
+        monkeypatch.setattr(acq, "user_agent", missing_agent)
+    result = acq.fetch_cover_issuer((cik, acq.Layout(tmp_path)))
+    assert result["status"] == "failed" and result["evidence"] == []
+    assert len(result["errors"]) == 1
+    detail = result["errors"][0]
+    assert detail["exception_type"] == expected_type
+    assert detail["http_status"] == status
+    assert detail["url"] == f"https://www.sec.gov/Archives/edgar/data/9000000001/{accession.replace('-', '')}/{accession}.txt"
+    assert detail["accession"] == accession and detail["message"] and detail["reason"]
+    assert json.dumps({"cik": cik, **detail}, sort_keys=True) in caplog.text
+    # The emitted diagnostic is JSON serialisable, including exhausted HTTP causes.
+    assert json.loads(json.dumps(result)) == result
+
+
+def test_unreadable_fixture_cover_records_reason_and_breaks_continuity(monkeypatch, tmp_path, caplog):
+    cik, accession = "9000000001", "9000000001-19-000001"
+    fixture = Path(__file__).parent / "fixtures/sec_cover" / f"{accession}.txt"
+
+    def get(url, host):
+        if "/submissions/" in url:
+            return 200, json.dumps({"cik": cik, "filings": {"recent": {
+                "accessionNumber": [accession], "form": ["10-K"],
+                "acceptanceDateTime": ["2019-12-20T19:30:00.000Z"]}}}).encode()
+        return 200, fixture.read_bytes().replace(b"dei:TradingSymbol", b"dei:OtherField")
+
+    monkeypatch.setattr(acq, "http_get", get)
+    result = acq.fetch_cover_issuer((cik, acq.Layout(tmp_path)))
+    assert result["status"] == "ok"
+    assert result["evidence"][0]["tickers"] == []
+    assert result["evidence"][0]["known_at"] == "2019-12-20T19:30:00+00:00"
+    detail = result["errors"][0]
+    assert detail["exception_type"] == "ValueError" and detail["http_status"] == 200
+    assert detail["url"] == result["evidence"][0]["source"]
+    assert detail["message"] == "missing/conflicting CIK or TradingSymbol cover evidence"
+    assert detail["message"] in caplog.text
+
+
+def test_cover_cli_prints_complete_failure_json(monkeypatch, tmp_path, capsys):
+    outcomes = [{"cik": f"{i:010d}", "status": "failed", "errors": [{
+        "exception_type": "ValueError", "message": "fixture failure", "http_status": None,
+        "url": "https://offline.invalid/submissions", "reason": "ValueError: fixture failure"}]} for i in range(80)]
+    result = {"failed": [r["cik"] for r in outcomes], "issuer_outcomes": outcomes}
+    monkeypatch.setattr(acq, "step_cover", lambda layout, workers: result)
+    assert acq.main(["--root", str(tmp_path), "--step", "cover-evidence"]) == 1
+    output = capsys.readouterr().out
+    assert len(output) > 3000
+    assert json.loads(output) == result
+
+
+def test_live_probe_uses_temp_copy_and_prints_issuer_outcome(monkeypatch, tmp_path, capsys):
+    import tools_probe_cover as probe
+
+    cik, accession = "9000000001", "9000000001-19-000001"
+    source = acq.Layout(tmp_path / "source")
+    payload = json.dumps({"cik": cik, "filings": {"recent": {
+        "accessionNumber": [accession], "form": ["10-K"],
+        "acceptanceDateTime": ["2019-12-20T19:30:00.000Z"]}}}).encode()
+    acq.record(source.subs / f"CIK{cik}.json", source.subs_meta, payload,
+               url=acq.SUBMISSIONS.format(name=f"CIK{cik}.json"))
+    before = {p.relative_to(source.root): p.read_bytes() for p in source.root.rglob("*") if p.is_file()}
+    fixture = Path(__file__).parent / "fixtures/sec_cover" / f"{accession}.txt"
+    requests = []
+
+    def urlopen(request, **kwargs):
+        requests.append(request.full_url)
+        response = io.BytesIO(fixture.read_bytes())
+        response.status, response.headers = 200, {}
+        return response
+
+    monkeypatch.setenv("ETF_COCKPIT_SEC_EDGAR_USER_AGENT", "offline-test test@example.invalid")
+    monkeypatch.setattr(acq.urllib.request, "urlopen", urlopen)
+    assert probe.main(["--repo", str(acq.ROOT), "--root", str(source.root), cik]) == 0
+    output = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    assert output[0]["execution_allowed"] is False
+    assert not Path(output[0]["temporary_root"]).exists()
+    assert output[1] == {"cik": cik, "status": "ok", "evidence_count": 1, "identity_count": 1, "errors": []}
+    assert output[2] == {"requested": 1, "failed": []}
+    assert len(requests) == 1 and "/Archives/" in requests[0]
+    assert {p.relative_to(source.root): p.read_bytes() for p in source.root.rglob("*") if p.is_file()} == before
