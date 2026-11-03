@@ -26,12 +26,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--staging", type=Path, required=True)
     parser.add_argument("--promote", action="store_true")
     parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--only-missing", action="store_true",
+                        help="refetch report status=missing by kind/identifier; copied row-only reports supported; recorded window/universe must match")
     args = parser.parse_args(argv)
     try:
         report = fetch_full_universe(FetchOptions(**vars(args)))
     except (ValueError, OSError, RuntimeError) as exc:
         parser.exit(2, f"Fetch failed ({type(exc).__name__}): {redact_text(str(exc))}\n")
     print(json.dumps(report, indent=2))
+    if args.only_missing and report["selected"] == 0:
+        return 0
     return 1 if report["missing"] else 0
 
 

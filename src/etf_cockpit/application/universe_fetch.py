@@ -7,6 +7,9 @@ The active provider precedes other explicitly enabled adapters in configuration
 declaration order. No disabled source is enabled as an implicit fallback.
 Adjusted price backfills are known at retrieval, not at their historical close.
 Benchmark currency must come from its universe record or explicit configuration.
+New price acquisitions quarantine invalid OHLC sessions without imputation, up
+to max(5, floor(1% of requested-window rows)); larger counts reject the history.
+Adjusted close, actions, identity and provenance remain instrument-level gates.
 """
 
 from __future__ import annotations
@@ -59,6 +62,7 @@ class FetchOptions:
     rate_per_host: float = 1.0
     promote: bool = False
     resume: bool = False
+    only_missing: bool = False
 
     def window(self) -> tuple[date, date]:
         if self.start > self.end or self.end > date.today():
@@ -187,7 +191,7 @@ class ProviderChain:
             (entry.active_provider, entry) for key, entry in self.config.data_providers.providers.items()
             if key == entry.active_provider and entry.active_provider not in {"none", ""}
         )]
-        seen, reasons = set(), []
+        seen, reasons, attempts = set(), [], []
         for name, settings in candidates:
             name = name.strip().lower()
             if name in seen or name in {"none", ""}:
@@ -225,12 +229,23 @@ class ProviderChain:
                     if not frame["etf_id"].isin([item.identifier, symbol]).all():
                         raise ValueError("provider returned the wrong instrument")
                     frame["etf_id"] = item.identifier
-                return _validate_frame(frame, item, start, end)
+                frame = _validate_frame(frame, item, start, end, quarantine_ohlc=True)
+                attempts.append({"provider": name, "status": "accepted"})
+                frame.attrs["provider_attempts"] = attempts
+                return frame
             except Exception as exc:
-                reasons.append(f"{name}: {redact_text(str(exc))}")
+                reason = redact_text(str(exc))
+                reasons.append(f"{name}: {reason}")
+                attempts.append({"provider": name, "status": "missing", "reason": reason})
         if any(reason.endswith(": corporate_action_columns_missing") for reason in reasons):
-            raise ValueError("corporate_action_columns_missing")
-        raise ValueError("; ".join(reasons) or "no enabled provider")
+            raise ProviderFetchError("corporate_action_columns_missing", attempts)
+        raise ProviderFetchError("; ".join(reasons) or "no enabled provider", attempts)
+
+
+class ProviderFetchError(ValueError):
+    def __init__(self, message, attempts):
+        super().__init__(message)
+        self.provider_attempts = attempts
 
 
 def _items(root: Path) -> tuple[list[FetchItem], str]:
@@ -264,16 +279,57 @@ def _require_action_columns(frame: pd.DataFrame) -> None:
             raise ValueError("corporate_action_columns_missing")
 
 
-def _validate_frame(frame: pd.DataFrame, item: FetchItem, start: date, end: date) -> pd.DataFrame:
+def _quarantine_ohlc(frame: pd.DataFrame) -> pd.DataFrame:
+    """Drop only invalid OHLC rows; the integer cap rounds 1% down, minimum 5.
+
+    Called only for new acquisitions, never to clean existing staged/canonical
+    evidence. DataFrame attrs persist as embedded pandas Parquet file metadata.
+    """
+    adjusted = pd.to_numeric(frame["adjusted_close"], errors="coerce")
+    if adjusted.isna().any() or not np.isfinite(adjusted).all() or (adjusted <= 0).any():
+        raise ValueError("Adjusted close is missing or non-positive.")
+    volume = pd.to_numeric(frame["volume"], errors="coerce")
+    if volume.isna().any() or not np.isfinite(volume).all() or (volume < 0).any():
+        raise ValueError("Required volume values must be finite and non-negative.")
+    values = frame[["open", "high", "low", "close"]].apply(pd.to_numeric, errors="coerce")
+    checks = {
+        "OHLC missing, non-finite or non-positive": (values.isna() | ~np.isfinite(values) | values.le(0)).any(axis=1),
+        "high below low": values["high"] < values["low"],
+        "high below open/close": values["high"] < values[["open", "close"]].max(axis=1),
+        "low above open/close": values["low"] > values[["open", "close"]].min(axis=1),
+    }
+    invalid = pd.DataFrame(checks).any(axis=1)
+    count, cap = int(invalid.sum()), max(5, len(frame) // 100)
+    if count > cap:
+        raise ValueError(f"{count} invalid OHLC rows exceed quarantine cap {cap} of {len(frame)} rows")
+    if count == len(frame):
+        raise ValueError("no valid OHLC rows remain after quarantine")
+    dropped = [{"date": row["date"].date().isoformat(),
+                "reason": "; ".join(reason for reason, mask in checks.items() if mask.loc[index])}
+               for index, row in frame.loc[invalid].iterrows()]
+    clean = frame.loc[~invalid].copy()
+    clean.attrs["dropped_rows"] = [*frame.attrs.get("dropped_rows", []), *dropped]
+    return clean
+
+
+def _validate_frame(frame: pd.DataFrame, item: FetchItem, start: date, end: date,
+                    *, quarantine_ohlc: bool = False) -> pd.DataFrame:
     if frame is None or frame.empty:
         raise ValueError("no rows returned")
     frame = frame.copy()
     column = "date" if item.kind == "prices" else "as_of_date"
     dates = pd.to_datetime(frame[column], errors="raise").dt.normalize()
     frame[column] = dates
-    frame = frame.loc[dates.between(pd.Timestamp(start), pd.Timestamp(end))].copy()
+    frame = frame.loc[dates.between(pd.Timestamp(start), pd.Timestamp(end))].copy().reset_index(drop=True)
     if frame.empty:
         raise ValueError("no rows in requested window")
+    if "source" not in frame or frame["source"].isna().any() or frame["source"].astype(str).str.strip().eq("").any():
+        raise ValueError("provider provenance is missing")
+    for column in ("fetched_at", "ingested_at", "available_at"):
+        if column in frame and pd.to_datetime(frame[column], utc=True, errors="coerce").isna().any():
+            raise ValueError(f"invalid {column}")
+    if frame.duplicated(["date" if item.kind == "prices" else "as_of_date"]).any():
+        raise ValueError("provider returned duplicate dates")
     if item.kind == "prices":
         _require_action_columns(frame)
         if "is_adjusted" not in frame or not frame["is_adjusted"].map(lambda value: isinstance(value, (bool, np.bool_)) and bool(value)).all():
@@ -289,6 +345,8 @@ def _validate_frame(frame: pd.DataFrame, item: FetchItem, start: date, end: date
         frame["etf_id"] = item.identifier
         if "currency" not in frame or not frame["currency"].eq(item.currency).all():
             raise ValueError("provider currency does not match canonical instrument currency")
+        if quarantine_ohlc:
+            frame = _quarantine_ohlc(frame)
         report = validate_prices(frame, as_of_date=end, calendar_resolver=lambda _: None)
         blocks = [issue.message for issue in report.issues if issue.severity == "block" and issue.code != "insufficient_history"]
         if blocks:
@@ -304,13 +362,6 @@ def _validate_frame(frame: pd.DataFrame, item: FetchItem, start: date, end: date
         frame = frame.reset_index(drop=True)
         for column in result.frame:
             frame[column] = result.frame[column].to_numpy()
-    if "source" not in frame or frame["source"].isna().any() or frame["source"].astype(str).str.strip().eq("").any():
-        raise ValueError("provider provenance is missing")
-    for column in ("fetched_at", "ingested_at", "available_at"):
-        if column in frame and pd.to_datetime(frame[column], utc=True, errors="coerce").isna().any():
-            raise ValueError(f"invalid {column}")
-    if frame.duplicated(["date" if item.kind == "prices" else "as_of_date"]).any():
-        raise ValueError("provider returned duplicate dates")
     return frame.sort_values("date" if item.kind == "prices" else "as_of_date").reset_index(drop=True)
 
 
@@ -364,14 +415,15 @@ def _worker(items, options, start, end, result_path, factory):
     try:
         provider = factory(options.root, limiter)
         for item in items:
-            row = {"kind": item.kind, "identifier": item.identifier, "pid": os.getpid()}
+            row = {"kind": item.kind, "identifier": item.identifier, "pid": os.getpid(), "dropped_rows": []}
             try:
                 if not item.symbol:
                     raise ValueError("canonical provider symbol is missing")
                 if not item.currency:
                     raise ValueError("canonical quote currency is missing")
                 frame = _stamp(provider.fetch(item, start, end), item)
-                frame = _validate_frame(frame, item, start, end)
+                row["provider_attempts"] = frame.attrs.get("provider_attempts", [])
+                frame = _validate_frame(frame, item, start, end, quarantine_ohlc=True)
                 frame["provider"] = frame["source"]
                 if item.kind == "prices":
                     frame["actions_evidenced"] = True
@@ -379,10 +431,12 @@ def _worker(items, options, start, end, result_path, factory):
                 atomic_write_bytes(stage, _parquet_bytes(frame), validator=_parquet_validator(len(frame)))
                 dates = pd.to_datetime(frame["date" if item.kind == "prices" else "as_of_date"])
                 row.update(status="staged", path=str(stage), rows=len(frame), checksum=sha256_dataframe(frame),
+                           dropped_rows=frame.attrs.get("dropped_rows", []),
                            first_date=dates.min().date().isoformat(), last_date=dates.max().date().isoformat(),
                            absent_weekdays=len(pd.bdate_range(start, end).difference(pd.DatetimeIndex(dates))))
             except Exception as exc:
                 row.update(status="missing", reason=redact_text(str(exc)))
+                row["provider_attempts"] = getattr(exc, "provider_attempts", row.get("provider_attempts", []))
             rows.append(row)
     except Exception as exc:
         received = {(row["kind"], row["identifier"]) for row in rows}
@@ -404,6 +458,20 @@ def _destination(root: Path, relative: str) -> Path:
             raise ValueError("canonical destination must not traverse links")
         current = current.parent
     return path
+
+
+def _validated_stage(stage: Path, item: FetchItem, start: date, end: date) -> pd.DataFrame:
+    frame = _read(stage)
+    if item.kind == "prices":
+        if ("actions_evidenced" not in frame or frame.empty
+                or not frame["actions_evidenced"].map(lambda value: isinstance(value, (bool, np.bool_)) and bool(value)).all()):
+            raise ValueError(f"staged corporate actions are not evidenced: {item.identifier}")
+        if "provider" not in frame or "source" not in frame or not frame["provider"].eq(frame["source"]).all():
+            raise ValueError(f"staged corporate-action provider is missing or inconsistent: {item.identifier}")
+    frame = _validate_frame(frame, item, start, end)
+    if any(column not in frame for column in ("fetched_at", "ingested_at", "available_at")):
+        raise ValueError("staged availability provenance is missing")
+    return frame
 
 
 def promote_staging(options: FetchOptions, rows: list[dict], items: list[FetchItem], revision: str) -> None:
@@ -434,16 +502,7 @@ def promote_staging(options: FetchOptions, rows: list[dict], items: list[FetchIt
                 continue
             item = by_key[(row["kind"], row["identifier"])]
             stage = options.staging / f"{item.key}.parquet"
-            frame = _read(stage)
-            if item.kind == "prices":
-                if ("actions_evidenced" not in frame or frame.empty
-                        or not frame["actions_evidenced"].map(lambda value: isinstance(value, (bool, np.bool_)) and bool(value)).all()):
-                    raise ValueError(f"staged corporate actions are not evidenced: {item.identifier}")
-                if "provider" not in frame or "source" not in frame or not frame["provider"].eq(frame["source"]).all():
-                    raise ValueError(f"staged corporate-action provider is missing or inconsistent: {item.identifier}")
-            frame = _validate_frame(frame, item, start, end)
-            if any(column not in frame for column in ("fetched_at", "ingested_at", "available_at")):
-                raise ValueError("staged availability provenance is missing")
+            frame = _validated_stage(stage, item, start, end)
             frames[item.kind].append(frame)
         extra, merged = [], {}
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
@@ -511,19 +570,61 @@ def fetch_full_universe(options: FetchOptions, *, provider_factory=ProviderChain
     options.staging.mkdir(parents=True, exist_ok=True)
     items, revision = _items(options.root)
     report = {"execution_allowed": False, "start": start.isoformat(), "end": end.isoformat(), "universe_revision": revision,
+              "quarantine_policy": "invalid OHLC only; max(5, floor(1% of requested-window rows)); no imputation",
               "workers": options.workers, "promotion": "not_requested", "rows": []}
     # A single invocation owns this staging namespace; fetch processes write disjoint files.
     with persistent_file_guard(options.staging / ".fetch.guard", timeout_seconds=30):
         pending = []
+        previous = {}
+        if options.only_missing:
+            previous_report = json.loads((options.staging / "report.json").read_text(encoding="utf-8"))
+            if any(key in previous_report and previous_report[key] != report[key]
+                   for key in ("start", "end", "universe_revision")):
+                raise ValueError("--only-missing requires the same window and universe revision as the staged report")
+            previous = {(row["kind"], row["identifier"]): row for row in previous_report["rows"]}
+            if len(previous) != len(previous_report["rows"]):
+                raise ValueError("--only-missing report contains duplicate items")
+            report = {**previous_report, **report}
+            report.pop("message", None)
+            current_keys = {(item.kind, item.identifier) for item in items}
+            report["rows"] = [row for key, row in previous.items() if key not in current_keys]
+            report["selected"] = sum(previous.get((item.kind, item.identifier), {}).get("status") == "missing"
+                                     for item in items)
+            if report["selected"] == 0:
+                report.update(rows=list(previous.values()), missing=sum(row["status"] == "missing" for row in previous.values()),
+                              message="No matching missing instruments selected; nothing to fetch.")
+                atomic_write_bytes(options.staging / "report.json", json.dumps(report, indent=2).encode(), validator=_json_validator)
+                return report
         canonical = {"prices": pd.DataFrame(), "fx": pd.DataFrame()}
-        if options.resume:
+        if options.resume or any(row["status"] == "resumed_canonical" for row in previous.values()):
             canonical = {"prices": _read(options.root / "data/validated/prices/prices_daily.parquet"), "fx": _read(options.root / "data/clean/fx.parquet")}
         canonical = _coverage_groups(canonical)
         for item in items:
             stage = options.staging / f"{item.key}.parquet"
-            row = {"kind": item.kind, "identifier": item.identifier}
-            if options.resume and stage.exists() and _covered(_read(stage), item, start, end):
-                row.update(status="resumed_staging", path=str(stage))
+            row = {"kind": item.kind, "identifier": item.identifier, "dropped_rows": []}
+            old = previous.get((item.kind, item.identifier))
+            if options.only_missing:
+                if old is None:
+                    continue
+                if old["status"] == "missing":
+                    pending.append(item)
+                    continue
+                if old["status"] in {"staged", "resumed_staging"}:
+                    # Coverage gaps, including quarantined sessions, are intentional.
+                    # Validate evidence, but do not turn --only-missing into --resume.
+                    frame = _validated_stage(stage, item, start, end)
+                    if old.get("checksum") and old["checksum"] != sha256_dataframe(frame):
+                        raise ValueError(f"staged checksum changed: {item.identifier}")
+                    row = {**old, "status": "resumed_staging", "path": str(stage),
+                           "dropped_rows": frame.attrs.get("dropped_rows", [])}
+                elif old["status"] == "resumed_canonical" and _covered(_stored_item(canonical, item), item, start, end):
+                    row = dict(old)
+                else:
+                    raise ValueError(f"--only-missing cannot reuse report status/evidence: {item.identifier}")
+            elif options.resume and stage.exists() and _covered(_read(stage), item, start, end):
+                frame = _read(stage)
+                row.update(status="resumed_staging", path=str(stage), dropped_rows=frame.attrs.get("dropped_rows", []),
+                           provider_attempts=frame.attrs.get("provider_attempts", []))
             elif options.resume:
                 if _covered(_stored_item(canonical, item), item, start, end):
                     row.update(status="resumed_canonical")

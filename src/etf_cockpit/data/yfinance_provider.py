@@ -366,7 +366,10 @@ class YFinanceProvider(DataProvider, PriceProvider):
                 "capital_gains": _numeric_frame_column(frame, "Capital Gains", default=0.0),
             }
         )
-        out = out.dropna(subset=["open", "high", "low", "close", "adjusted_close"])
+        if require_actions and out["adjusted_close"].isna().any():
+            raise ValueError("Adjusted close is missing or non-positive.")
+        if not require_actions:
+            out = out.dropna(subset=["open", "high", "low", "close", "adjusted_close"])
         divisor = _minor_unit_divisor(yf, symbol, session=self.session)
         if divisor != 1:
             for column in ("open", "high", "low", "close", "adjusted_close", "dividends", "capital_gains"):

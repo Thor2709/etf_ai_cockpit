@@ -255,7 +255,7 @@ def test_resume_skips_covered_staging_and_canonical_but_refetches_gaps(tmp_path)
     assert not _prices(root).loc[_prices(root)["etf_id"].eq("A"), "date"].eq(pd.Timestamp("2024-01-03")).any()
 
 
-def _offline_action_chain(root, monkeypatch, missing_column=None):
+def _offline_action_chain(root, monkeypatch, missing_column=None, periods=4):
     from etf_cockpit.data import yfinance_provider as yahoo
 
     settings = DataProvidersConfig(providers={
@@ -268,7 +268,7 @@ def _offline_action_chain(root, monkeypatch, missing_column=None):
     monkeypatch.setattr(fetch, "_yahoo_session", lambda _: SimpleNamespace(close=lambda: None))
     raw = pd.DataFrame({"Open": 10.0, "High": 12.0, "Low": 9.0, "Close": 11.0,
                         "Adj Close": 10.5, "Volume": 100, "Dividends": 0.0, "Stock Splits": 0.0},
-                       index=pd.bdate_range("2024-01-02", "2024-01-05"))
+                       index=pd.bdate_range("2024-01-02", periods=periods))
     seen = []
 
     def download(*_args, **_kwargs):
@@ -387,3 +387,227 @@ def test_present_zero_action_columns_are_kept_with_provider_evidence(tmp_path, m
     strict = YFinanceProvider()._download_one(symbol="B", etf_id="B", start_date=options.start,
                                              end_date=options.end, require_actions=True)
     assert pd.isna(strict["dividends"].iloc[0])
+
+
+def _quarantine_fixture(tmp_path, monkeypatch, periods=100):
+    root = _root(tmp_path / "root")
+    raw, seen = _offline_action_chain(root, monkeypatch, periods=periods)
+    raw.index = pd.bdate_range(end="2024-05-20", periods=periods)
+    item = fetch.FetchItem("prices", "B", "B", "EUR")
+    _, revision = fetch._items(root)
+    monkeypatch.setattr(fetch, "_items", lambda _: ([item], revision))
+    options = replace(_options(root), start=raw.index[0].date(), end=raw.index[-1].date())
+    return root, raw, seen, item, options
+
+
+def test_six_missing_high_among_100_exceeds_quarantine_cap(tmp_path, monkeypatch):
+    _, raw, seen, item, options = _quarantine_fixture(tmp_path, monkeypatch)
+    raw.iloc[:6, raw.columns.get_loc("High")] = float("nan")
+    report = fetch.fetch_full_universe(options)
+    row, = report["rows"]
+    assert row["status"] == "missing"
+    assert "6 invalid OHLC rows exceed quarantine cap 5 of 100 rows" in row["reason"]
+    assert row["provider_attempts"][0]["reason"] == "6 invalid OHLC rows exceed quarantine cap 5 of 100 rows"
+    assert seen == ["yfinance", "stooq", "tiingo", "twelvedata"]
+    assert not (options.staging / f"{item.key}.parquet").exists()
+
+
+def test_one_missing_high_among_100_is_quarantined_and_audited(tmp_path, monkeypatch):
+    from etf_cockpit.data.yfinance_provider import YFinanceProvider
+
+    _, raw, seen, _, options = _quarantine_fixture(tmp_path, monkeypatch)
+    raw.iloc[10, raw.columns.get_loc("High")] = float("nan")
+    report = fetch.fetch_full_universe(options)
+    row, = report["rows"]
+    expected = [{"date": raw.index[10].date().isoformat(), "reason": "OHLC missing, non-finite or non-positive"}]
+    assert row["status"] == "staged" and row["rows"] == 99
+    assert row["dropped_rows"] == expected
+    staged = pd.read_parquet(row["path"])
+    assert staged.attrs["dropped_rows"] == expected
+    assert pd.Timestamp(raw.index[10]) not in set(staged["date"])
+    assert json.loads((options.staging / "report.json").read_text())["rows"][0]["dropped_rows"] == expected
+    assert seen == ["yfinance"]
+    # Listing/FX callers retain the existing drop-missing behavior.
+    legacy = YFinanceProvider()._download_one(symbol="B", etf_id="B", start_date=options.start, end_date=options.end)
+    assert len(legacy) == 99 and legacy["high"].notna().all()
+
+
+@pytest.mark.parametrize(("column", "reason"), [("Volume", "Required volume values"),
+                                               ("Dividends", "missing/invalid corporate actions"),
+                                               ("Stock Splits", "missing/invalid corporate actions")])
+def test_missing_high_cannot_hide_invalid_volume_or_actions(tmp_path, monkeypatch, column, reason):
+    _, raw, _, item, options = _quarantine_fixture(tmp_path, monkeypatch)
+    settings = DataProvidersConfig(providers={"prices": ProviderSection(active_provider="yfinance")})
+    monkeypatch.setattr(fetch, "load_config", lambda _: SimpleNamespace(data_providers=settings))
+    raw.iloc[10, raw.columns.get_loc("High")] = float("nan")
+    raw.iloc[10, raw.columns.get_loc(column)] = -1.0
+    report = fetch.fetch_full_universe(options)
+    row, = report["rows"]
+    assert row["status"] == "missing"
+    assert reason in row["provider_attempts"][0]["reason"]
+    assert not (options.staging / f"{item.key}.parquet").exists()
+
+
+def test_one_invalid_ohlc_among_100_is_quarantined_and_audited(tmp_path, monkeypatch):
+    _, raw, seen, item, options = _quarantine_fixture(tmp_path, monkeypatch)
+    raw.iloc[10, raw.columns.get_loc("High")] = 10.0  # Below close, without changing any prices.
+    report = fetch.fetch_full_universe(options)
+    row, = report["rows"]
+    expected = [{"date": raw.index[10].date().isoformat(), "reason": "high below open/close"}]
+    assert row["status"] == "staged" and row["rows"] == 99
+    assert row["dropped_rows"] == expected and row["absent_weekdays"] == 1
+    assert row["provider_attempts"] == [{"provider": "yfinance", "status": "accepted"}]
+    assert seen == ["yfinance"]
+    staged = pd.read_parquet(row["path"])
+    assert staged.attrs["dropped_rows"] == expected
+    assert json.loads((options.staging / "report.json").read_text())["rows"][0]["dropped_rows"] == expected
+    assert staged["actions_evidenced"].eq(True).all()
+    assert pd.Timestamp(raw.index[10]) not in set(staged["date"])
+    assert staged["close"].eq(11.0).all() and staged["adjusted_close"].eq(10.5).all()
+    assert not fetch._covered(staged, item, options.start, options.end)
+    reused = fetch.fetch_full_universe(replace(options, only_missing=True), provider_factory=NoFetch)
+    assert reused["rows"][0]["dropped_rows"] == expected
+    assert reused["rows"] == report["rows"]
+    assert reused["selected"] == 0 and "nothing to fetch" in reused["message"]
+
+
+@pytest.mark.parametrize(("periods", "bad_rows", "status"), [(100, 5, "staged"), (100, 6, "missing"),
+                                                            (1000, 10, "staged"), (1000, 11, "missing")])
+def test_invalid_ohlc_cap_rejects_history_and_reports_fallbacks(tmp_path, monkeypatch, periods, bad_rows, status):
+    _, raw, seen, item, options = _quarantine_fixture(tmp_path, monkeypatch, periods)
+    raw.iloc[:bad_rows, raw.columns.get_loc("High")] = 10.0
+    report = fetch.fetch_full_universe(options)
+    row, = report["rows"]
+    assert row["status"] == status
+    if status == "missing":
+        assert "exceed quarantine cap" in row["reason"]
+        assert seen == ["yfinance", "stooq", "tiingo", "twelvedata"]
+        assert [attempt["provider"] for attempt in row["provider_attempts"]] == seen
+        assert not (options.staging / f"{item.key}.parquet").exists()
+    else:
+        assert row["rows"] == periods - bad_rows and len(row["dropped_rows"]) == bad_rows
+        assert seen == ["yfinance"]
+
+
+@pytest.mark.parametrize("adjusted", [float("nan"), 0.0, -1.0, float("inf")], ids=["missing", "zero", "negative", "infinite"])
+def test_invalid_adjusted_close_remains_instrument_rejection(tmp_path, monkeypatch, adjusted):
+    _, raw, seen, item, options = _quarantine_fixture(tmp_path, monkeypatch)
+    raw.iloc[10, raw.columns.get_loc("Adj Close")] = adjusted
+    raw.iloc[10, raw.columns.get_loc("High")] = 10.0  # Cannot hide bad adjusted close by quarantining this date.
+    report = fetch.fetch_full_universe(options)
+    row, = report["rows"]
+    assert row["status"] == "missing"
+    assert "Adjusted close is missing or non-positive" in row["reason"]
+    assert seen == ["yfinance", "stooq", "tiingo", "twelvedata"]
+    assert not (options.staging / f"{item.key}.parquet").exists()
+
+
+def test_only_missing_cli_refetches_only_missing_and_reuses_staged_bytes(tmp_path, monkeypatch, capsys):
+    from scripts import fetch_full_universe as cli
+
+    root = _root(tmp_path / "root")
+    options = _options(root)
+    (root / "behavior.json").write_text(json.dumps({"A": "missing", "B": "gap"}))
+    first = fetch.fetch_full_universe(options, provider_factory=FakeProvider)
+    preserved = {row["path"]: Path(row["path"]).read_bytes() for row in first["rows"] if row["status"] == "staged"}
+    (root / "behavior.json").write_text("{}")
+    calls = []
+
+    class MissingOnly(FakeProvider):
+        def fetch(self, item, start, end):
+            calls.append(item.identifier)
+            return super().fetch(item, start, end)
+
+    monkeypatch.setattr(cli, "fetch_full_universe", lambda options: fetch.fetch_full_universe(options, provider_factory=MissingOnly))
+    args = ["--root", str(root), "--start", "2024-01-02", "--end", "2024-01-05", "--warmup-days", "0",
+            "--fill-days", "0", "--workers", "1", "--staging", str(options.staging), "--only-missing"]
+    assert cli.main(args) == 0
+    second = json.loads(capsys.readouterr().out)
+    assert calls == ["A"] and second["missing"] == 0
+    assert {row["identifier"] for row in second["rows"] if row["status"] == "resumed_staging"} == {"B", "BENCH", "USD/EUR"}
+    assert all(Path(path).read_bytes() == payload for path, payload in preserved.items())
+    calls.clear()
+    assert cli.main(args) == 0
+    assert calls == []
+
+
+def test_only_missing_refuses_changed_window_or_missing_stage(tmp_path):
+    root = _root(tmp_path / "root")
+    options = _options(root)
+    first = fetch.fetch_full_universe(options, provider_factory=FakeProvider)
+    with pytest.raises(ValueError, match="same window and universe revision"):
+        fetch.fetch_full_universe(replace(options, end=date(2024, 1, 4), only_missing=True), provider_factory=NoFetch)
+    # Evidence must still be valid when the report selects work to fetch.
+    first["rows"][-1].update(status="missing", reason="retry fixture")
+    (options.staging / "report.json").write_text(json.dumps(first))
+    Path(first["rows"][0]["path"]).unlink()
+    with pytest.raises(ValueError):
+        fetch.fetch_full_universe(replace(options, only_missing=True), provider_factory=NoFetch)
+
+
+@pytest.mark.parametrize("row_only", [False, True], ids=["full-report", "row-only-report"])
+def test_only_missing_copied_report_selects_by_kind_and_identifier_and_merges(tmp_path, monkeypatch, capsys, row_only):
+    from scripts import fetch_full_universe as cli
+
+    root = _root(tmp_path / "root")
+    items, revision = fetch._items(root)
+    items.append(fetch.FetchItem("prices", "USD/EUR", "PAIR-ETF", "EUR"))
+    monkeypatch.setattr(fetch, "_items", lambda _: (items, revision))
+    options = _options(root)
+    first = fetch.fetch_full_universe(options, provider_factory=FakeProvider)
+    copied = tmp_path / "copied-staging"
+    copied.mkdir()
+    missing = {("prices", "A"), ("fx", "USD/EUR")}
+    preserved = {}
+    for row in first["rows"]:
+        key = (row["kind"], row["identifier"])
+        if key in missing:
+            row.clear()
+            row.update(kind=key[0], identifier=key[1], status="missing", reason="first run missing")
+        else:
+            stage = copied / Path(row["path"]).name
+            preserved[stage] = Path(row["path"]).read_bytes()
+            stage.write_bytes(preserved[stage])
+            row["path"] = str(stage)
+    (copied / "report.json").write_text(json.dumps({"rows": first["rows"]} if row_only else first))
+    calls = []
+
+    class MissingOnly(FakeProvider):
+        def fetch(self, item, start, end):
+            calls.append((item.kind, item.identifier))
+            return super().fetch(item, start, end)
+
+    monkeypatch.setattr(cli, "fetch_full_universe", lambda options: fetch.fetch_full_universe(options, provider_factory=MissingOnly))
+    assert cli.main(["--root", str(root), "--start", "2024-01-02", "--end", "2024-01-05", "--warmup-days", "0",
+                     "--fill-days", "0", "--workers", "1", "--staging", str(copied), "--only-missing"]) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert set(calls) == missing and len(calls) == 2
+    assert report["selected"] == 2 and report["missing"] == 0
+    assert len(report["rows"]) == len(first["rows"])
+    assert {(row["kind"], row["identifier"]) for row in report["rows"] if row["status"] == "staged"} == missing
+    assert {(row["kind"], row["identifier"]) for row in report["rows"] if row["status"] == "resumed_staging"} == {
+        (item.kind, item.identifier) for item in items
+    } - missing
+    assert all(stage.read_bytes() == payload for stage, payload in preserved.items())
+    assert json.loads((copied / "report.json").read_text()) == report
+    assert report["execution_allowed"] is False
+
+
+@pytest.mark.parametrize("rows", [[], [{"kind": "fx", "identifier": "A", "status": "missing", "reason": "unmatched kind"}],
+                                  [{"kind": "prices", "identifier": "B", "status": "staged", "reason": "copied summary"}]])
+def test_only_missing_zero_selection_is_clean_cli_noop(tmp_path, monkeypatch, capsys, rows):
+    from scripts import fetch_full_universe as cli
+
+    root = _root(tmp_path / "root")
+    options = _options(root)
+    options.staging.mkdir()
+    (options.staging / "report.json").write_text(json.dumps({"rows": rows}))
+    monkeypatch.setattr(cli, "fetch_full_universe", lambda options: fetch.fetch_full_universe(options, provider_factory=NoFetch))
+    assert cli.main(["--root", str(root), "--start", "2024-01-02", "--end", "2024-01-05", "--warmup-days", "0",
+                     "--fill-days", "0", "--workers", "2", "--staging", str(options.staging), "--only-missing", "--promote"]) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["rows"] == rows and report["selected"] == 0
+    assert "nothing to fetch" in report["message"]
+    assert report["promotion"] == "not_requested"
+    assert not list(options.staging.glob("run-*"))
+    assert _store_bytes(root) == {}
