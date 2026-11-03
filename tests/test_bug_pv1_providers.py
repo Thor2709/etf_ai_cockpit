@@ -91,6 +91,8 @@ def _download_frame(with_volume: bool) -> pd.DataFrame:
         "Low": [9.8, 10.2],
         "Close": [10.4, 10.7],
         "Adj Close": [10.3, 10.6],
+        "Dividends": [0.0, 0.0],
+        "Stock Splits": [0.0, 0.0],
     }
     if with_volume:
         data["Volume"] = [1000, 1200]
