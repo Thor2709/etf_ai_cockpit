@@ -37,20 +37,23 @@ import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta, timezone
+from email.utils import parsedate_to_datetime
 from pathlib import Path
+
+import pandas as pd
+import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 
-import pandas as pd
-import yaml
-
-from etf_cockpit.core.atomic_io import atomic_write_bytes
-from etf_cockpit.data.sec_cik_history import cik_text
-from etf_cockpit.data.sp500_history import day, fja_events, knowledge, parse_fja_csv, parse_wikipedia_changes
+# Repository imports follow the standalone CLI's sys.path bootstrap.
+from etf_cockpit.core.atomic_io import atomic_write_bytes  # noqa: E402
+from etf_cockpit.data.sec_cik_history import cik_text  # noqa: E402
+from etf_cockpit.data.sp500_history import fja_events, parse_fja_csv, parse_wikipedia_changes  # noqa: E402
 
 SEC_RATE, OTHER_RATE = 7.0, 1.0
+RETRY_INITIAL, RETRY_CAP, THROTTLE_PAUSE = 5.0, 60.0, 60.0
 FJA_REPO, FJA_FILE = "fja05680/sp500", "S&P 500 Historical Components & Changes (Updated).csv"
 WIKI_HISTORY = "https://en.wikipedia.org/wiki/Historical_components_of_the_S%26P_500"
 WIKI_CONSTITUENTS = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
@@ -69,12 +72,19 @@ class Limiter:
         self.interval, self.lock, self.next = 1.0 / per_second, threading.Lock(), 0.0
 
     def wait(self) -> None:
+        # Recheck after sleeping: another worker may have received Retry-After.
+        while True:
+            with self.lock:
+                delay = self.next - time.monotonic()
+                if delay <= 0:
+                    self.next = time.monotonic() + self.interval
+                    return
+            time.sleep(delay)
+
+    def defer(self, seconds: float) -> None:
+        """A provider cooldown applies to queued workers as well as the caller."""
         with self.lock:
-            now = time.monotonic()
-            slot = max(now, self.next)
-            self.next = slot + self.interval
-        if slot > now:
-            time.sleep(slot - now)
+            self.next = max(self.next, time.monotonic() + seconds)
 
 
 LIMITERS = {"sec": Limiter(SEC_RATE), "github": Limiter(OTHER_RATE), "wikipedia": Limiter(OTHER_RATE),
@@ -96,10 +106,36 @@ def user_agent() -> str:
     return value
 
 
+def retry_after(value: str | None) -> float:
+    """Return the provider's minimum wait; invalid/missing headers use backoff."""
+    if value is None:
+        return 0.0
+    value = value.strip()
+    if re.fullmatch(r"[0-9]+", value):
+        return float(value)
+    try:
+        stamp = parsedate_to_datetime(value)
+        # HTTP dates are UTC, including the obsolete asctime form without a zone.
+        if stamp.tzinfo is None:
+            stamp = stamp.replace(tzinfo=timezone.utc)
+        return max(0.0, stamp.timestamp() - time.time())
+    except (ValueError, TypeError, OverflowError):
+        pass
+    return 0.0
+
+
 def http_get(url: str, host: str, *, tries: int = 5, allow_404: bool = False) -> tuple[int, bytes]:
+    """Five total attempts; 5s exponential backoff capped at 60s.
+
+    403/429 wait at least 60s. Retry-After is a lower bound and is never capped.
+    All waits use the host's shared limiter, including the final failure cooldown.
+    """
+    if tries < 1:
+        raise ValueError("tries must be positive")
     request = urllib.request.Request(url, headers={"User-Agent": user_agent(), "Accept-Encoding": "gzip"})
     for attempt in range(tries):
         LIMITERS[host].wait()
+        delay = min(RETRY_INITIAL * 2 ** min(attempt, 4), RETRY_CAP)
         try:
             with urllib.request.urlopen(request, timeout=60) as response:
                 payload = response.read()
@@ -107,14 +143,22 @@ def http_get(url: str, host: str, *, tries: int = 5, allow_404: bool = False) ->
                     payload = gzip.decompress(payload)
                 return response.status, payload
         except urllib.error.HTTPError as exc:
-            if exc.code == 404 and allow_404:
-                return 404, b""
-            if exc.code not in {403, 429, 500, 502, 503, 504} or attempt == tries - 1:
-                raise
-        except (urllib.error.URLError, TimeoutError, ConnectionError):
+            try:
+                if exc.code == 404 and allow_404:
+                    return 404, b""
+                if exc.code not in {403, 429} and not 500 <= exc.code < 600:
+                    raise
+                delay = max(delay, retry_after(exc.headers.get("Retry-After") if exc.headers else None),
+                            THROTTLE_PAUSE if exc.code in {403, 429} else 0.0)
+                LIMITERS[host].defer(delay)
+                if attempt == tries - 1:
+                    raise RuntimeError(f"{host}: HTTP {exc.code}; exhausted {tries} attempts; acquisition stopped") from None
+            finally:
+                exc.close()
+        except (urllib.error.URLError, TimeoutError, ConnectionError) as exc:
+            LIMITERS[host].defer(delay)
             if attempt == tries - 1:
-                raise
-        time.sleep(2 ** attempt)
+                raise RuntimeError(f"{host}: {type(exc).__name__}; exhausted {tries} attempts; acquisition stopped") from None
     raise RuntimeError("unreachable")
 
 
@@ -132,9 +176,11 @@ def record(path: Path, meta_dir: Path, payload: bytes, *, url: str, status: int 
     return meta
 
 
-def recorded(path: Path, meta_dir: Path) -> dict | None:
+def recorded(path: Path, meta_dir: Path, *, legacy_meta_dir: Path | None = None) -> dict | None:
     """Resume: a file counts only if its sidecar checksum matches the bytes on disk."""
     sidecar = meta_dir / (path.name + ".meta.json")
+    if not sidecar.is_file() and legacy_meta_dir is not None:
+        sidecar = legacy_meta_dir / sidecar.name
     if not path.is_file() or not sidecar.is_file():
         return None
     try:
@@ -144,8 +190,9 @@ def recorded(path: Path, meta_dir: Path) -> dict | None:
     return meta if meta.get("sha256") == sha256(path.read_bytes()) else None
 
 
-def fetch_recorded(url: str, host: str, path: Path, meta_dir: Path, **kwargs) -> dict:
-    return recorded(path, meta_dir) or record(path, meta_dir, http_get(url, host)[1], url=url, **kwargs)
+def fetch_recorded(url: str, host: str, path: Path, meta_dir: Path, *, legacy_meta_dir: Path | None = None, **kwargs) -> dict:
+    return recorded(path, meta_dir, legacy_meta_dir=legacy_meta_dir) or record(
+        path, meta_dir, http_get(url, host)[1], url=url, **kwargs)
 
 
 class Layout:
@@ -154,6 +201,8 @@ class Layout:
         self.raw = root / "data" / "raw" / "univ1_sp500"
         self.sources, self.meta = self.raw / "sources", self.raw / "_meta"
         self.facts, self.subs = self.raw / "sec" / "companyfacts", self.raw / "sec" / "submissions"
+        # Both endpoints use CIK{cik}.json; their checksums must not overwrite each other.
+        self.facts_meta, self.subs_meta = self.meta / "companyfacts", self.meta / "submissions"
         self.prices = self.raw / "prices"
         for folder in (self.sources, self.meta, self.facts, self.subs, self.prices):
             folder.mkdir(parents=True, exist_ok=True)
@@ -221,9 +270,34 @@ def select_instrument_bindings(members: dict, records: list, ciks: dict, *, know
 
 # ---------------------------------------------------------------- step: sources
 def step_sources(layout: Layout) -> dict:
-    api = f"https://api.github.com/repos/{FJA_REPO}/commits?path={urllib.parse.quote(FJA_FILE)}&per_page=1"
-    commit = json.loads(http_get(api, "github")[1])[0]
+    manifest_path = layout.sources / "manifest.json"
+    if manifest_path.is_file():
+        manifest = json.loads(manifest_path.read_text())
+        if all(recorded(layout.sources / name, layout.meta) == manifest["files"].get(name)
+               and manifest["files"].get(name) is not None for name in (
+                   "fja_history.csv", "fja_LICENSE.txt", "wikipedia_changes.html",
+                   "wikipedia_constituents.html", "company_tickers.json")):
+            return manifest
+    # Pin the discovery response too, so an interrupted run cannot mix commits.
+    pinned = set()
+    for name in ("fja_history.csv", "fja_LICENSE.txt"):
+        meta = recorded(layout.sources / name, layout.meta)
+        if meta:
+            match = re.match(rf"https://raw\.githubusercontent\.com/{re.escape(FJA_REPO)}/([0-9a-f]{{40}})/", meta["url"])
+            if not match:
+                raise ValueError("cached fja source has no immutable commit URL")
+            pinned.add(match[1])
+    if len(pinned) > 1:
+        raise ValueError("cached fja sources have conflicting commits")
+    api = (f"https://api.github.com/repos/{FJA_REPO}/commits/{next(iter(pinned))}" if pinned else
+           f"https://api.github.com/repos/{FJA_REPO}/commits?path={urllib.parse.quote(FJA_FILE)}&per_page=1")
+    commit_path = layout.sources / "fja_commit.json"
+    fetch_recorded(api, "github", commit_path, layout.meta)
+    response = json.loads(commit_path.read_bytes())
+    commit = response[0] if isinstance(response, list) else response
     sha = commit["sha"]
+    if pinned and pinned != {sha}:
+        raise ValueError("cached discovery and fja sources have conflicting commits")
     raw = f"https://raw.githubusercontent.com/{FJA_REPO}/{sha}/"
     files = {
         "fja_history.csv": (raw + urllib.parse.quote(FJA_FILE), "github"),
@@ -372,7 +446,7 @@ def fetch_issuer(task: tuple[str, Layout]) -> dict:
     out = {"cik": cik, "submissions": "ok", "companyfacts": "ok", "pages": 0}
     try:
         name = f"CIK{cik}.json"
-        meta = fetch_recorded(SUBMISSIONS.format(name=name), "sec", layout.subs / name, layout.meta)
+        fetch_recorded(SUBMISSIONS.format(name=name), "sec", layout.subs / name, layout.subs_meta, legacy_meta_dir=layout.meta)
         main = json.loads((layout.subs / name).read_bytes())
         if cik_text(main["cik"]) != cik:
             raise ValueError("submissions CIK mismatch")
@@ -380,15 +454,15 @@ def fetch_issuer(task: tuple[str, Layout]) -> dict:
             page = entry["name"]
             if Path(page).name != page:
                 raise ValueError("unsafe submissions page name")
-            fetch_recorded(SUBMISSIONS.format(name=page), "sec", layout.subs / page, layout.meta)
+            fetch_recorded(SUBMISSIONS.format(name=page), "sec", layout.subs / page, layout.subs_meta, legacy_meta_dir=layout.meta)
             out["pages"] += 1
         facts = layout.facts / name
-        if recorded(facts, layout.meta) is None:
+        if recorded(facts, layout.facts_meta, legacy_meta_dir=layout.meta) is None:
             status, payload = http_get(COMPANYFACTS.format(cik=cik), "sec", allow_404=True)
             if status == 404:
                 out["companyfacts"] = "not_found_404"
             else:
-                record(facts, layout.meta, payload, url=COMPANYFACTS.format(cik=cik))
+                record(facts, layout.facts_meta, payload, url=COMPANYFACTS.format(cik=cik))
     except Exception as exc:
         out.update(submissions="failed", reason=f"{type(exc).__name__}: {exc}")
     return out
@@ -456,7 +530,12 @@ def step_config(layout: Layout) -> dict:
     manifest = json.loads((layout.sources / "manifest.json").read_text())
     resolved = json.loads((layout.raw / "resolve.json").read_text())
     history = load_history(layout)
-    snapshots, first = history["snapshots"], history["snapshots"][0]["date"]
+    snapshots = history["snapshots"]
+    history_start = "2021-10-01"  # Warm-up before the 2022-10-17 research interval.
+    eligible = [row for row in snapshots if row["date"] <= history_start]
+    if not eligible:
+        raise ValueError("no fja snapshot at or before history_start")
+    baseline = max(eligible, key=lambda row: row["date"])
     from etf_cockpit.data.universe_store import load_universe
     store = load_universe(layout.root)
     if store.integrity_errors:
@@ -473,24 +552,28 @@ def step_config(layout: Layout) -> dict:
     names = {t: info["name"] for t, info in resolved["members"].items() if info["name"]}
     base = yaml.safe_load((ROOT / "configs" / "sp500_universe_v1.yaml").read_text(encoding="utf-8"))
     current_now = {row["ticker"] for row in history["current"]}
-    wiki_start, issues = reverse_baseline(current_now, history["wiki_events"], first)
-    fja_known = first  # date-only -> end of that UTC day; see DEFAULTS in the handoff
+    wiki_start, issues = reverse_baseline(current_now, history["wiki_events"], history_start)
+    # Keep capture metadata. history_start explicitly opts into the dated fja
+    # historical-record rule; it does not backdate identity or Wikipedia evidence.
+    fja_known = manifest["files"]["fja_history.csv"]["fetched_at"]
     common = dict(
         history_csv=str(layout.sources / "fja_history.csv"), wikipedia_html=str(layout.sources / "wikipedia_changes.html"),
         company_tickers=str(layout.sources / "company_tickers.json"), companyfacts=str(layout.facts),
         submissions=str(layout.subs), as_of=now(), identity_observed_at=observed, baseline_known_at=fja_known,
-        baseline_source=f"fja05680 first snapshot {first} (members of that date), {manifest['fja_commit']}",
-        baseline_names={t: names[t] for t in snapshots[0]["tickers"] if t in names},
+        baseline_source=f"fja05680 dated snapshot {baseline['date']}, {manifest['fja_commit']}; captured {fja_known}",
+        baseline_names={t: names[t] for t in baseline["tickers"] if t in names},
+        history_start=history_start, announcement_policy="effective_date_conservative",
         csv_shape={"date_column": "date", "tickers_column": "tickers"}, wikipedia_table_id="changes",
         licence_ref=manifest["licence_ref"], cik_bindings=cik_bindings, instrument_bindings=bindings)
     block = {**base, **common, "cross_validation": "block",
-             "announcements": conservative_announcements(history["fja_events"] + history["wiki_events"]),
-             "wikipedia_baseline": {"date": first, "known_at": fja_known,
+             # Missing announcement evidence uses the explicit conservative policy.
+             "announcements": [],
+             "wikipedia_baseline": {"date": history_start, "known_at": max(
+                  manifest["files"][name]["fetched_at"] for name in ("wikipedia_changes.html", "wikipedia_constituents.html")),
                                     "source": "derived: wikipedia constituents at fetch walked back through the changes table",
                                     "tickers": wiki_start, "names": {t: names[t] for t in wiki_start if t in names}}}
     report = {**base, **common, "cross_validation": "report", "invalid_fact_policy": "skip",
-              "announcements": conservative_announcements(history["fja_events"] + [
-                  e for e in history["wiki_events"] if e["date"] > snapshots[-1]["date"]])}
+              "announcements": []}
     for name, config in (("run_config_block.yaml", block), ("run_config.yaml", report)):
         atomic_write_bytes(layout.raw / name, yaml.safe_dump(config, sort_keys=False, width=200).encode(),
                            lambda p: yaml.safe_load(p.read_text()))
@@ -502,7 +585,8 @@ def step_config(layout: Layout) -> dict:
 def step_report(layout: Layout) -> dict:
     """One deterministic summary of what was acquired, bound and left unbound."""
     from collections import Counter
-    load = lambda name: json.loads((layout.raw / name).read_text())
+    def load(name):
+        return json.loads((layout.raw / name).read_text())
     resolved, manifest = load("resolve.json"), json.loads((layout.sources / "manifest.json").read_text())
     ingest_report, block = load("report.json"), load("report_block.json")
     unmapped = ingest_report["unmapped"]
@@ -599,6 +683,8 @@ def main(argv=None) -> int:
                                                           "ingest-block", "ingest", "commit-prices", "report"])
     parser.add_argument("--workers", type=int, default=8)
     args = parser.parse_args(argv)
+    if args.workers < 1:
+        parser.error("--workers must be positive")
     layout = Layout(args.root.resolve())
     if args.step == "sources":
         out = step_sources(layout)
@@ -618,6 +704,8 @@ def main(argv=None) -> int:
         return step_ingest(layout, "run_config_block.yaml" if args.step == "ingest-block" else "run_config.yaml", args.workers)
     print(json.dumps({key: value for key, value in out.items() if key not in {"results", "members", "ciks", "flags", "files"}},
                      sort_keys=True, default=str)[:3000])
+    if args.step == "sec" and out["failed"]:
+        return 1
     return 0
 
 

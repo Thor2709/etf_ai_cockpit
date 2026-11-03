@@ -15,6 +15,9 @@ execution_allowed is always false. No acquisition/network calls are made.
 cross_validation=report (opt-in) publishes the complete fja history extended by
 later Wikipedia changes and only lists source differences; invalid_fact_policy=skip
 (opt-in) counts and drops unprovable SEC facts. Both defaults fail closed.
+announcement_policy=effective_date_conservative uses effective-date UTC midnight
+without sourced earlier announcements. history_start uses the latest dated fja
+snapshot at or before that date, known at snapshot-date UTC midnight.
 """
 from __future__ import annotations
 
@@ -29,9 +32,8 @@ import subprocess
 import sys
 import zipfile
 
-ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT / "src") not in sys.path:
-    sys.path.insert(0, str(ROOT / "src"))
+if str(Path(__file__).resolve().parents[1] / "src") not in sys.path:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 import pandas as pd
 import yaml
@@ -41,7 +43,7 @@ from etf_cockpit.core.atomic_io import atomic_write_bytes
 from etf_cockpit.data.sec_cik_history import cik_text, map_cik
 from etf_cockpit.data.sec_pit_facts import acceptance_index, fact_known_at, select_facts
 from etf_cockpit.data.sp500_history import (
-    build_intervals, compare_events, cross_validate, fja_events, intervals_from_fja, knowledge, parse_fja_csv,
+    build_intervals, compare_events, cross_validate, day, fja_events, intervals_from_fja, knowledge, parse_fja_csv,
     parse_wikipedia_changes,
 )
 from etf_cockpit.data.stock_fundamentals import (
@@ -49,6 +51,9 @@ from etf_cockpit.data.stock_fundamentals import (
 )
 from etf_cockpit.data.stock_sources import IDENTITY_SEC_CONCEPTS, parse_edgar_companyfacts
 from etf_cockpit.data.universe_membership import import_licensed_history
+
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def _json(payload: bytes) -> dict:
@@ -322,26 +327,47 @@ def ingest(config: dict, *, root: Path, workers: int = 8) -> dict:
         raise ValueError("independently sourced baselines required")
     # Each source retains its own baseline knowledge, never borrowed from the other.
     # Report mode extends the fja history with Wikipedia changes dated after its last snapshot.
-    later = [row for row in events if row["date"] > snapshots[-1]["date"]] if mode == "report" else []
+    history_start = config.get("history_start")
+    policy = config.get("announcement_policy", "required")
+    provenance = []
+    baseline_date = snapshots[0]["date"]
+    if history_start is not None:
+        history_start = day(history_start)
+        eligible = [row for row in snapshots if row["date"] <= history_start]
+        if not eligible:
+            raise ValueError("no fja snapshot at or before history_start")
+        baseline_date = history_start
+        snapshot = max(eligible, key=lambda row: row["date"])
+        report["history_start"] = history_start
+        report["history_baseline"] = {
+            "source": "fja05680", "snapshot_date": snapshot["date"], "valid_from": history_start,
+            "known_at": snapshot["date"] + "T00:00:00+00:00",
+            "provenance": "dated historical membership record; known_at=snapshot_date; earlier changes not ingested",
+            "baseline_source": config["baseline_source"],
+        }
+    report["announcement_policy"] = policy
+    report["membership_provenance"] = provenance
+    later = [row for row in events if row["date"] > max(snapshots[-1]["date"], baseline_date)] if mode == "report" else []
     left = intervals_from_fja(snapshots, config["announcements"], baseline_known_at=config["baseline_known_at"],
-                              baseline_names=config["baseline_names"], extra_events=later)
+                              baseline_names=config["baseline_names"], extra_events=later,
+                              announcement_policy=policy, history_start=history_start, provenance=provenance)
     if mode == "block":
         baseline = config["wikipedia_baseline"]
-        if baseline["date"] != snapshots[0]["date"]:
+        if baseline["date"] != baseline_date:
             raise ValueError("source baselines must have the same observation date")
         # Wikipedia lists changes older than the baseline (1976+); they predate the observed history.
         right = build_intervals(baseline, [row for row in events if row["date"] > baseline["date"]],
-                                config["announcements"], source="wikipedia")
+                                config["announcements"], source="wikipedia", announcement_policy=policy)
         report["disagreements"] = cross_validate(left, right)
         if report["disagreements"]:
             report["status"] = "blocked"
             return report
     else:
-        # Explicit opt-in (recorded run config): the complete daily fja history is
+        # Explicit opt-in (recorded run config): the selected daily fja history is
         # published; Wikipedia's selected changes are only compared and reported.
         right = left
         report["cross_validation"] = "report"
-        report["disagreements"] = compare_events(fja_events(snapshots), events, start=snapshots[0]["date"], end=snapshots[-1]["date"])
+        report["disagreements"] = compare_events(fja_events(snapshots), events, start=baseline_date, end=snapshots[-1]["date"])
         # Changes after the last fja snapshot are not comparable, but must stay visible.
         report["wikipedia_events_after_history"] = [{key: row[key] for key in ("date", "action", "ticker")} for row in later]
     identities, members = _submission_identities(config["submissions"], config["submissions_member_template"])

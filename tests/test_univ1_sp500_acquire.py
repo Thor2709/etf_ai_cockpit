@@ -1,11 +1,138 @@
 """Pure-logic tests for the S&P live acquisition layer (no network)."""
 from types import SimpleNamespace
+from datetime import datetime, timezone
+from email.utils import format_datetime
+import io
+import json
+from pathlib import Path
 import time
+import urllib.error
 
 import pytest
+import yaml
 
-from etf_cockpit.data.sp500_history import build_intervals
+from etf_cockpit.data.sp500_history import build_intervals, intervals_from_fja
 from scripts import acquire_sp500 as acq
+from scripts import ingest_sp500
+
+
+@pytest.fixture(autouse=True)
+def no_network(monkeypatch):
+    def denied(*args, **kwargs):
+        raise AssertionError("network is forbidden in acquisition tests")
+    monkeypatch.setattr(acq.urllib.request, "urlopen", denied)
+    monkeypatch.setattr(acq, "user_agent", lambda: "offline-test")
+
+
+@pytest.fixture
+def clock(monkeypatch):
+    class Clock:
+        elapsed = 0.0
+        epoch = datetime(2026, 11, 2, tzinfo=timezone.utc).timestamp()
+
+        def sleep(self, seconds):
+            assert seconds >= 0
+            self.elapsed += seconds
+
+    fake = Clock()
+    monkeypatch.setattr(acq.time, "monotonic", lambda: fake.elapsed)
+    monkeypatch.setattr(acq.time, "time", lambda: fake.epoch + fake.elapsed)
+    monkeypatch.setattr(acq.time, "sleep", fake.sleep)
+    monkeypatch.setitem(acq.LIMITERS, "sec", acq.Limiter(acq.SEC_RATE))
+    return fake
+
+
+def respond_after_errors(monkeypatch, clock, errors):
+    calls = []
+    pending = iter(errors)
+
+    def urlopen(*args, **kwargs):
+        calls.append(clock.elapsed)
+        error = next(pending, None)
+        if error is not None:
+            raise error
+        response = io.BytesIO(b"{}")
+        response.status, response.headers = 200, {}
+        return response
+
+    monkeypatch.setattr(acq.urllib.request, "urlopen", urlopen)
+    return calls
+
+
+def http_error(code, retry=None):
+    headers = {} if retry is None else {"Retry-After": retry}
+    return urllib.error.HTTPError("https://offline.invalid", code, "offline", headers, io.BytesIO())
+
+
+def test_retry_after_seconds_honoured(monkeypatch, clock):
+    calls = respond_after_errors(monkeypatch, clock, [http_error(429, "60")])
+    assert acq.http_get("https://offline.invalid", "sec") == (200, b"{}")
+    assert calls == [0, 60]
+
+
+def test_retry_after_http_date_honoured(monkeypatch, clock):
+    retry = format_datetime(datetime.fromtimestamp(clock.epoch + 120, timezone.utc), usegmt=True)
+    calls = respond_after_errors(monkeypatch, clock, [http_error(503, retry)])
+    assert acq.http_get("https://offline.invalid", "sec") == (200, b"{}")
+    assert calls == [0, 120]  # Provider delay exceeds the exponential cap.
+
+
+@pytest.mark.parametrize("code", [403, 429, 500, 501, 502, 503, 504, 599])
+def test_bounded_attempts_fail_closed(monkeypatch, clock, code):
+    errors = [http_error(code) for _ in range(5)]
+    calls = respond_after_errors(monkeypatch, clock, errors)
+    with pytest.raises(RuntimeError, match=rf"sec: HTTP {code}; exhausted 5 attempts; acquisition stopped"):
+        acq.http_get("https://offline.invalid", "sec")
+    assert calls == ([0, 60, 120, 180, 240] if code in {403, 429} else [0, 5, 15, 35, 75])
+    assert all(error.fp.closed for error in errors)
+
+
+def test_backoff_caps_and_transport_attempts_are_bounded(monkeypatch, clock):
+    calls = respond_after_errors(monkeypatch, clock, [TimeoutError() for _ in range(7)])
+    with pytest.raises(RuntimeError, match="TimeoutError; exhausted 7 attempts"):
+        acq.http_get("https://offline.invalid", "sec", tries=7)
+    assert calls == [0, 5, 15, 35, 75, 135, 195]
+
+
+def test_cooldown_rechecked_by_already_waiting_worker(monkeypatch, clock):
+    limiter = acq.LIMITERS["sec"]
+    limiter.wait()
+    original_sleep = clock.sleep
+    sleeps = []
+
+    def sleep(seconds):
+        sleeps.append(seconds)
+        if len(sleeps) == 1:
+            limiter.defer(60)  # Simulate another worker receiving a throttle.
+        original_sleep(seconds)
+
+    monkeypatch.setattr(acq.time, "sleep", sleep)
+    limiter.wait()
+    assert clock.elapsed == 60
+    limiter.wait()
+    assert clock.elapsed >= 60 + 1 / acq.SEC_RATE
+
+
+@pytest.mark.parametrize("header", [None, "garbage", "-10", "0", "Sun, 01 Nov 2026 00:00:00 GMT"])
+def test_invalid_or_past_retry_after_uses_backoff(monkeypatch, clock, header):
+    calls = respond_after_errors(monkeypatch, clock, [http_error(503, header)])
+    acq.http_get("https://offline.invalid", "sec")
+    assert calls == [0, 5]
+
+
+def test_404_is_only_allowed_when_requested(monkeypatch, clock):
+    calls = respond_after_errors(monkeypatch, clock, [http_error(404), http_error(404)])
+    assert acq.http_get("https://offline.invalid", "sec", allow_404=True) == (404, b"")
+    with pytest.raises(urllib.error.HTTPError):
+        acq.http_get("https://offline.invalid", "sec")
+    assert len(calls) == 2
+
+
+def test_invalid_attempt_budget_never_requests(monkeypatch, clock):
+    calls = respond_after_errors(monkeypatch, clock, [])
+    with pytest.raises(ValueError, match="tries must be positive"):
+        acq.http_get("https://offline.invalid", "sec", tries=0)
+    assert calls == []
 
 
 def event(date, action, ticker, name=None):
@@ -70,3 +197,157 @@ def test_windows_and_members_table_keep_removed_names():
     table = acq.members_table(history)
     assert table["B"]["current"] is False and table["B"]["name"] == "Bee Corp"
     assert table["A"]["current"] is True and table["A"]["open_from"] == "2020-01-01"
+
+
+def test_former_name_candidate_cannot_bind_a_reused_ticker():
+    members = {"OLD": {"current": False, "open_from": None, "windows": [["2020-01-01", "2021-01-01"]]}}
+    bindings, _ = acq.select_instrument_bindings(
+        members, [record("NEW_ID", "OLD", "US5949181045")],
+        {"OLD": {"cik": "0000000001", "candidate_only": True}}, known_at="2026-11-02", revision="r1")
+    assert bindings == []
+
+
+def test_sources_resume_without_discovery_or_payload_requests(monkeypatch, tmp_path):
+    layout = acq.Layout(tmp_path)
+    calls = []
+
+    def get(url, host):
+        calls.append(url)
+        if "api.github.com" in url:
+            return 200, json.dumps([{"sha": "a" * 40, "commit": {"committer": {"date": "2026-11-02"}}}]).encode()
+        if "wikipedia" in url:
+            return 200, b'"wgRevisionId":123'
+        return 200, b"cached source"
+
+    monkeypatch.setattr(acq, "http_get", get)
+    manifest = acq.step_sources(layout)
+    assert len(calls) == 6
+    assert acq.step_sources(layout) == manifest
+    assert len(calls) == 6
+    # A corrupted source is reacquired without rediscovering a newer commit.
+    (layout.sources / "fja_LICENSE.txt").write_bytes(b"corrupt")
+    acq.step_sources(layout)
+    assert len(calls) == 7 and "/" + "a" * 40 + "/LICENSE" in calls[-1]
+
+
+def test_sec_failure_returns_nonzero(monkeypatch, tmp_path, capsys):
+    layout = acq.Layout(tmp_path)
+    (layout.raw / "resolve.json").write_text(json.dumps({"ciks": {"A": {"cik": "0000000001"}}}))
+    monkeypatch.setattr(acq, "fetch_issuer", lambda task: {
+        "cik": task[0], "submissions": "failed", "companyfacts": "ok", "reason": "exhausted 5 attempts"})
+    assert acq.main(["--root", str(tmp_path), "--step", "sec", "--workers", "2"]) == 1
+    assert "exhausted 5 attempts" in capsys.readouterr().out
+    assert json.loads((layout.raw / "sec_status.json").read_text())["failed"]
+
+
+@pytest.mark.parametrize("legacy", [False, True])
+def test_sec_payloads_with_same_filename_resume_independently(monkeypatch, tmp_path, legacy):
+    layout, cik = acq.Layout(tmp_path), "0000000001"
+    calls = []
+
+    def get(url, host, **kwargs):
+        calls.append(url)
+        return 200, json.dumps({"cik": cik, "facts": {}} if "companyfacts" in url else
+                              {"cik": cik, "filings": {"files": []}}).encode()
+
+    monkeypatch.setattr(acq, "http_get", get)
+    if legacy:
+        # The old common sidecar could certify only the last payload (companyfacts).
+        acq.record(layout.facts / f"CIK{cik}.json", layout.meta, get(acq.COMPANYFACTS.format(cik=cik), "sec")[1], url="legacy")
+        calls.clear()
+    first = acq.fetch_issuer((cik, layout))
+    assert first["submissions"] == "ok" and first["companyfacts"] == "ok"
+    assert len(calls) == (1 if legacy else 2)
+    second = acq.fetch_issuer((cik, layout))
+    assert second == first and len(calls) == (1 if legacy else 2)
+
+
+def test_generated_baselines_keep_capture_times(monkeypatch, tmp_path):
+    from etf_cockpit.data import universe_store
+
+    layout = acq.Layout(tmp_path)
+    captures = {"fja_history.csv": "2026-11-02T00:00:00+00:00", "company_tickers.json": "2026-11-02T01:00:00+00:00",
+                "wikipedia_changes.html": "2026-11-02T02:00:00+00:00",
+                "wikipedia_constituents.html": "2026-11-02T03:00:00+00:00"}
+    manifest = {"files": {name: {"fetched_at": stamp} for name, stamp in captures.items()},
+                "fja_commit": "a" * 40, "licence_ref": "synthetic"}
+    (layout.sources / "manifest.json").write_text(json.dumps(manifest))
+    (layout.raw / "resolve.json").write_text(json.dumps({"members": {}, "ciks": {}}))
+    monkeypatch.setattr(universe_store, "load_universe", lambda _: SimpleNamespace(integrity_errors=[], records=[], revision=1))
+    snapshots = [{"date": "1996-01-01", "tickers": ["ZZZ"]}, {"date": "1997-01-01", "tickers": ["YYY"]}]
+    monkeypatch.setattr(acq, "load_history", lambda _: {"snapshots": snapshots,
+                                                     "wiki_events": [], "fja_events": acq.fja_events(snapshots), "current": []})
+    acq.step_config(layout)
+    config = yaml.safe_load((layout.raw / "run_config_block.yaml").read_text())
+    assert config["baseline_known_at"] == captures["fja_history.csv"]
+    assert config["wikipedia_baseline"]["known_at"] == captures["wikipedia_constituents.html"]
+    assert config["execution_allowed"] is False
+    for name in ("run_config.yaml", "run_config_block.yaml"):
+        draft = yaml.safe_load((layout.raw / name).read_text())
+        assert draft["announcements"] == []
+        assert draft["announcement_policy"] == "effective_date_conservative"
+        assert draft["history_start"] == "2021-10-01"
+        with pytest.raises(ValueError, match="announcement"):
+            intervals_from_fja(snapshots, draft["announcements"], baseline_known_at=draft["baseline_known_at"])
+
+
+def test_generated_config_ingests_fixture_end_to_end(monkeypatch, tmp_path):
+    from etf_cockpit.data import universe_store
+    from etf_cockpit.data.universe_membership import membership_frame
+
+    fixtures = Path(__file__).parent / "fixtures" / "univ1_sp500"
+    layout = acq.Layout(tmp_path)
+    captured = "2026-11-02T00:00:00+00:00"
+    monkeypatch.setattr(acq, "now", lambda: "2026-11-03T00:00:00+00:00")
+    manifest = {"files": {name: {"fetched_at": captured} for name in (
+        "fja_history.csv", "company_tickers.json", "wikipedia_changes.html", "wikipedia_constituents.html")},
+        "fja_commit": "a" * 40, "licence_ref": "synthetic fixture"}
+    (layout.sources / "manifest.json").write_text(json.dumps(manifest))
+    (layout.sources / "fja_history.csv").write_text(
+        'date,tickers\n1996-01-02,"ZZQ"\n2021-09-30,"ZZA"\n2021-10-15,"ZZA,ZZC"\n')
+    changes = (fixtures / "changes.html").read_text().replace('id="synthetic-changes"', 'id="changes"')
+    changes = changes.replace("July 1, 2020", "October 15, 2021").replace(
+        "<td>ZZB</td><td>Synthetic Former Issuer</td>", "<td></td><td></td>")
+    (layout.sources / "wikipedia_changes.html").write_text(changes)
+    (layout.sources / "wikipedia_constituents.html").write_text(
+        '<table id="constituents"><tr><th>Symbol</th><th>Security</th><th>CIK</th></tr>'
+        '<tr><td>ZZA</td><td>Synthetic Issuer A</td><td>9000000001</td></tr>'
+        '<tr><td>ZZC</td><td>Synthetic Renamed Issuer</td><td>9000000002</td></tr></table>')
+    (layout.sources / "company_tickers.json").write_bytes((fixtures / "company_tickers.json").read_bytes())
+    history = acq.load_history(layout)
+    members = acq.members_table(history)
+    resolved = {"members": members, "ciks": {
+        "ZZA": {"cik": "9000000001", "evidence": "synthetic identity"},
+        "ZZC": {"cik": "9000000002", "evidence": "synthetic identity"}}}
+    (layout.raw / "resolve.json").write_text(json.dumps(resolved))
+    records = [record("synthetic-instrument-a", "ZZA", "US5949181045"),
+               record("synthetic-instrument-c", "ZZC", "US0378331005")]
+    monkeypatch.setattr(universe_store, "load_universe", lambda _: SimpleNamespace(
+        integrity_errors=[], records=records, revision=1))
+    for cik in ("9000000001", "9000000002"):
+        (layout.facts / f"CIK{cik}.json").write_bytes((fixtures / f"CIK{cik}.json").read_bytes())
+        (layout.subs / f"CIK{cik}.json").write_bytes((fixtures / f"submissions_{cik}.json").read_bytes())
+    page = "CIK9000000001-submissions-001.json"
+    (layout.subs / page).write_bytes((fixtures / page).read_bytes())
+    assert acq.main(["--root", str(tmp_path), "--step", "config"]) == 0
+    config_path, report_path = layout.raw / "run_config.yaml", layout.raw / "report.json"
+    config = yaml.safe_load(config_path.read_text())
+    assert config["history_start"] == "2021-10-01"
+    assert config["announcement_policy"] == "effective_date_conservative"
+    assert config["announcements"] == []
+    assert ingest_sp500.main(["--config", str(config_path), "--root", str(tmp_path),
+                              "--workers", "2", "--report", str(report_path)]) == 0
+    report = json.loads(report_path.read_text())
+    assert report["status"] == "complete" and report["execution_allowed"] is False
+    assert report["history_baseline"]["snapshot_date"] == "2021-09-30"
+    assert report["history_baseline"]["known_at"] == "2021-09-30T00:00:00+00:00"
+    assert report["membership_provenance"] == [{
+        "date": "2021-10-15", "action": "add", "ticker": "ZZC", "source": "fja05680",
+        "known_at": "2021-10-15T00:00:00+00:00",
+        "provenance": "known_at=effective_date (conservative, no announcement evidence)", "announcement_source": None}]
+    frame = membership_frame(config["scope"], config["as_of"], root=tmp_path)
+    assert set(frame.instrument_id) == {"synthetic-instrument-a", "synthetic-instrument-c"}
+    assert frame.valid_from.tolist() == ["2021-10-01", "2021-10-15"]
+    # Source timing does not backdate identities observed at acquisition time.
+    assert set(frame.known_at) == {"2026-11-02T00:00:00.000000Z"}
+    assert (tmp_path / "data/clean/stock_fundamentals.parquet").is_file()
