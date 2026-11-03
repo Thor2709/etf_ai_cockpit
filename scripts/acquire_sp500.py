@@ -530,7 +530,12 @@ def step_config(layout: Layout) -> dict:
     manifest = json.loads((layout.sources / "manifest.json").read_text())
     resolved = json.loads((layout.raw / "resolve.json").read_text())
     history = load_history(layout)
-    snapshots, first = history["snapshots"], history["snapshots"][0]["date"]
+    snapshots = history["snapshots"]
+    history_start = "2021-10-01"  # Warm-up before the 2022-10-17 research interval.
+    eligible = [row for row in snapshots if row["date"] <= history_start]
+    if not eligible:
+        raise ValueError("no fja snapshot at or before history_start")
+    baseline = max(eligible, key=lambda row: row["date"])
     from etf_cockpit.data.universe_store import load_universe
     store = load_universe(layout.root)
     if store.integrity_errors:
@@ -547,22 +552,23 @@ def step_config(layout: Layout) -> dict:
     names = {t: info["name"] for t, info in resolved["members"].items() if info["name"]}
     base = yaml.safe_load((ROOT / "configs" / "sp500_universe_v1.yaml").read_text(encoding="utf-8"))
     current_now = {row["ticker"] for row in history["current"]}
-    wiki_start, issues = reverse_baseline(current_now, history["wiki_events"], first)
-    # A retrospective snapshot is not evidence that it was published on its date.
-    # Generated configs are drafts; historical ingestion needs reviewed provenance.
+    wiki_start, issues = reverse_baseline(current_now, history["wiki_events"], history_start)
+    # Keep capture metadata. history_start explicitly opts into the dated fja
+    # historical-record rule; it does not backdate identity or Wikipedia evidence.
     fja_known = manifest["files"]["fja_history.csv"]["fetched_at"]
     common = dict(
         history_csv=str(layout.sources / "fja_history.csv"), wikipedia_html=str(layout.sources / "wikipedia_changes.html"),
         company_tickers=str(layout.sources / "company_tickers.json"), companyfacts=str(layout.facts),
         submissions=str(layout.subs), as_of=now(), identity_observed_at=observed, baseline_known_at=fja_known,
-        baseline_source=f"fja05680 first snapshot {first}, {manifest['fja_commit']}; captured {fja_known}",
-        baseline_names={t: names[t] for t in snapshots[0]["tickers"] if t in names},
+        baseline_source=f"fja05680 dated snapshot {baseline['date']}, {manifest['fja_commit']}; captured {fja_known}",
+        baseline_names={t: names[t] for t in baseline["tickers"] if t in names},
+        history_start=history_start, announcement_policy="effective_date_conservative",
         csv_shape={"date_column": "date", "tickers_column": "tickers"}, wikipedia_table_id="changes",
         licence_ref=manifest["licence_ref"], cik_bindings=cik_bindings, instrument_bindings=bindings)
     block = {**base, **common, "cross_validation": "block",
-             # Effective dates alone do not establish announcement knowledge.
+             # Missing announcement evidence uses the explicit conservative policy.
              "announcements": [],
-             "wikipedia_baseline": {"date": first, "known_at": max(
+             "wikipedia_baseline": {"date": history_start, "known_at": max(
                   manifest["files"][name]["fetched_at"] for name in ("wikipedia_changes.html", "wikipedia_constituents.html")),
                                     "source": "derived: wikipedia constituents at fetch walked back through the changes table",
                                     "tickers": wiki_start, "names": {t: names[t] for t in wiki_start if t in names}}}

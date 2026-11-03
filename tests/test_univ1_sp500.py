@@ -1,5 +1,6 @@
 """UNIV1 offline acceptance evidence, exclusively synthetic source fixtures."""
 from copy import deepcopy
+from datetime import datetime
 import json
 from pathlib import Path
 import sqlite3
@@ -70,6 +71,54 @@ def test_missing_announcement_never_uses_effective_date_as_known_at():
     snapshots, _, _, _, _ = histories()
     with pytest.raises(ValueError, match="announcement"):
         intervals_from_fja(snapshots, [], baseline_known_at="2019-12-31")
+
+
+def test_conservative_change_without_announcement_is_known_at_effective_date_start():
+    snapshots, _, _, _, _ = histories()
+    provenance = []
+    rows = intervals_from_fja(snapshots, [], baseline_known_at="2019-12-31",
+                              announcement_policy="effective_date_conservative", provenance=provenance)
+    changes = [row for row in rows if row["valid_from"] == "2020-07-01" or row["valid_to"]]
+    assert len(changes) == len(provenance) == 2
+    assert {row["known_at"] for row in changes} == {"2020-07-01T00:00:00+00:00"}
+    assert all(datetime.fromisoformat(row["known_at"]) >= datetime.fromisoformat("2020-07-01T00:00:00+00:00")
+               for row in changes)
+    assert {row["provenance"] for row in provenance} == {
+        "known_at=effective_date (conservative, no announcement evidence)"}
+    assert all(row["announcement_source"] is None for row in provenance)
+
+
+@pytest.mark.parametrize("stamp,expected,sourced", [
+    ("2020-06-25", "2020-06-25T23:59:59.999999+00:00", True),
+    ("2020-07-01T00:00:00Z", "2020-07-01T00:00:00+00:00", False),
+    ("2020-07-01T12:00:00Z", "2020-07-01T00:00:00+00:00", False),
+    ("2020-07-02", "2020-07-01T00:00:00+00:00", False),
+])
+def test_conservative_policy_only_earlier_sourced_announcement_wins(stamp, expected, sourced):
+    snapshots, _, _, _, _ = histories()
+    evidence = [{**row, "known_at": stamp} for row in announcements()]
+    provenance = []
+    rows = intervals_from_fja(snapshots, evidence, baseline_known_at="2019-12-31",
+                              announcement_policy="effective_date_conservative", provenance=provenance)
+    assert {row["known_at"] for row in rows if row["valid_from"] == "2020-07-01" or row["valid_to"]} == {expected}
+    assert all(bool(row["announcement_source"]) == sourced for row in provenance)
+    if sourced:
+        # The exit is already announced when a later baseline is observed.
+        # Baseline membership itself must never become known before observation.
+        baseline = {"date": "2020-06-30", "known_at": "2020-06-30T00:00:00+00:00", "tickers": ["ZZA", "ZZB"]}
+        _, events, _, _, _ = histories()
+        observed = build_intervals(baseline, events, evidence, source="fja05680",
+                                   announcement_policy="effective_date_conservative")
+        assert [row for row in observed if row["ticker"] == "ZZB"] == [{
+            "ticker": "ZZB", "valid_from": "2020-06-30", "valid_to": "2020-07-01", "source": "fja05680",
+            "known_at": "2020-06-30T00:00:00+00:00", "name": "Synthetic Former Issuer"}]
+        with pytest.raises(ValueError, match="exit revision"):
+            build_intervals(baseline, events, evidence, source="fja05680")
+    with pytest.raises(ValueError, match="evidence source"):
+        intervals_from_fja(snapshots, [{**evidence[0], "source": ""}], baseline_known_at="2019-12-31",
+                           announcement_policy="effective_date_conservative")
+    with pytest.raises(ValueError, match="announcement_policy"):
+        intervals_from_fja(snapshots, [], baseline_known_at="2019-12-31", announcement_policy="guess")
 
 
 @pytest.mark.parametrize("bad", ["unrecognised", "date,wrong\n2020-01-01,ZZA\n"])
@@ -253,6 +302,31 @@ def membership_rows(root):
                                   "FROM licensed_history ORDER BY instrument_id,valid_from,known_at").fetchall()
 
 
+def test_history_start_uses_latest_dated_fja_snapshot_and_omits_earlier_changes(tmp_path):
+    config = ingest_config(tmp_path)
+    history = tmp_path / "history.csv"
+    history.write_text('date,tickers\n2019-01-01,"ZZQ"\n2020-01-01,"ZZA,ZZB"\n2020-07-01,"ZZA,ZZC"\n')
+    config.update(history_csv=str(history), history_start="2020-02-01", baseline_known_at="2026-11-02",
+                  announcement_policy="effective_date_conservative", announcements=[], cross_validation="report")
+    root = tmp_path / "output"
+    report = ingest(config, root=root, workers=1)
+    assert report["status"] == "complete", report
+    baseline = report["history_baseline"]
+    assert baseline["snapshot_date"] == "2020-01-01"
+    assert baseline["known_at"] == "2020-01-01T00:00:00+00:00"
+    rows = membership_rows(root)
+    assert min(row[2] for row in rows) == "2020-02-01"
+    assert {row[4] for row in rows if row[2] == "2020-02-01" and row[3] is None} == {
+        "2020-01-01T00:00:00.000000Z"}
+    assert {(row["date"], row["ticker"]) for row in report["membership_provenance"]} == {
+        ("2020-07-01", "ZZB"), ("2020-07-01", "ZZC")}
+    # A former member remains in the ledger, including its open and closed revisions.
+    former = [row for row in rows if row[1] == "synthetic-instrument-b" and row[2] == "2020-02-01"]
+    assert [row[3] for row in former] == [None, "2020-07-01"]
+    with pytest.raises(ValueError, match="no fja snapshot"):
+        ingest({**config, "history_start": "2018-01-01"}, root=tmp_path / "bad", workers=1)
+
+
 def test_parallel_ingestion_equals_serial_and_resume(tmp_path):
     config = ingest_config(tmp_path)
     serial, parallel = tmp_path / "serial", tmp_path / "parallel"
@@ -369,6 +443,7 @@ def test_report_mode_extends_history_with_wikipedia_changes_after_last_snapshot(
     assert report["disagreements"] == []
     assert any(row[2] == "2020-07-01" and row[3] == "2020-08-03" for row in membership_rows(root))
     assert any(item["ticker"] == "ZZE" for item in report["unmapped"])
+    assert {row["source"] for row in report["membership_provenance"] if row["date"] == "2020-08-03"} == {"wikipedia"}
 
 
 def test_ingest_skip_policy_reports_skipped_facts_and_rejects_unknown_policy(tmp_path):

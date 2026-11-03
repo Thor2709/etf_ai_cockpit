@@ -1,8 +1,12 @@
 """Local S&P membership evidence; effective intervals are half open.
 
 Snapshots and Wikipedia's effective Date do NOT prove announcement dates.
-Callers must supply an evidenced announcement for every transition and a
-knowledge date for the baseline. Date-only announcements become usable at
+By default callers must supply an evidenced announcement for every transition
+and a knowledge date for the baseline. The opt-in effective_date_conservative
+policy uses effective-session UTC midnight unless sourced earlier evidence exists.
+With history_start, the latest dated fja snapshot at or before that date supplies
+the baseline, known at snapshot-date UTC midnight; earlier changes are omitted.
+Date-only announcements become usable at
 23:59:59.999999 UTC. The baseline is an observed lower bound, never an inferred
 original entry date. Open and closed revisions have separate knowledge dates:
 an exit must not leak into an earlier replay. Missing evidence/unknown shapes
@@ -159,8 +163,11 @@ def parse_wikipedia_changes(html: str, *, table_id: str) -> list[dict]:
     return sorted(events, key=lambda row: (row["date"], row["action"], row["ticker"]))
 
 
-def build_intervals(baseline: dict, events: list[dict], announcements: list[dict], *, source: str) -> list[dict]:
+def build_intervals(baseline: dict, events: list[dict], announcements: list[dict], *, source: str,
+                    announcement_policy: str = "required", provenance: list[dict] | None = None) -> list[dict]:
     """Preserve entry and exit revisions, including removed and renamed tickers."""
+    if announcement_policy not in {"required", "effective_date_conservative"}:
+        raise ValueError("announcement_policy must be required or effective_date_conservative")
     dates = {}
     for row in announcements:
         key = (day(row["date"]), row["action"], row["ticker"])
@@ -168,7 +175,7 @@ def build_intervals(baseline: dict, events: list[dict], announcements: list[dict
             raise ValueError("duplicate announcement evidence")
         if not row.get("source"):
             raise ValueError("announcement needs an evidence source")
-        dates[key] = knowledge(row["known_at"])
+        dates[key] = (knowledge(row["known_at"]), row["source"])
     start, known = day(baseline["date"]), knowledge(baseline["known_at"])
     active, result = {}, []
     for ticker in baseline["tickers"]:
@@ -181,12 +188,24 @@ def build_intervals(baseline: dict, events: list[dict], announcements: list[dict
     for row in sorted(events, key=lambda row: (row["date"], row["action"], row["ticker"])):
         effective, ticker, action = day(row["date"]), row["ticker"], row["action"]
         key = (effective, action, ticker)
-        if effective <= start or key in seen or key not in dates:
+        if effective <= start or key in seen or (key not in dates and announcement_policy == "required"):
             raise ValueError(f"missing/duplicate/out-of-range announcement: {key}")
         seen.add(key)
-        announced = dates[key]
+        evidence = dates.get(key)
+        conservative = effective + "T00:00:00+00:00"
+        if announcement_policy == "effective_date_conservative" and (
+            evidence is None or datetime.fromisoformat(evidence[0]) >= datetime.fromisoformat(conservative)
+        ):
+            announced = conservative
+            reason, reference = "known_at=effective_date (conservative, no announcement evidence)", None
+        else:
+            announced, reference = evidence
+            reason = "known_at=announcement (sourced)"
         if announced[:10] > effective:
             raise ValueError("announcement after effective date cannot establish contemporaneous history")
+        if provenance is not None:
+            provenance.append({"date": effective, "action": action, "ticker": ticker, "source": row.get("source", source),
+                               "known_at": announced, "provenance": reason, "announcement_source": reference})
         if action == "add" and ticker not in active:
             active[ticker] = {"ticker": ticker, "valid_from": effective, "valid_to": None,
                               "source": source, "known_at": announced, "name": row.get("name")}
@@ -194,9 +213,16 @@ def build_intervals(baseline: dict, events: list[dict], announcements: list[dict
         elif action == "remove" and ticker in active:
             previous = active.pop(ticker)
             if announced <= previous["known_at"]:
-                raise ValueError("exit revision must have later knowledge than entry")
-            result.append({**previous, "valid_to": effective, "known_at": announced,
-                           "name": row.get("name") or previous.get("name")})
+                if announcement_policy != "effective_date_conservative" or previous["valid_from"] != start:
+                    raise ValueError("exit revision must have later knowledge than entry")
+                # A future exit can already be announced when the baseline is
+                # observed. Publish a closed baseline at its own knowledge time,
+                # never an exit revision preceding knowledge of membership.
+                entry = next(item for item in result if item["ticker"] == ticker and item["valid_from"] == start)
+                entry.update(valid_to=effective, name=row.get("name") or previous.get("name"))
+            else:
+                result.append({**previous, "valid_to": effective, "known_at": announced,
+                               "name": row.get("name") or previous.get("name")})
         else:
             raise ValueError(f"inconsistent membership transition: {key}")
     return sorted(result, key=lambda row: (row["ticker"], row["valid_from"], row["known_at"]))
@@ -212,10 +238,22 @@ def fja_events(snapshots: list[dict]) -> list[dict]:
 
 
 def intervals_from_fja(snapshots: list[dict], announcements: list[dict], *, baseline_known_at: str,
-                       baseline_names: dict | None = None, extra_events: list[dict] = ()) -> list[dict]:
-    """``extra_events`` extend the history past the last snapshot (each needs an announcement)."""
-    return build_intervals({**snapshots[0], "known_at": baseline_known_at, "names": baseline_names or {}},
-                           fja_events(snapshots) + list(extra_events), announcements, source="fja05680")
+                       baseline_names: dict | None = None, extra_events: list[dict] = (),
+                       announcement_policy: str = "required", history_start: str | None = None,
+                       provenance: list[dict] | None = None) -> list[dict]:
+    """Extend fja with later events; opt-in history_start uses a dated snapshot baseline."""
+    baseline = {**snapshots[0], "known_at": baseline_known_at, "names": baseline_names or {}}
+    events = fja_events(snapshots) + [{**row, "source": "wikipedia"} for row in extra_events]
+    if history_start is not None:
+        start = day(history_start)
+        eligible = [row for row in snapshots if row["date"] <= start]
+        if not eligible:
+            raise ValueError("no fja snapshot at or before history_start")
+        snapshot = max(eligible, key=lambda row: row["date"])
+        baseline.update(date=start, tickers=snapshot["tickers"], known_at=snapshot["date"] + "T00:00:00+00:00")
+        events = [row for row in events if row["date"] > start]
+    return build_intervals(baseline, events, announcements, source="fja05680",
+                           announcement_policy=announcement_policy, provenance=provenance)
 
 
 def compare_events(left: list[dict], right: list[dict], *, start: str, end: str) -> list[dict]:

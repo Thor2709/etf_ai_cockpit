@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from email.utils import format_datetime
 import io
 import json
+from pathlib import Path
 import time
 import urllib.error
 
@@ -12,6 +13,7 @@ import yaml
 
 from etf_cockpit.data.sp500_history import build_intervals, intervals_from_fja
 from scripts import acquire_sp500 as acq
+from scripts import ingest_sp500
 
 
 @pytest.fixture(autouse=True)
@@ -283,5 +285,69 @@ def test_generated_baselines_keep_capture_times(monkeypatch, tmp_path):
     for name in ("run_config.yaml", "run_config_block.yaml"):
         draft = yaml.safe_load((layout.raw / name).read_text())
         assert draft["announcements"] == []
+        assert draft["announcement_policy"] == "effective_date_conservative"
+        assert draft["history_start"] == "2021-10-01"
         with pytest.raises(ValueError, match="announcement"):
             intervals_from_fja(snapshots, draft["announcements"], baseline_known_at=draft["baseline_known_at"])
+
+
+def test_generated_config_ingests_fixture_end_to_end(monkeypatch, tmp_path):
+    from etf_cockpit.data import universe_store
+    from etf_cockpit.data.universe_membership import membership_frame
+
+    fixtures = Path(__file__).parent / "fixtures" / "univ1_sp500"
+    layout = acq.Layout(tmp_path)
+    captured = "2026-11-02T00:00:00+00:00"
+    monkeypatch.setattr(acq, "now", lambda: "2026-11-03T00:00:00+00:00")
+    manifest = {"files": {name: {"fetched_at": captured} for name in (
+        "fja_history.csv", "company_tickers.json", "wikipedia_changes.html", "wikipedia_constituents.html")},
+        "fja_commit": "a" * 40, "licence_ref": "synthetic fixture"}
+    (layout.sources / "manifest.json").write_text(json.dumps(manifest))
+    (layout.sources / "fja_history.csv").write_text(
+        'date,tickers\n1996-01-02,"ZZQ"\n2021-09-30,"ZZA"\n2021-10-15,"ZZA,ZZC"\n')
+    changes = (fixtures / "changes.html").read_text().replace('id="synthetic-changes"', 'id="changes"')
+    changes = changes.replace("July 1, 2020", "October 15, 2021").replace(
+        "<td>ZZB</td><td>Synthetic Former Issuer</td>", "<td></td><td></td>")
+    (layout.sources / "wikipedia_changes.html").write_text(changes)
+    (layout.sources / "wikipedia_constituents.html").write_text(
+        '<table id="constituents"><tr><th>Symbol</th><th>Security</th><th>CIK</th></tr>'
+        '<tr><td>ZZA</td><td>Synthetic Issuer A</td><td>9000000001</td></tr>'
+        '<tr><td>ZZC</td><td>Synthetic Renamed Issuer</td><td>9000000002</td></tr></table>')
+    (layout.sources / "company_tickers.json").write_bytes((fixtures / "company_tickers.json").read_bytes())
+    history = acq.load_history(layout)
+    members = acq.members_table(history)
+    resolved = {"members": members, "ciks": {
+        "ZZA": {"cik": "9000000001", "evidence": "synthetic identity"},
+        "ZZC": {"cik": "9000000002", "evidence": "synthetic identity"}}}
+    (layout.raw / "resolve.json").write_text(json.dumps(resolved))
+    records = [record("synthetic-instrument-a", "ZZA", "US5949181045"),
+               record("synthetic-instrument-c", "ZZC", "US0378331005")]
+    monkeypatch.setattr(universe_store, "load_universe", lambda _: SimpleNamespace(
+        integrity_errors=[], records=records, revision=1))
+    for cik in ("9000000001", "9000000002"):
+        (layout.facts / f"CIK{cik}.json").write_bytes((fixtures / f"CIK{cik}.json").read_bytes())
+        (layout.subs / f"CIK{cik}.json").write_bytes((fixtures / f"submissions_{cik}.json").read_bytes())
+    page = "CIK9000000001-submissions-001.json"
+    (layout.subs / page).write_bytes((fixtures / page).read_bytes())
+    assert acq.main(["--root", str(tmp_path), "--step", "config"]) == 0
+    config_path, report_path = layout.raw / "run_config.yaml", layout.raw / "report.json"
+    config = yaml.safe_load(config_path.read_text())
+    assert config["history_start"] == "2021-10-01"
+    assert config["announcement_policy"] == "effective_date_conservative"
+    assert config["announcements"] == []
+    assert ingest_sp500.main(["--config", str(config_path), "--root", str(tmp_path),
+                              "--workers", "2", "--report", str(report_path)]) == 0
+    report = json.loads(report_path.read_text())
+    assert report["status"] == "complete" and report["execution_allowed"] is False
+    assert report["history_baseline"]["snapshot_date"] == "2021-09-30"
+    assert report["history_baseline"]["known_at"] == "2021-09-30T00:00:00+00:00"
+    assert report["membership_provenance"] == [{
+        "date": "2021-10-15", "action": "add", "ticker": "ZZC", "source": "fja05680",
+        "known_at": "2021-10-15T00:00:00+00:00",
+        "provenance": "known_at=effective_date (conservative, no announcement evidence)", "announcement_source": None}]
+    frame = membership_frame(config["scope"], config["as_of"], root=tmp_path)
+    assert set(frame.instrument_id) == {"synthetic-instrument-a", "synthetic-instrument-c"}
+    assert frame.valid_from.tolist() == ["2021-10-01", "2021-10-15"]
+    # Source timing does not backdate identities observed at acquisition time.
+    assert set(frame.known_at) == {"2026-11-02T00:00:00.000000Z"}
+    assert (tmp_path / "data/clean/stock_fundamentals.parquet").is_file()

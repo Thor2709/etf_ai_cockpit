@@ -66,6 +66,42 @@ history is imported only with its licence reference and per-row knowledge time.
 Byte payloads are preserved byte-for-byte; text payloads are UTF-8 encoded as
 given, and structured rows are encoded as compact UTF-8 JSON in received order.
 
+S&P ingestion (`scripts/ingest_sp500.py`) requires sourced announcements by
+default. Recorded run configs may opt into
+`announcement_policy: effective_date_conservative`: a change without an earlier
+sourced announcement is known at **00:00 UTC on its effective session date**,
+never before that date. Only sourced evidence with an earlier knowledge time
+wins; date-only announcement evidence retains the existing end-of-day UTC rule.
+The report records each change's source knowledge time and
+`known_at=effective_date (conservative, no announcement evidence)` when this
+fallback applies. S&P announces changes before effectiveness, so this fallback
+delays knowledge rather than introducing look-ahead.
+
+The optional `history_start` bounds the ingested history. Membership at that
+date comes from the **latest fja snapshot dated at or before history_start**.
+Under this explicit rule the fja file is a dated historical record of membership:
+baseline knowledge is **00:00 UTC on that snapshot's date**, and baseline
+intervals begin at history_start. Changes on or before history_start are already
+represented by the baseline and are not ingested individually. No qualifying
+snapshot is a hard failure. The report's `history_baseline` records the selected
+date, knowledge time, source reference and rule. Later additions and removals,
+including former members, remain in scope; missing identity evidence is reported
+as unmapped, never silently dropped. Published knowledge remains the later of
+membership evidence and sourced instrument/CIK identity knowledge.
+If a future exit was announced before baseline observation, the conservative
+policy emits a closed baseline at the baseline's knowledge time and retains the
+earlier announcement time in per-change provenance; it never backdates knowledge
+of baseline membership.
+
+`acquire_sp500.py --step config` emits both keys in its recorded run configs,
+with `history_start: 2021-10-01` (a year of warm-up before the 2022-10-17 research
+interval) and `announcement_policy: effective_date_conservative`. Source capture
+metadata and Wikipedia's independent baseline knowledge are preserved. Block
+mode still requires independent baselines at the same start date and rejects
+source disagreement. Omitting the new keys preserves the strict announcement
+and configured baseline-knowledge path. Acquisition and ingestion remain
+research-only with `execution_allowed=false`.
+
 ## NOW, NEXT and future work
 
 The selector intersects canonical dependency readiness with unfinished/open
