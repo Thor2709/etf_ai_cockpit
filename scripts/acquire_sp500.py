@@ -32,6 +32,7 @@ import argparse
 import gzip
 import hashlib
 import html as html_lib
+import http.client
 import json
 import logging
 import os
@@ -218,7 +219,7 @@ def http_get(url: str, host: str, *, tries: int = 5, allow_404: bool = False,
                     raise RuntimeError(f"{host}: HTTP {exc.code}; exhausted {tries} attempts; acquisition stopped") from exc
             finally:
                 exc.close()
-        except (urllib.error.URLError, TimeoutError, ConnectionError) as exc:
+        except (urllib.error.URLError, TimeoutError, ConnectionError, http.client.IncompleteRead) as exc:
             LIMITERS[host].defer(delay)
             if attempt == tries - 1:
                 raise RuntimeError(f"{host}: {type(exc).__name__}; exhausted {tries} attempts; acquisition stopped: {exc}") from exc
