@@ -184,10 +184,12 @@ def http_get(url: str, host: str, *, tries: int = 5, allow_404: bool = False,
                         on_bytes(len(payload))
                 else:
                     # A 200 response ignoring Range can widen in the same stream,
-                    # after checking each chunk, without downloading the prefix twice.
+                    # without downloading the prefix twice. Parse at geometric
+                    # total-prefix checkpoints, restarting the schedule on retry.
                     if response.status == 200:
                         limit = max_bytes
                     payload = b""
+                    next_check = max(COVER_READ_BYTES, 1 << range_start.bit_length())
                     while len(payload) < limit:
                         chunk = response.read(min(COVER_READ_BYTES, limit - len(payload)))
                         if on_bytes is not None:
@@ -195,6 +197,9 @@ def http_get(url: str, host: str, *, tries: int = 5, allow_404: bool = False,
                         if not chunk:
                             break
                         payload += chunk
+                        if range_start + len(payload) < next_check:
+                            continue
+                        next_check = 1 << (range_start + len(payload)).bit_length()
                         if stop_when(payload):
                             stopped = True
                             break

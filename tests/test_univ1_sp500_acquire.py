@@ -1024,7 +1024,8 @@ def test_cover_record_only_cache_report_preference_and_streaming(monkeypatch, me
         assert not primary
     else:
         assert primary[0] == f"bytes=0-{acq.COVER_RANGE_BYTES - 1}"
-        assert len(source_bytes) == (2 * acq.COVER_RANGE_BYTES + acq.COVER_READ_BYTES if late else acq.COVER_READ_BYTES)
+        # Late facts cross 512 KiB and are accepted at the next geometric checkpoint.
+        assert len(source_bytes) == (4 * acq.COVER_RANGE_BYTES if late else acq.COVER_READ_BYTES)
         assert len(primary) == (3 if mode == "late" else 1)
         if mode == "late":
             assert primary[1:] == [f"bytes={acq.COVER_RANGE_BYTES}-{2 * acq.COVER_RANGE_BYTES - 1}",
