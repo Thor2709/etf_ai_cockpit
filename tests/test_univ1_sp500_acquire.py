@@ -4,6 +4,7 @@ from contextlib import nullcontext
 from datetime import datetime, timezone
 from email.utils import format_datetime
 import io
+import http.client
 import json
 from pathlib import Path
 import time
@@ -937,7 +938,8 @@ def memory_cover(monkeypatch):
     return layout, saved
 
 
-@pytest.mark.parametrize("mode", ["report", "early", "late", "ignored_early", "ignored_late", "missing"])
+@pytest.mark.parametrize("mode", ["report", "early", "late", "ignored_early", "ignored_late",
+                                 "missing", "ignored_missing"])
 def test_cover_record_only_cache_report_preference_and_streaming(monkeypatch, memory_cover, mode):
     layout, saved = memory_cover
     cik, accession = "9000000001", "9000000001-19-000001"
@@ -947,11 +949,20 @@ def test_cover_record_only_cache_report_preference_and_streaming(monkeypatch, me
     second = b'<ix:nonNumeric name="dei:TradingSymbol">ZZA</ix:nonNumeric>'
     late = "late" in mode
     padding = b" " * (2 * acq.COVER_RANGE_BYTES - len(first) - 20) if late else b""
-    body = first + padding + (second if mode != "missing" else b"") + b" " * acq.COVER_FILE_CAP
+    body = first + padding + (second if "missing" not in mode else b"") + b" " * acq.COVER_FILE_CAP
     submissions = json.dumps({"cik": cik, "filings": {"recent": {
         "accessionNumber": [accession], "form": ["10-K"], "filingDate": ["2019-12-20"],
         "primaryDocument": ["primary.htm"], "acceptanceDateTime": ["2019-12-20T19:30:00Z"]}}}).encode()
     requests, responses, received = [], [], []
+    parsed_sizes = []
+    original_parse = acq.parse_cover
+
+    def parse(payload, **kwargs):
+        if kwargs["source"].endswith("primary.htm"):
+            parsed_sizes.append(len(payload))
+        return original_parse(payload, **kwargs)
+
+    monkeypatch.setattr(acq, "parse_cover", parse)
 
     class Response(io.BytesIO):
         def read(self, size=-1):
@@ -990,9 +1001,10 @@ def test_cover_record_only_cache_report_preference_and_streaming(monkeypatch, me
     assert requests[:3] == [(f"CIK{cik}.json", None), ("FilingSummary.xml", None), ("R7.htm", None)]
     primary = [header for name, header in requests if name == "primary.htm"]
     source_bytes = b"".join(chunk for name, chunk in received if name == ("R7.htm" if mode == "report" else "primary.htm"))
-    if mode == "missing":
+    if "missing" in mode:
         assert len(source_bytes) == acq.COVER_FILE_CAP and not saved
         assert result["evidence"][0]["tickers"] == [] and result["errors"]
+        assert parsed_sizes == [acq.COVER_READ_BYTES * 2**i for i in range(9)] + [acq.COVER_FILE_CAP]
         return
     assert len(saved) == 1 and not result["errors"]
     path, encoded = next(iter(saved.items()))
@@ -1001,11 +1013,19 @@ def test_cover_record_only_cache_report_preference_and_streaming(monkeypatch, me
     assert row == result["evidence"][0]
     assert row["sha256"] == acq.sha256(source_bytes) and row["bytes"] == len(source_bytes)
     assert row["tickers"] == ["ZZA"] and row["entity_central_index_key"] == cik
+    expected = original_parse(source_bytes, cik=cik, accession=accession, form="10-K",
+                              acceptance="2019-12-20T19:30:00Z", source=row["source"],
+                              filing_date="2019-12-20")
+    assert row == expected
+    expected_json = json.dumps(expected, sort_keys=True, separators=(",", ":")).encode()
+    assert encoded == json.dumps({"record": expected, "record_sha256": acq.sha256(expected_json)},
+                                sort_keys=True, separators=(",", ":")).encode()
     if mode == "report":
         assert not primary
     else:
         assert primary[0] == f"bytes=0-{acq.COVER_RANGE_BYTES - 1}"
-        assert len(source_bytes) == (2 * acq.COVER_RANGE_BYTES + acq.COVER_READ_BYTES if late else acq.COVER_READ_BYTES)
+        # Late facts cross 512 KiB and are accepted at the next geometric checkpoint.
+        assert len(source_bytes) == (4 * acq.COVER_RANGE_BYTES if late else acq.COVER_READ_BYTES)
         assert len(primary) == (3 if mode == "late" else 1)
         if mode == "late":
             assert primary[1:] == [f"bytes={acq.COVER_RANGE_BYTES}-{2 * acq.COVER_RANGE_BYTES - 1}",
@@ -1035,3 +1055,69 @@ def test_cover_records_cache_detects_modified_extraction(monkeypatch, memory_cov
     assert cache.load_record(path, **identity) == row
     saved[path] = saved[path].replace(b'"tickers":["ZZA"]', b'"tickers":["ZZZ"]')
     assert cache.load_record(path, **identity) is None
+
+
+@pytest.mark.parametrize("inline", [False, True], ids=["report", "inline"])
+@pytest.mark.parametrize("failures", [1, 5], ids=["retry_success", "exhausted"])
+@pytest.mark.parametrize("error_type", [http.client.IncompleteRead, ConnectionResetError,
+                                        TimeoutError, http.client.RemoteDisconnected])
+def test_cover_transport_read_retries_discard_incomplete_attempts(
+        monkeypatch, memory_cover, clock, inline, failures, error_type):
+    layout, saved = memory_cover
+    cik, accession = "9000000001", "9000000001-19-000001"
+    base = f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/{accession.replace('-', '')}/"
+    body = (Path(__file__).parent / "fixtures/sec_cover/inline-cover.htm").read_bytes()
+    # A streamed attempt reads a rejected checkpoint before its next read fails.
+    # Neither those bytes nor the exception's partial bytes may reach the cache.
+    poison = body.replace(b"9000000001", b"9000000002")
+    incomplete = poison.ljust(acq.COVER_READ_BYTES, b" ") + b" " * acq.COVER_READ_BYTES
+    target = "primary.htm" if inline else "R1.htm"
+    calls, responses = [], []
+
+    class Response(io.BytesIO):
+        def read(self, size=-1):
+            if self.fail and (not inline or self.tell()):
+                if error_type is http.client.IncompleteRead:
+                    raise error_type(poison, len(body))
+                raise error_type("transient read failure")
+            return super().read(size)
+
+    def urlopen(request, **kwargs):
+        name = request.full_url.rsplit("/", 1)[-1]
+        fail = False
+        if name.startswith("CIK"):
+            payload = json.dumps({"cik": cik, "filings": {"recent": {
+                "accessionNumber": [accession], "form": ["10-K"], "filingDate": ["2019-12-20"],
+                "primaryDocument": ["primary.htm"], "acceptanceDateTime": ["2019-12-20T19:30:00Z"]}}}).encode()
+        elif name == "FilingSummary.xml":
+            payload = small_cover_response(request.full_url)
+        elif inline and name == "R1.htm":
+            payload = b"<html>no DEI facts</html>"
+        else:
+            assert name == target
+            calls.append(clock.elapsed)
+            fail = len(calls) <= failures
+            payload = incomplete if fail else body
+        response = Response(payload)
+        response.status, response.headers, response.fail = 200, {}, fail
+        responses.append(response)
+        return response
+
+    monkeypatch.setattr(acq.urllib.request, "urlopen", urlopen)
+    result = acq.fetch_cover_issuer((cik, layout))
+    assert all(response.closed for response in responses)
+    elapsed = [stamp - calls[0] for stamp in calls]
+    if failures == 5:
+        assert result["status"] == "failed" and not result["evidence"] and not saved
+        assert elapsed == [0, 5, 15, 35, 75]
+        assert result["errors"][0]["exception_type"] == error_type.__name__
+        assert "exhausted 5 attempts" in result["errors"][0]["reason"]
+        assert result["errors"][0]["url"] == base + target
+    else:
+        assert result["status"] == "ok" and not result["errors"] and len(saved) == 1
+        assert elapsed == [0, 5]
+        expected = acq.parse_cover(body, cik=cik, accession=accession, form="10-K",
+                                   acceptance="2019-12-20T19:30:00Z", source=base + target,
+                                   filing_date="2019-12-20")
+        assert result["evidence"] == [expected]
+        assert json.loads(next(iter(saved.values())))["record"] == expected
