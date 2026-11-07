@@ -18,6 +18,8 @@ CANDIDATE_A, CANDIDATE_B, STRANGER = "9000000001", "9000000002", "9000000009"
 def offline(monkeypatch):
     from etf_cockpit.data import universe_store
 
+    monkeypatch.setitem(acq.LIMITERS, "sec", acq.LIMITERS["sec"])  # main() replaces it; restore afterwards
+
     def denied(*args, **kwargs):
         raise AssertionError("network is forbidden in acquisition tests")
     rows = [SimpleNamespace(instrument_id=i, ticker=t, isin=n, isin_status="verified", asset_type="stock")
@@ -86,13 +88,15 @@ def test_subset_equals_full_run_per_cik_and_publishes_nothing(tmp_path):
     listing.write_text(f"# hard cases\n\n{CANDIDATE_B}   # ZZB\n{STRANGER}\n{CANDIDATE_B}\n{CANDIDATE_A}\n", "utf-8")
     report_path = tmp_path / "out" / "subset.json"
     assert acq.main(["--root", str(subset.root), "--step", "cover-evidence", "--workers", "2",
-                     "--ciks", str(listing), "--subset-report", str(report_path)]) == 0
+                     "--ciks", str(listing), "--subset-report", str(report_path)]) == 1  # STRANGER: not checked
     report = json.loads(report_path.read_text())
+    assert report["scope"] == "evidence_only_binding_not_evaluated"
+    assert {row["scope"] for row in report["issuers"]} == {report["scope"]}
     got = {row["cik"]: row for row in report["issuers"]}
     assert set(got) == {CANDIDATE_A, CANDIDATE_B, STRANGER}
-    assert got[STRANGER] == {"cik": STRANGER, "status": "not_a_candidate"}
+    assert got[STRANGER] == {"cik": STRANGER, "status": "not_a_candidate", "scope": report["scope"]}
     for cik in (CANDIDATE_A, CANDIDATE_B):
-        row = {k: v for k, v in got[cik].items() if k != "bytes_downloaded"}
+        row = {k: v for k, v in got[cik].items() if k not in {"bytes_downloaded", "scope"}}
         assert row == expected[cik]
     assert report["not_a_candidate"] == [STRANGER] and report["failed"] == []
     created = files_under(subset.root) - before
@@ -100,6 +104,23 @@ def test_subset_equals_full_run_per_cik_and_publishes_nothing(tmp_path):
     assert created and all(p.parts[:3] == ("data", "raw", "univ1_sp500") and p.parts[3] in caches for p in created), created
     assert not list(subset.raw.glob("run_config_cover*"))
     assert (subset.raw / "run_config.yaml").read_bytes() == config_before
+
+
+def test_warm_cache_subset_after_full_run_gives_same_evidence(monkeypatch, tmp_path):
+    layout = make_root(tmp_path / "root")
+    dated = yaml.safe_load(Path(acq.step_cover(layout, 2)["config"]).read_text())
+    expected = {row["cik"]: row for row in dated["cover_evidence"]["issuers"]}
+    urls, fetch = [], acq.http_get
+    monkeypatch.setattr(acq, "http_get", lambda url, host, **kw: (urls.append(url), fetch(url, host, **kw))[1])
+    listing, report_path = tmp_path / "ciks.txt", tmp_path / "subset.json"
+    listing.write_text(f"{CANDIDATE_A}\n{CANDIDATE_B}\n")
+    assert acq.main(["--root", str(layout.root), "--step", "cover-evidence", "--ciks", str(listing),
+                     "--subset-report", str(report_path)]) == 0
+    got = {row["cik"]: row for row in json.loads(report_path.read_text())["issuers"]}
+    for cik, row in expected.items():
+        assert {k: v for k, v in got[cik].items() if k not in {"bytes_downloaded", "scope"}} == row
+        assert got[cik]["bytes_downloaded"] == 0
+    assert all("/submissions/" in url for url in urls), urls  # covers resume from the shared cache
 
 
 def test_subset_failure_returns_nonzero_and_reports_reason(monkeypatch, tmp_path):
@@ -136,15 +157,20 @@ def test_subset_option_rejections(tmp_path, capsys, step, extra, lines, message)
     assert not report_path.exists() and not (tmp_path / "root").exists()
 
 
-def test_subset_report_requires_ciks_and_stays_out_of_the_raw_tree(tmp_path, capsys):
+def test_subset_report_requires_ciks_and_stays_out_of_root_and_ciks_file(tmp_path, capsys):
     with pytest.raises(SystemExit):
         acq.main(["--root", str(tmp_path), "--step", "cover-evidence", "--subset-report", str(tmp_path / "r.json")])
     assert "--subset-report is only valid with --ciks" in capsys.readouterr().err
     listing = tmp_path / "ciks.txt"
     listing.write_text(f"{CANDIDATE_A}\n")
-    inside = tmp_path / "data/raw/univ1_sp500/run_config_cover_v1_x.yaml"
+    for inside in (tmp_path / "data/raw/univ1_sp500/run_config_cover_v1_x.yaml", tmp_path / "report.json"):
+        with pytest.raises(SystemExit):
+            acq.main(["--root", str(tmp_path), "--step", "cover-evidence", "--ciks", str(listing),
+                      "--subset-report", str(inside)])
+        assert "--subset-report must be outside --root" in capsys.readouterr().err
+        assert not inside.exists()
     with pytest.raises(SystemExit):
-        acq.main(["--root", str(tmp_path), "--step", "cover-evidence", "--ciks", str(listing),
-                  "--subset-report", str(inside)])
-    assert "--subset-report must be outside" in capsys.readouterr().err
-    assert not inside.exists()
+        acq.main(["--root", str(tmp_path / "root"), "--step", "cover-evidence", "--ciks", str(listing),
+                  "--subset-report", str(listing)])
+    assert "--subset-report must differ from --ciks" in capsys.readouterr().err
+    assert listing.read_text() == f"{CANDIDATE_A}\n"

@@ -798,6 +798,9 @@ def fetch_cover_issuer(task: tuple[str, Layout]) -> dict:
                 "bytes_downloaded": downloaded}
 
 
+SUBSET_SCOPE = "evidence_only_binding_not_evaluated"
+
+
 def read_cik_list(path: Path) -> list[str]:
     """One 10-digit CIK per line; blank lines and #-comments ignored; anything else is rejected."""
     ciks = []
@@ -816,8 +819,11 @@ def read_cik_list(path: Path) -> list[str]:
 def step_cover(layout: Layout, workers: int, subset: list[str] | None = None) -> dict:
     """Opt-in historical identities; preserve run_config.yaml byte-for-byte.
 
-    ``subset`` (report-only) scans just those candidate CIKs through the same issuer
-    path and returns their results; it derives and publishes no bindings or config.
+    ``subset`` (report-only, sorted unique CIKs) scans just those candidate CIKs through the
+    same issuer path and returns their results as evidence only: the whole-set binding
+    checks (overlapping CIK claims, recycled tickers, select_bindings) are NOT evaluated and
+    no config is published. The candidate set still needs the whole-set name search, which
+    may make network calls on a cold cache and writes the same shared caches as the full run.
 
     Scan supported filings dated >= 2019-06-01; older identity windows stay unbound.
     Existing resolution residues and exact normalised former security names are
@@ -859,8 +865,10 @@ def step_cover(layout: Layout, workers: int, subset: list[str] | None = None) ->
     if subset is not None:
         by_cik = {r["cik"]: r for r in results}
         return {"mode": "cover-evidence-subset", "status": "subset_report", "execution_allowed": False,
-                "issuers": [by_cik.get(cik, {"cik": cik, "status": "not_a_candidate"}) for cik in sorted(set(subset))],
-                "not_a_candidate": [cik for cik in sorted(set(subset)) if cik not in by_cik],
+                "scope": SUBSET_SCOPE,
+                "issuers": [{**by_cik.get(cik, {"cik": cik, "status": "not_a_candidate"}), "scope": SUBSET_SCOPE}
+                            for cik in subset],
+                "not_a_candidate": [cik for cik in subset if cik not in by_cik],
                 "failed": [r["cik"] for r in results if r["status"] == "failed"], "bytes_downloaded": downloaded}
     evidence = [row for result in results for row in result["evidence"]]
     snapshots = parse_fja_csv(Path(config["history_csv"]).read_text(encoding="utf-8"), **config["csv_shape"])
@@ -1107,8 +1115,14 @@ def main(argv=None) -> int:
     parser.add_argument("--cover-cache-budget-bytes", type=int, default=COVER_CACHE_BUDGET,
                         help="Extracted cover cache budget (default: 32 MiB); stops below 5 GiB free")
     parser.add_argument("--ciks", type=Path,
-                        help="cover-evidence only: report-only run for the 10-digit CIKs in this file")
-    parser.add_argument("--subset-report", type=Path, help="Result report path, required with --ciks")
+                        help="cover-evidence only: report-only run for the 10-digit CIKs in this file (one per line, "
+                             "# comments). Results are evidence only: binding checks (overlapping CIK claims, "
+                             "recycled tickers, select_bindings) are not evaluated and no config is written. A CIK "
+                             "outside the candidate set is reported as not_a_candidate and makes the run exit 1. "
+                             "The whole-set name search still runs (network calls on a cold cache) and writes the "
+                             "same shared caches as the full run.")
+    parser.add_argument("--subset-report", type=Path,
+                        help="Report path, required with --ciks; must be outside --root and differ from --ciks")
     args = parser.parse_args(argv)
     subset = None
     if args.ciks is not None or args.subset_report is not None:
@@ -1118,9 +1132,10 @@ def main(argv=None) -> int:
             parser.error("--ciks is only valid with --step cover-evidence")
         if args.subset_report is None:
             parser.error("--subset-report is required with --ciks")
-        raw_tree = args.root.resolve() / "data" / "raw"
-        if args.subset_report.resolve().is_relative_to(raw_tree):
-            parser.error(f"--subset-report must be outside {raw_tree}")
+        if args.subset_report.resolve().is_relative_to(args.root.resolve()):
+            parser.error(f"--subset-report must be outside --root {args.root.resolve()}")
+        if args.subset_report.resolve() == args.ciks.resolve():
+            parser.error("--subset-report must differ from --ciks")
         try:
             subset = read_cik_list(args.ciks)
         except (OSError, ValueError) as exc:
@@ -1160,7 +1175,8 @@ def main(argv=None) -> int:
     rendered = json.dumps({key: value for key, value in out.items() if key not in {"results", "members", "ciks", "flags", "files"}},
                           sort_keys=True, default=str)
     print(rendered if args.step == "cover-evidence" else rendered[:3000])
-    if args.step in {"sec", "cover-evidence"} and (out["failed"] or out.get("status") == "aborted"):
+    if args.step in {"sec", "cover-evidence"} and (
+            out["failed"] or out.get("status") == "aborted" or out.get("not_a_candidate")):
         return 1
     return 0
 
