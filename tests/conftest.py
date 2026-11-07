@@ -182,31 +182,16 @@ ISOLATED_ROOT = _create_isolated_root()
 os.environ["ETF_COCKPIT_ROOT"] = str(ISOLATED_ROOT)
 
 # --- Seeded project data ----------------------------------------------------------------------
-# The first build_snapshot() in an empty data/ generates the sample dataset (~45 s) and the first
-# snapshot.backtest generates the sample backtest (~1-2 min).  Serially that cost is paid once and
-# every later test sees the populated data; with one root per worker it would be paid by every
-# worker.  So the dataset is built once per source state (keyed by a hash of src/, configs/ and
-# tracked data) and copied into each root before collection: the same state a serial run reaches
-# after its first snapshot.  If the seed cannot be built, data/ stays empty.
-# The backtest cache is bound to the identity-master content digest, which differs between "no
-# transactional store", "store with leftover -wal/-shm files" (digest unreadable) and "initialised
-# empty store" (the first test that opens the app state creates it).  So the seed initialises the
-# store, removes the leftover files and only then computes the backtest: the cached report is bound
-# to the clean empty store, the state every worker reaches, instead of being recomputed once per
-# worker after the store appears.  Tests that write identity records still invalidate it, as before.
+# The first build_snapshot() in an empty data/ generates the sample dataset (~45 s).  Serially that
+# cost is paid once and every later test sees the populated data; with one root per worker it
+# would be paid by every worker.  So the dataset is built once per source state (keyed by a hash of
+# src/, configs/ and tracked data) and copied into each root before collection: the same state a
+# serial run reaches after its first snapshot.  If the seed cannot be built, data/ stays empty.
 DATA_SEEDS = _SYSTEM_TEMP / "etf_ai_cockpit_data_seeds"
-_SEED_BUILD_TIMEOUT_SECONDS = 900  # equal to the stale-lock age: no second builder can start while one runs
-# A build takes ~2-4 min; a lock older than this belongs to a killed session.  Waiting sessions give
+_SEED_BUILD_TIMEOUT_SECONDS = 300  # equal to the stale-lock age: no second builder can start while one runs
+# A build takes ~45-90 s; a lock older than this belongs to a killed session.  Waiting sessions give
 # up after the same time and run unseeded (slower, never wrong) instead of stalling.
-_SEED_LOCK_STALE_SECONDS = 900
-# A read-only reader that closes last leaves -wal/-shm behind; opening and closing the store writable removes them.
-_SEED_BUILD_SNIPPET = (
-    "from etf_cockpit.application.snapshot_builder import build_snapshot; "
-    "from etf_cockpit.core.paths import ROOT; "
-    "from etf_cockpit.data.local_storage import connect_storage, initialise_storage; "
-    "initialise_storage(ROOT); snapshot = build_snapshot(); connect_storage(ROOT).close(); "
-    "snapshot.ensure_backtest(); connect_storage(ROOT).close()"
-)
+_SEED_LOCK_STALE_SECONDS = 300
 _SEED_KEEP = 4  # shared by all worktrees on the machine
 _SYNTHETIC_OFF = "allow_synthetic_sample_data: false"
 _SYNTHETIC_ON = "allow_synthetic_sample_data: true"
@@ -236,7 +221,6 @@ def _seed_key() -> str:
 
     digest = hashlib.sha256(sys.version.encode("utf-8"))
     digest.update(b"seed-built-with-synthetic-sample-opt-in")  # the seed is the explicit demo dataset
-    digest.update(_SEED_BUILD_SNIPPET.encode("utf-8"))  # a changed recipe is a different seed
     tracked_data = _tracked_files(("data",)) or []
     sources = sorted(
         [
@@ -269,7 +253,7 @@ def _build_data_seed(seed: Path) -> None:
         environment = {**os.environ, "ETF_COCKPIT_ROOT": str(builder), "ETF_COCKPIT_OFFLINE": "1"}
         environment["PYTHONPATH"] = os.pathsep.join(filter(None, [str(ROOT / "src"), environment.get("PYTHONPATH")]))
         completed = subprocess.run(
-            [sys.executable, "-c", _SEED_BUILD_SNIPPET],
+            [sys.executable, "-c", "from etf_cockpit.application.snapshot_builder import build_snapshot; build_snapshot()"],
             cwd=ROOT,
             env=environment,
             capture_output=True,
@@ -423,26 +407,6 @@ def _repo_write_guard() -> Iterator[None]:
             + "\n  ".join(violations[:20]),
             pytrace=False,
         )
-
-
-@pytest.fixture(autouse=True)
-def _settled_store_journal() -> None:
-    """Start every test with the isolated store free of leftover -wal/-shm files.
-
-    A read-only reader that closes last leaves them behind, and the identity-master digest that binds the
-    cached backtest then reads "unreadable" instead of the empty-store digest the seed was built against
-    (see the seeded-data note above): the cache would be recomputed at every flip.  Opening and closing the
-    store writable removes them; a store that does not exist, or is held open elsewhere, is left alone.
-    """
-
-    store = ISOLATED_ROOT / "data" / "storage" / "cockpit.sqlite3"
-    if store.is_file() and any(Path(f"{store}{suffix}").exists() for suffix in ("-wal", "-shm")):
-        from etf_cockpit.data.local_storage import connect_storage
-
-        try:
-            connect_storage(ISOLATED_ROOT).close()
-        except Exception:  # noqa: BLE001 - a store a test left unreadable on purpose is the test's business
-            pass
 
 
 @pytest.fixture
