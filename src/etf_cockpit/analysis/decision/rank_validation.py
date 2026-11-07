@@ -1129,6 +1129,7 @@ def _factor_attribution(
     if not _has_columns(prices, required):
         return {"status": "unavailable", "reason": "factor risk requires point-in-time adjusted-price history", "factors": []}
     contributions: list[dict[str, object]] = []
+    stamped: pd.DataFrame | None = None
     for decision_time, group in rows.loc[rows["ranker"].astype(str).eq(ranker)].groupby("decision_time", sort=True):
         cutoff = _aware_timestamp(decision_time)
         if cutoff is None:
@@ -1139,14 +1140,15 @@ def _factor_attribution(
         selected = valid.head(min(policy.top_n, len(valid)))
         if len(selected) < 3:
             continue
-        price_rows = prices.copy()
-        price_rows["_known"] = price_rows["known_at"].map(_aware_timestamp)
-        price_rows["_date"] = price_rows["date"].map(_date_value)
-        price_rows = price_rows.loc[
-            price_rows["_known"].notna()
-            & price_rows["_known"].le(cutoff)
-            & price_rows["_date"].map(lambda value: value is not None and value <= cutoff.date())
-            & price_rows["instrument_id"].astype(str).isin(valid["instrument_id"].astype(str))
+        if stamped is None:  # the stamps do not depend on the decision time: parse them once
+            stamped = prices.copy()
+            stamped["_known"] = stamped["known_at"].map(_aware_timestamp)
+            stamped["_date"] = stamped["date"].map(_date_value)
+        price_rows = stamped.loc[
+            stamped["_known"].notna()
+            & stamped["_known"].le(cutoff)
+            & stamped["_date"].map(lambda value: value is not None and value <= cutoff.date())
+            & stamped["instrument_id"].astype(str).isin(valid["instrument_id"].astype(str))
         ]
         prices_for_risk = price_rows.rename(columns={"instrument_id": "etf_id"})[["etf_id", "date", "adjusted_close"]]
         allocation = pd.DataFrame(
@@ -1232,12 +1234,13 @@ def _forward_return(
 ) -> tuple[float | None, str]:
     all_sessions = sorted(
         value
-        for value in prices.get("_date", prices["date"].map(_date_value)).dropna().unique()
+        for value in (prices["_date"] if "_date" in prices else prices["date"].map(_date_value)).dropna().unique()
         if value > cutoff.date()
     )
     frame = prices.loc[prices["instrument_id"].astype(str).eq(instrument_id)].copy()
     frame["_known"] = frame["known_at"].map(_aware_timestamp)
-    frame["_date"] = frame.get("_date", frame["date"].map(_date_value))
+    if "_date" not in frame:
+        frame["_date"] = frame["date"].map(_date_value)
     frame["_close"] = pd.to_numeric(frame["adjusted_close"], errors="coerce")
     frame = frame.loc[frame["_date"].notna()]
     frame = frame.sort_values(["_date", "_known"], kind="stable")
