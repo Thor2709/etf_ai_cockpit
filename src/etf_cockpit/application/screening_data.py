@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from datetime import date
+from collections.abc import Mapping
 from typing import Any
 
 import pandas as pd
 
-from etf_cockpit.analysis.screening import ScreenQuery, records_checksum
+from etf_cockpit.analysis.screening import ScreenFilter, ScreenQuery, ScreenSort, records_checksum
 from etf_cockpit.data.fundamentals import assess_fundamental_row, latest_fundamental_rows
 
 
@@ -37,7 +38,11 @@ def build_screen_rows(snapshot: Any, fundamentals: pd.DataFrame) -> pd.DataFrame
 
     fundamentals = fundamentals.copy() if isinstance(fundamentals, pd.DataFrame) else pd.DataFrame()
     if "instrument_id" in fundamentals.columns:
-        fundamentals = latest_fundamental_rows(fundamentals).set_index("instrument_id")
+        cutoff = _as_of_date(snapshot)
+        fundamentals = (
+            latest_fundamental_rows(fundamentals, decision_time=cutoff).set_index("instrument_id")
+            if cutoff is not None else pd.DataFrame()
+        )
     else:
         fundamentals = pd.DataFrame()
     signals = {str(signal.etf_id): signal for signal in getattr(snapshot, "signals", ())}
@@ -112,6 +117,47 @@ def build_screen_rows(snapshot: Any, fundamentals: pd.DataFrame) -> pd.DataFrame
     return frame
 
 
+def filter_from_dict(value: Mapping[str, object]) -> ScreenFilter:
+    """Public MCP boundary for the canonical typed screening filter."""
+
+    if not isinstance(value, Mapping) or set(value) != {"field", "operator", "value"}:
+        raise ValueError("each filter must contain exactly field, operator, and value")
+    field, operator, raw = value["field"], value["operator"], value["value"]
+    if not isinstance(field, str) or not isinstance(operator, str):
+        raise ValueError("filter field and operator must be text")
+    if operator == "eq" and not isinstance(raw, str):
+        raise ValueError("eq filter values must be text")
+    if operator in {"min", "max"} and isinstance(raw, bool):
+        raise ValueError("numeric filter values must be finite numbers")
+    return ScreenFilter(field, operator, raw)  # type: ignore[arg-type]
+
+
+def load_screening_fundamentals(root: object) -> pd.DataFrame:
+    """Load stored fundamentals from the configured data root for screen assembly."""
+
+    from pathlib import Path
+
+    from etf_cockpit.data.fundamentals import load_fundamental_evidence
+
+    path = Path(root) / "data" / "clean" / "fundamentals.parquet"
+    try:
+        frame = load_fundamental_evidence(path)
+    except (OSError, ValueError):
+        return pd.DataFrame()
+    return frame if isinstance(frame, pd.DataFrame) else pd.DataFrame()
+
+
+def sort_from_dict(value: Mapping[str, object]) -> ScreenSort:
+    """Public MCP boundary for the canonical typed screening sort."""
+
+    if not isinstance(value, Mapping) or set(value) - {"field", "descending"} or "field" not in value:
+        raise ValueError("each sort must contain field and optional descending")
+    field, descending = value["field"], value.get("descending", False)
+    if not isinstance(field, str) or not isinstance(descending, bool):
+        raise ValueError("sort field must be text and descending must be boolean")
+    return ScreenSort(field, descending)
+
+
 def _canonical_scores(snapshot: Any) -> dict[str, object]:
     from etf_cockpit.application.score_views import snapshot_scores
 
@@ -156,6 +202,27 @@ def query_for_snapshot(snapshot: Any, frame: pd.DataFrame, **kwargs: object) -> 
         input_checksum=input_checksum,
         **kwargs,  # type: ignore[arg-type]
     )
+
+
+def run_screen_query(
+    snapshot: Any,
+    frame: pd.DataFrame,
+    *,
+    filters: tuple[ScreenFilter, ...] = (),
+    sort: tuple[ScreenSort, ...] = (),
+    requested_fields: tuple[str, ...] = (),
+):
+    """Build and run one canonical query bound to the current row checksum."""
+
+    from etf_cockpit.analysis.screening import bind_query, run_screen
+
+    query = query_for_snapshot(
+        snapshot, frame, filters=filters, sort=sort, requested_fields=requested_fields
+    )
+    return run_screen(frame, bind_query(frame, query))
+
+
+__all__ = ["build_screen_rows", "filter_from_dict", "load_screening_fundamentals", "query_for_snapshot", "run_screen_query", "saved_lineage_notice", "sort_from_dict"]
 
 
 def saved_lineage_notice(saved: ScreenQuery, current: ScreenQuery) -> str | None:

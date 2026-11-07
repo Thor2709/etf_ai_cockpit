@@ -124,7 +124,7 @@ def matured_probability_frame(
     positive. Rows with a mismatched registered target or an out-of-range probability are dropped.
     """
 
-    columns = ["forecast_date", "probability", "outcome", "actual", "horizon_days", "q10_return", "q50_return", "q90_return"]
+    columns = ["forecast_date", "target_date", "probability", "outcome", "actual", "horizon_days", "q10_return", "q50_return", "q90_return"]
     if not model_version or horizon_days is None or not target_matches_evaluation(target_id, horizon_days):
         return pd.DataFrame(columns=columns)
     diagnostic_history = history.copy()
@@ -151,7 +151,9 @@ def matured_probability_frame(
             continue
         actual = realised_horizon_return(series, row.forecast_date, int(row.horizon_days))
         if actual is not None:
-            rows.append({"forecast_date": row.forecast_date, "probability": probability, "outcome": int(actual > 0), "actual": actual, "horizon_days": row.horizon_days, "q10_return": row.q10_return, "q50_return": row.q50_return, "q90_return": row.q90_return})
+            origin = series.index.searchsorted(pd.Timestamp(row.forecast_date), side="right") - 1
+            target_date = series.index[origin + int(row.horizon_days)]
+            rows.append({"forecast_date": row.forecast_date, "target_date": target_date, "probability": probability, "outcome": int(actual > 0), "actual": actual, "horizon_days": row.horizon_days, "q10_return": row.q10_return, "q50_return": row.q50_return, "q90_return": row.q90_return})
     return pd.DataFrame(rows, columns=columns)
 
 
@@ -261,14 +263,17 @@ def evaluate_model_promotions(
     ]
     for model in models:
         own = forecasts.loc[forecasts["model_name"].eq(model)]
-        versions = own["model_version"].dropna().unique().tolist()
+        verified_own = own.loc[
+            own["provenance_verified"] & own["horizon_days"].eq(settings.evidence_horizon_days)
+        ]
+        versions = verified_own["model_version"].dropna().unique().tolist()
         if not versions:
             decisions[model] = _decide(model, None, forecasts, baseline, price_series, settings)
             continue
         # Keep separate evidence for each version. The latest observed version is
         # the family decision, and may not inherit eligibility from an older one.
         evaluated = [_decide(model, version, forecasts, baseline, price_series, settings) for version in versions]
-        latest = own.sort_values("created_at", na_position="first")["model_version"].dropna().iloc[-1]
+        latest = verified_own.sort_values("created_at", na_position="first")["model_version"].dropna().iloc[-1]
         selected = next(item for item in evaluated if item.model_version == latest)
         decisions[model] = replace(selected, version_evidence=tuple(asdict(item) for item in evaluated))
     return decisions
@@ -297,7 +302,11 @@ def _decide(
     at_horizon = own.loc[own["horizon_days"].eq(settings.evidence_horizon_days)]
     # Only rows that could belong to this version (its own or unversioned) can be unverifiable for it;
     # rows of another version are that version's evidence, not this one's.
-    own_or_unversioned = at_horizon["model_version"].isna() | at_horizon["model_version"].eq(version)
+    own_or_unversioned = (
+        ~at_horizon["provenance_verified"]
+        if version is None
+        else at_horizon["model_version"].isna() | at_horizon["model_version"].eq(version)
+    )
     common["unverifiable_forecasts"] = int((own_or_unversioned & ~at_horizon["provenance_verified"]).sum())
     own = own.loc[verified]
     first_run = own["created_at"].min() if not own.empty else pd.NaT
@@ -422,7 +431,7 @@ def _paired_scores(matured: pd.DataFrame, price_series: dict[str, pd.Series]) ->
     base_mase, base_dir, _ = pooled[BASELINE_MODEL]
     # Require interval evidence on every instrument before assigning a good grade.
     model_rows = table.loc[table["model_name"].eq("model")]
-    coverage_values = pd.to_numeric(model_rows["q10_q90_coverage"], errors="coerce")
+    coverage_values = pd.to_numeric(model_rows["grade_coverage"], errors="coerce")
     weights = pd.to_numeric(model_rows["matured_forecasts"], errors="coerce")
     coverage = float((coverage_values * weights).sum() / weights.sum()) if not model_rows.empty and coverage_values.notna().all() else None
     grade = None if model_dir is None else calibration_grade(model_n, model_mase, model_dir, coverage)
@@ -459,14 +468,22 @@ def _normalised_history(history: pd.DataFrame, as_of: date) -> pd.DataFrame:
     frame["etf_id"] = frame["etf_id"].astype(str)
     for name in ("model_version", "run_id"):
         frame[name] = frame[name].astype("string").str.strip().replace({"": pd.NA, "nan": pd.NA, "None": pd.NA})
-    frame["forecast_date"] = _origin_dates(frame["forecast_date"])
+    origin_values = history["forecast_date"].astype(str)
+    frame["forecast_date"] = _origin_dates(history["forecast_date"])
     frame["created_at"] = pd.to_datetime(frame["created_at"], errors="coerce", utc=True, format="mixed").dt.tz_convert(None)
     as_of_end = pd.Timestamp(as_of) + pd.Timedelta(days=1) - pd.Timedelta(nanoseconds=1)
     for name in ("horizon_days", "expected_return", "q10_return", "q90_return", "prob_positive_return", "heuristic_probability_positive"):
         frame[name] = pd.to_numeric(frame[name], errors="coerce")
-    # Date-only forecast artefacts use the end of the UTC origin day. A timestamp
-    # after that boundary cannot establish a forecast made at the origin.
-    session_end = frame["forecast_date"] + pd.Timedelta(days=1) - pd.Timedelta(nanoseconds=1)
+    # Offset timestamps keep their written session date. Apply that timestamp's written
+    # UTC offset to the local session boundary before comparing with UTC creation time.
+    has_offset = origin_values.str.contains(r"(?i)(?:Z|[+-]\d{2}:?\d{2})$", regex=True)
+    utc_origin = pd.to_datetime(origin_values, errors="coerce", utc=True, format="mixed").dt.tz_convert(None)
+    local_as_utc = pd.to_datetime(
+        origin_values.str.replace(r"(?i)(?:Z|[+-]\d{2}:?\d{2})$", "", regex=True),
+        errors="coerce", utc=True, format="mixed",
+    ).dt.tz_convert(None)
+    origin_offset = (utc_origin - local_as_utc).where(has_offset, pd.Timedelta(0))
+    session_end = frame["forecast_date"] + pd.Timedelta(days=1) - pd.Timedelta(nanoseconds=1) + origin_offset
     frame["provenance_verified"] = (
         frame["created_at"].notna() & frame["created_at"].le(session_end) & frame["created_at"].le(as_of_end)
         & frame["model_version"].notna() & frame["run_id"].notna()

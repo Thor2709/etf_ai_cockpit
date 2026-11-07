@@ -7,6 +7,7 @@ import hmac
 import importlib
 import json
 from pathlib import Path
+import re
 import secrets
 from typing import Any, Mapping
 from urllib.parse import urlparse
@@ -20,7 +21,14 @@ from etf_cockpit.core.session_log import SECRET_KEY_RE, redact_text
 POLICY_SCHEMA_VERSION = "security-policy.v1"
 POLICY_PATH = CONFIG_DIR / "security_policy.yaml"
 _REDACTED = "***redacted***"
-_ACTIVE_FINDING_STATUSES = frozenset({"active", "new", "open", "unresolved"})
+# Unknown, missing and non-string statuses block; recognized active statuses use severity.
+_CLOSED_FINDING_STATUSES = frozenset({"closed", "fixed", "false_positive", "mitigated", "not_applicable", "resolved"})
+_ACTIVE_FINDING_STATUSES = frozenset({"open", "active", "in_progress", "reopened", "new", "unresolved"})
+# Severities that can never be configured away; unknown severities are treated as blocking too.
+_MANDATORY_BLOCKING_SEVERITIES = ("critical", "high")
+_KNOWN_NON_BLOCKING_SEVERITIES = frozenset({"info", "informational", "low", "medium", "moderate"})
+_SAFE_IDENTIFIER_RE = re.compile(r"[^A-Za-z0-9_.:/@+-]")
+_IDENTIFIER_MAX_CHARS = 80
 
 
 class SecurityPolicyError(ValueError):
@@ -80,6 +88,8 @@ def load_security_policy(path: Path = POLICY_PATH) -> SecurityPolicy:
     blocking = tuple(str(value).strip().lower() for value in findings.get("blocking_severities", ()))
     if not blocking:
         raise SecurityPolicyError("at least one blocking security severity is required")
+    # A configurable filter must never hide critical/high findings.
+    blocking = tuple(dict.fromkeys((*_MANDATORY_BLOCKING_SEVERITIES, *blocking)))
     return SecurityPolicy(
         schema_version=POLICY_SCHEMA_VERSION,
         default_deny=_strict_bool(network, "default_deny"),
@@ -238,11 +248,18 @@ def build_security_report(root: Path = ROOT, *, findings: list[Mapping[str, Any]
                 failures.append("every plugin must declare network_access=false")
     except (OSError, yaml.YAMLError, AttributeError):
         failures.append("plugin registry could not be inspected")
-    for finding in findings if findings is not None else _load_findings(root / "artifacts" / "security" / "findings.json"):
+    inventory = findings if findings is not None else _load_findings(root / "artifacts" / "security" / "findings.json")
+    if inventory is None:
+        failures.append("evidence_unavailable")
+    for finding in inventory if inventory is not None else ():
         severity = str(finding.get("severity", "")).strip().lower()
-        status = str(finding.get("status", "open")).strip().lower()
-        if severity in policy.blocking_severities and status in _ACTIVE_FINDING_STATUSES:
-            failures.append(f"active {severity} security finding blocks release: {str(finding.get('id', 'unidentified'))}")
+        status = str(finding.get("status", "")).strip().lower()
+        if _finding_blocks(severity, status, policy.blocking_severities):
+            label = severity if severity in policy.blocking_severities else "unclassified"
+            failures.append(
+                f"{label} security finding with status {_safe_identifier(status)} blocks release: "
+                f"{_safe_identifier(finding.get('id', 'unidentified'))}"
+            )
     return {
         "schema_version": POLICY_SCHEMA_VERSION,
         "status": "passed" if not failures else "failed",
@@ -261,28 +278,42 @@ def build_security_report(root: Path = ROOT, *, findings: list[Mapping[str, Any]
     }
 
 
+def _finding_blocks(severity: str, status: str, blocking_severities: tuple[str, ...]) -> bool:
+    """Fail closed: unknown severities and unknown/missing statuses block unless explicitly closed."""
+
+    if status in _CLOSED_FINDING_STATUSES:
+        return False
+    if status not in _ACTIVE_FINDING_STATUSES:
+        return True
+    if severity in blocking_severities:
+        return True
+    return severity not in _KNOWN_NON_BLOCKING_SEVERITIES
+
+
+def _safe_identifier(value: object) -> str:
+    """Make an untrusted identifier safe for failure reports (no control characters, secrets or markup)."""
+
+    text = redact_text(str(value)).strip()
+    cleaned = _SAFE_IDENTIFIER_RE.sub("_", text)[:_IDENTIFIER_MAX_CHARS]
+    return cleaned or "unidentified"
+
+
 def create_ephemeral_token() -> str:
     """Create an in-memory token; callers must not persist or log it."""
 
     return secrets.token_urlsafe(32)
 
 
-def _load_findings(path: Path) -> list[Mapping[str, Any]]:
-    if not path.is_file():
-        return []
+def _load_findings(path: Path) -> list[Mapping[str, Any]] | None:
+    """Return None for unavailable or invalid evidence; only a valid inventory may be empty."""
+
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return [{"id": "security-findings-file", "severity": "high", "status": "open"}]
-    if not isinstance(payload, list):
-        return [{"id": "security-findings-file", "severity": "high", "status": "open"}]
-    findings: list[Mapping[str, Any]] = []
-    for item in payload:
-        if not isinstance(item, Mapping):
-            findings.append({"id": "security-findings-file", "severity": "high", "status": "open"})
-        else:
-            findings.append(item)
-    return findings
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, list) or not all(isinstance(item, Mapping) for item in payload):
+        return None
+    return payload
 
 
 def _keyring() -> Any:

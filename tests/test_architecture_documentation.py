@@ -23,12 +23,13 @@ def test_canonical_architecture_set_and_document_control() -> None:
     for field in (
         "status: current",
         "repository: Thor2709/etf_ai_cockpit",
-        "verified_against_commit: 6525429d56160167fbeb023636f8b00b05e28336",
-        "verified_on: 2026-07-27",
         'architecture_document_version: "1.0"',
         "supersedes: ETF_AI_Portfolio_Cockpit_Master_Spec.md",
     ):
         assert field in sdd
+    # The verification stamp is a well-formed commit SHA and date, not a pinned historical value.
+    assert re.search(r"(?m)^verified_against_commit: [0-9a-f]{40}$", sdd)
+    assert re.search(r"(?m)^verified_on: \d{4}-\d{2}-\d{2}$", sdd)
     index = CANONICAL_DOCUMENTS[1].read_text(encoding="utf-8")
     assert "[Software Design Description](SDD.md)" in index
     assert "[Traceability](TRACEABILITY.md)" in index

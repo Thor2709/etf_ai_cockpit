@@ -83,7 +83,9 @@ def test_certificate_gets_stock_policy_and_unknown_asset_type_raises() -> None:
 
 @pytest.mark.parametrize("declared", ["certificate", "equity_certificate", "stock", "equity"])
 def test_signal_rows_for_stock_like_types_never_fall_back_to_etf_policy(declared: str) -> None:
-    assert canonical_scoring._signal_asset_type({"instrument_type": declared}, None, "X") == "STOCK"
+    assert canonical_scoring._signal_asset_type({"instrument_type": declared}, None, "X") == {
+        "certificate": "CERTIFICATE", "equity_certificate": "STOCK", "stock": "STOCK", "equity": "STOCK",
+    }[declared]
     assert canonical_scoring._signal_asset_type({"instrument_type": "etf"}, None, "X") == "ETF"
     assert canonical_scoring._signal_asset_type({}, None, "X") == "ETF"
     assert canonical_scoring._signal_asset_type({"asset_type": "mystery"}, None, "X") == "mystery"

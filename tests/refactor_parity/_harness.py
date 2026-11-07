@@ -15,7 +15,8 @@ REPO = Path(__file__).resolve().parents[2]
 FIXTURE_DIR = REPO / "tests" / "fixtures" / "refactor_parity"
 REFRESH_ENV = "ETF_REFRESH_REFACTOR_GOLDENS"
 CAPTURE_SCRIPT = Path(__file__).with_name("_capture.py")
-CAPTURE_TIMEOUT_SECONDS = 600
+# The integrated sample backtest alone takes 5-9 minutes unloaded; leave headroom for parallel workers.
+CAPTURE_TIMEOUT_SECONDS = 2400
 
 _PRIVATE_DIRECTORIES = ("configs", "data", "artifacts", "logs", "exports", "backups")
 # Never linked into the capture root: weights (availability must not depend on the developer machine),
@@ -125,7 +126,18 @@ def run_capture(root: Path, output: Path, *, now_offset_days: int = 0) -> dict[s
     )
     if completed.returncode != 0:
         raise AssertionError(f"capture subprocess failed ({completed.returncode}):\n{completed.stderr[-4000:]}")
-    return json.loads(output.read_text(encoding="utf-8"))
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    # Like atomic-write guards, writer coordination and recovery diagnostics are
+    # runtime artifacts, not persisted product data. Exclude only these exact
+    # paths; newly persisted product files must still fail the schema golden.
+    files = payload["sections"]["persisted_schema"]["files"]
+    for relative in (
+        "data/.headless-writer.lock",
+        "data/.headless-writer.lock.owner.json",
+        "data/operations/headless_writer_audit.jsonl",
+    ):
+        files.pop(relative, None)
+    return payload
 
 
 # --- golden fixtures --------------------------------------------------------------------------------

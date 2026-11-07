@@ -113,6 +113,22 @@ class PluginResult(PluginContractModel):
         return self
 
 
+def _deep_freeze(value: object) -> object:
+    """Recursively replace mutable containers so nested caller input cannot be mutated through the context."""
+
+    if isinstance(value, Mapping):
+        return MappingProxyType({_deep_freeze(key): _deep_freeze(item) for key, item in value.items()})
+    if isinstance(value, (list, tuple)):
+        return tuple(_deep_freeze(item) for item in value)
+    if isinstance(value, (set, frozenset)):
+        return frozenset(_deep_freeze(item) for item in value)
+    if isinstance(value, bytearray):
+        return bytes(value)
+    if type(value) in (str, bytes, int, float, complex, bool, type(None)):
+        return value
+    raise TypeError(f"unsupported plugin input type: {type(value).__name__}")
+
+
 @dataclass(frozen=True)
 class PluginContext:
     """Read-only inputs and an audit sink; no canonical storage handle exists."""
@@ -122,7 +138,7 @@ class PluginContext:
     _audit_events: list[dict[str, str]] = field(default_factory=list, repr=False, compare=False)
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "inputs", MappingProxyType(dict(self.inputs)))
+        object.__setattr__(self, "inputs", _deep_freeze(dict(self.inputs)))
         object.__setattr__(self, "_audit_events", [])
 
     def read_input(self, name: str, default: object = None) -> object:

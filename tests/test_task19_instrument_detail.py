@@ -1167,6 +1167,8 @@ def test_fundamentals_panel_renders_complete_five_section_provenance() -> None:
                 {
                     "instrument_id": "VWCE",
                     "as_of_date": as_of,
+                    # PIT audit (d27b5d4c): evidence needs an explicit, non-future available_at to be score-eligible.
+                    "available_at": as_of,
                     "eligibility": "eligible",
                     "score_eligible": True,
                     "source_authority": "sec_edgar",

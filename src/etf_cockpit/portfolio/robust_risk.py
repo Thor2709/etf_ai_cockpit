@@ -251,6 +251,42 @@ def covariance_estimators(
     return _covariance_estimators(returns, factor_report, ewma_lambda=ewma_lambda, shrinkage_alpha=shrinkage_alpha)[0]
 
 
+def ledoit_wolf_covariance(returns: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, object]]:
+    """Ledoit-Wolf (2004) shrinkage toward a scaled identity, numpy only.
+
+    ``returns`` must be the training window only.  The result is the *daily*
+    unbiased-scaled covariance; callers annualise it.  The shrinkage intensity
+    is estimated from the same window (no outside information, no look-ahead).
+    An unavailable status is returned for fewer than two complete rows.
+    """
+
+    complete = returns.dropna(how="any") if returns is not None else pd.DataFrame()
+    observations, assets = complete.shape
+    if observations < 2 or assets < 1:
+        return pd.DataFrame(), {"status": "unavailable", "reason_code": "insufficient_sample", "observations": int(observations)}
+    values = complete.to_numpy(float)
+    if not np.isfinite(values).all():
+        return pd.DataFrame(), {"status": "unavailable", "reason_code": "non_finite_returns", "observations": int(observations)}
+    centred = values - values.mean(axis=0)
+    sample = centred.T @ centred / observations
+    mean_variance = float(np.trace(sample) / assets)
+    dispersion = float(np.sum((sample - mean_variance * np.eye(assets)) ** 2))
+    fourth = float(np.sum(np.sum(centred**2, axis=1) ** 2)) / observations**2
+    estimation = max(fourth - float(np.sum(sample**2)) / observations, 0.0)
+    intensity = 1.0 if dispersion <= 1e-18 else float(min(estimation, dispersion) / dispersion)
+    shrunk = intensity * mean_variance * np.eye(assets) + (1.0 - intensity) * sample
+    shrunk = shrunk * observations / (observations - 1.0)
+    shrunk = (shrunk + shrunk.T) / 2.0
+    frame = pd.DataFrame(shrunk, index=complete.columns, columns=complete.columns)
+    return frame, {
+        "status": "available",
+        "estimator": "ledoit_wolf_scaled_identity",
+        "shrinkage_intensity": intensity,
+        "observations": int(observations),
+        "assets": int(assets),
+    }
+
+
 def _return_matrix(prices: pd.DataFrame, *, window: int) -> pd.DataFrame:
     if prices is None or prices.empty or not {"date", "etf_id", "adjusted_close"}.issubset(prices.columns):
         return pd.DataFrame()
@@ -647,4 +683,4 @@ def _unavailable_report(message: str, returns: pd.DataFrame, weights: pd.Series)
     }
 
 
-__all__ = ["ANNUALISATION_FACTOR", "ESTIMATOR_NAMES", "ROBUST_RISK_MODEL_VERSION", "build_robust_risk_report", "covariance_estimators", "integrate_fixed_income_risk"]
+__all__ = ["ANNUALISATION_FACTOR", "ESTIMATOR_NAMES", "ROBUST_RISK_MODEL_VERSION", "build_robust_risk_report", "covariance_estimators", "integrate_fixed_income_risk", "ledoit_wolf_covariance"]

@@ -1,0 +1,98 @@
+{
+  "pages": [
+    {
+      "data": [
+        {
+          "type": "filing",
+          "id": "synthetic-529900D6BF99LW9R2E68-0",
+          "attributes": {
+            "period_end": "2023-12-31",
+            "date_added": "2024-03-01T12:00:00Z",
+            "error_count": 0,
+            "package_url": "https://filings.xbrl.org/529900D6BF99LW9R2E68/2023-12-31/ESEF/DE/0/529900D6BF99LW9R2E68-2023-12-31.xbri",
+            "sha256": "79255c6a67bfeb419f35c4d171fff2d9e1df8ea911f1131cbabe2d1430e6360a"
+          },
+          "relationships": {
+            "entity": {
+              "data": {
+                "type": "entity",
+                "id": "529900D6BF99LW9R2E68"
+              }
+            }
+          }
+        }
+      ],
+      "included": [
+        {
+          "type": "entity",
+          "id": "529900D6BF99LW9R2E68",
+          "attributes": {
+            "identifier": "529900D6BF99LW9R2E68"
+          }
+        }
+      ],
+      "links": {
+        "next": "/api/filings?page[number]=2"
+      }
+    },
+    {
+      "data": [
+        {
+          "type": "filing",
+          "id": "synthetic-529900D6BF99LW9R2E68-1",
+          "attributes": {
+            "period_end": "2023-12-31",
+            "date_added": "2024-03-02T12:00:00Z",
+            "error_count": 0,
+            "package_url": "https://filings.xbrl.org/529900D6BF99LW9R2E68/2023-12-31/ESEF/DE/1/529900D6BF99LW9R2E68-2023-12-31.xbri",
+            "sha256": "dd483a6fd129fc541f4590c1c547bf3aa5d4d05ba96b58a6d58c7af19b86d18a"
+          },
+          "relationships": {
+            "entity": {
+              "data": {
+                "type": "entity",
+                "id": "529900D6BF99LW9R2E68"
+              }
+            }
+          }
+        },
+        {
+          "type": "filing",
+          "id": "synthetic-529900D6BF99LW9R2E68-2",
+          "attributes": {
+            "period_end": "2023-12-31",
+            "date_added": "2024-03-03T12:00:00Z",
+            "error_count": 3,
+            "package_url": "https://filings.xbrl.org/529900D6BF99LW9R2E68/2023-12-31/ESEF/DE/2/529900D6BF99LW9R2E68-2023-12-31.xbri",
+            "sha256": "c864d746a57ffcab7f20f8edcec4217054e7a67dd76c7e95b4d2c1f94f694fc9"
+          },
+          "relationships": {
+            "entity": {
+              "data": {
+                "type": "entity",
+                "id": "529900D6BF99LW9R2E68"
+              }
+            }
+          }
+        }
+      ],
+      "included": [
+        {
+          "type": "entity",
+          "id": "529900D6BF99LW9R2E68",
+          "attributes": {
+            "identifier": "529900D6BF99LW9R2E68"
+          }
+        }
+      ],
+      "links": {
+        "next": null
+      }
+    }
+  ],
+  "packages": {
+    "https://filings.xbrl.org/529900D6BF99LW9R2E68/2023-12-31/ESEF/DE/0/529900D6BF99LW9R2E68-2023-12-31.xbri": "529900D6BF99LW9R2E68-0.xbri",
+    "https://filings.xbrl.org/529900D6BF99LW9R2E68/2023-12-31/ESEF/DE/1/529900D6BF99LW9R2E68-2023-12-31.xbri": "529900D6BF99LW9R2E68-1.xbri",
+    "https://filings.xbrl.org/529900D6BF99LW9R2E68/2023-12-31/ESEF/DE/2/529900D6BF99LW9R2E68-2023-12-31.xbri": "529900D6BF99LW9R2E68-2.xbri"
+  }
+}

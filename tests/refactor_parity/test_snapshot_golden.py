@@ -26,6 +26,16 @@ def test_snapshot_digest_is_not_vacuous(pipeline_capture: dict[str, object]) -> 
     section = pipeline_capture["sections"]["snapshot"]  # type: ignore[index]
     assert section["data_report"]["as_of_date"] == "2026-09-30"
     assert section["frames"]["prices"]["shape"][0] > 50_000
-    assert section["signals"]["count"] == len(section["universe"]["enabled_ids"])
+    # Pin the permitted native-path exclusions independently of the production classifier, so a classifier
+    # regression cannot silently remove more instruments from both the signals and this assertion's expectation.
+    native = {
+        "AURG", "HELG", "HSPG", "JAEREN", "MELG", "MING", "MORG", "NONG",
+        "RING", "SBNOR", "SKUE", "SOAG", "SOGN", "SPOG", "SPOL",
+    }
+    enabled = set(section["universe"]["enabled_ids"])
+    signal_ids = {item["etf_id"] for item in section["signals"]["items"]}
+    assert native <= enabled
+    assert signal_ids == enabled - native
+    assert section["signals"]["count"] == len(section["signals"]["items"]) == len(signal_ids)
     assert section["model_status"]["baseline"] is True
     assert section["model_status"]["timesfm"] is False and section["model_status"]["toto"] is False

@@ -6,7 +6,14 @@ from scripts import supply_chain_scan as scan
 
 
 def test_supply_chain_scan_allows_pending_intake_only_for_dev_exit(monkeypatch, tmp_path) -> None:
-    monkeypatch.setattr(scan, "_policy", lambda root: {})
+    pending_policy = {
+        "advisory_intake_exceptions": [
+            "supply-chain registry review status is not approved",
+            "one or more supply-chain components are not approved",
+            "detached intake signature status is missing",
+        ]
+    }
+    monkeypatch.setattr(scan, "_policy", lambda root: pending_policy)
     monkeypatch.setattr(scan, "build_source_manifest", lambda *args, **kwargs: {"manifest_sha256": "fixture", "files": []})
     monkeypatch.setattr(scan, "build_sbom", lambda *args, **kwargs: {"bom_sha256": "fixture"})
     monkeypatch.setattr(scan, "licence_inventory", lambda *args, **kwargs: {"components": [], "missing_license_metadata": []})

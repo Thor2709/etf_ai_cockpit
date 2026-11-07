@@ -169,7 +169,7 @@ def _stock_decision_map_for_content(content: bytes) -> StockDecisionMap:
                     "subfamily": str(raw_metric.get("subfamily", financial_name)),
                     "source": financial_name,
                     "comparison_scope": "BUSINESS_MODEL",
-                    "requirement_class": "CONDITIONAL",
+                    "requirement_class": raw_metric.get("requirement_class", "CONDITIONAL"),
                     "rank_authority": raw_metric.get(
                         "rank_authority", stock.get("rank_authority", False)
                     ),
@@ -375,6 +375,7 @@ def compose_stock_decision(
                 stock_research,
                 capital_allocation or {},
                 stock_map,
+                target_context,
             )
         generic_assessment = build_instrument_assessment(
             instrument,
@@ -441,6 +442,18 @@ def compose_stock_decision(
         )
         valuation_domain = valuation_assessment.domain_slots[0]
 
+    # Critical domains come from the registry (decision_domains_v1.yaml); valuation is always critical
+    # for stocks (D14). One computation feeds the canonical key and the legacy alias.
+    critical_domains = tuple(
+        sorted(
+            {
+                item.domain
+                for item in stock_map.registry.metrics
+                if item.requirement_class == "CRITICAL"
+            }
+            | {"valuation"}
+        )
+    )
     return {
         "instrument": instrument,
         "decision_time": decision_time,
@@ -455,16 +468,12 @@ def compose_stock_decision(
             for item in stock_map.domains
         },
         "underwriting_baseline_weights": _domain_weights(stock_map.domains),
-        "underwriting_z_score": _weighted_domain_z(domains, _domain_weights(stock_map.domains)),
-        "critical_underwriting_domains": tuple(
-            sorted(
-                {
-                    item.domain
-                    for item in stock_map.registry.metrics
-                    if item.requirement_class == "CRITICAL"
-                }
-            )
+        "underwriting_z_score": _weighted_domain_z(
+            domains, _domain_weights(stock_map.domains), critical_domains
         ),
+        "critical_domains": critical_domains,
+        # Legacy alias read by shadow_run._compose_stock_candidate (outside this write set).
+        "critical_underwriting_domains": critical_domains,
         "underwriting_input_evidence": input_evidence,
         "valuation_domain": valuation_domain if generic_assessment is not None else DomainSlot(
             "valuation", "UNAVAILABLE", None, None, 0.0, 0.0,
@@ -513,23 +522,33 @@ def _valuation_scored_metrics(
 
 
 def _weighted_domain_z(
-    domains: Sequence[DomainSlot], weights: Mapping[str, float]
+    domains: Sequence[DomainSlot],
+    weights: Mapping[str, float],
+    critical: Sequence[str] = (),
 ) -> float | None:
+    """Weighted underwriting z over the AVAILABLE domains, renormalised to their weights.
+
+    Every critical underwriting domain must be AVAILABLE; optional or conditional domains that a
+    route (cyclical/financial adapter, thin generic evidence) does not populate are left out
+    rather than voiding the score. No available domain means no score (never zero-filled).
+    """
+
     by_domain = {item.domain: item for item in domains}
-    if not weights or any(
-        domain not in by_domain
-        or by_domain[domain].status != "AVAILABLE"
-        or by_domain[domain].z_score is None
+    available = {
+        domain: float(by_domain[domain].z_score)
         for domain in weights
+        if domain in by_domain
+        and by_domain[domain].status == "AVAILABLE"
+        and by_domain[domain].z_score is not None
+    }
+    if not available or any(
+        domain in weights and domain not in available for domain in critical
     ):
         return None
-    total = sum(weights.values())
+    total = sum(weights[domain] for domain in available)
     if total <= 0:
         return None
-    return sum(
-        float(by_domain[domain].z_score) * weight
-        for domain, weight in weights.items()
-    ) / total
+    return sum(available[domain] * weights[domain] for domain in available) / total
 
 
 def _definition_from_map(raw: Mapping[str, object], domain_id: str) -> MetricDefinition:
@@ -572,6 +591,7 @@ def _stock_scored_metrics(
     stock_research: Mapping[str, object],
     capital_allocation: Mapping[str, object],
     stock_map: StockDecisionMap,
+    context: InstrumentContextV2 | None = None,
 ) -> tuple[list[ScoredMetric], dict[str, object]]:
     source_roots = {
         "profitability": stock_research.get("profitability"),
@@ -597,6 +617,7 @@ def _stock_scored_metrics(
             raw,
             definition,
             rank_authority=stock_map.rank_authority,
+            context=context,
         )
         if metric is not None:
             scored.append(metric)
@@ -782,6 +803,11 @@ def _cyclical_scored_metrics(
     return scored, evidence
 
 
+_UNSCOREABLE_STATUSES = frozenset(
+    {"missing", "unavailable", "quarantined", "not_applicable", "n/a", "na"}
+)
+
+
 def _make_scored_metric(
     metric_id: str,
     raw: object,
@@ -794,7 +820,7 @@ def _make_scored_metric(
         return None
     value = _finite(_projection_member(raw, "value"))
     status = str(_projection_member(raw, "status", "unavailable"))
-    if status.casefold() in {"not_applicable", "n/a", "na"}:
+    if value is None or status.casefold() in _UNSCOREABLE_STATUSES:
         return None
     timing_status = _projection_member(raw, "source_timing_status")
     if timing_status is not None and str(timing_status).casefold() != "available":

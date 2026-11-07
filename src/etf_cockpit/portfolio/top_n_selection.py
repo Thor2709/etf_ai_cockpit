@@ -551,16 +551,10 @@ def _bootstrap_fields(
     for _ in range(bootstrap_count):
         sampled = rng.integers(0, sample_count, size=sample_count)
         sampled_metrics = [metric_rows[int(index)] for index in sampled]
-        occurrence_scores = _utility_scores(sampled_metrics, sampled_metrics, weights)
-        sampled_scores: dict[str, list[float]] = {}
-        for index, score in zip(sampled, occurrence_scores, strict=True):
-            position = int(index)
-            sampled_scores.setdefault(ids[position], []).append(float(score))
-        ordered = sorted(
-            ((sum(values) / len(values), candidate_id) for candidate_id, values in sampled_scores.items()),
-            key=lambda item: (-item[0], item[1]),
-        )
-        for rank, (_score, candidate_id) in enumerate(ordered, start=1):
+        scores = _utility_scores(metric_rows, sampled_metrics, weights)
+        ordered = sorted(range(sample_count), key=lambda index: (-float(scores[index]), ids[index]))
+        for rank, position in enumerate(ordered, start=1):
+            candidate_id = ids[position]
             ranks[candidate_id].append(rank)
             if rank <= top_n:
                 selection_counts[candidate_id] += 1
@@ -653,8 +647,12 @@ def _constraint_reasons(
             rows.extend(raw_constraints)
         scenario_status = str(scenario_record.get("status", "unavailable"))
         if scenario_status == "blocked":
-            if not rows:
-                return ("risk_profile_after_trade_constraint_blocked",)
+            blockers = tuple(
+                "risk_profile_after_trade_constraint_blocked:" + str(_field(item, "constraint_id", "constraint_unavailable"))
+                for item in raw_constraints
+                if _field(item, "blocking", False) is True or str(_field(item, "status", "")) == "blocked"
+            ) if isinstance(raw_constraints, Sequence) else ()
+            return blockers or ("risk_profile_after_trade_constraint_blocked",)
         if scenario_status != "ready":
             if scenario_status != "blocked":
                 return ("risk_profile_after_trade_constraints_unavailable",)

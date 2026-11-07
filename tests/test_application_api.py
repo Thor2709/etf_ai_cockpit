@@ -66,7 +66,7 @@ def test_typed_paper_account_exposes_provenanced_marks_and_orders(tmp_path: Path
     opened = api.open_paper_account(PaperAccountOpenRequest(initial_cash=1_000))
     marked = api.mark_paper_position(
         PaperPositionMarkRequest(
-            instrument_id="ETF1",
+            instrument_id="VWCE",  # A07-F6: an unheld mark needs a configured quote currency.
             adjusted_close=101,
             as_of=datetime(2026, 7, 19, tzinfo=timezone.utc),
             source_authority="test-adjusted-close",

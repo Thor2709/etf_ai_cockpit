@@ -51,11 +51,17 @@ def conversion_event(
     source_id: str | None = None,
 ) -> Mapping[str, object]:
     pre = _state_mapping(pre_state)
-    old_count = _number(pre.get("outstanding_ec_count", pre.get("registered_ec_count")))
+    old_count_value = pre.get("outstanding_ec_count")
+    if old_count_value is None:
+        old_count_value = pre.get("registered_ec_count")
+    old_count = _number(old_count_value)
     converted = _number(converted_ec_count)
     foundation = _number(foundation_ec_count) if foundation_ec_count is not None else converted
     post_count = old_count + foundation if old_count is not None and foundation is not None else None
-    owner_weight = _number(pre.get("reconstructed_eierbrok", pre.get("reported_eierbrok")))
+    owner_weight_value = pre.get("reconstructed_eierbrok")
+    if owner_weight_value is None:
+        owner_weight_value = pre.get("reported_eierbrok")
+    owner_weight = _number(owner_weight_value)
     owner_pool = _number(pre.get("owner_pool_total"))
     self_pool = _number(pre.get("self_owned_pool_total"))
     capital = _number(converted_capital)
@@ -134,9 +140,11 @@ def rights_issue(old_shares: float, book_value: float, subscription_price: float
 
 def deficit_coverage(deficit: float, *, owner_nominal: float, owner_premium_fund: float, self_owned_capital: float, positive_result_charge: float = 0.0, statute_version: str = "fin-act-10-19@2026-09-18") -> Mapping[str, object]:
     amount, nominal, fund, own = map(_number, (deficit, owner_nominal, owner_premium_fund, self_owned_capital))
-    if amount is None or amount <= 0 or _number(positive_result_charge) not in (None, 0.0):
+    if None in (amount, nominal, fund, own) or any(value < 0 for value in (amount, nominal, fund, own)):
+        return {"status": "unavailable", "reason_code": "DEFICIT_CAPITAL_POOLS_UNAVAILABLE", "waterfall": (), "uncovered_deficit": None}
+    if amount == 0 or _number(positive_result_charge) not in (None, 0.0):
         return {"status": "not_triggered", "statute_version": statute_version, "waterfall": (), "uncovered_deficit": 0.0}
-    own_pool, fund_pool, nominal_pool = max(own or 0.0, 0.0), max(fund or 0.0, 0.0), max(nominal or 0.0, 0.0)
+    own_pool, fund_pool, nominal_pool = own, fund, nominal
     first_base = fund_pool + own_pool
     # Each tier absorbs at most its pool; the remainder carries to the next tier (decision D10).
     first_absorbed = min(amount, first_base)
@@ -145,7 +153,7 @@ def deficit_coverage(deficit: float, *, owner_nominal: float, owner_premium_fund
     carried = max(0.0, amount - first_absorbed)
     nominal_share = min(carried, nominal_pool)
     uncovered = max(0.0, carried - nominal_share)
-    return {"status": "partial" if uncovered > 0 else "resolved", "unknown_fields": ("uncovered_deficit",) if uncovered > 0 else (), "statute_version": statute_version, "reform_sensitive": True, "waterfall": (("self_owned_capital", self_share), ("owner_side_above_nominal", owner_fund_share), ("premium_funds", 0.0), ("nominal_ec_capital", nominal_share)), "self_owned_reduction": self_share, "owner_fund_reduction": owner_fund_share, "nominal_reduction": nominal_share, "uncovered_deficit": uncovered, "owner_book_after": nominal_pool + fund_pool - owner_fund_share - nominal_share, "owner_share_of_deficit": owner_fund_share / amount if amount else None}
+    return {"status": "partial" if uncovered > 0 else "resolved", "unknown_fields": ("uncovered_deficit",) if uncovered > 0 else (), "statute_version": statute_version, "reform_sensitive": True, "waterfall": (("self_owned_capital", self_share), ("owner_side_above_nominal", owner_fund_share), ("premium_funds", 0.0), ("nominal_ec_capital", nominal_share)), "self_owned_reduction": self_share, "owner_fund_reduction": owner_fund_share, "nominal_reduction": nominal_share, "uncovered_deficit": uncovered, "owner_book_after": nominal_pool + fund_pool - owner_fund_share - nominal_share, "owner_share_of_deficit": (owner_fund_share + nominal_share) / amount}
 
 
 def merger_ratios(*, bank_value_split: float | None = None, target_ec_exchange_ratio: float | None = None, post_merger_ec_class_ownership: float | None = None, post_merger_eierbrok: float | None = None) -> Mapping[str, float | None]:
@@ -276,6 +284,10 @@ def analyse_events(events: Iterable[Mapping[str, object]] = (), *, decision_time
             item = dict(primary_issue_event(item.get("quantity"), item.get("price"), issue_resolution=item.get("issue_resolution"), foundation_quantity=item.get("foundation_quantity"), external_quantity=item.get("external_quantity"), effective_at=item.get("effective_at"), known_at=item.get("known_at"), source_id=item.get("source_id")))
         elif event_type == "secondary_sale":
             item = dict(secondary_sale_event(item.get("pre_state"), item.get("quantity"), item.get("price"), effective_at=item.get("effective_at"), known_at=item.get("known_at"), source_id=item.get("source_id")))
+        elif event_type == "buyback":
+            item = dict(buyback_event(item.get("quantity"), item.get("price"), pre_count=item.get("pre_count"), effective_at=item.get("effective_at"), known_at=item.get("known_at")))
+            if event.get("source_id") is not None:
+                item["source_id"] = event["source_id"]
         elif event_type == "rights_issue":
             item = dict(rights_issue(item.get("old_shares"), item.get("book_value"), item.get("subscription_price"), rights_ratio=item.get("rights_ratio", 0.5), cum_price=item.get("cum_price")))
             item.update(event_type="rights_issue", known_at=event.get("known_at"), effective_at=event.get("effective_at"), source_id=event.get("source_id"))

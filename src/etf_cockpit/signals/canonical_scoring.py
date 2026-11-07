@@ -23,6 +23,7 @@ import yaml
 
 from etf_cockpit.core.config import AppConfig
 from etf_cockpit.core.paths import CONFIG_DIR
+from etf_cockpit.core.research_states import register_headline_weights_resolver
 from etf_cockpit.core.values import finite_float_or_none
 from etf_cockpit.models.ensemble import BASELINE_SOURCE_FORECAST, BASELINE_SOURCE_HEURISTIC, effective_ensemble_weights
 
@@ -445,6 +446,9 @@ def build_canonical_score(
         insufficient = gates_module.failed_gate_groups(critical_gates)
         for gate in gates_module.failed_gates(critical_gates):
             warnings.append(f"critical_gate:{gate.gate_id}:{gate.reason_code}")
+        for gate in critical_gates:
+            if gate.passed and gate.missing:
+                warnings.append(f"critical_gate_not_available:{gate.gate_id}:{gate.reason_code}")
         if unavailable_reason is not None:
             warnings.append(f"score_unavailable:{unavailable_reason}")
     group_results: dict[str, tuple[float | None, float, list[dict[str, object]], list[dict[str, object]]]] = {}
@@ -613,6 +617,7 @@ def canonical_score_from_simple_components(
     legacy_penalties: Mapping[str, float] | None = None,
     structure_confidence_cap: float | None = None,
     structure_provenance: Mapping[str, object] | None = None,
+    quality_status: str | None = None,
 ) -> CanonicalScore:
     """Canonical score of score components, always through the score gate (extra ``critical_evidence`` optional).
 
@@ -624,7 +629,7 @@ def canonical_score_from_simple_components(
         raise CanonicalScoreError("EC instruments must use the native Sparebank scorecard")
     source = tuple(components)
     converted = tuple(_canonical_component_from_simple(component) for component in source)
-    policy = policy_for_components(load_score_policy(asset_type), asset_type, source)
+    policy = policy_for_components(load_score_policy(asset_type), asset_type, converted)
     evidence: dict[str, object] = {}
     for original in source:
         for item in getattr(original, "inputs_used", ()) or ():
@@ -641,7 +646,7 @@ def canonical_score_from_simple_components(
         policy=policy,
         critical_evidence=evidence,
         business_model=business_model,
-        quality_status=simple_quality_status(source, asset_type, business_model),
+        quality_status=quality_status if quality_status is not None else simple_quality_status(source, asset_type, business_model),
         legacy_component_weights=legacy_component_weights,
         legacy_penalties=legacy_penalties,
         structure_confidence_cap=structure_confidence_cap,
@@ -680,12 +685,15 @@ def canonical_score_from_signal_row(
     structure_confidence_cap: float | None = None,
     structure_provenance: Mapping[str, object] | None = None,
 ) -> CanonicalScore:
+    instrument_id = str(row.get("etf_id") or row.get("instrument_id") or "unknown")
+    universe = getattr(config, "universe", None)
+    lookup = getattr(universe, "by_id", None)
+    identity = lookup().get(instrument_id) if callable(lookup) else None
     if any(
         _is_sparebank_ec_asset_type(row.get(name))
         for name in ("asset_type", "instrument_type", "instrument_subtype", "capital_class")
-    ):
+    ) or _is_sparebank_ec_asset_type(getattr(identity, "instrument_type", None)):
         raise CanonicalScoreError("EC instruments must use the native Sparebank scorecard")
-    instrument_id = str(row.get("etf_id") or row.get("instrument_id") or "unknown")
     freshness = row.get("price_freshness")
     price_freshness = str(freshness).strip().casefold() if freshness is not None else "unknown"
     if price_freshness in {"", "none", "nan", "<na>"}:
@@ -726,7 +734,7 @@ def canonical_score_from_signal_row(
         _signal_component("chatgpt_thesis", row.get("score_chatgpt_thesis"), "expected_return", "manual:chatgpt_thesis", price_freshness, "Manual ChatGPT thesis input.", as_of, authority="model_advisory"),
     ]
     policy_asset_type = _signal_asset_type(row, config, instrument_id)
-    if policy_asset_type == "STOCK":
+    if resolve_policy_asset_type(policy_asset_type) == "STOCK":
         # Stock value/quality are fundamentals the price-signal row only carries when a caller supplies them; an
         # absent value is an explicit unavailable component (never zero-filled), so the STOCK policy weights are visible.
         for key, column in (("stock_value", "score_stock_value"), ("stock_quality", "score_stock_quality")):
@@ -759,6 +767,9 @@ def canonical_score_from_signal_row(
         structure_confidence_cap=structure_confidence_cap,
         structure_provenance=structure_provenance,
         critical_evidence={"identity": None} if instrument_id != "unknown" else (),
+        # A supplied aggregate is complete at this adapter boundary unless
+        # its caller explicitly reports incomplete quality inputs.
+        quality_status=str(row.get("quality_status", "complete")) if _number(row.get("score_stock_quality")) is not None else None,
     )
 
 
@@ -879,7 +890,7 @@ def _legacy_composite(
     }
     active_weights = {key: float(weight) for key, weight in weights.items() if key in values and float(weight) > 0}
     weight_total = sum(active_weights.values())
-    if not values or weight_total <= 0:
+    if len(active_weights) < 2 or weight_total <= 0:
         return None
     result = sum(weight * float(values[key]) for key, weight in active_weights.items()) / weight_total
     for key, penalty in (penalties or {}).items():
@@ -912,6 +923,8 @@ def _signal_asset_type(row: Mapping[str, object], config: object, instrument_id:
     text = str(declared or "").strip()
     if not text:
         return "ETF"  # undeclared rows are the ETF universe; a declared unknown type raises in load_score_policy
+    if text.casefold() == "certificate":
+        return "CERTIFICATE"
     if text.casefold() in _STOCK_LIKE_SIGNAL_TYPES:
         return "STOCK"  # price-signal path only: certificates and ECs are stock-like, never ETF-weighted
     return "ETF" if text.casefold() == "etf" else text
@@ -963,3 +976,11 @@ def _normalise_10(value: float | None) -> float | None:
 def _is_sparebank_ec_asset_type(value: object) -> bool:
     normalized = str(value or "").strip().casefold().replace("-", "_").replace(" ", "_")
     return normalized in {"ec", "equity_certificate", "egenkapitalbevis"}
+
+
+def _registered_headline_weights(asset_type: object, components: Iterable[Any]) -> dict[str, float]:
+    return headline_weights_for_components(resolve_policy_asset_type(asset_type), asset_type, components)
+
+
+# core.research_states may not import this domain module (ADR-0002); it receives the policy here instead.
+register_headline_weights_resolver(_registered_headline_weights)

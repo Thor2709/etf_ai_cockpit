@@ -159,6 +159,12 @@ def eur_basis_prices(
     frame = prices.copy()
     frame["adjusted_close_local"] = frame["adjusted_close"]
     frame["adjusted_close"] = pd.to_numeric(frame["adjusted_close"], errors="coerce").astype(float)
+    # The traded close feeds liquidity_score (money turnover): it is converted with the same rate as
+    # adjusted_close so turnover is in EUR; the listing-currency close is kept in ``close_local``.
+    has_close = "close" in frame.columns
+    if has_close:
+        frame["close_local"] = frame["close"]
+        frame["close"] = pd.to_numeric(frame["close"], errors="coerce").astype(float)
     days = _session_days(frame["date"])
     resolved, problems = _resolve_quote_currencies(frame, configured_currency)
     unavailable: dict[str, str] = {}
@@ -170,6 +176,8 @@ def eur_basis_prices(
         valid_days = member_days.dropna()
         if key in problems:
             frame.loc[group.index, "adjusted_close"] = float("nan")
+            if has_close:
+                frame.loc[group.index, "close"] = float("nan")
             unavailable[key] = problems[key]
             if not valid_days.empty:
                 first_gap[key] = min(valid_days)
@@ -182,6 +190,8 @@ def eur_basis_prices(
         series = book.series(currency, sorted(set(valid_days)))
         rate = member_days.map(series.rates.to_dict()).astype(float)
         frame.loc[group.index, "adjusted_close"] = frame.loc[group.index, "adjusted_close"] * rate
+        if has_close:
+            frame.loc[group.index, "close"] = frame.loc[group.index, "close"] * rate
         missing = rate.isna() & frame.loc[group.index, "adjusted_close_local"].notna()
         if missing.any():
             gap_days = sorted(set(member_days[missing].dropna()))

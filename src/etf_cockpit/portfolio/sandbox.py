@@ -229,8 +229,11 @@ def select_holdings_view(holdings: pd.DataFrame, holdings_view: str) -> pd.DataF
     if not isinstance(holdings, pd.DataFrame):
         raise ValueError("holdings evidence is unavailable")
     if holdings.empty or view == "combined":
-        for _, row in holdings.iterrows():
-            classify_holding_view(row.to_dict())
+        lineages = [classify_holding_view(row.to_dict()) for _, row in holdings.iterrows()]
+        if "direct" in lineages and "look_through" in lineages:
+            # Look-through rows decompose the direct holdings: summing both would count the same money twice.
+            keep = [lineage == "direct" for lineage in lineages]
+            return holdings.loc[keep].copy(deep=True)
         return holdings.copy(deep=True)
     selected = [
         row.to_dict()
@@ -305,6 +308,8 @@ def analyse_candidate(
         candidate.source_revision != str(current_revision or "unknown")
         or candidate.source_checksum != current_checksum
     )
+    # The checksum binds the supplied evidence; the sums below use each money line once.
+    holdings = select_holdings_view(holdings, "combined")
     universe = config.universe.by_id()
     current_lines: dict[str, tuple[list[float], list[float]]] = {}
     holding_rows = _holding_rows(config, holdings)

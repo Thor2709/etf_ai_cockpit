@@ -10,7 +10,9 @@ scope:
 sources:
   # Fallback chain per instrument: the first source that yields the core fields wins; gaps are
   # filled from later sources only for the same period and currency, and recorded per field.
-  chain: [sec_edgar, yfinance]
+  chain: [sec_edgar, esef, yfinance]
+  # `esef` reads the ESEF/IFRS statement facts already imported into data/clean/statement_facts.parquet (filings.xbrl.org
+  # packages); known_at is the registry date_added of each filing. It performs no network request.
   # SEC EDGAR needs a descriptive User-Agent (fair-access policy). Set the environment variable
   # ETF_COCKPIT_SEC_EDGAR_USER_AGENT to "<name> <contact>"; without it EDGAR is reported unavailable.
   sec_edgar_user_agent_env: ETF_COCKPIT_SEC_EDGAR_USER_AGENT
@@ -38,7 +40,7 @@ yfinance_labels:
   shares_outstanding: [Ordinary Shares Number, Share Issued]
 
 sec_edgar_concepts:
-  # field -> ordered us-gaap concepts (first reported wins). Debt is the sum of the listed parts
+  # field -> us-gaap concepts (earliest filing wins, order breaks same-day ties). Debt is the sum of the listed parts
   # that are reported (current + non-current), never a guess for a missing part.
   revenue: [Revenues, RevenueFromContractWithCustomerExcludingAssessedTax, SalesRevenueNet, RevenueFromContractWithCustomerIncludingAssessedTax]
   gross_profit: [GrossProfit]
@@ -62,12 +64,64 @@ sec_edgar_concepts:
   total_assets: [Assets]
   shares_outstanding: [CommonStockSharesOutstanding]
 
+sec_edgar_rules:
+  # A fact for an earlier period than the latest period in its filing is a
+  # comparative and is excluded even when it falls inside the lag below.
+  # Original 10-K/10-Q facts only; facts first seen more than 120 days after
+  # their period end are excluded as late comparatives, not used to delay a row.
+  max_original_filing_lag_days: 120
+  # Cover-page publications retain their actual instant and filing-date known_at.
+  # Conflicting classes/counts remain unavailable; no inferred split adjustment.
+  dei_shares: [EntityCommonStockSharesOutstanding]
+
+esef_concepts:
+  # field -> ordered ifrs-full concepts (consolidated, undimensioned facts; the earliest-known filing wins a period,
+  # the order only breaks a tie). "Concept[Member]" selects the single-dimension ComponentsOfEquityAxis fact of that
+  # member (closing balance in the statement of changes in equity); used only as a fallback behind the face statement.
+  # Annual (fiscal-year) periods only: ESEF packages carry annual reports. A field nobody tagged stays unavailable.
+  revenue: [Revenue, RevenueFromContractsWithCustomers]
+  gross_profit: [GrossProfit]
+  ebit: [ProfitLossFromOperatingActivities]
+  da: [DepreciationAndAmortisationExpense, AdjustmentsForDepreciationAndAmortisationExpense]
+  pretax_income: [ProfitLossBeforeTax]
+  income_tax: [IncomeTaxExpenseContinuingOperations]
+  interest_expense: [InterestExpense]
+  net_income_parent: [ProfitLossAttributableToOwnersOfParent]
+  cfo: [CashFlowsFromUsedInOperatingActivities]
+  capex: [PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities]
+  capex_extra: [PurchaseOfIntangibleAssetsClassifiedAsInvestingActivities]
+  dividends_paid: [DividendsPaidClassifiedAsFinancingActivities, DividendsPaidToEquityHoldersOfParentClassifiedAsFinancingActivities]
+  cfi: [CashFlowsFromUsedInInvestingActivities]
+  cff: [CashFlowsFromUsedInFinancingActivities]
+  fx_effect: [EffectOfExchangeRateChangesOnCashAndCashEquivalents]
+  equity_parent: [EquityAttributableToOwnersOfParent, "Equity[EquityAttributableToOwnersOfParentMember]"]
+  minority_interest: [NoncontrollingInterests, "Equity[NoncontrollingInterestsMember]"]
+  debt_total: [Borrowings]
+  debt_noncurrent: [LongtermBorrowings, NoncurrentPortionOfNoncurrentBorrowings]
+  debt_current: [CurrentBorrowingsAndCurrentPortionOfNoncurrentBorrowings, ShorttermBorrowings, CurrentBorrowings]
+  lease_total: [LeaseLiabilities]
+  lease_noncurrent: [NoncurrentLeaseLiabilities]
+  lease_current: [CurrentLeaseLiabilities]
+  cash: [CashAndCashEquivalents]
+  total_assets: [Assets]
+  total_liabilities: [Liabilities]
+  shares_outstanding: [NumberOfSharesOutstanding]
+
+esef_rules:
+  # a share count is accepted only when every filing that reports the date agrees within this relative tolerance
+  # (filings disagree by thousands when one reports in thousands); otherwise it is conflicted, never picked
+  share_count_agreement: 0.01
+  # payments are stored as the positive outflow, as in the SEC path
+  absolute_value_fields: [capex, capex_extra, dividends_paid, interest_expense]
+
 reporting:
   quarters_for_ttm: 4
   # four consecutive quarter ends span 270 days; accept 240..300 (a stale or gappy series is not a TTM)
   ttm_span_days: [240, 300]
   minor_currency_units: {GBp: [GBP, 0.01], GBX: [GBP, 0.01], ILA: [ILS, 0.01], ZAc: [ZAR, 0.01]}
   max_balance_staleness_days: 400
+  # Maximum fiscal-calendar drift when combining balance-sheet claims and flows.
+  balance_flow_tolerance_days: 45
 
 growth:
   years: 3

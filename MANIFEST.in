@@ -3,4 +3,9 @@ graft scripts
 include README.md
 include requirements.txt
 include requirements-parsers.txt
+include requirements-dev.txt
+include requirements-models.txt
+include requirements-release.txt
+include requirements-release-parsers.txt
+include README_FIRST_RUN.md
 global-exclude __pycache__ *.py[cod]

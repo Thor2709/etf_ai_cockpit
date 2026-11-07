@@ -213,18 +213,20 @@ def test_c018_n001_cost_gate_is_size_aware(config) -> None:
 def test_c018_n002_capacity_is_enforced_in_the_vector_backtest(config, prices) -> None:
     thin = prices.copy()
     thin["volume"] = 2.0  # a few shares a day: the participation cap binds
-    free = run_backtest(config, thin, rebalance_frequency_days=42)
-    capped = run_backtest(config, thin, rebalance_frequency_days=42, enforce_capacity=True)
+    free = run_backtest(config, thin, rebalance_frequency_days=42, min_trade_value_eur=0.0)
+    capped = run_backtest(config, thin, rebalance_frequency_days=42, enforce_capacity=True, min_trade_value_eur=0.0)
     assert "capacity_enforced" not in free.trade_log.columns
     assert capped.metadata["participation_cap"] == config.costs.cost_model.max_participation_rate
     assert capped.trade_log["capacity_enforced"].all()
     assert capped.trade_log["capacity_fill_status"].str.contains("partial_fill|no_fill").any()
     assert (capped.trade_log["unfilled_eur"] > 0).any()
     assert (capped.trade_log["max_days_to_fill"] >= 1).all()
-    # Unfilled orders cut the traded turnover against the unconstrained run.
+    # The first-session rebalance can repair a capacity-limited initial allocation. Compare later
+    # rebalances, where unfilled orders cut the traded turnover against the unconstrained run.
     def traded(report) -> float:
         log = report.trade_log
-        return float(log.loc[log["strategy"] == "equal_weight", "turnover"].sum())
+        after_initial = pd.to_datetime(log["signal_date"]) > report.equity_curves.index[0]
+        return float(log.loc[log["strategy"].eq("equal_weight") & after_initial, "turnover"].sum())
 
     assert traded(capped) < traded(free)
     assert (capped.trade_log["remainder_policy"] == "cancelled_at_session_end").all()
@@ -473,7 +475,7 @@ def test_execution_day_turnover_uses_the_drifted_book_not_signal_day_weights(con
     assert drifted.to_dict() == pytest.approx({"A": 2 / 3, "B": 1 / 3})
     assert float((signal - drifted).abs().sum()) == pytest.approx(1 / 3)
     # Engine: a next-session price jump on one holding creates equal-weight turnover.
-    base = run_backtest(config, prices, rebalance_frequency_days=42)
+    base = run_backtest(config, prices, rebalance_frequency_days=42, min_trade_value_eur=0.0)
     first_execution = pd.Timestamp(base.trade_log["execution_date"].min())
     jumped = prices.copy()
     after_mask = (jumped["etf_id"] == "VWCE") & (pd.to_datetime(jumped["date"]) >= first_execution)
@@ -481,7 +483,7 @@ def test_execution_day_turnover_uses_the_drifted_book_not_signal_day_weights(con
     for column in ("adjusted_close", "close", "open", "high", "low"):
         if column in jumped.columns:
             jumped.loc[after_mask, column] *= 1.5
-    after = run_backtest(config, jumped, rebalance_frequency_days=42)
+    after = run_backtest(config, jumped, rebalance_frequency_days=42, min_trade_value_eur=0.0)
 
     def first_turnover(report) -> float:
         log = report.trade_log
@@ -674,7 +676,11 @@ def _eur_universe_with_equity_certificate(config, prices):
         item.model_copy(update={"currency": "EUR"}) if item.id == certificate.id else item for item in config.universe.etfs
     ]
     patched = config.model_copy(update={"universe": config.universe.model_copy(update={"etfs": etfs})})
-    return patched, prices[prices["etf_id"].isin(eur_ids | {certificate.id})], certificate.id
+    panel = prices[prices["etf_id"].isin(eur_ids | {certificate.id})].copy()
+    # Re-label the price rows too: rows quoting NOK against a configured EUR listing conflict, and the
+    # canonical EUR basis (correctly) leaves such an instrument's NAV unavailable instead of filling it.
+    panel.loc[panel["etf_id"].eq(certificate.id), "currency"] = "EUR"
+    return patched, panel, certificate.id
 
 
 def test_equity_certificate_without_quote_fills_flagged_cost_estimated_not_held_as_cash(config, prices) -> None:

@@ -7,6 +7,7 @@ import zipfile
 import pandas as pd
 import pytest
 
+from etf_cockpit.parsers import esef_ixbrl
 from scripts.import_official_filing import import_official_filing
 
 
@@ -35,7 +36,9 @@ def _run(output: Path, **kwargs: object) -> dict[str, object]:
 
 # Arelle validation runs under a bounded wall-clock timeout that parallel CPU load can exceed.
 @pytest.mark.serial
-def test_synthetic_ming_import_reaches_normalised_pit_statements(tmp_path: Path) -> None:
+def test_synthetic_ming_import_reaches_normalised_pit_statements(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # This tests PIT statements; optional Arelle startup can time out under parallel load.
+    monkeypatch.setattr(esef_ixbrl, "_arelle_available", lambda: False)
     result = _run(tmp_path)
     assert result["execution_allowed"] is False
     statements = pd.read_parquet(tmp_path / "normalised_statements.parquet")
@@ -44,7 +47,9 @@ def test_synthetic_ming_import_reaches_normalised_pit_statements(tmp_path: Path)
     assert statements["effective_at"].eq("2025-12-31").all()
 
 
-def test_repeat_import_is_idempotent(tmp_path: Path) -> None:
+def test_repeat_import_is_idempotent(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # This tests import idempotence; optional Arelle startup can time out under parallel load.
+    monkeypatch.setattr(esef_ixbrl, "_arelle_available", lambda: False)
     _run(tmp_path)
     _run(tmp_path)
     facts = pd.read_parquet(tmp_path / "statement_facts.parquet")
@@ -53,7 +58,9 @@ def test_repeat_import_is_idempotent(tmp_path: Path) -> None:
     assert len(inventory) == 1
 
 
-def test_revised_filing_keeps_prior_revision(tmp_path: Path) -> None:
+def test_revised_filing_keeps_prior_revision(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # This tests revision retention; optional Arelle startup can time out under parallel load.
+    monkeypatch.setattr(esef_ixbrl, "_arelle_available", lambda: False)
     revised = tmp_path / "revised.xbri"
     with zipfile.ZipFile(FIXTURE) as source, zipfile.ZipFile(revised, "w", zipfile.ZIP_DEFLATED) as target:
         for member in source.infolist():
@@ -76,21 +83,27 @@ def test_revised_filing_keeps_prior_revision(tmp_path: Path) -> None:
     assert facts["filing_version"].nunique() == 2
 
 
-def test_wrong_issuer_and_orgnr_are_rejected(tmp_path: Path) -> None:
+def test_wrong_issuer_and_orgnr_are_rejected(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # This tests issuer rejection; optional Arelle startup can time out under parallel load.
+    monkeypatch.setattr(esef_ixbrl, "_arelle_available", lambda: False)
     with pytest.raises(ValueError, match="LEI"):
         _run(tmp_path / "lei", lei="00000000000000000000")
     with pytest.raises(ValueError, match="organisation number"):
         _run(tmp_path / "org", orgnr="999999999")
 
 
-def test_non_official_host_and_checksum_are_rejected(tmp_path: Path) -> None:
+def test_non_official_host_and_checksum_are_rejected(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # This tests source rejection; optional Arelle startup can time out under parallel load.
+    monkeypatch.setattr(esef_ixbrl, "_arelle_available", lambda: False)
     with pytest.raises(ValueError, match="official HTTPS host"):
         _run(tmp_path / "host", source_url="https://example.com/report.xbri")
     with pytest.raises(ValueError, match="checksum"):
         _run(tmp_path / "sha", expected_sha256="0" * 64)
 
 
-def test_ec_fact_sheet_preserves_disclosures_and_unavailable_items(tmp_path: Path) -> None:
+def test_ec_fact_sheet_preserves_disclosures_and_unavailable_items(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # This tests disclosure persistence; optional Arelle startup can time out under parallel load.
+    monkeypatch.setattr(esef_ixbrl, "_arelle_available", lambda: False)
     sheet = tmp_path / "ec.json"
     sheet.write_text(
         json.dumps({
@@ -115,7 +128,9 @@ def test_import_requires_explicit_issuer_lei(tmp_path: Path) -> None:
         _run(tmp_path / "nolei", lei=None)
 
 
-def test_rejected_import_publishes_nothing(tmp_path: Path) -> None:
+def test_rejected_import_publishes_nothing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # This tests rejected-import atomicity; optional Arelle startup can time out under parallel load.
+    monkeypatch.setattr(esef_ixbrl, "_arelle_available", lambda: False)
     output = tmp_path / "evidence"
     for kwargs in ({"expected_sha256": "0" * 64}, {"lei": "00000000000000000000"}, {"expected_period": "2024-12-31"}):
         with pytest.raises(ValueError):

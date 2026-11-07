@@ -2,6 +2,7 @@ schema_version: "1.0"
 policy_version: "2026-07-17"
 vulnerability_tool: pip-audit
 dependency_lock: requirements-release.txt
+parser_dependency_lock: requirements-release-parsers.txt
 critical_vulnerabilities: block
 unclassified_vulnerabilities: block
 missing_license_metadata: block
@@ -9,7 +10,14 @@ secret_scan: tracked-source
 signature_algorithm: HMAC-SHA256
 signing_key_env: ETF_COCKPIT_RELEASE_SIGNING_KEY
 update_mode: offline-only
+# Each mitigation must name id, package, version and an ISO expires_on date; anything less never exempts.
 approved_mitigations: []
+# Intake failures that are advisory while owner approval of the registry is pending; every other intake
+# failure blocks the scan. Remove an entry once the corresponding approval exists.
+advisory_intake_exceptions:
+  - supply-chain registry review status is not approved
+  - one or more supply-chain components are not approved
+  - detached intake signature status is missing
 dependency_cooldown_days: 7
 emergency_patch_window_hours: 24
 end_of_life_policy: block

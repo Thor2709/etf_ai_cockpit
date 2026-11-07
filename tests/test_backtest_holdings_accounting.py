@@ -25,8 +25,9 @@ def test_drifted_holdings_value_both_legs_without_rebalance():
     ids = config.universe.enabled_ids[:2]
     prices = _prices(ids, {221: 2.0}, {240: 2.0})
     result = run_backtest(config, prices, rebalance_frequency_days=10000, transaction_cost_bps=0)
-    # 50/50 start, both legs double in sequence and nothing is traded: units held are fixed.
-    assert math.isclose(result.equity_curves["equal_weight"].iloc[-1], 20000.0)
+    # BT audit 20261023 (A05-F4): the start-index rebalance now executes. A has doubled by its fill (15000 -> 7500/7500),
+    # then B doubles with no later rebalance: 7500 + 2 x 7500 = 22500 (units held stay fixed afterwards).
+    assert math.isclose(result.equity_curves["equal_weight"].iloc[-1], 22500.0)
 
 
 def test_equal_weight_rebalance_charges_for_drifted_holdings():

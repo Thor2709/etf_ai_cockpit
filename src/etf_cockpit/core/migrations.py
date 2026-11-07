@@ -84,6 +84,8 @@ def _load_state(path: Path) -> dict[str, object]:
     if not path.is_file():
         return {"schema_version": 0, "applied": []}
     payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("migration state must be a JSON object")
     if not isinstance(payload.get("applied"), list):
         raise ValueError("migration state applied field must be a list")
     return payload

@@ -78,6 +78,7 @@ def statement_facts_from_esef(
     known_at: str | None = None,
     extension_namespace: str | None = None,
     extension_mappings: Mapping[str, str] | None = None,
+    published_on: str | None = None,
 ) -> tuple[StatementFact, ...]:
     """Adapt parsed ESEF facts to the versioned statement-facts contract.
 
@@ -86,10 +87,14 @@ def statement_facts_from_esef(
     import).  Without it the facts stay unavailable for point-in-time views.
     Facts reported in a dimensional context (segment, member, ...) keep their
     dimensional identity and are never mapped to a canonical total metric.
+
+    ``published_on`` is the proven publication time (the filings.xbrl.org registry ``date_added``
+    of a point-in-time import); a local import leaves it None, so its facts never qualify as reported share counts.
     """
 
     from etf_cockpit.parsers.esef_ixbrl import is_ifrs_full_namespace, map_ifrs_fact
 
+    filed = esef_publication_date(published_on)
     result: list[StatementFact] = []
     for record in records:
         concept = str(getattr(record, "concept", "") or "")
@@ -121,7 +126,7 @@ def statement_facts_from_esef(
                 start=period_start,
                 end=period_end,
                 instant=period_end if period_start is None else None,
-                filed=None,
+                filed=filed,
                 form="ESEF",
                 accession=None,
                 fiscal_year=int(period_end[:4]) if period_end and period_end[:4].isdigit() else None,
@@ -469,6 +474,17 @@ def _statement_inventory_write_frame(source: RawDocument | Path, records: Iterab
             frame["schema_version"] = FILINGS_STATEMENTS_SCHEMA_VERSION
         frame["schema_version"] = frame["schema_version"].fillna(FILINGS_STATEMENTS_SCHEMA_VERSION)
     return frame
+
+
+def esef_publication_date(published_on: str | None) -> str | None:
+    """UTC publication date from explicit registry evidence; naive timestamps mean UTC."""
+
+    if published_on is None:
+        return None
+    instant = datetime.fromisoformat(str(published_on).strip().replace("Z", "+00:00"))
+    if instant.tzinfo is None:
+        instant = instant.replace(tzinfo=timezone.utc)
+    return instant.astimezone(timezone.utc).date().isoformat()
 
 
 def _statement_source_authority(source: RawDocument | Path) -> str:

@@ -257,6 +257,15 @@ def test_implicit_return_start_includes_intermediate_edge_dates_without_lookahea
             result = selected_currency_return(
                 0.10, base_currency="USD", output_currency="EUR", fx_store=store, valuation_at="2024-01-03T00:00:00Z"
             )
+            # A12-F1..F8 (PX): a cross may no longer mix valuation dates.
+            assert not result.available and result.output_return is None
+            for day in ("2024-01-02", "2024-01-03"):
+                store.append(_obs(f"jpy-eur-{day}", "JPY", "EUR", 0.01, valid_at=f"{day}T00:00:00Z"))
+            store.append(_obs("usd-gbp-2", "USD", "GBP", 2.0, valid_at="2024-01-02T00:00:00Z"))
+            store.append(_obs("gbp-jpy-3", "GBP", "JPY", 100.0, valid_at="2024-01-03T00:00:00Z"))
+            result = selected_currency_return(
+                0.10, base_currency="USD", output_currency="EUR", fx_store=store, valuation_at="2024-01-03T00:00:00Z"
+            )
             assert result.available
             assert result.transaction_at == ("2024-01-03T00:00:00Z" if late else "2024-01-02T00:00:00Z")
             assert result.transaction_rate == pytest.approx(3.0 if late else 2.0)

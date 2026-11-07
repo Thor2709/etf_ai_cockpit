@@ -7,7 +7,7 @@ import pandas as pd
 import etf_cockpit.application.portfolio_sandbox as portfolio_sandbox
 import etf_cockpit.portfolio.rebalancing as rebalancing
 from etf_cockpit.core.config import load_config
-from etf_cockpit.portfolio.sandbox import PortfolioSnapshotBinding
+from etf_cockpit.portfolio.sandbox import PortfolioSnapshotBinding, holdings_checksum, select_holdings_view
 from etf_cockpit.portfolio.rebalancing import (
     RebalanceConstraints,
     build_rebalance_report,
@@ -214,8 +214,8 @@ def test_rebalance_respects_bond_face_increments_and_persists_no_trade(monkeypat
         account_id="default",
         portfolio_id="default",
         snapshot_id="synthetic",
-        source_revision="synthetic",
-        source_checksum="synthetic",
+        source_revision="unknown",
+        source_checksum=holdings_checksum(select_holdings_view(holdings, "direct")),
         price_source_revision="synthetic",
         price_source_checksum="synthetic",
         as_of=None,

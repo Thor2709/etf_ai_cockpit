@@ -175,10 +175,10 @@ def test_c5_s18_n001_non_finite_order_values_are_rejected_not_priced_as_free(con
 def test_c2_s24_n002_rebalance_count_excludes_the_last_unexecutable_index(config, prices) -> None:
     enabled = prices[prices["etf_id"].isin(config.universe.enabled_ids)]
     rows = run_backtest(config, enabled, rebalance_frequency_days=10_000).metadata["complete_price_rows"]
-    # Rebalance indexes are 220 and rows-1: the last one has no next session, so it never trades.
+    # Index 220 is now executable for the initial rebalance; rows-1 still has no next session.
     report = run_backtest(config, enabled, rebalance_frequency_days=rows - 221)
-    assert report.metadata["walk_forward_periods"] == 0
-    assert (report.results["n_walk_forward_periods"] == 0).all()
+    assert report.metadata["walk_forward_periods"] == 1
+    assert (report.results["n_walk_forward_periods"] == 1).all()
 
 
 def test_c3_s19_n002_overall_quality_follows_the_signal_strategy() -> None:
@@ -260,8 +260,15 @@ def test_backtest_signal_features_use_the_eur_basis(config, prices) -> None:
     assert report.signal_log["currency_basis"].eq("EUR").all()
 
     unavailable = run_backtest(config, panel, rebalance_frequency_days=42, fx_rates=pd.DataFrame())
-    blocked = unavailable.signal_log[unavailable.signal_log["etf_id"] == nok]
-    assert blocked["momentum_60d"].isna().all()  # fx_unavailable: no feature, never the local price
+    # fx_unavailable: no feature and never the local price.  Since AUDFIX an unavailable EUR valuation leaves the
+    # signal strategy's NAV unavailable, so no signal is authorised at all (no row can carry a local-basis feature).
+    assert unavailable.equity_curves["signal_strategy"].isna().all() or unavailable.signal_log.empty
+    if not unavailable.signal_log.empty:
+        blocked = unavailable.signal_log[unavailable.signal_log["etf_id"] == nok]
+        assert blocked["momentum_60d"].isna().all()
+        assert not unavailable.signal_log["currency_basis"].eq("local").any()
+    else:
+        assert unavailable.signal_log.empty and unavailable.trade_log.empty
 
 
 # --- BT1 binding decisions --------------------------------------------------------

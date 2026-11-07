@@ -142,7 +142,7 @@ def test_certificate_without_fundamentals_never_gets_stock_fundamental_weights()
     stock = ss._headline_weights_for_components("STOCK", "Stock", [price, *unavailable, revision])
 
     assert certificate["stock_value"] == certificate["stock_quality"] == certificate["analyst_revision"] == 0.0
-    assert stock["analyst_revision"] > 0.0  # a normal stock is unchanged
+    assert stock["analyst_revision"] == 0.0  # D3: analyst_revision headline weight is 0 for every stock
     assert stock == headline_evidence_weights("STOCK")
 
 

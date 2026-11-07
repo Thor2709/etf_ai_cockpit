@@ -15,7 +15,7 @@ from etf_cockpit.portfolio.optimiser import (
 def _returns(rows: int = 120) -> pd.DataFrame:
     rng = np.random.default_rng(17)
     return pd.DataFrame(
-        rng.normal(0.0003, [0.008, 0.012, 0.018], size=(rows, 3)),
+        rng.normal(0.003, [0.008, 0.012, 0.018], size=(rows, 3)),
         columns=["AAA", "BBB", "CCC"],
     )
 
@@ -30,7 +30,7 @@ def test_all_methods_are_reproducible_feasible_and_reconcile_weights() -> None:
     assert all(solution.feasible for solution in first.values())
     assert all(np.isclose(solution.weight_sum, 0.9) for solution in first.values())
     assert all(first[method].weights.equals(second[method].weights) for method in METHODS)
-    assert optimiser_fingerprint(first["hrp"]) == optimiser_fingerprint(second["hrp"])
+    assert optimiser_fingerprint(first["hrp_like"]) == optimiser_fingerprint(second["hrp_like"])
 
 
 def test_group_and_turnover_constraints_are_reported() -> None:

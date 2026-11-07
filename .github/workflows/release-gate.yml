@@ -329,9 +329,18 @@ jobs:
 
       - name: Product and protected preflight
         if: needs.classifier.outputs.tier != 'E'
+        env:
+          PACKAGE_GATE_REQUIRED: ${{ needs.classifier.outputs.package_gate_required }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
           python scripts/generate_programme.py --root . --check
-          python scripts/validate_app.py --root . --changed
+          # Pull requests that require the package gate run the full suite in the release-gate shards
+          # (required by validation-summary); do not repeat the focused pytest selection here.
+          if [ "$PACKAGE_GATE_REQUIRED" = "true" ] && [ "$EVENT_NAME" = "pull_request" ]; then
+            python scripts/validate_app.py --root . --changed --tests-covered-by-release-gate
+          else
+            python scripts/validate_app.py --root . --changed
+          fi
           python -m pytest -q tests/test_button_contracts.py tests/test_architecture_boundaries.py
           # Legacy findings outside the protected validation surface remain
           # tracked separately; do not turn them into an unrelated red baseline.
@@ -388,12 +397,15 @@ jobs:
         with:
           python-version: "3.12.10"
           cache: pip
-          cache-dependency-path: requirements-release.txt
+          cache-dependency-path: |
+            requirements-release.txt
+            requirements-release-parsers.txt
 
       - name: Install release tools
         run: |
           python -m pip install --upgrade pip
           python -m pip install --requirement requirements-release.txt
+          python -m pip install --requirement requirements-release-parsers.txt
 
       - name: Run deterministic supply-chain scan
         run: python scripts/supply_chain_scan.py --root . --output artifacts/supply-chain/github-${{ github.sha }}
@@ -887,6 +899,13 @@ jobs:
             echo "Focused selection collected no tests" >&2
             exit 1
           fi
+          # Return codes cannot prove execution: every collected test must appear exactly once in the JUnit reports.
+          python -m pytest "${files[@]}" --collect-only --verbosity=-1 > artifacts/focused/collected.txt
+          reports=()
+          for report in artifacts/focused/junit-focused.xml artifacts/focused/junit-focused-serial.xml; do
+            if [[ -f "$report" ]]; then reports+=("$report"); fi
+          done
+          python scripts/check_focused_junit.py --collected artifacts/focused/collected.txt --junit "${reports[@]}"
 
       - name: Upload focused test evidence
         if: always()

@@ -99,7 +99,7 @@ def test_owner_normalisation_without_loss_history_keeps_reported_roe_and_withhol
     assert result.normalised["reported_roe"] == pytest.approx(48.0 / 400.0)
     assert result.normalised["normalised_roe"] is None
     assert {"current-period impairment losses", "prior-period impairment losses"} <= set(result.normalised["missing_components"])
-    priced = valuation(claim, price=150.0, assumptions={"cost_of_equity": 0.10, "long_run_growth": 0.03})
+    priced = valuation(claim, price=150.0, assumptions={"cost_of_equity": 0.10, "long_run_growth": 0.03}, pit_verified=True)
     assert priced["central_owner_value_per_ec"]["reason_code"] == "SUSTAINABLE_ROE_UNAVAILABLE"
     assert priced["reverse"]["reason_code"] == "SUSTAINABLE_ROE_UNAVAILABLE"
     assumed = owner_normalisation(
@@ -118,6 +118,7 @@ def test_valuation_reports_justified_value_and_reverse_inversion_with_labelled_a
     result = valuation(
         claim,
         price=150.0,
+        pit_verified=True,  # A17-F2/RMS: fail-closed unless PIT shown
         assumptions={"cost_of_equity": 0.09, "long_run_growth": 0.03, "sustainable_roe": 0.12, "assumption_source": "book p. 104"},
     )
     central = result["central_owner_value_per_ec"]
@@ -129,7 +130,7 @@ def test_valuation_reports_justified_value_and_reverse_inversion_with_labelled_a
     assert reverse["implied_r"] == pytest.approx(0.03 + (150.0 / 100.0) * (0.09 - 0.03))  # eq. 5.32
     assert reverse["expectations_gap"] == pytest.approx(0.12 - reverse["implied_r"])
     # Without an assumption the section is unavailable with a reason, never a default number.
-    missing = valuation(claim, price=150.0, assumptions={})
+    missing = valuation(claim, price=150.0, assumptions={}, pit_verified=True)
     assert missing["central_owner_value_per_ec"]["reason_code"] == "COST_OF_EQUITY_OR_GROWTH_ASSUMPTION_MISSING"
     assert book_per_ec > 0
 
@@ -138,7 +139,7 @@ def test_valuation_assumption_aliases_are_normalised_before_policy_defaults() ->
     claim = _claim()
     ratio_assumptions = _with_policy_defaults({"k": 0.15, "g": 0.03, "sustainable_roe": 0.20})
     assert ratio_assumptions["cost_of_equity"] == pytest.approx(0.15)
-    ratio = valuation(claim, price=150.0, assumptions=ratio_assumptions)
+    ratio = valuation(claim, price=150.0, assumptions=ratio_assumptions, pit_verified=True)
     assert ratio["central_owner_value_per_ec"]["cost_of_equity"] == pytest.approx(0.15)
 
     percent_assumptions = _with_policy_defaults(
@@ -146,7 +147,7 @@ def test_valuation_assumption_aliases_are_normalised_before_policy_defaults() ->
     )
     assert percent_assumptions["cost_of_equity"] == pytest.approx(0.12)
     assert percent_assumptions["long_run_growth"] == pytest.approx(0.03)
-    percent = valuation(claim, price=150.0, assumptions=percent_assumptions)
+    percent = valuation(claim, price=150.0, assumptions=percent_assumptions, pit_verified=True)
     assert percent["central_owner_value_per_ec"]["cost_of_equity"] == pytest.approx(0.12)
 
 

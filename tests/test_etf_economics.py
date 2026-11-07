@@ -1118,6 +1118,7 @@ def test_future_known_selected_action_is_rejected_at_earlier_report_cutoff() -> 
                 "currency": "EUR",
                 "source_id": "test",
                 "provenance": "unit-test",
+                "known_at": "2026-01-07T00:00:00Z",
             }
         ),
         actions=(action,),

@@ -288,8 +288,8 @@ def test_sustainable_roe_percent_and_ratio_value_identically():
     }
     claim = build_claim_state({"facts": facts, "effective_at": "2024-12-31", "known_at": "2025-03-01T00:00:00Z", "source_url": "synthetic"})
     base = {"cost_of_equity": 0.09, "long_run_growth": 0.03}
-    ratio = valuation(claim, price=150.0, assumptions={**base, "sustainable_roe": 0.12})
-    percent = valuation(claim, price=150.0, assumptions={**base, "sustainable_roe_pct": 12})
+    ratio = valuation(claim, price=150.0, assumptions={**base, "sustainable_roe": 0.12}, pit_verified=True)
+    percent = valuation(claim, price=150.0, assumptions={**base, "sustainable_roe_pct": 12}, pit_verified=True)
     assert ratio["central_owner_value_per_ec"]["justified_pb"] == pytest.approx(1.5)
     assert percent["central_owner_value_per_ec"]["justified_pb"] == pytest.approx(1.5)
     assert percent["central_owner_value_per_ec"]["sustainable_roe"] == pytest.approx(0.12)

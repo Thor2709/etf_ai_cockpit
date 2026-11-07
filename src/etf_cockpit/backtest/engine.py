@@ -49,6 +49,7 @@ from etf_cockpit.data.etf_structure import structure_cap_scope, structure_confid
 from etf_cockpit.data.classification import classification_state_memo
 from etf_cockpit.data.fx_data import EurRateBook, fx_cross_rate_memo, fx_rates_for_prices, major_currency
 from etf_cockpit.features.feature_pipeline import (
+    _resolve_quote_currencies,
     attach_eur_basis,
     compute_features,
     eur_basis_prices,
@@ -305,6 +306,34 @@ def _fx_known_by(prices: pd.DataFrame, reference_identity: Mapping[str, object] 
     return (pd.Timestamp(dates.max()).normalize() + pd.Timedelta(days=1)).tz_localize("UTC").to_pydatetime()
 
 
+def _fx_session_cutoff(session: object, known_by: object) -> datetime | None:
+    """Cap FX knowledge at this session's decision timestamp and any declared decision time."""
+
+    session_cutoff = pd.Timestamp(session).normalize()
+    session_cutoff = (
+        session_cutoff.tz_localize(timezone.utc)
+        if session_cutoff.tzinfo is None
+        else session_cutoff.tz_convert(timezone.utc)
+    )
+    if known_by is None:
+        return session_cutoff.to_pydatetime()
+    try:
+        if isinstance(known_by, date) and not isinstance(known_by, datetime):
+            declared_cutoff = pd.Timestamp(known_by).normalize()
+        elif isinstance(known_by, str) and len(known_by.strip()) == 10:
+            declared_cutoff = pd.Timestamp(known_by.strip()).normalize()
+        else:
+            declared_cutoff = pd.Timestamp(known_by)
+        declared_cutoff = (
+            declared_cutoff.tz_localize(timezone.utc)
+            if declared_cutoff.tzinfo is None
+            else declared_cutoff.tz_convert(timezone.utc)
+        )
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return min(session_cutoff, declared_cutoff).to_pydatetime()
+
+
 def _fx_rate_pivot(
     index: pd.DatetimeIndex,
     columns: list[str],
@@ -320,7 +349,7 @@ def _fx_rate_pivot(
 
     rates = pd.DataFrame(np.nan, index=index, columns=columns, dtype=float)
     sessions = [stamp.date() for stamp in index]
-    book: EurRateBook | None = None
+    books_by_cutoff: dict[datetime | None, EurRateBook] = {}
     by_currency: dict[str, np.ndarray] = {}
     for column in columns:
         currency = major_currency(currency_by_id.get(column, "EUR"))
@@ -330,9 +359,25 @@ def _fx_rate_pivot(
             rates[column] = 1.0
             continue
         if currency not in by_currency:
-            if book is None:
-                book = EurRateBook(fx_rates, known_by=known_by)
-            by_currency[currency] = book.series(currency, sessions).rates.reindex(sessions).to_numpy(dtype=float)
+            session_rates: list[float] = []
+            for session, stamp in zip(sessions, index, strict=True):
+                cutoff = _fx_session_cutoff(stamp, known_by)
+                book = books_by_cutoff.get(cutoff)
+                if book is None:
+                    session_fx = fx_rates
+                    if isinstance(fx_rates, pd.DataFrame) and "as_of_date" in fx_rates.columns:
+                        quote_dates = pd.to_datetime(fx_rates["as_of_date"], errors="coerce", utc=True).dt.date
+                        # EurRateBook rejects quotes older than three business days; ten calendar days
+                        # keeps every potentially usable quote while limiting each point-in-time book.
+                        first_relevant_date = session - timedelta(days=10)
+                        relevant = quote_dates.isna() | (
+                            quote_dates.ge(first_relevant_date) & quote_dates.le(session)
+                        )
+                        session_fx = fx_rates.loc[relevant]
+                    book = EurRateBook(session_fx, known_by=cutoff)
+                    books_by_cutoff[cutoff] = book
+                session_rates.append(float(book.series(currency, [session]).rates.iloc[0]))
+            by_currency[currency] = np.asarray(session_rates, dtype=float)
         rates[column] = by_currency[currency]
     return rates
 
@@ -426,7 +471,20 @@ def _apply_capacity_limits(
         total_buy = float(buys.sum())
         if total_buy > 0.0:
             keep = max(0.0, total_buy - sell_shortfall) / total_buy
-            executed = executed - buys * (1.0 - keep)
+            secondary_reductions = buys * (1.0 - keep)
+            executed = executed - secondary_reductions
+            for instrument_id, reduction in secondary_reductions.items():
+                if reduction <= 1e-12:
+                    continue
+                key = str(instrument_id)
+                unfilled_eur += float(reduction) * notional_eur
+                status = (
+                    "no_fill_sell_shortfall"
+                    if executed[instrument_id] <= current[instrument_id] + 1e-12
+                    else "partial_fill_sell_shortfall"
+                )
+                previous_status = statuses.get(key)
+                statuses[key] = f"{previous_status}; {status}" if previous_status else status
     return executed, {
         "unfilled_eur": unfilled_eur,
         "statuses": statuses,
@@ -436,6 +494,48 @@ def _apply_capacity_limits(
     }
 
 
+def _apply_minimum_trade_band(
+    current: pd.Series,
+    target: pd.Series,
+    *,
+    notional_eur: float,
+    min_trade_eur: float,
+) -> pd.Series:
+    """Drop rebalance orders worth less than the configured minimum trade (a no-trade band).
+
+    The same ``risks.portfolio_limits.min_trade_value_eur`` the signal pipeline and the portfolio sandbox
+    enforce.  A position leaving the target set (target 0) is always sold in full, as the paper bots do.  A
+    skipped order keeps the held weight; buys are scaled down only if skipped sells leave the book above full
+    investment. Existing cash remains available, so the book can never exceed 100 percent.
+    """
+
+    if min_trade_eur <= 0.0 or notional_eur <= 0.0:
+        return target
+    delta = target - current
+    full_exit = (target.abs() <= 1e-12) & (current.abs() > 1e-12)
+    skipped = (delta.abs() > 1e-12) & (delta.abs() * notional_eur < min_trade_eur) & ~full_exit
+    if not bool(skipped.any()):
+        return target
+    executed = target
+    # Scaling buys when skipped sells leave the book above full investment can push a buy below the minimum:
+    # skip it too and rescale the rest until no order changes. Every pass skips at least one more order.
+    for _ in range(len(target) + 1):
+        executed = target.where(~skipped, current)
+        surplus = max(0.0, float(executed.sum() - 1.0))
+        if surplus > 1e-12:
+            buys = (executed - current).clip(lower=0.0)
+            total_buy = float(buys.sum())
+            if total_buy > 0.0:
+                keep = max(0.0, total_buy - surplus) / total_buy
+                executed = executed - buys * (1.0 - keep)
+        executed_delta = (executed - current).abs()
+        too_small = (executed_delta > 1e-12) & (executed_delta * notional_eur < min_trade_eur) & ~full_exit & ~skipped
+        if not bool(too_small.any()):
+            break
+        skipped = skipped | too_small
+    return executed
+
+
 def _drift_to_execution(signal_weights: pd.Series, execution_returns: pd.Series) -> tuple[pd.Series, float]:
     """Value-weighted holdings after the execution session's returns, and that session's portfolio return.
 
@@ -443,10 +543,13 @@ def _drift_to_execution(signal_weights: pd.Series, execution_returns: pd.Series)
     drifted book, never with the signal-day weights.
     """
 
-    execution_return = float((signal_weights * execution_returns).sum())
+    active_returns = execution_returns.loc[signal_weights.ne(0)]
+    if active_returns.isna().any():
+        return signal_weights.copy(), float("nan")
+    execution_return = float((signal_weights.loc[active_returns.index] * active_returns).sum())
     if execution_return <= -1.0:
         return signal_weights.copy(), execution_return
-    return signal_weights * (1.0 + execution_returns) / (1.0 + execution_return), execution_return
+    return signal_weights * (1.0 + execution_returns.where(signal_weights.ne(0), 0.0)) / (1.0 + execution_return), execution_return
 
 
 def _adv_by_instrument(
@@ -1013,7 +1116,7 @@ def _weighted_reference_price(values: pd.Series, weights: pd.Series) -> float | 
     allocation = pd.to_numeric(weights, errors="coerce").abs().reindex(weights.index).fillna(0.0)
     allocation = allocation.where(usable, 0.0)
     if float(allocation.sum()) <= 0:
-        allocation = usable.astype(float)
+        return None
     allocation = allocation / allocation.sum()
     return float((observed.fillna(0.0) * allocation).sum())
 
@@ -1382,15 +1485,12 @@ def _instrument_operational_evidence(
     }
 
 
-SIGNAL_WEIGHT_STEP = 0.02
-
-
 def _signal_weight_action(signal: object) -> str:
     """Map a published advisory action to the explicit backtest weight action.
 
     ``advisory_action`` publishes both ``trim`` and ``sell`` as ``trim_candidate``;
     the sell is the advisory whose suggested new weight is zero, so it exits the
-    position instead of becoming a 2% trim.  Anything else is ``hold`` (no change).
+    position. Anything else is ``hold`` (no change).
     """
 
     action = str(getattr(signal, "action", ""))
@@ -1398,31 +1498,37 @@ def _signal_weight_action(signal: object) -> str:
         return "sell"
     if action in {"trim", "trim_candidate"}:
         suggested = finite_float_or_none(getattr(signal, "suggested_new_weight", None))
-        return "sell" if suggested is not None and suggested <= 0.0 else "trim"
+        return "sell" if suggested is not None and suggested == 0.0 else "trim"
     if action in {"buy", "add", "add_candidate"}:
         return "add"
     return "hold"
 
 
-def _next_signal_weights(current: pd.Series, target: pd.Series, actions: Mapping[str, str]) -> pd.Series:
-    """Apply per-instrument weight actions; weight not held stays implicit cash.
-
-    Weights above 100% are scaled down; weights below 100% keep the remainder as
-    cash (it is not redistributed over the other positions).
-    """
+def _next_signal_weights(current: pd.Series, suggested: pd.Series, actions: Mapping[str, str]) -> pd.Series:
+    """Consume gated pipeline sizes; unchanged holdings and implicit cash stay put."""
 
     weights = current.copy()
     for etf_id, action in actions.items():
         if etf_id not in weights.index:
             continue
-        if action == "add":
-            weights[etf_id] = min(float(target.get(etf_id, 0.0)) * 1.20, weights[etf_id] + SIGNAL_WEIGHT_STEP)
-        elif action == "trim":
-            weights[etf_id] = max(0.0, weights[etf_id] - SIGNAL_WEIGHT_STEP)
-        elif action == "sell":
+        if action == "sell":
             weights[etf_id] = 0.0
+            continue
+        value = finite_float_or_none(suggested.get(etf_id))
+        if value is None or not 0.0 <= value <= 1.0:
+            continue
+        if action == "add" and value > current[etf_id]:
+            weights[etf_id] = value
+        elif action == "trim" and value < current[etf_id]:
+            weights[etf_id] = value
     total = float(weights.sum())
-    return weights / total if total > 1.0 else weights
+    if total > 1.0:
+        # Only permitted additions may use cash released by trims. Never resize holds.
+        additions = (weights - current).clip(lower=0.0)
+        added = float(additions.sum())
+        if added > 0.0:
+            weights -= additions * min(1.0, (total - 1.0) / added)
+    return weights
 
 
 def _holdings_from_weights(weights: pd.Series, price_row: pd.Series, portfolio_value: float, as_of: date) -> pd.DataFrame:
@@ -1520,6 +1626,7 @@ def run_backtest(
     enforce_capacity: bool = False,
     fx_rates: pd.DataFrame | None = None,
     point_in_time_membership_evidence: Mapping[str, object] | None = None,
+    min_trade_value_eur: float | None = None,
 ) -> BacktestReport:
     if isinstance(rebalance_frequency_days, bool) or not isinstance(rebalance_frequency_days, int) or rebalance_frequency_days < 1:
         raise ValueError("rebalance_frequency_days must be an integer of at least 1")
@@ -1532,6 +1639,15 @@ def run_backtest(
     stress_multiplier = finite_float_or_none(cost_stress_multiplier)
     if stress_multiplier is None or stress_multiplier < 1.0:
         raise ValueError("cost_stress_multiplier must be finite and at least 1")
+    # No-trade band: None applies the configured minimum trade of the risk limits (one policy path with the signal
+    # pipeline and the portfolio sandbox); an explicit 0 opts out and keeps every rebalance order.
+    minimum_trade = (
+        finite_float_or_none(config.risks.portfolio_limits.min_trade_value_eur)
+        if min_trade_value_eur is None
+        else finite_float_or_none(min_trade_value_eur)
+    )
+    if minimum_trade is None or minimum_trade < 0:
+        raise ValueError("min_trade_value_eur must be finite and non-negative")
     validate_execution_disabled(benchmark_reference or unavailable_reference_projection())
     validate_execution_disabled(reference_identity or {})
     share = _STAGE_SHARE.get()
@@ -1690,6 +1806,8 @@ def run_backtest(
     raw_close_pivot = _raw_close_pivot(prices, pivot.index, columns, pivot) if enforce_capacity else None
     capacity_active = enforce_capacity and volume_pivot is not None and raw_close_pivot is not None
     instrument_currency = {item.id: str(item.currency or "EUR").upper() for item in config.universe.etfs}
+    configured_currency = {item.id: str(item.currency or "EUR") for item in config.universe.etfs}
+    _, currency_problems = _resolve_quote_currencies(prices, configured_currency)
     needs_fx = any(instrument_currency.get(column, "EUR") != "EUR" for column in columns)
     fx_known_by = _fx_known_by(prices, reference_identity)
     fx_frame = fx_rates if fx_rates is not None else pd.DataFrame()
@@ -1701,18 +1819,24 @@ def run_backtest(
     # Canonical FX by session: non-EUR listings fill whenever a point-in-time rate exists for the
     # session; only a missing rate (fx_unavailable) blocks, never a local-currency figure read as EUR.
     pivot_index_digest = hashlib.sha256(pivot.index.asi8.tobytes()).hexdigest()
-    fx_pivot = (
-        share.memo(
-            ("fx_pivot", id(config), id(source_prices), id(reference_identity), id(fx_frame), tuple(columns), pivot_index_digest),
-            lambda: _fx_rate_pivot(pivot.index, columns, instrument_currency, fx_frame, fx_known_by),
-            config,
-            source_prices,
-            reference_identity,
-            fx_frame,
-        )
-        if enforce_capacity
-        else None
+    fx_session_index_digest = hashlib.sha256(selected_raw.index.asi8.tobytes()).hexdigest()
+    fx_session_pivot = share.memo(
+        (
+            "fx_session_pivot",
+            id(config),
+            id(source_prices),
+            id(reference_identity),
+            id(fx_frame),
+            tuple(columns),
+            fx_session_index_digest,
+        ),
+        lambda: _fx_rate_pivot(selected_raw.index, columns, instrument_currency, fx_frame, fx_known_by),
+        config,
+        source_prices,
+        reference_identity,
+        fx_frame,
     )
+    fx_pivot = fx_session_pivot.reindex(index=pivot.index, columns=columns) if enforce_capacity else None
     raw_close_eur_pivot = raw_close_pivot * fx_pivot if capacity_active and fx_pivot is not None else None
     fx_never_available_ids = (
         {column for column in columns if not bool(fx_pivot[column].notna().any())} if fx_pivot is not None else set()
@@ -1756,9 +1880,21 @@ def run_backtest(
             f"{len(short_history_ids)} instrument(s) listed later with fewer than {MIN_INSTRUMENT_HISTORY_SESSIONS} "
             "adjusted-price sessions were left out of this backtest: " + ", ".join(short_history_ids)
         )
-    # The first complete price row is a zero-return warm-up placeholder; it is never traded, and pre-listing rows were excluded above.
-    # Holdings accounting aggregates SIMPLE returns across instruments (log returns do not add across assets).
-    simple_returns = (pivot / pivot.shift(1) - 1.0).fillna(0.0)
+    # NAV and signal features share the canonical adjusted EUR basis. Missing FX
+    # leaves returns unavailable, including either side of a gap.
+    # Local prices were validated above; unavailable FX and conflicting quote currencies remain NaN.
+    eur_pivot_all = selected_raw * fx_session_pivot
+    for instrument_id in currency_problems:
+        if instrument_id in eur_pivot_all.columns:
+            eur_pivot_all[instrument_id] = np.nan
+    eur_pivot = eur_pivot_all.reindex(index=pivot.index, columns=columns)
+    simple_returns_all = eur_pivot_all / eur_pivot_all.shift(1) - 1.0
+    complete_sessions = set(pivot.index)
+    for position, session in enumerate(selected_raw.index):
+        if position and session in complete_sessions and selected_raw.index[position - 1] not in complete_sessions:
+            # A dropped incomplete session breaks the return chain for every active holding.
+            simple_returns_all.loc[session] = np.nan
+    simple_returns = simple_returns_all.reindex(index=pivot.index, columns=columns)
     start_index = 220
     rebalance_indexes = set(range(start_index, len(pivot), rebalance_frequency_days))
     # Signal features are causal, but computing the complete historical frame
@@ -1770,17 +1906,30 @@ def run_backtest(
         (
             index
             for index in rebalance_indexes
-            if start_index < index and index + 1 < len(pivot)
+            if start_index <= index and index + 1 < len(pivot)
         ),
         default=None,
     )
     reusable_default_features: pd.DataFrame | None = None
     reusable_benchmark_features: pd.DataFrame | None = None
     reusable_benchmark_first_date: pd.Timestamp | None = None
-    price_dates: pd.Series | None = None
-    configured_currency = {item.id: str(item.currency or "EUR") for item in config.universe.etfs}
-    if last_rebalance_index is not None:
-        price_dates = pd.to_datetime(prices["date"])
+    price_dates: pd.Series | None = pd.to_datetime(prices["date"])
+    reusable_fx_history = not needs_fx
+    if needs_fx and last_rebalance_index is not None:
+        availability_column = "available_at" if "available_at" in fx_frame.columns else "ingested_at"
+        first_cutoff = _fx_session_cutoff(pivot.index[start_index], fx_known_by)
+        known_timestamps = (
+            pd.to_datetime(fx_frame[availability_column], errors="coerce", utc=True)
+            if availability_column in fx_frame.columns
+            else pd.Series(dtype="datetime64[ns, UTC]")
+        )
+        reusable_fx_history = (
+            first_cutoff is not None
+            and not known_timestamps.empty
+            and known_timestamps.notna().all()
+            and bool((known_timestamps <= pd.Timestamp(first_cutoff)).all())
+        )
+    if last_rebalance_index is not None and reusable_fx_history:
         last_rebalance_cutoff = pivot.index[last_rebalance_index]
         feature_mask = price_dates <= last_rebalance_cutoff
         feature_mask &= price_dates.notna()
@@ -1798,11 +1947,14 @@ def run_backtest(
             def build_reusable_features() -> tuple[pd.DataFrame, pd.DataFrame | None, pd.Timestamp | None]:
                 # Signal features use the same EUR basis as the live score (canonical FX path); a
                 # session without a usable rate gives no feature (fx_unavailable), never a local price.
+                feature_input_prices = (
+                    feature_prices if "volume" in feature_prices.columns else feature_prices.assign(volume=np.nan)
+                )
                 eur_feature_prices = eur_basis_prices(
-                    feature_prices,
+                    feature_input_prices,
                     fx_frame,
                     configured_currency=configured_currency,
-                    known_by=fx_known_by,
+                    known_by=_fx_session_cutoff(last_rebalance_cutoff, fx_known_by),
                 )
                 default_features = compute_features(
                     eur_feature_prices.frame,
@@ -1857,9 +2009,8 @@ def run_backtest(
         weights["equal_weight"] = equal_weights(columns)
     weights["quality_only"] = pd.Series(0.0, index=columns, dtype=float)
     weights["quality_momentum"] = pd.Series(0.0, index=columns, dtype=float)
-    # ``weights`` stays the intended allocation after the last fill (it feeds the
-    # unchanged signal logic).  ``actual_weights`` is the value-weighted holding
-    # mix, which drifts with prices between actual fills.
+    # ``weights`` records the last executed allocation. ``actual_weights`` is
+    # the value-weighted holding mix, which drifts between actual fills.
     actual_weights = {name: weight.copy() for name, weight in weights.items()}
     equity = {name: [initial_value_eur] for name in strategies}
     index_values = [pivot.index[start_index]]
@@ -1953,6 +2104,10 @@ def run_backtest(
             turnover[name] += total_held
             cost_drag[name] += cost
             initial_purchase_cost[name] = float(cost)
+    unavailable_start_prices = eur_pivot.iloc[start_index].isna()
+    for name in strategies:
+        if (actual_weights[name].reindex(columns).ne(0.0) & unavailable_start_prices).any():
+            equity[name][0] = float("nan")
     metadata["initial_allocation"] = initial_allocation
     metadata["initial_purchase_cost_eur"] = initial_purchase_cost
     pending_weights: dict[str, pd.Series] = {}
@@ -2011,26 +2166,31 @@ def run_backtest(
             )
         return price_source_identity_cache[key]
 
-    for i in range(start_index + 1, len(pivot)):
+    for i in range(start_index, len(pivot)):
         dt = pivot.index[i]
         execution_costs: dict[str, float] = {}
         if pending_execution_date is not None and dt == pending_execution_date:
             execution_costs = pending_costs
 
-        day_return = simple_returns.loc[dt, columns]
-        for name in strategies:
-            previous_equity = equity[name][-1]
-            held_weights = actual_weights[name].reindex(columns).fillna(0)
-            portfolio_return = float((held_weights * day_return).sum())
-            growth = 1.0 + portfolio_return
-            new_equity = previous_equity * growth
-            if growth > 0:
-                # Value-weighted drift: holdings grow with their price, cash stays flat.
-                actual_weights[name] = held_weights * (1.0 + day_return) / growth
-            if execution_costs.get(name, 0.0):
-                new_equity = max(new_equity - execution_costs[name], 0.0)
-            equity[name].append(max(new_equity, 0.0))
-        index_values.append(dt)
+        if i > start_index:
+            day_return = simple_returns.loc[dt, columns]
+            for name in strategies:
+                previous_equity = equity[name][-1]
+                held_weights = actual_weights[name].reindex(columns).fillna(0)
+                drifted_weights, portfolio_return = _drift_to_execution(held_weights, day_return)
+                if not math.isfinite(previous_equity) or not math.isfinite(portfolio_return):
+                    # The active book cannot be valued in EUR; keep the result unavailable and stop its path.
+                    equity[name].append(float("nan"))
+                    continue
+                growth = 1.0 + portfolio_return
+                new_equity = previous_equity * growth
+                if growth > 0:
+                    # Value-weighted drift: holdings grow with their price, cash stays flat.
+                    actual_weights[name] = drifted_weights
+                if execution_costs.get(name, 0.0):
+                    new_equity = max(new_equity - execution_costs[name], 0.0)
+                equity[name].append(max(new_equity, 0.0))
+            index_values.append(dt)
 
         # Orders are filled at the next session's adjusted close.  The
         # signal-day return therefore remains attributed to the old weights;
@@ -2047,7 +2207,7 @@ def run_backtest(
             pending_execution_date = None
 
         if i in rebalance_indexes and i + 1 < len(pivot):
-            history = pivot.iloc[: i + 1]
+            history = eur_pivot.iloc[: i + 1]
             new_weights = {
                 # Buy-and-hold never trades: it keeps the drifted holdings.
                 "buy_and_hold": actual_weights["buy_and_hold"],
@@ -2056,7 +2216,7 @@ def run_backtest(
                 "trend_only": trend_weights(config, history, columns),
                 "quality_only": pd.Series(0.0, index=columns, dtype=float),
                 "quality_momentum": pd.Series(0.0, index=columns, dtype=float),
-                "signal_strategy": weights["signal_strategy"],
+                "signal_strategy": actual_weights["signal_strategy"],
             }
             def build_quality_evidence() -> pd.DataFrame:
                 quality_prices = history.rename_axis("date").reset_index().melt(
@@ -2122,11 +2282,16 @@ def run_backtest(
                     features = reusable_benchmark_features
             else:
                 truncated_prices = prices_known_at_cutoff()
+                feature_input_prices = (
+                    truncated_prices
+                    if "volume" in truncated_prices.columns
+                    else truncated_prices.assign(volume=np.nan)
+                )
                 eur_truncated = eur_basis_prices(
-                    truncated_prices,
+                    feature_input_prices,
                     fx_frame,
                     configured_currency=configured_currency,
-                    known_by=fx_known_by,
+                    known_by=_fx_session_cutoff(dt, fx_known_by),
                 )
                 features = compute_features(eur_truncated.frame, benchmark_etf_id=canonical_benchmark_id)
                 attach_eur_basis(features, eur_truncated)
@@ -2141,7 +2306,7 @@ def run_backtest(
             # Signals see what is actually held (drifted with prices), not the stale target of the last fill.
             holdings = _holdings_from_weights(
                 actual_weights["signal_strategy"].reindex(columns).fillna(0.0),
-                pivot.iloc[i],
+                eur_pivot.iloc[i],
                 equity["signal_strategy"][-1],
                 dt.date(),
             )
@@ -2192,9 +2357,9 @@ def run_backtest(
                 decision_timestamp=decision_timestamp,
                 publish=False,
                 structure_confidence_caps=structure_caps,
-            )
-            signal_weight = weights["signal_strategy"].copy()
-            target = target_weights(config, columns)
+            ) if math.isfinite(equity["signal_strategy"][-1]) else []
+            signal_weight = actual_weights["signal_strategy"].copy()
+            suggested_weights = pd.Series(dtype=float)
             signal_actions: dict[str, str] = {}
             for signal in signals:
                 if signal.etf_id not in column_set:
@@ -2225,8 +2390,10 @@ def run_backtest(
                         ),
                     }
                 )
-                signal_actions[signal.etf_id] = _signal_weight_action(signal)
-            new_weights["signal_strategy"] = _next_signal_weights(signal_weight, target, signal_actions)
+                if not signal.blocked_by:
+                    signal_actions[signal.etf_id] = _signal_weight_action(signal)
+                    suggested_weights[signal.etf_id] = signal.suggested_new_weight
+            new_weights["signal_strategy"] = _next_signal_weights(signal_weight, suggested_weights, signal_actions)
 
             execution_dt = pivot.index[i + 1]
             pending_execution_date = execution_dt
@@ -2260,6 +2427,8 @@ def run_backtest(
             execution_returns = simple_returns.loc[execution_dt, columns]
             for name, new_weight in new_weights.items():
                 signal_weight_row = actual_weights[name].reindex(columns).fillna(0)
+                if not math.isfinite(equity[name][-1]) or execution_returns.loc[signal_weight_row.ne(0)].isna().any():
+                    continue  # an unavailable valuation cannot authorise another trade
                 # Orders fill at the next close: the held weights first drift through the
                 # execution session, and both the target difference and the notional use
                 # that drifted book, not the signal-day weights.
@@ -2269,7 +2438,23 @@ def run_backtest(
                 target_weight_row = (
                     current_weight_row.copy() if name == "buy_and_hold" else new_weight.reindex(columns).fillna(0)
                 )
+                if name == "signal_strategy":
+                    # A hold keeps its units through the execution session, including
+                    # when another instrument receives a permitted weight change.
+                    target_weight_row = _next_signal_weights(
+                        current_weight_row, target_weight_row,
+                        {column: action for column, action in signal_actions.items()
+                         if new_weight[column] != signal_weight_row[column]},
+                    )
                 capacity_info: dict[str, object] | None = None
+                if name != "buy_and_hold":
+                    # A skipped order is never placed, so it is neither costed nor counted as unfilled.
+                    target_weight_row = _apply_minimum_trade_band(
+                        current_weight_row,
+                        target_weight_row,
+                        notional_eur=trade_notional,
+                        min_trade_eur=minimum_trade,
+                    )
                 if capacity_active:
                     target_weight_row, capacity_info = capacity_limits(
                         current_weight_row, target_weight_row, trade_notional, execution_dt, adv_by_instrument
@@ -2336,20 +2521,14 @@ def run_backtest(
                         calendar_identity = initial_calendar_identity
                         if calendar_identity_resolver is not None:
                             calendar_identity = (
-                                calendar_identity_resolver(str(instrument_id), signal_close)
-                                if signal_close is not None
-                                else {
-                                    "status": "unavailable",
-                                    "instrument_id": str(instrument_id),
-                                    "execution_allowed": False,
-                                }
+                                calendar_identity_resolver(str(instrument_id), signal_close or explicit_daily_cutoff)
                             )
                             signal_close = _canonical_session_close_timestamp(
                                 calendar_identity,
                                 str(instrument_id),
                                 dt,
                                 service=calendar_service,
-                                knowledge_cutoff=signal_close,
+                                knowledge_cutoff=signal_close or explicit_daily_cutoff,
                             )
                         execution_close = _canonical_session_close_timestamp(
                             calendar_identity,
@@ -2461,7 +2640,7 @@ def run_backtest(
     ].index
     equity_curves = calculation_equity_curves.reindex(diagnostic_index)
     benchmark = (
-        pivot[canonical_benchmark_id].reindex(equity_curves.index)
+        eur_pivot[canonical_benchmark_id].reindex(equity_curves.index)
         if canonical_benchmark_id is not None
         else None
     )
@@ -2470,7 +2649,7 @@ def run_backtest(
     result_rows = []
     years = max((len(equity_curves) - 1) / TRADING_DAYS_PER_YEAR, 1e-9)
     # Only rebalances the execution loop can act on count: the next session must exist.
-    rebalance_count = sum(1 for index in rebalance_indexes if start_index < index and index + 1 < len(pivot))
+    rebalance_count = sum(1 for index in rebalance_indexes if start_index <= index and index + 1 < len(pivot))
     metadata["walk_forward_periods"] = rebalance_count
     metadata["strategies"] = strategies
     metadata["same_bar_execution_count"] = 0

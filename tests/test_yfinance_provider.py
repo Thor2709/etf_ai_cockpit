@@ -74,7 +74,8 @@ def test_yfinance_targeted_fetch_only_requests_selected_instruments(monkeypatch)
     def fake_download(symbol: str, **kwargs):
         calls.append(symbol)
         return pd.DataFrame(
-            {"Open": [10.0], "High": [10.5], "Low": [9.5], "Close": [10.2], "Adj Close": [10.2]},
+            {"Open": [10.0], "High": [10.5], "Low": [9.5], "Close": [10.2], "Adj Close": [10.2],
+             "Dividends": [0.0], "Stock Splits": [0.0]},
             index=pd.to_datetime(["2026-06-26"]),
         )
 
@@ -94,7 +95,8 @@ def test_yfinance_partial_price_refresh_is_not_successful(monkeypatch) -> None:
         if symbol == "B.OL":
             return pd.DataFrame()
         return pd.DataFrame(
-            {"Open": [10.0], "High": [10.5], "Low": [9.5], "Close": [10.2], "Adj Close": [10.2]},
+            {"Open": [10.0], "High": [10.5], "Low": [9.5], "Close": [10.2], "Adj Close": [10.2],
+             "Dividends": [0.0], "Stock Splits": [0.0]},
             index=pd.to_datetime(["2026-06-26"]),
         )
 

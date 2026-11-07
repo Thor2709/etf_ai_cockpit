@@ -46,6 +46,7 @@ from etf_cockpit.application.activity_results import (
 from etf_cockpit.application import filing_ingestion_workflows as _filing_ingestion_workflows
 from etf_cockpit.application.scoreboard_publication import _signal_classification_is_current
 from etf_cockpit.application import scoreboard_publication as _scoreboard_publication
+from etf_cockpit.application.headless_session import HeadlessSession
 
 
 # Compatibility seam for existing callers and tests. This is the session trace,
@@ -661,6 +662,21 @@ class AppState:
         action_id = expected_action_id or self.shared_activity_id
         return self.require_activity(action_id).action_id
 
+    def _headless_session(self) -> HeadlessSession:
+        """Create the application service bound to this UI snapshot and activity owner."""
+
+        return HeadlessSession(
+            self.snapshot,
+            root=ROOT,
+            snapshot_builder=build_snapshot,
+            data_service_factory=DataService,
+            publication_scope=self._app_activity_publication,
+            snapshot_sink=lambda snapshot: setattr(self, "snapshot", snapshot),
+            score_history_warning_getter=lambda: self.score_history_warning,
+            score_history_warning_setter=lambda value: setattr(self, "score_history_warning", value),
+            score_history_failure_handler=self._record_score_history_failure,
+        )
+
     def _record_activity_output(self, step: str, path: Path | str) -> None:
         action_id = getattr(getattr(self, "_activity_context", None), "action_id", None)
         if action_id is not None:
@@ -668,7 +684,14 @@ class AppState:
 
     @contextmanager
     def activity_publication(self, expected_action_id: str | None = None):
-        """Authorize and hold ownership for exactly one durable publication."""
+        """Delegate durable publication ownership to the headless application service."""
+
+        with self._headless_session().activity_publication(expected_action_id):
+            yield
+
+    @contextmanager
+    def _app_activity_publication(self, expected_action_id: str | None = None):
+        """Preserve the UI activity check inside the shared cross-process writer guard."""
 
         with self._activity_lock:
             self.require_activity(expected_action_id or self.shared_activity_id)
@@ -940,30 +963,17 @@ class AppState:
     @_tracked_activity("Refresh yfinance data", "Fetching adjusted yfinance prices")
     def refresh_yfinance_data(self) -> str:
         action_id = self.current_activity.action_id if self.current_activity else "yfinance"
-        with timed_step(action_id, "yfinance_refresh"):
-            service = DataService(self.snapshot.config)
-            message = service.refresh_yfinance_data(publish_guard=self.activity_publication)
-            if getattr(service, "last_operation_succeeded", True):
-                self.snapshot = build_snapshot(force_sample=False, publish_guard=self.activity_publication)
-                self._write_current_scoreboard()
-                self.last_message = self._with_score_history_warning("YFinance data refreshed.")
-            else:
-                self.last_message = message
-                raise ActivityUnavailableError(message)
-            return message
+        message = self._headless_session().refresh(action_id=action_id)
+        self.last_message = self._with_score_history_warning("YFinance data refreshed.")
+        return message
 
     @_tracked_activity("Run algorithms", "Running deterministic algorithms")
     def run_algorithm_scores(self) -> str:
         action_id = self.current_activity.action_id if self.current_activity else "algorithms"
-        with timed_step(action_id, "algorithm_scores"):
-            message = DataService(self.snapshot.config).run_yfinance_candidate_analysis(
-                publish_guard=self.activity_publication
-            )
-            self.snapshot = build_snapshot(force_sample=False, publish_guard=self.activity_publication)
-            scoreboard_path = self._write_current_scoreboard()
-            self.last_message = self._with_score_history_warning("Algorithms refreshed from yfinance data.")
-            summary = message.split(" Report:", 1)[0]
-            return self._with_score_history_warning(f"{summary}. Scoreboard updated: {scoreboard_path.name}.")
+        message, scoreboard_path = self._headless_session().rescore(action_id=action_id)
+        self.last_message = self._with_score_history_warning("Algorithms refreshed from yfinance data.")
+        summary = message.split(" Report:", 1)[0]
+        return self._with_score_history_warning(f"{summary}. Scoreboard updated: {scoreboard_path.name}.")
 
     @_tracked_activity("Run forecasting models", "Running baseline forecasts")
     def run_forecasting_models(self) -> str:
@@ -1222,7 +1232,7 @@ class AppState:
 
     @_tracked_activity("Refresh macro/news context", "Refreshing local context")
     def refresh_signals(self) -> None:
-        self.snapshot = build_snapshot(force_sample=False, publish_guard=self.activity_publication)
+        self._headless_session().refresh_snapshot()
         self.last_message = "Signals refreshed from local data."
 
     @_tracked_activity("Export audit packet", "Writing audit packet")
@@ -1272,7 +1282,7 @@ class AppState:
 
     @_tracked_activity("Write scoreboard", "Building scoreboard")
     def _write_current_scoreboard(self) -> Path:
-        return _scoreboard_publication._write_current_scoreboard(self)
+        return self._headless_session().publish()
 
     def _record_score_history_failure(self, exc: Exception, scoreboard_path: Path) -> None:
         reason = redact_text(" ".join(f"{type(exc).__name__}: {exc}".split()))[:240]

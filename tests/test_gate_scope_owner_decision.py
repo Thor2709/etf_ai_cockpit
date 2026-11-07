@@ -21,9 +21,10 @@ def test_short_history_blocks_only_its_own_instrument() -> None:
     assert "insufficient_history" in _gates(issues, "B")
 
 
-def test_other_instrument_blocks_still_block_the_portfolio() -> None:
+def test_other_instrument_blocks_only_its_own_instrument() -> None:
     issues = [DataQualityIssue("B", "block", "invalid_ohlc", "bad rows")]
-    assert "portfolio_validation_block" in _gates(issues, "A")
+    assert "portfolio_validation_block" not in _gates(issues, "A")
+    assert "invalid_ohlc" in _gates(issues, "B")
 
 
 def test_no_holdings_is_watchlist_mode_not_a_block() -> None:

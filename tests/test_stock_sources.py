@@ -116,7 +116,10 @@ def test_edgar_balance_items_sum_parts_and_attach_cover_page_shares() -> None:
     rows = src.parse_edgar_companyfacts(_companyfacts(), CONFIG, source_ref="test")
     fy = next(r for r in rows if r["period_end"] == "2025-12-31" and r["period_type"] == "FY")
     assert fy["cash_sti"] == 55.0 and fy["ib_debt"] == 100.0 and fy["equity_parent"] == 560.0
-    assert fy["shares_outstanding"] == 1000.0 and fy["currency"] == "USD" and fy["source"] == "sec_edgar"
+    assert "shares_outstanding" not in fy and fy["currency"] == "USD" and fy["source"] == "sec_edgar"
+    cover = next(r for r in rows if r["period_type"] == "SHARES")
+    assert cover["shares_outstanding"] == 1000.0 and cover["period_end"] == "2026-02-01"
+    assert cover["source"] == "sec_dei" and cover["known_at"] == "2026-02-10"
 
 
 def test_edgar_cash_and_investments_are_known_at_the_later_filing() -> None:

@@ -36,7 +36,7 @@ _METHOD_LABELS = {
     "inverse_volatility": "Inverse volatility",
     "minimum_variance": "Minimum variance",
     "equal_risk_contribution": "Equal risk contribution",
-    "hrp": "HRP/HERC (deterministic)",
+    "hrp_like": "HRP-like (heuristic ordering)",
     "maximum_diversification": "Maximum diversification",
     "cvar": "CVaR tail-risk baseline",
     "robust_mean_risk": "Robust mean-risk",

@@ -14,6 +14,7 @@ Source order comes from ``configs/stock_fundamentals_v1.yaml``: filings first, t
 from __future__ import annotations
 
 import json
+import math
 import os
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -28,6 +29,9 @@ from etf_cockpit.analysis.stock_metrics import PERIOD_FIELDS, USABLE_STATUSES, V
 from etf_cockpit.core.atomic_io import atomic_write_bytes, parquet_payload, validate_parquet_file
 from etf_cockpit.core.paths import ROOT
 from etf_cockpit.data import stock_sources as src
+from etf_cockpit.data.esef_provider import fetch_stock_fundamentals as fetch_esef_fundamentals
+from etf_cockpit.data.fx_data import load_fx_rates
+from etf_cockpit.data.sec_edgar_provider import fetch_stock_fundamentals as fetch_sec_fundamentals
 
 CONFIG_NAME = "stock_fundamentals_v1.yaml"
 ANALYST_FIELDS = ("eps_current", "eps_90d_ago", "revisions_up_30d", "revisions_down_30d")
@@ -36,7 +40,7 @@ IDENTITY_FIELDS = ("period_days", "reporting_standard", "consolidation_scope", "
 STATE_COLUMNS = (*IDENTITY_FIELDS, "value_status")  # value_status: JSON {field: state} for non-plain facts
 FIELD_CURRENCY_COLUMNS = tuple(f"{name}_currency" for name in PERIOD_FIELDS)
 PERIOD_COLUMNS = [
-    "instrument_id", "period_end", "period_type", "fiscal_year", "currency", "source", "source_ref", "known_at",
+    "instrument_id", "period_end", "period_type", "fiscal_year", "currency", "source", "source_ref", "known_at", "available_at",
     *PERIOD_FIELDS, *FIELD_CURRENCY_COLUMNS, *ANALYST_FIELDS, *STATE_COLUMNS,
 ]
 SNAPSHOT_COLUMNS = [
@@ -129,8 +133,27 @@ def read_snapshots(root: Path | None = None) -> pd.DataFrame:
     return _read(store_paths(root)["snapshots"], SNAPSHOT_COLUMNS)
 
 
-def read_fx(root: Path | None = None) -> pd.DataFrame:
-    return _read(store_paths(root)["fx"], FX_COLUMNS)
+def read_fx(root: Path | None = None, *, include_canonical: bool = True) -> pd.DataFrame:
+    """Read snapshot closes plus direct canonical quotes for PIT fallback, without persisting them."""
+
+    snapshot = _read(store_paths(root)["fx"], FX_COLUMNS)
+    if not include_canonical:
+        return snapshot
+    try:
+        canonical = load_fx_rates(Path(root or ROOT) / "data" / "clean" / "fx.parquet")
+    except Exception:  # unreadable fallback is unavailable, just like the snapshot store
+        return snapshot
+    if canonical.empty or not {"pair", "as_of_date", "rate", "available_at"}.issubset(canonical.columns):
+        return snapshot
+    fallback = canonical.loc[:, ["pair", "as_of_date", "rate", "available_at"]].rename(
+        columns={"as_of_date": "date", "available_at": "known_at"}
+    )
+    fallback["pair"] = fallback["pair"].astype(str).str.replace("/", "", regex=False)
+    snapshot = snapshot.assign(_canonical_fx=False)
+    fallback["_canonical_fx"] = True
+    if snapshot.empty:
+        return fallback.reset_index(drop=True)
+    return pd.concat([snapshot, fallback], ignore_index=True)
 
 
 def _concat(frames: Sequence[pd.DataFrame], columns: Sequence[str]) -> pd.DataFrame:
@@ -155,12 +178,21 @@ def append_period_rows(existing: pd.DataFrame, instrument_id: str, rows: Iterabl
 
     frame = existing
     added = []
-    latest: dict[tuple[str, str, str], pd.Series] = {}
+    latest: dict[tuple[str, ...], pd.Series] = {}
+
+    def version_key(row: Mapping[str, Any]) -> tuple[str, ...]:
+        key = (str(row["period_end"]), str(row["period_type"]), str(row["source"]))
+        # Filing identity and publication belong to a reported count even when
+        # its value is unchanged; re-fetching the same filing stays idempotent.
+        if str(row["period_type"]) == "SHARES":
+            key += (str(row.get("source_ref")), str(row.get("available_at")), str(row.get("known_at")))
+        return key
+
     mine = frame[frame["instrument_id"].astype(str) == instrument_id]
     for _, row in mine.sort_values("known_at").iterrows():
-        latest[(str(row["period_end"]), str(row["period_type"]), str(row["source"]))] = row
+        latest[version_key(row)] = row
     for row in rows:
-        key = (str(row["period_end"]), str(row["period_type"]), str(row["source"]))
+        key = version_key(row)
         previous = latest.get(key)
         record = {column: row.get(column) for column in PERIOD_COLUMNS}
         record["instrument_id"] = instrument_id
@@ -176,6 +208,72 @@ def append_period_rows(existing: pd.DataFrame, instrument_id: str, rows: Iterabl
     new = pd.DataFrame(added, columns=PERIOD_COLUMNS)
     combined = new if frame.empty else _concat([frame, new], PERIOD_COLUMNS)
     return combined, len(added)
+
+
+def append_period_rows_batch(
+    existing: pd.DataFrame,
+    instrument_id: str,
+    rows: Iterable[Mapping[str, Any]],
+    *,
+    should_skip: Callable[[Mapping[str, Any]], bool] | None = None,
+    on_append: Callable[[Mapping[str, Any]], None] | None = None,
+) -> list[dict[str, Any]]:
+    """Return rows ``append_period_rows`` would append across ordered vintages.
+
+    The existing visible history is sorted and indexed once. As each knowledge
+    time advances, only newly visible rows are added to the latest-version map.
+    Callbacks let ingestion retain its durable-digest checks in the same order
+    as the original one-row-at-a-time path.
+    """
+    mine = existing.loc[existing["instrument_id"].astype(str) == instrument_id]
+    ordered = mine.sort_values("known_at").copy()
+    ordered["__visible_at"] = ordered["known_at"].astype(str)
+    ordered["__rank"] = range(len(ordered))
+    visible = ordered.sort_values("__visible_at", kind="mergesort").to_dict("records")
+    latest: dict[tuple[str, ...], dict[str, Any]] = {}
+    latest_order: dict[tuple[str, ...], tuple[str, int]] = {}
+
+    def version_key(row: Mapping[str, Any]) -> tuple[str, ...]:
+        key = (str(row["period_end"]), str(row["period_type"]), str(row["source"]))
+        if str(row["period_type"]) == "SHARES":
+            key += (str(row.get("source_ref")), str(row.get("available_at")), str(row.get("known_at")))
+        return key
+
+    def same_as_previous(previous: Mapping[str, Any], record: Mapping[str, Any]) -> bool:
+        return all(
+            _same(previous.get(name), record.get(name))
+            for name in (*PERIOD_FIELDS, *FIELD_CURRENCY_COLUMNS, *ANALYST_FIELDS, *STATE_COLUMNS, "currency")
+        )
+
+    added: list[dict[str, Any]] = []
+    next_visible = 0
+    next_rank = len(ordered)
+    for row in rows:
+        cutoff = str(row["known_at"])
+        while next_visible < len(visible) and visible[next_visible]["__visible_at"] <= cutoff:
+            stored = visible[next_visible]
+            key = version_key(stored)
+            order = (stored["__visible_at"], int(stored["__rank"]))
+            if order >= latest_order.get(key, ("", -1)):
+                latest[key] = stored
+                latest_order[key] = order
+            next_visible += 1
+
+        if should_skip is not None and should_skip(row):
+            continue
+        key = version_key(row)
+        record = {column: row.get(column) for column in PERIOD_COLUMNS}
+        record["instrument_id"] = instrument_id
+        previous = latest.get(key)
+        if previous is not None and same_as_previous(previous, record):
+            continue
+        added.append(record)
+        latest[key] = record
+        latest_order[key] = (cutoff, next_rank)
+        next_rank += 1
+        if on_append is not None:
+            on_append(row)
+    return added
 
 
 # ---------------------------------------------------------------------------------------------
@@ -282,6 +380,7 @@ def _row_period(row: Mapping[str, Any], fields: Mapping[str, str]) -> Period | N
         values=values,
         field_sources=dict(fields),
         source_ref=str(row.get("source_ref") or ""),
+        available_at=as_utc(row.get("available_at")),
     )
 
 
@@ -369,7 +468,10 @@ def _merged_view(
     # Positive NCI invalidates unverified parent-income attribution across the
     # complete merged view: neither sparse carry-forward nor a fallback source
     # may restore income removed by a newer filing's ownership-scope guard.
-    blocked_parent_income = (values.get("minority_interest") or 0.0) > 0.0
+    # The one exception is a source that verified the attribution itself and said so with an explicit
+    # ``observed`` state on the field (ESEF: ProfitLossAttributableToOwnersOfParent is parent-only by definition).
+    verified_parent_income = field_sources.get("net_income_parent") == "esef" and field_status.get("net_income_parent") == "observed"
+    blocked_parent_income = (values.get("minority_interest") or 0.0) > 0.0 and not verified_parent_income
     if blocked_parent_income:
         for name in ("net_income_parent", "_net_income_parent_currency", "_net_income_parent_known_at"):
             values.pop(name, None)
@@ -405,7 +507,15 @@ def periods_for(instrument_id: str, frame: pd.DataFrame, chain: Sequence[str], *
     if mine.empty:
         return []
     rank = {name: index for index, name in enumerate(chain)}
-    rows = [dict(row) for _, row in mine.iterrows() if str(row.get("period_type")) != "ANALYST"]
+    reported = []
+    for _, row in mine[mine["period_type"].astype(str) == "SHARES"].iterrows():
+        available, known = as_utc(row.get("available_at")), as_utc(row.get("known_at"))
+        if available is None or known is None:
+            continue
+        period = _row_period({**dict(row), "known_at": max(available, known)}, {"shares_outstanding": str(row["source"])})
+        if period is not None:
+            reported.append(period)
+    rows = [dict(row) for _, row in mine.iterrows() if str(row.get("period_type")) not in ("ANALYST", "SHARES")]
     for row in rows:
         row["_rank"] = rank.get(str(row.get("source")), len(rank))
         row["_end"] = as_utc(row.get("period_end"))
@@ -425,7 +535,7 @@ def periods_for(instrument_id: str, frame: pd.DataFrame, chain: Sequence[str], *
                 period = _merged_view(cluster["rows"], moment, rank, last, (period_type, cluster["anchor"]["_end"].date().isoformat()))
                 if period is not None:
                     periods.append(period)
-    return periods
+    return periods + reported
 
 
 def latest_snapshot(instrument_id: str, snapshots: pd.DataFrame, decision_time: datetime, *, ok_only: bool = True) -> dict[str, Any] | None:
@@ -488,23 +598,37 @@ def fx_rate(
     decision_time: datetime | None = None,
     max_age_days: int = 7,
 ) -> tuple[float | None, str | None]:
-    """Latest stored close known by ``decision_time`` and dated on or before ``on_date``."""
+    """Latest eligible snapshot close, then canonical close; direct pairs only.
+
+    Canonical ``available_at`` is carried as ``known_at`` by ``read_fx``. It needs
+    an explicit decision time and obeys the same seven-day freshness limit.
+    """
 
     rows = fx[fx["pair"].astype(str) == pair]
-    best: tuple[date, datetime, float] | None = None
+    best: tuple[bool, date, datetime, float] | None = None
     for _, row in rows.iterrows():
+        canonical = bool(row.get("_canonical_fx", False))
+        if canonical and decision_time is None:
+            continue
         when = as_utc(row.get("date"))
-        if when is None or when.date() > on_date:
+        if when is None or pd.isna(when) or not 0 <= (on_date - when.date()).days <= max_age_days:
             continue
         known = as_utc(row.get("known_at"))
-        if decision_time is not None and (known is None or known > decision_time):
+        if decision_time is not None and (known is None or pd.isna(known) or known > decision_time):
+            continue
+        try:
+            rate = float(row["rate"])
+        except (TypeError, ValueError):
+            continue
+        if not math.isfinite(rate) or rate <= 0:
             continue
         observed = known or datetime.min.replace(tzinfo=timezone.utc)
-        if best is None or (when.date(), observed) >= (best[0], best[1]):
-            best = (when.date(), observed, float(row["rate"]))
-    if best is None or (on_date - best[0]).days > max_age_days:
+        candidate = (not canonical, when.date(), observed, rate)
+        if best is None or candidate[:3] >= best[:3]:
+            best = candidate
+    if best is None:
         return None, None
-    return best[2], best[0].isoformat()
+    return best[3], best[1].isoformat()
 
 
 # ---------------------------------------------------------------------------------------------
@@ -520,7 +644,8 @@ def refresh_stock_fundamentals(
     config: Mapping[str, Any] | None = None,
     environ: Mapping[str, str] | None = None,
     yfinance_fetch: Callable[..., src.FetchResult] = src.fetch_yfinance,
-    edgar_fetch: Callable[..., src.FetchResult] = src.fetch_edgar,
+    edgar_fetch: Callable[..., src.FetchResult] = fetch_sec_fundamentals,
+    esef_fetch: Callable[..., src.FetchResult] = fetch_esef_fundamentals,
     cik_resolver: Callable[..., str | None] = src.resolve_cik,
     fx_fetch: Callable[..., list[tuple[str, float]]] = src.fetch_fx_rates,
     progress: Callable[[str], None] | None = None,
@@ -530,7 +655,7 @@ def refresh_stock_fundamentals(
     stamp = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     cfg = dict(config) if config is not None else load_stock_config(root)
     env = os.environ if environ is None else environ
-    chain = list((cfg.get("sources", {}) or {}).get("chain", ["sec_edgar", "yfinance"]))
+    chain = list((cfg.get("sources", {}) or {}).get("chain", ["sec_edgar", "esef", "yfinance"]))
     agent = src.sec_user_agent(cfg, env)
     paths = store_paths(root)
     periods = read_fundamentals(root)
@@ -555,7 +680,7 @@ def refresh_stock_fundamentals(
             **analyst,
         }
         periods, _migrated = append_period_rows(periods, str(legacy.get("instrument_id") or ""), [migrated])
-    fx = read_fx(root)
+    fx = read_fx(root, include_canonical=False)
     report = RefreshReport()
     snapshot_rows: list[dict[str, Any]] = []
     fx_rows: list[dict[str, Any]] = []
@@ -574,6 +699,10 @@ def refresh_stock_fundamentals(
                         notes.append("SEC EDGAR skipped: " + ("no CIK resolved" if agent else "no SEC User-Agent configured (set ETF_COCKPIT_SEC_EDGAR_USER_AGENT)"))
                     continue
                 result = edgar_fetch(cik, cfg, user_agent=agent)
+            elif source == "esef":
+                result = esef_fetch(target.instrument_id, cfg, root=root)
+                if result.status == "unavailable":  # nothing imported for this issuer (e.g. a US filer): not a gap worth reporting
+                    continue
             elif source == "yfinance":
                 result = yfinance_fetch(target.yahoo_symbol, cfg, now=stamp)
             else:

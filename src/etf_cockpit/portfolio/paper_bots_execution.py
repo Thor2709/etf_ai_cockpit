@@ -13,7 +13,7 @@ from __future__ import annotations
 from bisect import bisect_right
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, time, timedelta, timezone
-from decimal import ROUND_FLOOR, Decimal
+from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal
 import hashlib
 import json
 import math
@@ -62,9 +62,23 @@ REPLAY_RECORD_TYPE = "paper_bot_replay_execution"
 PRICE_FILE_RELATIVE = Path("data") / "validated" / "prices" / "prices_daily.parquet"
 EXECUTION_ALLOWED = False
 NETWORK_ACCESS_ALLOWED = False
+LEDGER_PRICE_BASIS = "as_traded_units_gross_cash_dividends"
 _PENDING_SHADOW_MARKERS = ("No eligible benchmark session", "Benchmark execution close is unavailable")
 _AVAILABLE_BUYING_POWER = re.compile(r"available buying power is ([0-9.]+)")
 _MAX_WARNINGS = 12
+# Owner spec 2026-10-22 concentration classes. Universe instrument types that name one issuer (stricter stock cap).
+_STOCK_LIKE_TYPES = frozenset({"stock", "equity_certificate", "certificate"})
+# Universe sector labels that describe breadth or size, not an industry: they never count toward the sector cap.
+_NON_SECTOR_LABELS = frozenset({"broad", "small cap"})
+# Universe region labels that span many countries: they never count toward the country cap (an unrecognised label does).
+_MULTI_COUNTRY_REGIONS = frozenset({
+    "world", "global", "europe", "emerging markets", "developed markets", "eurozone", "asia", "asia pacific",
+    "north america", "latin america", "africa", "middle east", "frontier markets",
+})
+_POSITION_LIMIT_WEIGHTS = (
+    "narrow_etf_max_weight", "unknown_class_max_weight", "stock_entry_max_weight", "stock_trim_trigger_weight",
+    "stock_trim_to_weight", "sector_max_weight", "country_max_weight",
+)
 
 
 @dataclass(frozen=True)
@@ -79,6 +93,11 @@ class Track:
     decision_type: str
     plan_type: str
     record_type: str
+
+    @property
+    def failure_type(self) -> str:
+        """Execution failures live beside, never inside, the order-record stream (a retry must not see them)."""
+        return f"{self.record_type}_failure"
 
 
 def forward_track(root: Path) -> Track:
@@ -107,6 +126,7 @@ class ExecutionRunResult:
     reason: str | None = None
     warnings: tuple[str, ...] = ()
     label: str | None = None
+    survivorship_unverified: bool = False
 
 
 class PriceBook:
@@ -119,6 +139,7 @@ class PriceBook:
         self._bars: dict[str, dict[date, dict[str, Any]]] = {}
         self._dates: dict[str, list[date]] = {}
         self._frame = pd.DataFrame()
+        self._per_bar_knowledge = isinstance(frame, pd.DataFrame) and "known_at" in frame.columns
         if not isinstance(frame, pd.DataFrame) or frame.empty:
             self.error = self.error or "Price history is empty."
             return
@@ -132,6 +153,9 @@ class PriceBook:
         if getattr(data["date"].dt, "tz", None) is not None:
             data["date"] = data["date"].dt.tz_convert("UTC").dt.tz_localize(None)
         data["date"] = data["date"].dt.normalize()
+        if self._per_bar_knowledge:
+            # Missing, naive or malformed row timestamps stay unavailable.
+            data["_known_at"] = data["known_at"].map(bots._parse_timestamp)
         data = data.dropna(subset=["date"]).sort_values(["_instrument", "date"], kind="stable")
         if data.duplicated(["_instrument", "date"]).any():
             self.error = "Price history has duplicate instrument sessions."
@@ -147,10 +171,11 @@ class PriceBook:
         path = Path(root) / PRICE_FILE_RELATIVE
         try:
             frame = pd.read_parquet(path)
-            known_at = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
         except (OSError, ValueError) as exc:
             return cls(None, known_at=None, benchmark_id=benchmark_id, error=f"Price history unavailable: {type(exc).__name__}.")
-        return cls(frame, known_at=known_at, benchmark_id=benchmark_id)
+        if "known_at" not in frame.columns:
+            return cls(None, known_at=None, benchmark_id=benchmark_id, error="Per-bar price known_at is unavailable.")
+        return cls(frame, known_at=None, benchmark_id=benchmark_id)
 
     @property
     def sessions(self) -> list[date]:
@@ -169,13 +194,94 @@ class PriceBook:
         index = bisect_right(sessions, day - timedelta(days=1))
         return sessions[index] if index < len(sessions) else None
 
-    def bar(self, instrument_id: str, day: date) -> dict[str, Any] | None:
-        return self._bars.get(str(instrument_id).upper(), {}).get(day)
+    def bar(self, instrument_id: str, day: date, *, known_by: datetime | None = None) -> dict[str, Any] | None:
+        bar = self._bars.get(str(instrument_id).upper(), {}).get(day)
+        if bar is not None and self._per_bar_knowledge:
+            known = bar.get("_known_at")
+            if not isinstance(known, datetime) or pd.isna(known) or (known_by is not None and known > known_by):
+                return None
+        return bar
 
-    def last_bar(self, instrument_id: str, day: date) -> dict[str, Any] | None:
+    def last_bar(self, instrument_id: str, day: date, *, known_by: datetime | None = None) -> dict[str, Any] | None:
         dates = self._dates.get(str(instrument_id).upper(), [])
         index = bisect_right(dates, day)
-        return self._bars[str(instrument_id).upper()][dates[index - 1]] if index else None
+        for candidate in reversed(dates[:index]):
+            bar = self.bar(instrument_id, candidate, known_by=known_by)
+            if bar is not None:
+                return bar
+        return None
+
+    def first_price_dates(self) -> dict[str, date]:
+        """The first available price session of every instrument (known on that day, never earlier)."""
+
+        return {instrument: dates[0] for instrument, dates in self._dates.items() if dates}
+
+    def action_available_at(self, bar: Mapping[str, Any]) -> datetime | None:
+        # available_at is action authority; a later ingestion time must not replace it.
+        return bots._parse_timestamp(bar.get("available_at", bar.get("known_at"))) or (
+            self.known_at if "available_at" not in bar and "known_at" not in bar else None
+        )
+
+    def action_bars(self, instrument: str) -> list[dict[str, Any]]:
+        return list(self._bars.get(instrument.upper(), {}).values())
+
+    @staticmethod
+    def require_actions(bar: Mapping[str, Any], instrument: str) -> None:
+        evidenced = bar.get("actions_evidenced")
+        if type(evidenced).__name__ not in {"bool", "bool_"} or not bool(evidenced):
+            raise PaperLedgerError(f"corporate_actions_unaccounted: {instrument}: actions_evidenced is not true")
+        for column in ("dividends", "stock_splits"):
+            value = bots._finite_number(bar.get(column))
+            if value is None or value < 0:
+                raise PaperLedgerError(f"corporate_actions_unaccounted: {instrument}: invalid {column}")
+
+    def split_scale(self, instrument: str, day: date) -> Decimal:
+        """Undo the provider's *subsequent* split adjustments, including reverse splits.
+
+        This is a unit conversion of the stored snapshot, never future cash or an
+        action signal. Without it a 10:1 split already embedded in old OHLC would
+        be counted twice when the ledger multiplies the old units by ten.
+        """
+        scale = Decimal(1)
+        for bar in self.action_bars(instrument):
+            if bar["date"].date() > day:
+                self.require_actions(bar, instrument)
+                ratio = Decimal(str(bar["stock_splits"]))
+                if ratio:
+                    scale *= ratio
+        return scale
+
+    def split_ratio_between(self, instrument: str, start: date, end: date, *, known_by: datetime | None = None) -> Decimal:
+        ratio = Decimal(1)
+        for bar in self.action_bars(instrument):
+            if start < bar["date"].date() <= end:
+                self.require_actions(bar, instrument)
+                value = Decimal(str(bar["stock_splits"]))
+                if value:
+                    available = self.action_available_at(bar)
+                    if available is None or (known_by is not None and available > known_by):
+                        raise PaperLedgerError(f"corporate_actions_unaccounted: {instrument}: split not known at sizing/fill time")
+                    ratio *= value
+        return ratio
+
+    def ledger_bar(self, instrument: str, day: date, *, known_by: datetime | None = None) -> dict[str, Any] | None:
+        """OHLC and cash distributions in actual units on the bar date.
+
+        Provider OHLC/dividends are split-adjusted, adjusted_close additionally
+        assumes reinvestment. The ledger uses nominal units and gross cash only;
+        adjusted_close must never be used as a position mark as well.
+        """
+        bar = self.bar(instrument, day, known_by=known_by)
+        if bar is None:
+            return None
+        self.require_actions(bar, instrument)
+        scale = self.split_scale(instrument, day)
+        result = dict(bar)
+        for column in ("open", "high", "low", "close", "dividends"):
+            value = bots._finite_number(bar.get(column))
+            if value is not None:
+                result[column] = float(Decimal(str(value)) * scale)
+        return result
 
     def benchmark_frame(self) -> pd.DataFrame:
         rows = self._frame.loc[self._frame["_instrument"] == self.benchmark_id.upper()] if not self._frame.empty else self._frame
@@ -187,7 +293,12 @@ class PriceBook:
         frame = self.benchmark_frame()
         if not frame.empty:
             frame = frame.loc[frame["date"].dt.date < cutoff.date()].reset_index(drop=True)
-        known_at = None if self.known_at is None else min(self.known_at, cutoff)
+        if self._per_bar_knowledge and not frame.empty:
+            frame = frame.loc[frame["_known_at"].notna() & (frame["_known_at"] <= cutoff)].reset_index(drop=True)
+            known_at = frame["_known_at"].max() if not frame.empty else None
+        else:
+            # Explicit in-memory books retain the caller's legacy snapshot attestation.
+            known_at = None if self.known_at is None else min(self.known_at, cutoff)
         if self.error is not None or frame.empty or known_at is None:
             reason = self.error or "price_known_at_unavailable_or_no_session_before_the_cutoff"
             return frame, VwceReferenceSeriesCheck("unavailable", (reason,), None, None, len(frame), None, None)
@@ -208,6 +319,10 @@ def load_execution_config(path: Path | None = None) -> tuple[bytes, dict[str, An
         raise ValueError("unsupported paper bot execution specification")
     if payload.get("base_currency") != "EUR" or payload.get("fill_rule") != "next_session_open":
         raise ValueError("paper bots execute in EUR at the next session open only")
+    split_sessions = payload.get("max_order_split_sessions", 5)
+    if isinstance(split_sessions, bool) or not isinstance(split_sessions, int) or split_sessions < 1:
+        raise ValueError("invalid paper bot execution setting: max_order_split_sessions")
+    payload["max_order_split_sessions"] = split_sessions
     for key in ("lot_size", "rebalance_tolerance_weight", "min_trade_value_eur", "max_buy_retry_sessions",
                 "missed_fill_grace_calendar_days", "sizing_price_max_age_days", "max_stale_mark_sessions",
                 "proposal_validity_days"):
@@ -222,12 +337,31 @@ def load_execution_config(path: Path | None = None) -> tuple[bytes, dict[str, An
         payload[key] = number
     hour, _, minute = str(payload.get("fill_time_utc", "")).partition(":")
     payload["_fill_time"] = time(int(hour), int(minute))
-    for key in ("cost_model", "uncertainty", "replay"):
+    for key in ("cost_model", "uncertainty", "replay", "position_limits"):
         if not isinstance(payload.get(key), dict):
             raise ValueError(f"paper bot execution section is missing: {key}")
+    payload["position_limits"] = _validated_position_limits(payload["position_limits"])
     if not isinstance(payload.get("paper_approvals"), list) or not payload["paper_approvals"]:
         raise ValueError("paper bot execution needs its paper approvals")
     return raw, payload
+
+
+def _validated_position_limits(raw: Mapping[str, Any]) -> dict[str, float]:
+    """The percent-of-NAV caps; every share is a finite fraction in (0, 1] and the stock trim levels are consistent."""
+
+    limits: dict[str, float] = {}
+    for key in _POSITION_LIMIT_WEIGHTS:
+        number = bots._finite_number(raw.get(key))
+        if number is None or not 0 < number <= 1:
+            raise ValueError(f"invalid paper bot position limit: {key}")
+        limits[key] = number
+    if limits["stock_entry_max_weight"] > limits["stock_trim_trigger_weight"] or limits["stock_trim_to_weight"] > limits["stock_trim_trigger_weight"]:
+        raise ValueError("invalid paper bot position limit: stock entry and trim-to weights must not exceed the trim trigger")
+    ceiling = bots._finite_number(raw.get("ledger_absolute_exposure_ceiling_eur"))
+    if ceiling is None or ceiling <= 0:
+        raise ValueError("invalid paper bot position limit: ledger_absolute_exposure_ceiling_eur")
+    limits["ledger_absolute_exposure_ceiling_eur"] = ceiling
+    return limits
 
 
 def _cost_policy(root: Path, config: Mapping[str, Any]) -> tuple[ShadowCostPolicy, dict[str, Any], tuple[str, ...], Any]:
@@ -263,8 +397,11 @@ def _cost_policy(root: Path, config: Mapping[str, Any]) -> tuple[ShadowCostPolic
     return policy, evidence, tuple(sorted(app_config.universe.by_id())), app_config
 
 
-def _ensure_limits(track: Track, root: Path, universe_ids: tuple[str, ...]) -> None:
+def _ensure_limits(track: Track, root: Path, universe_ids: tuple[str, ...], *, exposure_ceiling: float | None = None) -> None:
     """Give the bot ledger root its own pre-trade limits: the owner's numeric limits, the configured universe allowlist.
+
+    ``exposure_ceiling`` replaces the absolute ``max_position_exposure`` of this ledger root only (the owner's live
+    ``pre_trade_limits_v1.yaml`` is never changed): the paper bots are held to the percent-of-NAV position limits instead.
 
     A digest of the universe and the source limits sits beside the file: when either changes (an instrument was added to
     the universe, the owner edited a limit) the file is rewritten, so the allowlist never freezes at first creation. A file
@@ -277,10 +414,18 @@ def _ensure_limits(track: Track, root: Path, universe_ids: tuple[str, ...]) -> N
     source = local if local.is_file() else CONFIG_DIR / "pre_trade_limits_v1.yaml"
     source_bytes = source.read_bytes()
     digest = hashlib.sha256(
-        json.dumps({"universe": sorted(item.upper() for item in universe_ids), "limits": hashlib.sha256(source_bytes).hexdigest()}).encode("utf-8")
+        json.dumps({
+            "universe": sorted(item.upper() for item in universe_ids), "limits": hashlib.sha256(source_bytes).hexdigest(),
+            "exposure_ceiling": exposure_ceiling,
+        }).encode("utf-8")
     ).hexdigest()
     if target.is_file():
         if not marker.is_file():
+            if exposure_ceiling is not None:  # adopt the legacy file, but never keep its absolute exposure check
+                adopted = yaml.safe_load(target.read_text(encoding="utf-8"))
+                if isinstance(adopted, dict) and adopted.get("max_position_exposure") != exposure_ceiling:
+                    adopted["max_position_exposure"] = exposure_ceiling
+                    target.write_text(yaml.safe_dump(adopted, sort_keys=True), encoding="utf-8")
             marker.write_text(digest, encoding="utf-8")
             return
         if marker.read_text(encoding="utf-8").strip() == digest:
@@ -289,6 +434,8 @@ def _ensure_limits(track: Track, root: Path, universe_ids: tuple[str, ...]) -> N
     if not isinstance(limits, dict) or limits.get("schema_version") != "pre_trade_limits.v1":
         raise ValueError("pre-trade limits are unavailable for the paper bots")
     limits["allowed_instruments"] = sorted({*(item.upper() for item in universe_ids), "VWCE"})
+    if exposure_ceiling is not None:
+        limits["max_position_exposure"] = exposure_ceiling
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(yaml.safe_dump(limits, sort_keys=True), encoding="utf-8")
     marker.write_text(digest, encoding="utf-8")
@@ -336,11 +483,14 @@ def _run(
     config_hash = hashlib.sha256(bots_bytes).hexdigest()
     exec_hash = hashlib.sha256(exec_bytes).hexdigest()
     book = price_book if price_book is not None else PriceBook.from_root(root, benchmark_id=str(bots_config["benchmark"]["instrument_id"]))
+    if track.name == "replay" and getattr(book, "membership_fingerprint", None):
+        config_hash = hashlib.sha256((config_hash + book.membership_fingerprint).encode()).hexdigest()
+        exec_hash = hashlib.sha256((exec_hash + book.membership_fingerprint).encode()).hexdigest()
     if not book.usable:
         return ExecutionRunResult("unavailable", track.name, as_of_text, reason=book.error or "No benchmark sessions are available.", label=track.label)
     try:
         policy, policy_evidence, universe_ids, app_config = _cost_policy(root, config)
-        _ensure_limits(track, root, universe_ids)
+        _ensure_limits(track, root, universe_ids, exposure_ceiling=config["position_limits"]["ledger_absolute_exposure_ceiling_eur"])
     except Exception as exc:  # fail closed: costs, universe or limits unreadable
         return ExecutionRunResult("unavailable", track.name, as_of_text, reason=f"Cost model unavailable: {type(exc).__name__}.", label=track.label)
 
@@ -361,8 +511,18 @@ def _run(
                 try:
                     new_records = _execute_bot(context, bot_id, items)
                 except (PaperLedgerError, OSError, ValueError, KeyError) as exc:
-                    warnings.append(f"Bot {bot_id[:12]} execution stopped: {type(exc).__name__}: {str(exc)[:160]}")
-                    continue
+                    reason = f"Bot {bot_id[:12]} execution stopped: {type(exc).__name__}: {str(exc)[:160]}"
+                    warnings.append(reason)
+                    decision = items[-1]
+                    intent = {"intent_id": _record_id(bot_id, decision["decision_id"], as_of_text, "execution_failure"),
+                              "instrument_id": None, "side": "none", "planned_quantity": "0", "target_weight": "0",
+                              "reason": "bot execution failure"}
+                    failure = _record(context, decision, intent, None, "failed", reason)
+                    if store.get(track.failure_type, failure["record_id"]) is None:
+                        store.put_many([(track.failure_type, failure["record_id"], failure)], immutable=True)
+                        new_records = [failure]
+                    else:
+                        new_records = []
                 appended += len(new_records)
                 records.extend(new_records)
             for bot_id in sorted(decisions):
@@ -402,6 +562,7 @@ class _Context:
     app_config: Any
     by_intent: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
     fx_cache: dict[Any, float | None] = field(default_factory=dict)
+    universe_index: dict[str, Any] = field(default_factory=dict)
 
 
 def _load_decisions(
@@ -500,27 +661,172 @@ def _quote_currency(context: _Context, decision: Mapping[str, Any], instrument_i
 def _execute_bot(context: _Context, bot_id: str, decisions: list[dict[str, Any]]) -> list[dict[str, Any]]:
     ledger = PaperLedger(context.track.ledger_root, account_id=account_id_for(bot_id))
     written: list[dict[str, Any]] = []
-    for decision in decisions:
+    for decision_index, decision in enumerate(decisions):
+        existing = context.store.get(context.track.plan_type, str(decision["decision_id"]))
+        if existing is not None and existing.payload.get("terminal") is True:
+            continue
+        written.extend(_liquidate_delistings(context, ledger, decision, decision["_known_at"]))
         decision_date = decision["_decided_at"].date()
         usable = [day for day in context.book.sessions_after(decision_date) if day < context.cutoff.date()]
         entry = context.book.first_session_on_or_after(decision_date)
         if not usable or entry is None:
             outage = (context.cutoff.date() - decision_date).days > int(context.config["missed_fill_grace_calendar_days"])
-            if outage and decision.get("strategy") != "benchmark" and entry is not None:
+            if outage and decision.get("strategy") != "benchmark":
                 written.extend(_miss_unplanned(context, ledger, decision, "provider_outage_no_session_data_after_grace"))
             break
         _fund(context, ledger, decision, entry, initial=decision is decisions[0])
         if decision.get("strategy") == "benchmark":
             continue  # B0 trades through its cash-flow-matched shadow account
+        _sync_corporate_actions(context, ledger, decision["_known_at"])
         plan = _plan(context, ledger, decision, decision_date)
-        written.extend(_run_intents(context, ledger, decision, plan, usable))
+        following = decisions[decision_index + 1:decision_index + 2]
+        # Stage A targets are complete portfolios: omission of an instrument means a zero target.
+        superseded_at = max(following[0]["_decided_at"], following[0]["_known_at"]) if following else None
+        written.extend(_run_intents(context, ledger, decision, plan, usable, superseded_at=superseded_at))
+    if decisions:
+        through = datetime.combine(context.cutoff.date(), time.min, tzinfo=timezone.utc) - timedelta(microseconds=1)
+        written.extend(_liquidate_delistings(context, ledger, decisions[-1], through))
+        _sync_corporate_actions(context, ledger, context.cutoff)
+    return written
+
+
+def _sync_corporate_actions(context: _Context, ledger: PaperLedger, through: datetime) -> None:
+    """Record actions once, at ex-date midnight, entitled to prior-close inventory.
+
+    A bar's available_at gates knowledge independently of its effective date. No
+    tax/withholding policy exists in PaperLedger: distributions are gross cash.
+    Sold instruments remain in scope, including actions reported after the sale.
+    """
+    events = ledger._read_events()
+    first_fills: dict[str, date] = {}
+    for event in events:
+        if event["event_type"] == "fill_recorded":
+            instrument = str(event["payload"]["instrument_id"])
+            day = datetime.fromisoformat(event["occurred_at"]).date()
+            first_fills[instrument] = min(first_fills.get(instrument, day), day)
+    actions = []
+    for instrument, first_day in first_fills.items():
+        if not context.book.action_bars(instrument):
+            raise PaperLedgerError(f"corporate_actions_unaccounted: {instrument}: action history missing")
+        for bar in context.book.action_bars(instrument):
+            day = bar["date"].date()
+            if not first_day <= day < min(through.date() + timedelta(days=1), context.cutoff.date()):
+                continue
+            context.book.require_actions(bar, instrument)
+            available = context.book.action_available_at(bar)
+            if available is None:
+                raise PaperLedgerError(f"corporate_actions_unaccounted: {instrument}: action availability missing")
+            ratio = float(bar["stock_splits"]) or 1.0
+            dividend = float(bar["dividends"])
+            if available > min(through, context.cutoff):
+                if through >= context.cutoff:
+                    raise PaperLedgerError(f"corporate_actions_unaccounted: {instrument}: action evidence not yet available")
+                continue
+            if ratio != 1 or dividend:
+                actions.append((day, instrument, bar, available, ratio))
+    for day, instrument, bar, available, ratio in sorted(actions, key=lambda item: (item[0], item[1])):
+        if ratio != 1:
+            # Old replay ledgers may already have bought split-adjusted units.
+            # Never multiply those units again. Forward fills made before a new
+            # split instead match the restored nominal opening quote.
+            state = ledger._replay(events)
+            policy = state.get("cost_policy")
+            adverse = float(policy["adverse_bps"]) / 10000 if policy else 0.0
+            for event in events:
+                fill = event["payload"]
+                fill_day = datetime.fromisoformat(event["occurred_at"]).date()
+                if (event["event_type"] != "fill_recorded" or fill["instrument_id"] != instrument
+                        or fill["side"] != "buy" or fill_day >= day):
+                    continue
+                nominal_fill = context.book.ledger_bar(instrument, fill_day)
+                reference = float(fill["price"]) / (1 + adverse)
+                if nominal_fill is None or not math.isclose(reference, float(nominal_fill["open"]), rel_tol=1e-8):
+                    raise PaperLedgerError(f"corporate_actions_unaccounted: {instrument}: legacy fill price basis unverified")
+        nominal = context.book.ledger_bar(instrument, day)
+        # Provider distributions on a split day are per post-split unit, whereas
+        # the ledger credits the prior-close quantity before multiplying units.
+        dividend = float(nominal["dividends"]) * ratio
+        when = datetime.combine(day, time.min, tzinfo=timezone.utc)
+        currency = bots._real_text(bar.get("currency"))
+        # Freeze conversion at the effective boundary, using the last evidenced
+        # rate then available, so a later provider refresh cannot change the cash.
+        fx_time = when
+        fx = 1.0 if not dividend else None if currency is None else _eur_per_unit(context, currency, fx_time)
+        if fx is None:
+            raise PaperLedgerError(f"corporate_actions_unaccounted: {instrument}: dividend FX unavailable")
+        terms = {"instrument": instrument, "ex_date": day.isoformat(), "split_ratio": ratio,
+                 "gross_dividend": dividend, "fx_rate": fx,
+                 "price_basis": LEDGER_PRICE_BASIS}
+        ledger.apply_corporate_action(
+            instrument, action_id="botaction_" + _record_id(instrument, day.isoformat())[:24],
+            split_ratio=ratio, cash_dividend_per_unit=dividend, fx_rate=fx,
+            source_authority="paper_bot_provider_actions_gross", source_checksum=bots._sha256_json(terms),
+            occurred_at=when, available_at=available,
+        )
+
+
+def _liquidate_delistings(context: _Context, ledger: PaperLedger, decision: Mapping[str, Any], through: datetime) -> list[dict[str, Any]]:
+    """Sell closures chronologically through the ordinary guarded paper order path."""
+    if context.track.name != "replay" or not hasattr(context.book, "delistings"):
+        return []
+    written = []
+    for when, instrument, delisting_day in context.book.delistings(through):
+        if when < decision["_decided_at"] and not ledger.external_flows():
+            continue
+        _sync_corporate_actions(context, ledger, when)
+        event_id = _record_id(ledger.account_id, instrument, delisting_day.isoformat(), when.isoformat(), "delisting")
+        if context.store.get(context.track.record_type, event_id) is not None:
+            continue
+        bar = context.book.liquidation_bar(instrument, delisting_day)
+        close = None if bar is None else bots._finite_number(bar.get("close"))
+        # The closure is its own decision, with a fresh expiry and actual knowledge
+        # time. It does not borrow an expired monthly proposal or future cash.
+        closure = {**decision, "decision_id": event_id, "_decided_at": when, "_known_at": when}
+        index = 0
+        while True:
+            held = next((Decimal(str(p.quantity)) for p in ledger.snapshot().positions if p.instrument_id == instrument), Decimal(0))
+            intent_id = _record_id(event_id, str(index))
+            fills = _intent_records(context, intent_id)
+            if fills and fills[0]["status"] == "filled":
+                index += 1
+                continue
+            fill_id = "botfill_" + _record_id(intent_id, when.date().isoformat())[:20]
+            recovered = next((row for row in ledger.trade_rows() if row["paper_trade_id"] == fill_id), None)
+            if held <= 0 and recovered is None:
+                marker = _record(context, closure, {
+                    "intent_id": event_id, "instrument_id": instrument, "side": "sell", "planned_quantity": "0",
+                    "target_weight": "0", "reason": "delisting liquidation complete",
+                }, when.date(), "completed", "delisting_liquidation_complete")
+                marker["record_id"] = event_id
+                _store_record(context, marker)
+                written.append(marker)
+                break
+            intent = {
+                "intent_id": intent_id, "instrument_id": instrument, "side": "sell",
+                "planned_quantity": str(held if recovered is None else recovered["quantity"]), "target_weight": "0",
+                "sizing_price": None if close is None or close <= 0 else str(close),
+                "sizing_price_date": None if bar is None else bar["date"].date().isoformat(),
+                "currency": None if bar is None else bar.get("currency"), "reason": "delisting liquidation",
+                "unavailable_reason": "delisting_last_price_unavailable", "delisting_day": delisting_day,
+                "liquidation_at": when,
+            }
+            record = fills[0] if fills else _attempt(context, ledger, closure, intent, when.date(), final_session=True, awaits_settlement=False)
+            record.update(delisting_date=delisting_day.isoformat(), price_as_of_date=intent["sizing_price_date"], liquidation_at=when.isoformat())
+            if not fills:
+                _store_record(context, record)
+                written.append(record)
+            if record["status"] != "filled":
+                context.warnings.append(f"Delisting liquidation failed for {instrument} on {delisting_day}: {record['reason']}; position retained.")
+                break
+            index += 1  # owner order-value limits may require multiple guarded sales
     return written
 
 
 def _fund(context: _Context, ledger: PaperLedger, decision: Mapping[str, Any], entry: date, *, initial: bool) -> None:
     amount = float(decision["initial_virtual_cash_eur"] if initial else decision["monthly_contribution_eur"])
-    flow_at = datetime.combine(entry, time(0, 0), tzinfo=timezone.utc)
-    ledger.open_account(initial_cash=0, cost_policy=context.policy, occurred_at=flow_at - timedelta(minutes=1))
+    # Funding becomes available with the decision, never at an earlier midnight.
+    flow_at = max(decision["_decided_at"], decision["_known_at"])
+    ledger.open_account(initial_cash=0, cost_policy=context.policy, occurred_at=flow_at)
     if amount <= 0:
         return
     flow_id = f"{ledger.account_id}:{'initial' if initial else decision['decision_month']}"
@@ -537,15 +843,40 @@ def _sizing_price(context: _Context, decision: Mapping[str, Any], instrument_id:
     """
 
     captured = decision["prices_used"].get(instrument_id)
-    if isinstance(captured, Mapping) and bots._finite_number(captured.get("price")) and captured.get("price_as_of"):
-        return Decimal(str(captured["price"])), str(captured["price_as_of"])
-    bar = context.book.last_bar(instrument_id, decision_date - timedelta(days=1))
+    if isinstance(captured, Mapping):
+        price = bots._finite_number(captured.get("price"))
+        day_text = bots._date_text(captured.get("price_as_of"))
+        if price is None or price <= 0 or day_text is None:
+            return None
+        day = date.fromisoformat(day_text)
+        if not 0 <= (decision_date - day).days <= int(context.config["sizing_price_max_age_days"]):
+            return None
+        scale = context.book.split_scale(instrument_id, day)
+        if scale != 1:
+            nominal = context.book.ledger_bar(instrument_id, day)
+            if nominal is None:
+                return None
+            # A forward decision captured before a fresh split already has nominal
+            # units; a backfill built from this snapshot has adjusted units.
+            nominal_close = float(nominal["close"])
+            if math.isclose(price, nominal_close / float(scale), rel_tol=1e-8):
+                price *= float(scale)
+            elif not math.isclose(price, nominal_close, rel_tol=1e-8):
+                return None
+        unit_scale = context.book.split_ratio_between(instrument_id, day, decision_date, known_by=decision.get("_known_at"))
+        return Decimal(str(price)) / unit_scale, day_text
+    default_cutoff = datetime.combine(decision_date, time.max, tzinfo=timezone.utc)
+    known_by = min(decision.get("_known_at", default_cutoff), decision.get("_decided_at", default_cutoff))
+    bar = context.book.last_bar(instrument_id, decision_date - timedelta(days=1), known_by=known_by)
     if bar is None:
         return None
     day = bar["date"].date()
     if (decision_date - day).days > int(context.config["sizing_price_max_age_days"]):
         return None
     close = bots._finite_number(bar.get("close"))
+    if close is not None:
+        close *= float(context.book.split_scale(instrument_id, day))
+        close /= float(context.book.split_ratio_between(instrument_id, day, decision_date, known_by=known_by))
     return (Decimal(str(close)), day.isoformat()) if close and close > 0 else None
 
 
@@ -595,8 +926,13 @@ def _plan(context: _Context, ledger: PaperLedger, decision: Mapping[str, Any], d
     value = cash + sum((held[i] * eur_prices[i] for i in held), Decimal("0"))
     threshold = max(Decimal(str(context.config["min_trade_value_eur"])), Decimal(str(context.config["rebalance_tolerance_weight"])) * value)
     lot = policy.lot_size
+    limits = context.config["position_limits"]
+    info = {instrument: _classify(context, decision, instrument) for instrument in sorted({*held, *targets})}
+    plan["classification"] = {instrument: dict(item) for instrument, item in info.items()}
+    plan["position_limits"] = dict(limits)
     buys: list[dict[str, Any]] = []
     sells: list[dict[str, Any]] = []
+    rows: dict[str, dict[str, Any]] = {}
     for instrument in sorted({*held, *targets}):
         weight = targets.get(instrument, Decimal("0"))
         price_entry = prices[instrument]
@@ -609,26 +945,43 @@ def _plan(context: _Context, ledger: PaperLedger, decision: Mapping[str, Any], d
             continue
         price = eur_prices[instrument]
         currency, rate = quoted[instrument]
-        target_quantity = _floor_lot(weight * value / (price * (1 + adverse)), lot) if weight > 0 else Decimal("0")
-        delta = target_quantity - have
+        cost_price = price * (1 + adverse)
+        raw_quantity = _floor_lot(weight * value / cost_price, lot) if weight > 0 else Decimal("0")
+        target_quantity, cap_weight, cap_note = _apply_position_cap(info[instrument], limits, raw_quantity, have, price, cost_price, value, lot)
+        rows[instrument] = {
+            "weight": weight, "price_entry": price_entry, "have": have, "price": price, "currency": currency, "rate": rate,
+            "target": target_quantity, "ordered": target_quantity, "cap_weight": cap_weight, "notes": [cap_note] if cap_note else [],
+            "refusal": None,
+        }
+    _apply_group_caps(rows, info, targets, limits, value, lot)
+    for instrument in sorted(rows):
+        row = rows[instrument]
+        weight, price, have, price_entry = row["weight"], row["price"], row["have"], row["price_entry"]
+        currency, rate = row["currency"], row["rate"]
+        delta = row["target"] - have
+        if row["refusal"] is not None and (row["ordered"] - have) * price >= threshold:
+            buys.append(_intent(decision, instrument, "buy", Decimal("0"), weight, None, None, row["refusal"]))
+            continue
         if delta == 0:
             continue
         exits = instrument not in targets
         if abs(delta) * price < threshold and not (exits and delta < 0):
             plan["within_tolerance"].append({"instrument_id": instrument, "delta_quantity": str(delta), "reason": "within_rebalance_tolerance"})
             continue
+        suffix = "".join(f"; {note}" for note in row["notes"])
+        max_after = None if row["cap_weight"] is None else row["cap_weight"] * value
         if delta > 0:
             reason = (
                 f"enter target weight {float(weight):.1%}" if have == 0 else f"increase to target weight {float(weight):.1%}"
-            ) + f" ({decision['bot_family']}, decision {str(decision['snapshot_hash'])[:8]})"
-            buys.append(_intent(decision, instrument, "buy", delta, weight, price_entry, currency, reason, rate))
+            ) + suffix + f" ({decision['bot_family']}, decision {str(decision['snapshot_hash'])[:8]})"
+            buys.append(_intent(decision, instrument, "buy", delta, weight, price_entry, currency, reason, rate, max_after_value=max_after))
         else:
             skipped_reason = reasons.get(instrument)
             reason = (
                 f"exit: not in the target set ({skipped_reason})" if exits and skipped_reason
                 else "exit: not in the target set" if exits
                 else f"trim to target weight {float(weight):.1%}"
-            ) + f" ({decision['bot_family']}, decision {str(decision['snapshot_hash'])[:8]})"
+            ) + suffix + f" ({decision['bot_family']}, decision {str(decision['snapshot_hash'])[:8]})"
             sells.append(_intent(decision, instrument, "sell", -delta, weight, price_entry, currency, reason, rate))
     buys.sort(key=lambda item: (-float(item["target_weight"]), item["instrument_id"]))
     plan["intents"] = [*sells, *buys]
@@ -637,16 +990,136 @@ def _plan(context: _Context, ledger: PaperLedger, decision: Mapping[str, Any], d
     return plan
 
 
+def _ceil_lot(quantity: Decimal, lot: Decimal) -> Decimal:
+    return (quantity / lot).to_integral_value(rounding=ROUND_CEILING) * lot
+
+
+def _clean_label(value: object) -> str | None:
+    text = str(value).strip() if value is not None else ""
+    return None if text.casefold() in {"", "none", "null", "nan", "unavailable", "unknown"} else text
+
+
+def _classify(context: _Context, decision: Mapping[str, Any], instrument_id: str) -> dict[str, Any]:
+    """Concentration class of an instrument from the existing universe fields (instrument_type, sector, region).
+
+    ``broad_etf`` is an ETF whose universe sector is ``Broad``; any other ETF with a universe sector is ``narrow_etf``;
+    ``stock`` is a single-issuer instrument (universe type, or the wrapper type the decision froze from the score row).
+    Everything else, including an ETF the universe does not describe, is ``unknown`` and takes the narrow-ETF cap.
+    """
+
+    if not context.universe_index:
+        context.universe_index = {str(key).upper(): item for key, item in context.app_config.universe.by_id().items()}
+    entry = context.universe_index.get(str(instrument_id).upper())
+    frozen = decision.get("instrument_asset_types")
+    frozen_type = frozen.get(instrument_id) if isinstance(frozen, Mapping) else None
+    types = {
+        text.casefold() for text in (_clean_label(getattr(entry, "instrument_type", None)), _clean_label(frozen_type)) if text
+    }
+    sector = _clean_label(getattr(entry, "sector", None))
+    region = _clean_label(getattr(entry, "region", None))
+    if types & _STOCK_LIKE_TYPES:
+        kind = "stock"
+    elif "etf" in types and sector is not None and sector.casefold() == "broad":
+        kind = "broad_etf"
+    elif "etf" in types and entry is not None and sector is not None:
+        kind = "narrow_etf"
+    else:
+        kind = "unknown"
+    return {
+        "kind": kind,
+        "sector": sector if kind != "broad_etf" and sector is not None and sector.casefold() not in _NON_SECTOR_LABELS else None,
+        "country": region if region is not None and region.casefold() not in _MULTI_COUNTRY_REGIONS else None,
+        "basis": "universe" if entry is not None else "decision_asset_type" if frozen_type else "unclassified",
+    }
+
+
+def _apply_position_cap(
+    info: Mapping[str, Any], limits: Mapping[str, float], raw_quantity: Decimal, have: Decimal, price: Decimal,
+    cost_price: Decimal, value: Decimal, lot: Decimal,
+) -> tuple[Decimal, Decimal | None, str | None]:
+    """The per-instrument percent-of-NAV rule: (target quantity, cap weight a buy is held to, a note).
+
+    Broad diversified ETF: no cap. Narrow/sector ETF and unknown class: at most the narrow cap. Stock: a buy is reduced to
+    the entry cap; a position grown above the trim trigger is sold back to the trim-to weight; between the two it is held.
+    """
+
+    def quantity_at(weight: Decimal) -> Decimal:
+        return _floor_lot(weight * value / cost_price, lot)
+
+    kind = str(info["kind"])
+    if kind == "broad_etf":
+        return raw_quantity, None, None
+    if kind == "stock":
+        entry_weight = Decimal(str(limits["stock_entry_max_weight"]))
+        trigger_weight = Decimal(str(limits["stock_trim_trigger_weight"]))
+        trim_weight = Decimal(str(limits["stock_trim_to_weight"]))
+        if have > 0 and have * price > trigger_weight * value:
+            target = min(raw_quantity, quantity_at(trim_weight))
+            return target, entry_weight, f"trim to {float(trim_weight):.0%} of the portfolio (position above the {float(trigger_weight):.0%} trim trigger)"
+        entry_quantity = quantity_at(entry_weight)
+        if raw_quantity <= entry_quantity:
+            return raw_quantity, entry_weight, None
+        return max(entry_quantity, have), entry_weight, f"capped at the {float(entry_weight):.0%} single-stock entry limit"
+    cap_weight = Decimal(str(limits["narrow_etf_max_weight" if kind == "narrow_etf" else "unknown_class_max_weight"]))
+    cap_quantity = quantity_at(cap_weight)
+    if raw_quantity > cap_quantity:
+        label = "narrow or sector ETF" if kind == "narrow_etf" else "unclassified instrument"
+        return cap_quantity, cap_weight, f"capped at the {float(cap_weight):.0%} {label} limit"
+    return raw_quantity, cap_weight, None
+
+
+def _apply_group_caps(
+    rows: dict[str, dict[str, Any]], info: Mapping[str, Mapping[str, Any]], targets: Mapping[str, Decimal],
+    limits: Mapping[str, float], value: Decimal, lot: Decimal,
+) -> None:
+    """Hold every sector and every country to its percent-of-NAV cap by cutting buys, lowest target weight first.
+
+    A buy cut to nothing is marked refused with a named reason. Positions already held are never sold for a group cap.
+    """
+
+    for dimension in ("sector", "country"):
+        cap_weight = Decimal(str(limits[f"{dimension}_max_weight"]))
+        members: dict[str, list[str]] = {}
+        labels: dict[str, str] = {}
+        for instrument in rows:
+            label = info[instrument].get(dimension)
+            if label:
+                members.setdefault(label.casefold(), []).append(instrument)
+                labels.setdefault(label.casefold(), label)
+        for key, names in sorted(members.items()):
+            excess = sum((rows[name]["target"] * rows[name]["price"] for name in names), Decimal("0")) - cap_weight * value
+            buyers = sorted((name for name in names if rows[name]["target"] > rows[name]["have"]), key=lambda name: (-rows[name]["weight"], name), reverse=True)
+            for name in buyers:
+                if excess <= 0:
+                    break
+                row = rows[name]
+                cut = min(row["target"] - row["have"], _ceil_lot(excess / row["price"], lot))
+                row["target"] -= cut
+                excess -= cut * row["price"]
+                row["notes"].append(f"reduced to the {float(cap_weight):.0%} {dimension} limit ({labels[key]})")
+                if row["target"] <= row["have"]:
+                    row["refusal"] = f"{dimension}_cap_reached: {labels[key]} would exceed {float(cap_weight):.0%} of the portfolio value"
+
+
+def _cap_room(max_after_value: Decimal, unit: Decimal, held: Decimal, lot: Decimal) -> Decimal:
+    """Whole lots a buy may still add before the position passes its percent-of-NAV value limit."""
+
+    return _floor_lot(max_after_value / unit, lot) - held
+
+
 def _intent(
     decision: Mapping[str, Any], instrument: str, side: str, quantity: Decimal, weight: Decimal,
     price: tuple[Decimal, str] | None, currency: str | None, reason: str, fx_rate: float | None = None,
+    *, max_after_value: Decimal | None = None,
 ) -> dict[str, Any]:
     return {
         "intent_id": _record_id(str(decision["decision_id"]), instrument, side),
         "instrument_id": instrument, "side": side, "planned_quantity": str(quantity), "target_weight": str(weight),
+        "quantity_basis_date": decision["_decided_at"].date().isoformat(),
         "sizing_price": None if price is None else str(price[0]), "sizing_price_date": None if price is None else price[1],
         "currency": currency, "sizing_fx_rate": fx_rate, "reason": reason,
         "unavailable_reason": reason if price is None else None,
+        "max_after_position_value_eur": None if max_after_value is None else str(max_after_value),
     }
 
 
@@ -665,41 +1138,92 @@ def _store_record(context: _Context, record: dict[str, Any]) -> None:
 
 
 def _run_intents(
-    context: _Context, ledger: PaperLedger, decision: Mapping[str, Any], plan: Mapping[str, Any], usable: list[date]
+    context: _Context, ledger: PaperLedger, decision: Mapping[str, Any], plan: Mapping[str, Any], usable: list[date],
+    *, superseded_at: datetime | None = None,
 ) -> list[dict[str, Any]]:
     if plan.get("status") != "planned":
         return _miss_unplanned(context, ledger, decision, str(plan.get("reason") or "plan_unavailable"))
     retries = int(context.config["max_buy_retry_sessions"])
+    split_sessions = int(context.config["max_order_split_sessions"])
     state: dict[str, dict[str, Any]] = {}
     for intent in plan["intents"]:
         history = _intent_records(context, intent["intent_id"])
-        final = next((item for item in history if item["status"] in {"filled", "missed"}), None)
-        state[intent["intent_id"]] = {"intent": intent, "final": final, "attempts": sorted(item["session"] for item in history if item["status"] == "deferred")}
+        terminal = any(item.get("session") is None and item.get("status") == "missed" for item in history)
+        state[intent["intent_id"]] = {"intent": intent, "final": terminal, "split": False, "history": history}
     written: list[dict[str, Any]] = []
-    for index, session in enumerate(usable[: retries + 1]):
+
+    def save(record: dict[str, Any], entry: dict[str, Any]) -> None:
+        if any(item["record_id"] == record["record_id"] for item in entry["history"]):
+            return
+        _store_record(context, record)
+        written.append(record)
+
+    for index, session in enumerate(usable[: max(retries + 1, split_sessions)]):
+        action_cutoff = _fill_datetime(context.config, session)
+        _sync_corporate_actions(context, ledger, min(action_cutoff, superseded_at) if superseded_at else action_cutoff)
+        # Closures after the next decision belong to its plan; the loop still records the superseded buys as missed.
+        if superseded_at is None or _fill_datetime(context.config, session) < superseded_at:
+            written.extend(_liquidate_delistings(context, ledger, decision, _fill_datetime(context.config, session)))
         for entry in state.values():
             intent = entry["intent"]
-            if entry["final"] is not None or session.isoformat() in entry["attempts"]:
+            if entry["final"]:
                 continue
-            if intent["side"] == "sell" and index > 0:
+            if intent["side"] == "sell" and index > 0 and not entry["split"]:
                 continue
-            final_session = index == retries
-            record = _attempt(
-                context, ledger, decision, intent, session, final_session=final_session,
-                awaits_settlement=any(item['side'] == 'sell' for item in plan['intents']),
-            )
-            written.append(record)
-            _store_record(context, record)
-            if record["status"] == "deferred":
-                entry["attempts"].append(record["session"])
+            if not entry["split"] and index > retries:
+                continue
+            history = [item for item in entry["history"] if item["session"] == session.isoformat()]
+            record = next((item for item in history if item["status"] == "filled"), None)
+            if record is None:
+                record = next(iter(history), None)
+            if record is None:
+                if (intent["side"] == "buy" or entry["split"]) and superseded_at is not None and _fill_datetime(context.config, session) >= superseded_at:
+                    record = _record(context, decision, intent, session, "missed", "superseded_by_new_decision")
+                else:
+                    record = _attempt(
+                        context, ledger, decision, intent, session,
+                        final_session=index >= (split_sessions - 1 if entry["split"] else min(retries, split_sessions - 1)),
+                        awaits_settlement=_awaits_settlement(ledger, _fill_datetime(context.config, session)),
+                    )
+                save(record, entry)
+            remainder = Decimal(str(record.get("remaining_quantity", "0")))
+            if record["status"] == "filled" and remainder > 0:
+                entry["split"] = True
+                entry["intent"] = {**intent, "planned_quantity": str(remainder), "parent_intent_id": intent["intent_id"],
+                                   "quantity_basis_date": session.isoformat()}
+                if index + 1 >= split_sessions:
+                    save(_record(context, decision, entry["intent"], session, "missed", "max_order_split_sessions_exhausted"), entry)
+                    entry["final"] = True
+            elif record["status"] == "deferred":
+                continue
             else:
-                entry["final"] = record
+                entry["final"] = True
     return written
+
+
+def _awaits_settlement(ledger: PaperLedger, when: datetime) -> bool:
+    """Wait only for proceeds of actual sales that have not reached settlement."""
+    state = ledger._replay(ledger._events_through(when))
+    sales = [fill for fill in state["fills"] if fill["side"] == "sell"
+             and Decimal(str(fill["quantity"])) * Decimal(str(fill["price"])) * Decimal(str(fill["fx_rate"]))
+             > Decimal(str(fill["fee"]))]
+    if not sales:
+        return False
+    lifecycle = ledger._order_lifecycle()
+    return any((settlement := lifecycle.get_intent(fill["order_id"]).settlement_date) is None
+               or settlement > when.date() for fill in sales)
 
 
 def _miss_unplanned(context: _Context, ledger: PaperLedger, decision: Mapping[str, Any], reason: str) -> list[dict[str, Any]]:
     """Log every target of a decision as missed when it cannot even be planned (outage, no sizing price)."""
 
+    plan_id = str(decision["decision_id"])
+    if context.store.get(context.track.plan_type, plan_id) is None:
+        context.store.put_many([(context.track.plan_type, plan_id, {
+            "schema_version": "paper_bot_execution_plan.v1", "plan_id": plan_id, "bot_id": decision["bot_id"],
+            "decision_id": plan_id, "status": "unavailable", "terminal": True, "reason": reason,
+            "intents": [], "execution_allowed": False,
+        })], immutable=True)
     written = []
     for instrument, weight in sorted(decision["targets"].items()):
         if instrument == "cash_weight":
@@ -732,8 +1256,13 @@ def _record(
         "session": None if session is None else session.isoformat(), "status": status, "reason": reason,
         "quantity": "0", "reference_open": None, "fill_price": None, "fee": "0", "spread_slippage_cost": "0",
         "fill_id": None, "order_id": None, "exec_config_hash": context.exec_hash, "execution_allowed": False,
+        "recorded_at": bots._time_text(context.cutoff),
+        "ledger_price_basis": LEDGER_PRICE_BASIS,
+        "occurred_at": bots._time_text(intent.get("liquidation_at") or _fill_datetime(context.config, session)) if session else bots._time_text(context.cutoff),
     }
     record.update(fields)
+    if intent.get("parent_intent_id"):
+        record["parent_intent_id"] = intent["parent_intent_id"]
     return record
 
 
@@ -766,15 +1295,16 @@ def _rule_friction_gate(context: _Context, instrument_id: str, order_value_eur: 
 def _proposal(
     context: _Context, ledger: PaperLedger, decision: Mapping[str, Any], intent: Mapping[str, Any],
     held: Decimal, quantity: Decimal, session: date, *, friction: FrictionGateResult, bar: Mapping[str, Any], unit_price: Decimal,
+    max_after_value: Decimal | None = None,
 ) -> dict[str, object]:
     config = context.config
     decided_at: datetime = decision["_decided_at"]
     sign = 1 if intent["side"] == "buy" else -1
     note = f"{intent['reason']}; session {session.isoformat()}"
-    fill_time = _fill_datetime(config, session)
-    volume, opening = bots._finite_number(bar.get("volume")), bots._finite_number(bar.get("open"))
+    fill_time = intent.get("liquidation_at") or _fill_datetime(config, session)
+    reference_field = "close" if intent.get("delisting_day") else "open"
+    volume, opening = bots._finite_number(bar.get("volume")), bots._finite_number(bar.get(reference_field))
     after = held + sign * quantity
-    exposure_limit = _limit(context, "max_position_exposure")
     exposure = after * unit_price
     policy = context.policy
     checks: dict[str, tuple[bool, str]] = {
@@ -786,7 +1316,10 @@ def _proposal(
             held >= 0 and after >= 0, f"Paper ledger {ledger.account_id} replayed before the order: holds {held}, holds {after} after it.",
         ),
         "data_freshness": (
-            bool(decision.get("snapshot_hash")) and decision["_known_at"] <= fill_time and session > decided_at.date(),
+            bool(decision.get("snapshot_hash")) and decision["_known_at"] <= fill_time and (
+                bar["date"].date() < intent["delisting_day"] <= fill_time.date()
+                if intent.get("delisting_day") else session > decided_at.date()
+            ),
             f"Published snapshot {str(decision.get('snapshot_hash'))[:12]} was known before the fill session {session.isoformat()}.",
         ),
         "model_confidence": (
@@ -803,8 +1336,9 @@ def _proposal(
             f"modelled order cost {friction.required_bps} bps.",
         ),
         "concentration": (
-            exposure_limit is not None and exposure <= exposure_limit,
-            f"Position after the order is {exposure:.2f} EUR against the limit {exposure_limit}.",
+            max_after_value is None or exposure <= max_after_value,
+            f"Position after the order is {exposure:.2f} EUR against the percent-of-NAV limit "
+            + ("(none: broad diversified ETF or a sale)." if max_after_value is None else f"{max_after_value:.2f} EUR."),
         ),
         "account_authority": (
             EXECUTION_ALLOWED is False and decision.get("authority_stage") == "paper" and bool(config["paper_approvals"]),
@@ -816,7 +1350,7 @@ def _proposal(
         strategy_id=str(config["strategy_id"]), strategy_stage="paper", model_id=str(config["model_id"]), model_stage="paper",
         account_id=str(config["account_capability"]), account_stage="paper",
         optimiser_output_id=str(decision["decision_id"]), portfolio_revision=f"{ledger.account_id}:{intent['intent_id']}:{session.isoformat()}",
-        data_revision=str(decision.get("snapshot_hash")), as_of=decided_at,
+        data_revision=str(decision.get("snapshot_hash")), as_of=fill_time if intent.get("parent_intent_id") else decided_at,
         expires_at=decided_at + timedelta(days=float(config["proposal_validity_days"])),
         authority_policy_checksum=current_authority_policy_checksum(),
         gate_evidence=tuple(GateEvidence(gate, bool(checks[gate][0]), checks[gate][1]) for gate in REQUIRED_GATES),
@@ -852,24 +1386,45 @@ def _attempt(
     if currency is None:
         return miss("currency_unavailable")
     currency = currency.upper()
-    fill_time = _fill_datetime(context.config, session)
+    fill_time = intent.get("liquidation_at") or _fill_datetime(context.config, session)
+    if intent.get("parent_intent_id") and fill_time >= decision["_decided_at"] + timedelta(days=float(context.config["proposal_validity_days"])):
+        return miss("proposal_expired: split child is outside the original decision validity")
     fx = _eur_per_unit(context, currency, fill_time)
     if fx is None:
         return miss(f"fx_unavailable: no {currency}/EUR rate known at {fill_time.isoformat()}")
     ledger_fx = None if currency == "EUR" else fx  # EUR keeps the ledger's implicit unit rate
     to_eur = Decimal(1) if currency == "EUR" else Decimal(str(fx))
-    bar = context.book.bar(instrument, session)
+    bar = (context.book.liquidation_bar(instrument, intent["delisting_day"])
+           if intent.get("delisting_day") else context.book.bar(instrument, session))
     if bar is None:
         return miss(f"no_session_data: provider outage, halt or missing bar on {session.isoformat()}")
+    try:
+        context.book.require_actions(bar, instrument)
+        nominal = context.book.ledger_bar(instrument, bar["date"].date())
+        if nominal is None:
+            return miss("corporate_actions_unaccounted: nominal price unavailable")
+        bar = nominal
+    except PaperLedgerError as exc:
+        context.warnings.append(str(exc))
+        return miss(str(exc))
+    if "known_at" in bar:
+        bar_known = bots._parse_timestamp(bar.get("known_at"))
+        if bar_known is None or bar_known > fill_time:
+            return miss("price_not_known_at_fill_time")
     volume = bots._finite_number(bar.get("volume"))
     if volume is None or volume <= 0:
         return miss(f"zero_volume_session on {session.isoformat()}")
-    opening = bots._finite_number(bar.get("open"))
+    opening = bots._finite_number(bar.get("close" if intent.get("delisting_day") else "open"))
     if opening is None or opening <= 0:
         return miss(f"invalid_open_price on {session.isoformat()}")
     bar_currency = bots._real_text(bar.get("currency"))
     if bar_currency is not None and bar_currency.upper() != currency:
         return miss(f"currency_mismatch: the session bar is quoted in {bar_currency}, the order in {currency}")
+
+    basis_day = date.fromisoformat(intent.get("quantity_basis_date", session.isoformat()))
+    quantity_scale = context.book.split_ratio_between(instrument, basis_day, session, known_by=fill_time)
+    if quantity_scale != 1:
+        intent = {**intent, "planned_quantity": str(Decimal(str(intent["planned_quantity"])) * quantity_scale)}
 
     policy = context.policy
     adverse = policy.adverse_bps / Decimal(10000)
@@ -883,6 +1438,15 @@ def _attempt(
         if quantity < policy.lot_size:
             return miss("position_not_held")
     unit = price * to_eur  # EUR per unit
+    max_after_text = intent.get("max_after_position_value_eur")
+    max_after_value = Decimal(str(max_after_text)) if side == "buy" and max_after_text is not None else None
+    room: Decimal | None = None
+    if max_after_value is not None:  # percent-of-NAV position limit: trade what fits, never breach it
+        room = _cap_room(max_after_value, unit, held, policy.lot_size)
+        if room < policy.lot_size:
+            return miss(f"position_cap_reached: the position already fills its {max_after_value:.2f} EUR percent-of-NAV limit")
+        if quantity > room:
+            quantity = room
     capped = False
     order_limit = _limit(context, "max_order_value")
     if order_limit is not None and quantity * unit > order_limit:  # the owner's hard limit: trade what fits, never breach it
@@ -894,7 +1458,10 @@ def _attempt(
         friction = _rule_friction_gate(context, instrument, quantity * unit)
         if not friction.propose:
             return miss(friction.reason if friction.status == "unavailable" else f"friction_gate_blocked: {friction.reason}")
-        proposal = _proposal(context, ledger, decision, intent, held, quantity, session, friction=friction, bar=bar, unit_price=unit)
+        proposal = _proposal(
+            context, ledger, decision, intent, held, quantity, session, friction=friction, bar=bar, unit_price=unit,
+            max_after_value=max_after_value,
+        )
         if proposal.get("proposal_allowed") is not True:
             return miss(f"proposal_policy_refused: {str(proposal.get('rationale'))[:200]}")
         order_id = None
@@ -921,20 +1488,64 @@ def _attempt(
                     return _record(context, decision, intent, session, "deferred", "waiting for settled cash: " + message[:160])
                 affordable = _floor_lot((Decimal(shortfall.group(1)) - policy.commission) / unit, policy.lot_size)
                 if tries == 0 and affordable >= policy.lot_size and affordable < quantity:
+                    if affordable * unit < Decimal(str(context.config["min_trade_value_eur"])):
+                        return miss("below_min_trade_value_after_cash_reduction")
                     quantity = affordable
                     continue
                 return miss("insufficient_settled_cash after the retry sessions")
             return miss("ledger_refused: " + message[:200])
-        cost = quantity * abs(price - reference) * to_eur
+        # Project the immutable fill and the account's frozen cost policy, exactly
+        # as recovery does after a lost record-store write.
+        state = ledger._replay(ledger._read_events())
+        fill = next(item for item in state["fills"] if item["fill_id"] == fill_id)
         return _record(
             context, decision, intent, session, "filled", intent["reason"] if quantity == Decimal(str(intent["planned_quantity"]))
+            else f"{intent['reason']}; reduced to the percent-of-NAV position limit" if room is not None and quantity == room
             else f"{intent['reason']}; reduced to the order-value limit" if capped and quantity == _floor_lot(order_limit / unit, policy.lot_size)
             else f"{intent['reason']}; reduced to settled cash",
-            quantity=str(quantity), reference_open=str(reference), fill_price=str(price), fee=str(policy.commission),
-            spread_slippage_cost=str(cost), fill_id=fill_id, order_id=order_id,
+            **_fill_evidence_fields(fill, state["cost_policy"]), fill_id=fill_id, order_id=order_id,
             planned_quantity=str(intent["planned_quantity"]),
+            remaining_quantity=str(_split_remainder(context, intent, quantity, unit, held)),
+            price_basis="last_pre_delisting_close" if intent.get("delisting_day") else "session_open",
         )
     return miss("insufficient_settled_cash after the retry sessions")
+
+
+def _split_remainder(
+    context: _Context, intent: Mapping[str, Any], quantity: Decimal, unit: Decimal, held: Decimal,
+) -> Decimal:
+    """Carry only a hard-order-limit reduction; cash and concentration reductions stay final."""
+    limit = _limit(context, "max_order_value")
+    if limit is None or quantity != _floor_lot(limit / unit, context.policy.lot_size):
+        return Decimal("0")
+    requested = Decimal(str(intent["planned_quantity"]))
+    if intent["side"] == "sell":
+        return max(Decimal("0"), min(requested, held) - quantity)
+    cap = intent.get("max_after_position_value_eur")
+    if cap is not None:
+        requested = min(requested, _cap_room(Decimal(str(cap)), unit, held, context.policy.lot_size))
+    return max(Decimal("0"), requested - quantity)
+
+
+def _fill_evidence_fields(fill: Mapping[str, Any], cost_policy: Mapping[str, Any] | None) -> dict[str, Any]:
+    """EUR amounts and adverse cost from durable fill terms and frozen policy only."""
+
+    quantity, price, fee = (Decimal(str(fill[key])) for key in ("quantity", "price", "fee"))
+    rate = bots._finite_number(fill.get("fx_rate"))
+    fx = Decimal(str(fill["fx_rate"])) if rate is not None and rate > 0 else None
+    reference = None
+    if cost_policy is not None:
+        adverse = Decimal(str(cost_policy["adverse_bps"])) / Decimal(10000)
+        factor = Decimal(1) + adverse * (1 if fill["side"] == "buy" else -1)
+        if factor > 0:
+            reference = price / factor
+    return {
+        "quantity": str(quantity), "fill_price": str(price), "fee": str(fee),
+        "currency": fill.get("currency"), "fx_rate": None if fx is None else str(fx),
+        "traded_notional_eur": None if fx is None else str(quantity * price * fx),
+        "reference_open": None if reference is None else str(reference),
+        "spread_slippage_cost": None if reference is None or fx is None else str(quantity * abs(price - reference) * fx),
+    }
 
 
 def _recovered_fill(
@@ -942,17 +1553,18 @@ def _recovered_fill(
 ) -> dict[str, Any]:
     """The ``filled`` record of a fill the ledger already holds (its record write was lost)."""
 
-    quantity, price, fee = (Decimal(str(row[key])) for key in ("quantity", "price", "fee"))
-    order = next((item for item in ledger.orders() if item["order_id"] == row["order_id"]), {})
-    order_fx = Decimal(str(order.get("fx_rate", 1)))
-    bar = context.book.bar(str(intent["instrument_id"]), session)
-    opening = None if bar is None else bots._finite_number(bar.get("open"))
-    reference = Decimal(str(opening)) if opening else None
+    state = ledger._replay(ledger._read_events())
+    fill = next(item for item in state["fills"] if item["fill_id"] == row["paper_trade_id"])
+    quantity, price, fill_fx = (Decimal(str(fill[key])) for key in ("quantity", "price", "fx_rate"))
+    order = state["orders"][fill["order_id"]]
     return _record(
         context, decision, intent, session, "filled", f"{intent['reason']}; recovered from the paper ledger fill",
-        quantity=str(quantity), reference_open=None if reference is None else str(reference), fill_price=str(price),
-        fee=str(fee), spread_slippage_cost="0" if reference is None else str(quantity * abs(price - reference) * order_fx),
+        **_fill_evidence_fields(fill, state["cost_policy"]),
         fill_id=str(row["paper_trade_id"]), order_id=str(row["order_id"]), planned_quantity=str(intent["planned_quantity"]),
+        remaining_quantity=str(_split_remainder(
+            context, intent, quantity, price * fill_fx,
+            Decimal(str(order["proposal_snapshot"]["input_material"]["current_quantity"])),
+        )),
     )
 
 
@@ -977,6 +1589,13 @@ def _sync_shadow(context: _Context, bot_id: str) -> None:
         return
     if context.benchmark_check.status != "available":
         context.warnings.append("VWCE reference series unavailable: " + ", ".join(context.benchmark_check.reasons))
+        return
+    try:
+        for bar in context.book.action_bars(context.book.benchmark_id):
+            if bar["date"].date() < context.cutoff.date():
+                context.book.require_actions(bar, context.book.benchmark_id)
+    except PaperLedgerError as exc:
+        context.warnings.append(str(exc))
         return
     shadow = PaperLedger(context.track.ledger_root, account_id=shadow_id_for(bot_id))
     try:

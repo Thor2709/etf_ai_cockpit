@@ -1,0 +1,19 @@
+{
+  "fixture": "MCP L9 isolated test input; not market evidence",
+  "as_of": "2026-11-02",
+  "execution_allowed": false,
+  "data": {
+    "prices": {
+      "status": "test_fixture_only",
+      "rows": 320
+    },
+    "fundamentals": {
+      "status": "unavailable",
+      "rows": null
+    },
+    "scores": {
+      "status": "unavailable",
+      "score": null
+    }
+  }
+}

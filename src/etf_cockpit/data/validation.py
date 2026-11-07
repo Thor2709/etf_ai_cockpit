@@ -1,13 +1,22 @@
 from __future__ import annotations
 
-from datetime import date
+from collections.abc import Callable, Mapping
+from datetime import date, datetime, time, timezone
+import json
 
 import numpy as np
 import pandas as pd
 
-from etf_cockpit.core.config import AppConfig
+from etf_cockpit.core.config import AppConfig, _load_universe_config
+from etf_cockpit.core.exceptions import ConfigError
+from etf_cockpit.core.paths import CONFIG_DIR
 from etf_cockpit.core.types import DataQualityIssue, DataQualityReport
+from etf_cockpit.data.etf_economics import resolve_listing_calendar
+from etf_cockpit.data.market_calendar import MarketCalendarService, MarketClockError
 from etf_cockpit.data.provenance import calendar_staleness_status, metadata_from_frame, price_staleness_status
+
+# Scope these warnings to 252 scoring sessions plus 60 warm-up sessions at effective_as_of.
+PRICE_WARNING_LOOKBACK_SESSIONS = 252 + 60
 
 REQUIRED_PRICE_COLUMNS = {
     "date",
@@ -38,6 +47,64 @@ def _business_days_between(start: date, end: date) -> int:
     return len(pd.bdate_range(pd.Timestamp(start) + pd.offsets.BDay(1), pd.Timestamp(end)))
 
 
+def _missing_price_days(
+    group: pd.DataFrame,
+    as_of_date: date,
+    calendar: MarketCalendarService | None,
+    calendar_resolver: Callable[[str], str | None] | None = None,
+) -> tuple[int, str]:
+    """Use explicit identity evidence, or the configured listing exchange if absent."""
+    dates = pd.DatetimeIndex(pd.to_datetime(group["date"]))
+    fallback_count = len(pd.bdate_range(dates.min(), dates.max()).difference(dates))
+    fallback = (fallback_count, "Exchange calendar unknown or uncertified; weekday fallback.")
+    if calendar is None:
+        return fallback
+    cutoff = datetime.combine(as_of_date, time.max, tzinfo=timezone.utc)
+    missing = pd.bdate_range(dates.min(), dates.max()).difference(dates)
+    if "calendar_identity" not in group:
+        try:
+            calendar_id = calendar_resolver(str(group["etf_id"].iloc[0])) if calendar_resolver else None
+            if calendar_id is None:
+                return fallback
+            exchange = calendar._raw_calendar(calendar_id, dates.max().date(), earliest=dates.min().date())
+            if exchange is None:
+                return fallback
+            count = sum(
+                exchange.is_session(str(day.date()))
+                and not any(
+                    correction.kind == "exceptional_closure"
+                    for correction in calendar._active_corrections(calendar_id, day.date(), cutoff)
+                )
+                for day in missing
+            )
+        except (MarketClockError, TypeError, ValueError):
+            return fallback
+        return count, f"Exchange calendar {calendar_id}."
+    identities: list[Mapping[str, object]] = []
+    try:
+        for value in group["calendar_identity"].dropna():
+            identity = json.loads(value) if isinstance(value, str) else value
+            if not isinstance(identity, Mapping):
+                return fallback
+            if identity not in identities:
+                identities.append(identity)
+        if len(identities) != 1:
+            return fallback
+        listing = MarketCalendarService.listing_from_identity_projection(identities[0])
+    except (TypeError, ValueError):
+        return fallback
+    if listing.instrument_id != str(group["etf_id"].iloc[0]) or listing.valid_from > dates.min().date():
+        return fallback
+    try:
+        count = sum(
+            calendar.is_business_day(listing, day.date(), knowledge_cutoff=cutoff)
+            for day in missing
+        )
+    except MarketClockError:
+        return fallback
+    return count, f"Exchange calendar {listing.calendar_id}."
+
+
 def validate_prices(
     prices: pd.DataFrame,
     *,
@@ -46,6 +113,8 @@ def validate_prices(
     warning_stale_business_days: int = 3,
     block_stale_business_days: int = 10,
     min_history_days: int = 252,
+    config: AppConfig | None = None,
+    calendar_resolver: Callable[[str], str | None] | None = None,
 ) -> DataQualityReport:
     issues: list[DataQualityIssue] = []
     if prices.empty:
@@ -139,6 +208,18 @@ def validate_prices(
     latest_overall = max(known["date"])
     overall_stale_days = _business_days_between(latest_overall, effective_as_of)
 
+    try:
+        calendar = MarketCalendarService.from_correction_ledger(CONFIG_DIR / "market_calendar_corrections.yaml")
+    except MarketClockError:
+        calendar = None
+    if "calendar_identity" not in known and calendar_resolver is None:
+        try:
+            universe = config.universe if config is not None else _load_universe_config(CONFIG_DIR)
+            calendars = {item.id: resolve_listing_calendar(item.exchange, item.ticker, item.currency) for item in universe.etfs}
+        except (ConfigError, OSError, TypeError, ValueError):
+            calendars = {}
+        calendar_resolver = calendars.get
+
     for etf_id in known_ids:
         group = known[known["etf_id"] == etf_id].sort_values("date")
         if group.empty:
@@ -204,12 +285,10 @@ def validate_prices(
         if group["currency"].isna().any() or (group["currency"].astype(str).str.len() == 0).any():
             issues.append(DataQualityIssue(etf_id, "block", "missing_currency", "Currency metadata is missing."))
 
-        dates = pd.DatetimeIndex(pd.to_datetime(group["date"]))
-        expected = pd.bdate_range(dates.min(), dates.max())
-        missing_days = expected.difference(dates)
-        if len(missing_days) > 5:
+        missing_days, calendar_message = _missing_price_days(group, effective_as_of, calendar, calendar_resolver)
+        if missing_days > 5:
             issues.append(
-                DataQualityIssue(etf_id, "warning", "missing_trading_days", f"{len(missing_days)} expected days missing.")
+                DataQualityIssue(etf_id, "warning", "missing_trading_days", f"{missing_days} expected days missing. {calendar_message}")
             )
 
         returns = np.log(group["adjusted_close"].astype(float)).diff()
@@ -217,13 +296,13 @@ def validate_prices(
         mad = (returns - rolling_median).abs().rolling(60, min_periods=30).median()
         robust_sigma = 1.4826 * mad.replace(0, np.nan)
         outliers = (returns - rolling_median).abs() > 8 * robust_sigma
-        if outliers.fillna(False).any():
+        if outliers.tail(PRICE_WARNING_LOOKBACK_SESSIONS).fillna(False).any():
             issues.append(DataQualityIssue(etf_id, "warning", "return_outlier", "One-day return exceeds 8 robust sigma."))
 
         if (group["volume"] < 0).any():
             issues.append(DataQualityIssue(etf_id, "block", "negative_volume", f"{int((group['volume'] < 0).sum())} rows have negative volume."))
 
-        if (group["volume"].fillna(0) == 0).any():
+        if (group["volume"].tail(PRICE_WARNING_LOOKBACK_SESSIONS).fillna(0) == 0).any():
             issues.append(DataQualityIssue(etf_id, "warning", "zero_volume", "Volume is zero or missing for at least one row."))
 
     source_name = "mixed"

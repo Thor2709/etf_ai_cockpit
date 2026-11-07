@@ -1242,6 +1242,8 @@ def test_candidate_breadth_excludes_future_and_unproven_rows() -> None:
             {
                 "sma200_signal": False,
                 "latest_date": "2025-01-01",
+                # PIT audit (lane FEAT regime.py): breadth rows must carry an explicit known_at before the cutoff.
+                "known_at": "2025-01-01T00:00:00Z",
                 "provenance": "yfinance_adjusted_close",
             },
             {"sma200_signal": True, "latest_date": "2025-01-01"},

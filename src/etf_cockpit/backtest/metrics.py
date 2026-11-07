@@ -15,12 +15,10 @@ def max_drawdown(equity: pd.Series) -> float:
     raw = _normalise_series(equity)
     if (raw.dropna() <= 0).any():
         return -1.0
-    worst = 0.0
-    for segment in _valid_segments(raw):
-        running_peak = segment.cummax()
-        drawdown = segment / running_peak - 1.0
-        worst = min(worst, float(drawdown.min()))
-    return worst
+    valid = raw.where(raw > 0.0)
+    running_peak = valid.cummax()
+    drawdown = valid / running_peak - 1.0
+    return min(0.0, float(drawdown.min())) if drawdown.notna().any() else 0.0
 
 
 def tail_event_diagnostics(
@@ -128,21 +126,14 @@ def _valid_segments(values: pd.Series) -> list[pd.Series]:
 
 
 def _worst_drawdown_window(values: pd.Series) -> tuple[object, object, int]:
-    worst_drawdown = float("inf")
-    worst_start: object = None
-    worst_end: object = None
-    worst_duration = 0
-    for segment in _valid_segments(values):
-        drawdown = segment / segment.cummax() - 1.0
-        end_position = int(np.argmin(drawdown.to_numpy()))
-        start_position = int(np.argmax(segment.iloc[: end_position + 1].to_numpy()))
-        candidate = float(drawdown.iloc[end_position])
-        if candidate < worst_drawdown:
-            worst_drawdown = candidate
-            worst_start = segment.index[start_position]
-            worst_end = segment.index[end_position]
-            worst_duration = end_position - start_position + 1
-    return worst_start, worst_end, worst_duration
+    valid = values.where(values > 0.0)
+    running_peak = valid.cummax()
+    drawdown = valid / running_peak - 1.0
+    if not drawdown.notna().any():
+        return None, None, 0
+    end_position = int(np.nanargmin(drawdown.to_numpy(dtype=float)))
+    start_position = int(np.nanargmax(valid.iloc[: end_position + 1].to_numpy(dtype=float)))
+    return values.index[start_position], values.index[end_position], end_position - start_position + 1
 
 
 def _window_return(returns: pd.Series, window: int) -> float | None:

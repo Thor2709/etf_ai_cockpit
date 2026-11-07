@@ -474,8 +474,15 @@ def import_esef_package(
     *,
     instrument_id: str | None = None,
     publish_guard: PublicationScopeFactory | None = None,
+    known_at: str | None = None,
+    published_on: str | None = None,
 ) -> str:
-    """Import a local ESEF report package into the shared facts/inventory stores."""
+    """Import a local ESEF report package into the shared facts/inventory stores.
+
+    ``known_at`` sets availability, defaulting to acquisition time. Only the PIT registry
+    import supplies ``published_on`` (its proven ``date_added``); acquisition times never
+    imply a publication date or qualify facts as reported share counts. Future times are refused.
+    """
 
     try:
         package_path = Path(path)
@@ -496,12 +503,27 @@ def import_esef_package(
             raise ValueError("ESEF import requires a non-empty instrument ID when supplied")
         provider_id, source_url = _esef_source_provenance(package_path)
         acquired_at = datetime.now(timezone.utc)
+        fact_known_at = acquired_at
+        if known_at is not None:
+            fact_known_at = datetime.fromisoformat(str(known_at).strip().replace("Z", "+00:00"))
+            if fact_known_at.tzinfo is None:
+                fact_known_at = fact_known_at.replace(tzinfo=timezone.utc)
+            fact_known_at = fact_known_at.astimezone(timezone.utc)
+            if fact_known_at > acquired_at:
+                raise ValueError("ESEF filing known_at cannot be in the future")
+        if published_on is not None:
+            published_at = datetime.fromisoformat(str(published_on).strip().replace("Z", "+00:00"))
+            if published_at.tzinfo is None:
+                published_at = published_at.replace(tzinfo=timezone.utc)
+            if published_at.astimezone(timezone.utc) > fact_known_at:
+                raise ValueError("ESEF publication cannot be after known_at")
         records = statement_facts_from_esef(
             parsed.records,
             instrument_id=resolved_instrument_id,
             source_sha256=parsed.source_sha256,
             source_provider=provider_id,
-            known_at=acquired_at.isoformat(),
+            known_at=fact_known_at.isoformat(timespec="microseconds"),  # fixed width: a column may not mix shapes
+            published_on=published_on,
         )
         source = RawDocument(raw_path, source_url, acquired_at, parsed.source_sha256, provider_id, "esef_report_package", "application/octet-stream", 200)
         with publication_scope(publish_guard):

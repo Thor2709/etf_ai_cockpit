@@ -70,6 +70,8 @@ def test_screen_rows_join_local_evidence_without_inventing_unavailable_fields(mo
             {
                 "instrument_id": "ETF1",
                 "as_of_date": "2026-07-18",
+                # A11-F1: period dates do not imply publication availability.
+                "available_at": "2026-07-18T00:00:00Z",
                 "eligibility": "eligible",
                 "score_eligible": True,
                 "source_id": "sec-filing",
@@ -101,6 +103,8 @@ def test_screen_rows_do_not_rank_stale_or_ineligible_fundamentals() -> None:
             {
                 "instrument_id": "ETF1",
                 "as_of_date": "2025-01-01",
+                # A11-F1: stale evidence still needs an explicit publication.
+                "available_at": "2025-01-01T00:00:00Z",
                 "eligibility": "eligible",
                 "score_eligible": True,
                 "source_id": "sec-filing",
@@ -128,6 +132,8 @@ def test_screen_rows_select_latest_deterministic_fundamental_generation() -> Non
             {
                 "instrument_id": "ETF1",
                 "as_of_date": "2026-07-18",
+                # A11-F1: period dates do not imply publication availability.
+                "available_at": "2026-07-18T00:00:00Z",
                 "eligibility": "eligible",
                 "score_eligible": True,
                 "source_id": "sec-filing",
@@ -138,6 +144,7 @@ def test_screen_rows_select_latest_deterministic_fundamental_generation() -> Non
             {
                 "instrument_id": "ETF1",
                 "as_of_date": "2026-07-17",
+                "available_at": "2026-07-17T00:00:00Z",
                 "eligibility": "eligible",
                 "score_eligible": True,
                 "source_id": "sec-filing",
@@ -151,6 +158,13 @@ def test_screen_rows_select_latest_deterministic_fundamental_generation() -> Non
     row = build_screen_rows(_snapshot(), fundamentals).iloc[0]
 
     assert row["valuation"] == 8.0
+
+    # A11-F1: a later publication cannot hide the latest generation already known.
+    later = {**fundamentals.iloc[0].to_dict(), "available_at": "2026-07-18T12:00:00Z", **older_values,
+             "sections_json": _sections_json(older_values, "2026-07-18")}
+    with_future = pd.concat([fundamentals, pd.DataFrame([later])], ignore_index=True)
+    for rows in (with_future, with_future.iloc[::-1]):
+        assert build_screen_rows(_snapshot(), rows).iloc[0]["valuation"] == 8.0
 
 
 def test_screen_rows_fail_closed_for_nullable_fundamental_metadata() -> None:

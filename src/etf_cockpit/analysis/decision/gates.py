@@ -8,7 +8,7 @@ raises the weight of the remaining inputs, and a coverage shrink can never turn 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from functools import lru_cache
 import math
 from pathlib import Path
@@ -32,6 +32,7 @@ REASON_COVERAGE = "insufficient_coverage"
 GATE_REASON_STALE = "CRITICAL_EVIDENCE_STALE"
 GATE_REASON_INVALID = "CRITICAL_EVIDENCE_INVALID"
 GATE_REASON_UNMAPPED = "ASSET_CLASS_UNMAPPED"
+GATE_REASON_NOT_AVAILABLE = "EVIDENCE_NOT_AVAILABLE_NON_BLOCKING"
 
 
 class CriticalEvidenceError(ValueError):
@@ -44,6 +45,7 @@ class GateDefinition:
     evidence_any_of: tuple[str, ...]
     group: str | None = None
     max_age_days: int | None = None  # None = static metadata without an age limit
+    blocking_when_missing: bool = True  # False: never-collected evidence passes visibly; present stale/invalid still fails
 
 
 @dataclass(frozen=True)
@@ -82,9 +84,16 @@ def _policy_for_content(content: bytes) -> CriticalEvidencePolicy:
                 max_age = raw["max_age_days"]
                 if max_age is not None and (isinstance(max_age, bool) or int(max_age) != max_age or int(max_age) < 1):
                     raise CriticalEvidenceError(f"gate {gate_id} max_age_days must be a positive integer or null")
+                blocking = raw.get("blocking_when_missing", True)
+                if not isinstance(blocking, bool):
+                    raise CriticalEvidenceError(f"gate {gate_id} blocking_when_missing must be a boolean")
                 definitions.append(
                     GateDefinition(
-                        str(gate_id), evidence, None if group is None else str(group), None if max_age is None else int(max_age)
+                        str(gate_id),
+                        evidence,
+                        None if group is None else str(group),
+                        None if max_age is None else int(max_age),
+                        blocking,
                     )
                 )
             gates[str(asset_class).upper()] = tuple(definitions)
@@ -134,18 +143,37 @@ def critical_asset_class(asset_type: object, business_model: object = None) -> s
     return None
 
 
-def _as_date(value: object) -> date | None:
+def _as_instant(value: object) -> datetime | None:
+    """Parse an as-of value to a UTC instant; a bare date is the start of that UTC day, a naive time is read as UTC.
+
+    ``None`` when the value is missing or unparseable (never a calendar-date truncation of a timestamp).
+    """
+
+    if value is None:
+        return None
     if isinstance(value, datetime):
-        return value.date()
-    if isinstance(value, date):
-        return value
-    text = str(value if value is not None else "").strip()
-    if text.casefold() in _NO_DATE:
-        return None
-    try:
-        return date.fromisoformat(text[:10])
-    except ValueError:
-        return None
+        if value != value:  # pandas NaT
+            return None
+        moment = value
+    elif isinstance(value, date):
+        moment = datetime(value.year, value.month, value.day)
+    else:
+        text = str(value).strip()
+        if text.casefold() in _NO_DATE:
+            return None
+        try:
+            if len(text) <= 10:
+                parsed = date.fromisoformat(text)
+                moment = datetime(parsed.year, parsed.month, parsed.day)
+            else:
+                moment = datetime.fromisoformat(text.replace("Z", "+00:00").replace("z", "+00:00"))
+        except ValueError:
+            return None
+    return moment.replace(tzinfo=timezone.utc) if moment.tzinfo is None else moment.astimezone(timezone.utc)
+
+
+def _is_undated(value: object) -> bool:
+    return value is None or (not isinstance(value, (datetime, date)) and str(value).strip().casefold() in _NO_DATE)
 
 
 def evidence_as_of(evidence: Iterable[str] | Mapping[str, object]) -> dict[str, object]:
@@ -156,12 +184,18 @@ def evidence_as_of(evidence: Iterable[str] | Mapping[str, object]) -> dict[str, 
     return {str(item): None for item in evidence}
 
 
-def _evidence_state(definition: GateDefinition, as_of: object, decision: date | None) -> str:
-    """``fresh`` / ``stale`` / ``invalid`` for one present evidence id; undated or future-dated evidence is invalid."""
+def _evidence_state(definition: GateDefinition, as_of: object, decision: datetime | None) -> str:
+    """``fresh`` / ``stale`` / ``invalid`` for one present evidence id.
 
+    Dated evidence is checked at full UTC timestamp precision: evidence observed after the decision instant is
+    invalid for every gate, static (``max_age_days`` null) gates included. Only undated static evidence is fresh.
+    """
+
+    observed = _as_instant(as_of)
     if definition.max_age_days is None:
-        return "fresh"
-    observed = _as_date(as_of)
+        if _is_undated(as_of):
+            return "fresh"
+        return "invalid" if observed is None or decision is None or observed > decision else "fresh"
     if observed is None or decision is None or observed > decision:
         return "invalid"
     return "fresh" if (decision - observed).days <= definition.max_age_days else "stale"
@@ -185,12 +219,18 @@ def evaluate_critical_gates(
     if asset_class is None or asset_class.upper() not in selected.gates:
         return (CriticalGateResult("asset_class", "INSUFFICIENT_EVIDENCE", ("asset_class",), GATE_REASON_UNMAPPED),)
     present = evidence_as_of(evidence)
-    decision = _as_date(decision_time)
+    decision = _as_instant(decision_time)
     results = []
     for definition in selected.gates[asset_class.upper()]:
         states = [_evidence_state(definition, present[item], decision) for item in definition.evidence_any_of if item in present]
         if "fresh" in states:
             results.append(CriticalGateResult(definition.gate_id, "PASS", (), "EVIDENCE_PRESENT", definition.group))
+            continue
+        if not states and not definition.blocking_when_missing:
+            # Owner decision D2: evidence never collected is non-blocking but stays visible (missing lists the ids).
+            results.append(
+                CriticalGateResult(definition.gate_id, "PASS", definition.evidence_any_of, GATE_REASON_NOT_AVAILABLE, definition.group)
+            )
             continue
         reason = GATE_REASON_STALE if "stale" in states else GATE_REASON_INVALID if states else "CRITICAL_EVIDENCE_MISSING"
         results.append(
@@ -337,11 +377,13 @@ def score_authority_flags(
     results = tuple(gates)
     gates_pass = bool(results) and all(result.passed for result in results)
     quality_ok = quality_status in (None, "complete")
-    rankable = bool(score_present and gates_pass)
+    # A partial quality score stays rankable (research status "partial"); unavailable or unknown quality never ranks.
+    quality_scoreable = quality_status in (None, "complete", "partial")
+    rankable = bool(score_present and gates_pass and quality_scoreable)
     safety = bool(gates_pass and quality_ok and quality_status is not None)
     if not score_present:
         status = INSUFFICIENT_LABEL
-    elif not gates_pass:
+    elif not gates_pass or not quality_scoreable:
         status = INSUFFICIENT_LABEL
     elif not quality_ok:
         status = "partial"

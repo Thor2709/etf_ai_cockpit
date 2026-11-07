@@ -13,7 +13,7 @@ from io import BytesIO
 import json
 import math
 from pathlib import Path
-from typing import Any, Collection, Mapping
+from typing import Any, Callable, Collection, Mapping, Sequence
 
 import pandas as pd
 import yaml
@@ -26,6 +26,7 @@ from etf_cockpit.data.local_storage import (
 )
 from etf_cockpit.data.score_history import project_classification_score_frame
 from etf_cockpit.data.trust_artifacts import SCORE_HISTORY_PATH
+from etf_cockpit.portfolio import paper_bots_readiness as data_readiness
 from etf_cockpit.signals.canonical_scoring import load_score_policy
 
 
@@ -45,6 +46,10 @@ _ACCEPTED_FRESHNESS = {"ok", "fresh"}
 # DEFAULTS: the scoreboard legacy action "add_candidate" is the sleeve action CANDIDATE_BUY.
 _LEGACY_ACTION_TO_SLEEVE_ACTION = {"add_candidate": "CANDIDATE_BUY"}
 _MAX_REPORTED_WARNINGS = 10
+# Owner spec 2026-10-22: the bots that rebalance on a cadence, and the families the baseline lineage pins.
+_CADENCE_FAMILIES = ("B1", "B2", "B3")
+_REQUIRED_FAMILIES = frozenset({"B0", "B1", "B2", "B3"})
+_MAX_REBALANCE_EVERY_MONTHS = 12
 # DEFAULTS: a date-only as_of is rejected; no implicit time of day is assumed.
 _DATE_ONLY_MESSAGE = "as_of must be a timezone-aware date and time; a date-only value is not accepted"
 
@@ -70,6 +75,7 @@ class _PublishedGroup:
     lineage_hash: str
     lineage_material: dict[str, Any]
     rows: tuple[dict[str, Any], ...]
+    non_canonical_ids: tuple[str, ...] = ()
 
     @property
     def lineage_version(self) -> str:
@@ -83,8 +89,10 @@ def run_paper_bots(
     config_path: Path | None = None,
     now: datetime | None = None,
 ) -> PaperBotRunResult:
-    """Record this month's first eligible published decision for each bot.
+    """Record this month's first eligible published decision for each bot that is due this month.
 
+    A bot decides only in the months its cadence allows (``rebalance_every_months`` counted in calendar months from its
+    first available decision month; B0 only in its first month); in any other month it records no target and no order.
     ``now`` injects the recorder clock (default: the real UTC clock) for deterministic replay and tests.
     """
 
@@ -102,6 +110,12 @@ def run_paper_bots(
             None,
             (),
             "Forward recorder accepts only the current UTC calendar day; historical replay is not mixed into forward records.",
+        )
+
+    readiness_failure = data_readiness.paper_bot_readiness_failure(project_root, cutoff.date(), cutoff.date())
+    if readiness_failure is not None:
+        return PaperBotRunResult(
+            "unavailable", _time_text(cutoff), None, (), f"Paper bot data readiness blocked:\n{readiness_failure}"
         )
 
     selected_config_path = Path(
@@ -171,15 +185,22 @@ def run_paper_bots(
 
     try:
         with TransactionalStore(project_root) as store:
-            baseline_id = _baseline_id(config_hash, str(config["baseline_score_version"]))
-            baseline_record = store.get(BASELINE_ENTITY_TYPE, baseline_id)
+            baseline_id = _baseline_id(
+                config_hash, None if config.get("baseline_score_version_source") else str(config["baseline_score_version"])
+            )
+            baseline_record = _stored_baseline(store, config, config_hash)
             stored_baseline = baseline_record.payload if baseline_record is not None else None
+            if isinstance(stored_baseline, Mapping):
+                # The live policy selects the first comparator only. A later policy is a challenger.
+                config = {**config, "baseline_score_version": stored_baseline.get("baseline_score_version")}
             baseline_error = None
             stored_baseline_usable = False
             if isinstance(stored_baseline, Mapping):
                 stored_known_at = _parse_timestamp(stored_baseline.get("known_at"))
                 if stored_known_at is None:
                     baseline_error = "Pinned baseline known_at is unverifiable."
+                elif stored_known_at > cutoff:
+                    baseline_error = "Pinned baseline is newer than as_of."
                 elif stored_known_at <= cutoff:
                     stored_baseline_usable = bool(
                         stored_baseline.get("config_hash") == config_hash
@@ -238,7 +259,7 @@ def run_paper_bots(
                 if group.score_version == str(config["baseline_score_version"])
                 and group.lineage_hash == baseline_lineage_hash
             ]
-            for family in ("B1", "B2"):
+            for family in _CADENCE_FAMILIES:
                 spec = next(item for item in config["bots"] if item["family_id"] == family)
                 bot_id = _bot_identity(spec, config_hash, baseline_lineage_hash)
                 tasks.append((spec, tuple(baseline_groups), baseline_lineage_hash, bot_id))
@@ -261,6 +282,7 @@ def run_paper_bots(
             results: list[dict[str, Any]] = []
             appended = 0
             snapshot_hashes: set[str] = set()
+            first_months = _first_decision_months(store)
             for spec, candidates, expected_lineage_hash, bot_id in tasks:
                 slot_id = _month_slot_id(bot_id, month)
                 existing_slot = store.get(MONTH_SLOT_ENTITY_TYPE, slot_id)
@@ -295,9 +317,12 @@ def run_paper_bots(
                             snapshot_hashes.add(str(existing.payload.get("snapshot_hash") or ""))
                     continue
 
+                if not _cadence_due(spec, month, first_months.get(bot_id)):
+                    continue  # not a rebalance month for this bot: no new target and no orders
+
                 decision = None
                 group = None
-                failure = baseline_error if spec.get("family_id") in {"B1", "B2"} else None
+                failure = baseline_error if spec.get("family_id") in set(_CADENCE_FAMILIES) else None
                 last_group = candidates[-1] if candidates else None
                 if failure is None and not candidates:
                     failure = (
@@ -305,30 +330,11 @@ def run_paper_bots(
                         if expected_lineage_hash is not None
                         else "No complete score snapshot is bound to the scoreboard known at as_of."
                     )
-                for candidate in (() if failure else candidates):
-                    if candidate.known_at > cutoff:
-                        failure = "Published scoreboard is newer than as_of."
-                        continue
-                    age = cutoff - candidate.known_at
-                    if age > timedelta(hours=float(config["max_snapshot_age_hours"])):
-                        age_limit = float(config["max_snapshot_age_hours"])
-                        failure = f"Published score snapshot is stale for the configured {age_limit:g}-hour forward window."
-                        continue
-                    if expected_lineage_hash is not None and candidate.lineage_hash != expected_lineage_hash:
-                        failure = "Published score lineage conflicts with the bot's pinned lineage."
-                        continue
-                    matched_rows = _matched_score_rows(candidate, scoreboard)
-                    if matched_rows is None:
-                        failure = "Published scoreboard does not match the selected score-history snapshot."
-                        continue
-                    candidate_decision, candidate_failure = _build_decision(
-                        spec, bot_id, config_hash, config, cutoff, month, candidate, matched_rows
+                if failure is None:
+                    decision, group, failure = _first_successful_candidate(
+                        spec, bot_id, config_hash, config, cutoff, month, candidates,
+                        expected_lineage_hash, lambda candidate: _matched_score_rows(candidate, scoreboard),
                     )
-                    if candidate_failure:
-                        failure = candidate_failure
-                        continue
-                    decision, group = candidate_decision, candidate
-                    break
 
                 if decision is None or group is None:
                     decision = _unavailable_record(
@@ -359,7 +365,7 @@ def run_paper_bots(
                 if (
                     baseline_payload_to_store is not None
                     and group.lineage_hash == baseline_payload_to_store.get("lineage_hash")
-                    and store.get(BASELINE_ENTITY_TYPE, baseline_id) is None
+                    and baseline_record is None
                 ):
                     writes.append((BASELINE_ENTITY_TYPE, baseline_id, baseline_payload_to_store))
                 try:
@@ -420,6 +426,47 @@ def run_paper_bots(
         )
 
 
+def _month_index(month: str) -> int:
+    year, _, number = str(month).partition("-")
+    return int(year) * 12 + int(number) - 1
+
+
+def _first_decision_months(store: TransactionalStore, *, by: str = "bot_id") -> dict[str, str]:
+    """The first calendar month (YYYY-MM) with an available decision per ``by`` key (bot ID or bot family).
+
+    The cadence is counted from it. The family key serves the no-publication path, where the pinned lineage (and so the
+    bot ID) is not known.
+    """
+
+    first: dict[str, str] = {}
+    for record in store.list(DECISION_ENTITY_TYPE):
+        payload = record.payload
+        key, month = payload.get(by), payload.get("decision_month")
+        if payload.get("status") != "available" or not isinstance(key, str) or not isinstance(month, str):
+            continue
+        if key not in first or month < first[key]:
+            first[key] = month
+    return first
+
+
+def _cadence_due(spec: Mapping[str, Any], month: str, first_month: str | None) -> bool:
+    """Whether ``month`` is a decision month of the bot: B0 only its first month, the others every N-th month.
+
+    Without an available decision yet every month is due. An unverifiable cadence is never due (fail closed).
+    """
+
+    if first_month is None:
+        return True
+    try:
+        offset = _month_index(month) - _month_index(first_month)
+    except ValueError:
+        return False
+    if str(spec.get("strategy")) == "benchmark":
+        return offset == 0
+    every = _positive_int(spec.get("rebalance_every_months"))
+    return every is not None and offset >= 0 and offset % every == 0
+
+
 def _challenger_spec(source_spec: Mapping[str, Any], strategy_family: str, score_version: str) -> dict[str, Any]:
     """The B3.x challenger of a B1/B2 spec: same rule, pinned to a new score version (a new bot ID)."""
 
@@ -435,9 +482,9 @@ def _load_config(path: Path) -> tuple[bytes, dict[str, Any]]:
     if not isinstance(payload, dict) or payload.get("schema_version") != "paper_bots.v1":
         raise ValueError("unsupported paper bot specification")
     bots = payload.get("bots")
-    if not isinstance(bots, list) or {str(item.get("family_id")) for item in bots if isinstance(item, dict)} != {"B0", "B1", "B2"}:
-        raise ValueError("paper bot specification must define B0, B1 and B2 exactly once")
-    if len({str(item["family_id"]) for item in bots}) != 3:
+    if not isinstance(bots, list) or {str(item.get("family_id")) for item in bots if isinstance(item, dict)} != _REQUIRED_FAMILIES:
+        raise ValueError("paper bot specification must define B0, B1, B2 and B3 exactly once")
+    if len({str(item["family_id"]) for item in bots}) != len(_REQUIRED_FAMILIES) or len(bots) != len(_REQUIRED_FAMILIES):
         raise ValueError("paper bot family IDs must be unique")
     for key in ("initial_virtual_cash_eur", "monthly_contribution_eur", "max_snapshot_age_hours"):
         number = _finite_number(payload.get(key))
@@ -465,6 +512,14 @@ def _load_config(path: Path) -> tuple[bytes, dict[str, Any]]:
     for item in bots:
         if not isinstance(item, dict) or item.get("strategy") not in {"benchmark", "top_n", "core_sleeve"}:
             raise ValueError("unsupported paper bot strategy")
+        if item["strategy"] != "benchmark":
+            every = _positive_int(item.get("rebalance_every_months"))
+            if every is None or every > _MAX_REBALANCE_EVERY_MONTHS:
+                raise ValueError("rebalancing bots need rebalance_every_months between 1 and 12")
+            horizon = item.get("horizon_months")
+            low, high = (_positive_int(value) for value in horizon[:2]) if isinstance(horizon, list) and len(horizon) == 2 else (None, None)
+            if low is None or high is None or low > high:
+                raise ValueError("rebalancing bots need horizon_months as a [low, high] pair of positive months")
         if item["strategy"] == "top_n":
             if _positive_int(item.get("top_n")) is None:
                 raise ValueError("top_n strategy requires a positive integer top_n")
@@ -570,7 +625,9 @@ def _published_groups(
     warnings: list[str] = []
     grouped: dict[str, list[dict[str, Any]]] = {}
     unidentified = 0
-    for raw in history.to_dict(orient="records"):
+    history_rows = history.to_dict(orient="records")
+    snapshot_run_ids = _snapshot_run_identities(history_rows, cutoff)
+    for raw in history_rows:
         run_id = _real_text(raw.get("run_id"))
         if run_id is None:
             unidentified += 1
@@ -581,7 +638,7 @@ def _published_groups(
 
     output: list[_PublishedGroup] = []
     for run_id, run_rows in grouped.items():
-        group, error = _validate_run(run_id, run_rows, cutoff)
+        group, error = _validate_run(run_id, run_rows, cutoff, snapshot_run_ids=snapshot_run_ids)
         if run_id not in bound_run_ids:
             if error:
                 warnings.append(f"Skipped unbound score-history run {run_id}: {error}")
@@ -597,13 +654,36 @@ def _published_groups(
     return tuple(output), None, tuple(warnings)
 
 
+def _snapshot_run_identities(rows: list[dict[str, Any]], cutoff: datetime) -> dict[str, set[str | None]]:
+    """Retain cross-run snapshot bindings from rows verifiably known by the cutoff.
+
+    Rows later than the cutoff or with an unverifiable known_at are not
+    evidence at the decision time, so future history cannot alter an earlier run.
+    """
+
+    owners: dict[str, set[str | None]] = {}
+    for row in rows:
+        known_at = _parse_timestamp(row.get("run_completed_at"))
+        if known_at is None or known_at > cutoff:
+            continue
+        snapshot_hash = _real_text(row.get("snapshot_hash"))
+        if snapshot_hash is not None:
+            owners.setdefault(snapshot_hash, set()).add(_real_text(row.get("run_id")))
+    return owners
+
+
 def _validate_run(
-    run_id: str, run_rows: list[dict[str, Any]], cutoff: datetime
+    run_id: str, run_rows: list[dict[str, Any]], cutoff: datetime,
+    *, snapshot_run_ids: Mapping[str, Collection[str | None]] | None = None,
 ) -> tuple[_PublishedGroup | None, str | None]:
     """Return (group, None), (None, None) when the run is later than the cutoff, or (None, error)."""
 
+    if not run_rows or _real_text(run_id) is None:
+        return None, "Published score run has no verifiable run identity or rows."
     prepared: list[dict[str, Any]] = []
     for raw in run_rows:
+        if _real_text(raw.get("run_id")) != run_id:
+            return None, f"Published score run {run_id} has conflicting run identities."
         known_at = _parse_timestamp(raw.get("run_completed_at"))
         if known_at is None:
             return None, f"Published score run {run_id} has a row with unverifiable known_at."
@@ -613,6 +693,8 @@ def _validate_run(
     instrument_ids = [_real_text(row.get("instrument_id")) for row in prepared]
     if None in instrument_ids or len(set(instrument_ids)) != len(instrument_ids):
         return None, f"Published score run {run_id} has missing or duplicate instrument identities."
+    for row, instrument_id in zip(prepared, instrument_ids, strict=True):
+        row["instrument_id"] = instrument_id
     known_times = {row["_known_at"] for row in prepared}
     hashes = {_real_text(row.get("snapshot_hash")) for row in prepared}
     if len(known_times) != 1 or len(hashes) != 1 or None in hashes:
@@ -623,16 +705,26 @@ def _validate_run(
     snapshot_hash = next(iter(hashes))
     if not _is_sha256(snapshot_hash):
         return None, f"Published score run {run_id} has an invalid snapshot hash."
-    versions: set[str] = set()
+    if snapshot_run_ids is not None and set(snapshot_run_ids.get(snapshot_hash, ())) != {run_id}:
+        return None, f"Published score run {run_id} has conflicting run identities for its snapshot hash."
+    # Keep every row for snapshot/scoreboard binding, but derive bot lineage
+    # solely from rows carrying complete canonical score evidence. Missing
+    # evidence excludes the instrument, including certificates, without scoring it.
+    canonical: list[dict[str, Any]] = []
+    non_canonical_ids: list[str] = []
     for row in prepared:
-        version = _real_text(row.get("formula_version"))
-        checksum = _real_text(row.get("formula_checksum"))
-        if version is None or checksum is None or not _is_sha256(checksum):
-            return None, f"Published score run {run_id} has unverifiable formula lineage."
-        versions.add(version)
+        if _lineage_material([row]) is None:
+            non_canonical_ids.append(str(row["instrument_id"]))
+        else:
+            canonical.append(row)
+    if not canonical:
+        return None, f"Published score run {run_id} has no canonical score lineage (no_canonical_score)."
+    versions = {_real_text(row.get("formula_version")) for row in canonical}
     if len(versions) != 1:
         return None, f"Published score run {run_id} has conflicting formula versions."
-    lineage_material = _lineage_material(prepared)
+    if len({_real_text(row.get("formula_checksum")) for row in canonical}) != 1:
+        return None, f"Published score run {run_id} has conflicting formula checksums."
+    lineage_material = _lineage_material(canonical)
     if lineage_material is None:
         return None, f"Published score run {run_id} has incomplete lineage evidence."
     return (
@@ -645,6 +737,7 @@ def _validate_run(
             lineage_hash=_sha256_json(lineage_material),
             lineage_material=lineage_material,
             rows=tuple(prepared),
+            non_canonical_ids=tuple(non_canonical_ids),
         ),
         None,
     )
@@ -735,6 +828,39 @@ def _history_row_matches_board(history_row: Mapping[str, Any], board_row: Mappin
     return _same_value(board_row.get("execution_allowed"), False)
 
 
+def _first_successful_candidate(
+    spec: Mapping[str, Any], bot_id: str, config_hash: str, config: Mapping[str, Any],
+    cutoff: datetime, month: str, candidates: Sequence[_PublishedGroup], expected_lineage_hash: str | None,
+    match_rows: Callable[[_PublishedGroup], dict[str, tuple[dict[str, Any], dict[str, Any]]] | None],
+    *, historical: bool = False,
+) -> tuple[dict[str, Any] | None, _PublishedGroup | None, str | None]:
+    """Shared chronological, first-successful selection for one cadence-due month."""
+
+    failure = "No eligible published snapshot is available."
+    for candidate in sorted(candidates, key=lambda item: (item.known_at, item.run_id)):
+        if candidate.known_at > cutoff:
+            failure = "Published scoreboard is newer than as_of."
+            continue
+        decision_time = candidate.known_at if historical else cutoff
+        age_limit = float(config["max_snapshot_age_hours"])
+        if decision_time - candidate.known_at > timedelta(hours=age_limit):
+            failure = f"Published score snapshot is stale for the configured {age_limit:g}-hour forward window."
+            continue
+        if expected_lineage_hash is not None and candidate.lineage_hash != expected_lineage_hash:
+            failure = "Published score lineage conflicts with the bot's pinned lineage."
+            continue
+        matched = match_rows(candidate)
+        if matched is None:
+            failure = "Published scoreboard does not match the selected score-history snapshot."
+            continue
+        decision, error = _build_decision(spec, bot_id, config_hash, config, decision_time, month, candidate, matched)
+        if error:
+            failure = error
+            continue
+        return decision, candidate, None
+    return None, None, failure
+
+
 def _build_decision(
     spec: Mapping[str, Any],
     bot_id: str,
@@ -772,11 +898,18 @@ def _build_decision(
     if benchmark_price["currency"].upper() != "EUR":
         return unavailable("VWCE.DE benchmark price is not quoted in EUR.")
 
-    skipped: list[dict[str, str]] = []
+    skipped: list[dict[str, str]] = [
+        {"instrument_id": instrument_id, "reason": "no_canonical_score"}
+        for instrument_id in group.non_canonical_ids
+    ]
     allocation_reason: str | None = None
     targets: dict[str, float] = {}
     selected_ids: list[str] = []
     strategy = str(spec.get("strategy"))
+    # A comparator price is independent of score eligibility. Fixed benchmark
+    # allocations still cannot target an instrument without a canonical score.
+    if strategy in {"benchmark", "core_sleeve"} and str(benchmark_spec["instrument_id"]) in group.non_canonical_ids:
+        return unavailable("VWCE.DE fixed allocation unavailable: no_canonical_score.")
     if strategy == "benchmark":
         targets[str(benchmark_spec["instrument_id"])] = 1.0
         selected_ids = [str(benchmark_spec["instrument_id"])]
@@ -784,6 +917,8 @@ def _build_decision(
         eligible: list[tuple[int, str, dict[str, Any], dict[str, Any]]] = []
         asset_types = set(str(item).upper() for item in spec.get("asset_types", ("ETF", "STOCK")))
         for instrument_id, (history_row, board_row) in matched.items():
+            if instrument_id in group.non_canonical_ids:
+                continue
             asset_type_value = _real_text(history_row.get("asset_type"))
             if asset_type_value is None:
                 return unavailable(f"Instrument {instrument_id} asset type is unverifiable.")
@@ -843,8 +978,9 @@ def _build_decision(
                     targets[item[1]] = targets.get(item[1], 0.0) + per_instrument
                 selected_ids = [str(benchmark_spec["instrument_id"]), *(item[1] for item in chosen)]
             else:
-                # DEFAULTS: an empty candidate sleeve is held as cash_weight (never reweighted into VWCE).
-                targets["cash_weight"] = float(spec["sleeve_weight"])
+                # D4: without an active edge the sleeve follows the passive default.
+                targets[str(benchmark_spec["instrument_id"])] += float(spec["sleeve_weight"])
+                allocation_reason = "no_eligible_candidates: VWCE passive default"
                 selected_ids = [str(benchmark_spec["instrument_id"])]
         else:
             return unavailable("Unsupported strategy in bot specification.")
@@ -861,7 +997,9 @@ def _build_decision(
                         "equal weight among the eligible instruments"
                     )
             else:
-                targets = {"cash_weight": 1.0}
+                targets = {str(benchmark_spec["instrument_id"]): 1.0}
+                selected_ids = [str(benchmark_spec["instrument_id"])]
+                allocation_reason = "no_eligible_candidates: VWCE passive default"
             for item in eligible[len(chosen):]:
                 skipped.append({"instrument_id": item[1], "reason": "rank_below_top_n"})
 
@@ -878,6 +1016,15 @@ def _build_decision(
         if reason:
             return unavailable(f"Selected instrument {instrument_id} price unavailable: {reason}.")
         prices_used[instrument_id] = price
+
+    # The wrapper type of every selected instrument as the published score row states it; the execution stage reads it
+    # (with the universe) to place the instrument in a concentration-cap class. A missing type stays absent.
+    asset_types: dict[str, str] = {}
+    for instrument_id in selected_ids:
+        pair = matched.get(instrument_id)
+        asset_type = _real_text(pair[0].get("asset_type")) if pair is not None else None
+        if asset_type is not None:
+            asset_types[instrument_id] = asset_type.upper()
 
     record = {
         "schema_version": "paper_bot_decision.v1",
@@ -902,6 +1049,8 @@ def _build_decision(
         "monthly_contribution_eur": float(config["monthly_contribution_eur"]),
         "currency": "EUR",
         "targets": targets,
+        "instrument_asset_types": asset_types,
+        "rebalance_every_months": _positive_int(spec.get("rebalance_every_months")),
         "prices_used": prices_used,
         "skipped_instruments": sorted(skipped, key=lambda item: (item["instrument_id"], item["reason"])),
         "authority_stage": "paper",
@@ -967,9 +1116,21 @@ def _persist_unavailable(
     records: list[dict[str, Any]] = []
     try:
         with TransactionalStore(root) as store:
+            first_months = _first_decision_months(store, by="bot_family")
+            baseline = _stored_baseline(store, config, config_hash)
+            pinned = baseline.payload if baseline is not None else {}
+            pinned_known = _parse_timestamp(pinned.get("known_at"))
+            if pinned and (pinned_known is None or pinned_known > cutoff
+                           or not _is_sha256(_real_text(pinned.get("lineage_hash")))
+                           or pinned.get("execution_allowed") is not False):
+                raise ValueError("Pinned baseline is unavailable at as_of.")
             for spec in config["bots"]:
-                lineage = None
+                lineage = pinned.get("lineage_hash") if spec["family_id"] in _CADENCE_FAMILIES else None
                 bot_id = _bot_identity(spec, config_hash, lineage)
+                if store.get(MONTH_SLOT_ENTITY_TYPE, _month_slot_id(bot_id, month)) is not None:
+                    continue
+                if not _cadence_due(spec, month, first_months.get(str(spec["family_id"]))):
+                    continue
                 record = _unavailable_record(spec, bot_id, config_hash, config, cutoff, month, reason)
                 _append_unavailable(store, record)
                 records.append(record)
@@ -1008,7 +1169,7 @@ def _unavailable_record(
         "score_version": None,
         "source_snapshot_hash": snapshot_hash,
         "snapshot_hash": snapshot_hash,
-        "known_at": known_at,
+        "known_at": known_at or _time_text(cutoff),
         "as_of": _time_text(cutoff),
         "decision_month": month,
         "initial_virtual_cash_eur": float(config["initial_virtual_cash_eur"]),
@@ -1032,8 +1193,21 @@ def _append_unavailable(store: TransactionalStore, record: Mapping[str, Any]) ->
     )
 
 
-def _baseline_id(config_hash: str, score_version: str) -> str:
-    return _sha256_json({"config_hash": config_hash, "baseline_score_version": score_version})
+def _stored_baseline(store: TransactionalStore, config: Mapping[str, Any], config_hash: str) -> Any:
+    if not config.get("baseline_score_version_source"):
+        return store.get(BASELINE_ENTITY_TYPE, _baseline_id(config_hash, str(config["baseline_score_version"])))
+    # Also recognise the former version-keyed records without rewriting immutable history.
+    matches = [record for record in store.list(BASELINE_ENTITY_TYPE) if record.payload.get("config_hash") == config_hash]
+    if len(matches) > 1:
+        raise ValueError("Conflicting pinned score baselines for this bot configuration.")
+    return matches[0] if matches else None
+
+
+def _baseline_id(config_hash: str, score_version: str | None) -> str:
+    material = {"config_hash": config_hash}
+    if score_version is not None:
+        material["baseline_score_version"] = score_version
+    return _sha256_json(material)
 
 
 def _bot_identity(spec: Mapping[str, Any], config_hash: str, lineage_hash: str | None) -> str:

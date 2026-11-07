@@ -255,15 +255,19 @@ def test_mixed_projection_does_not_unlock_unsettled_sale_credit(tmp_path: Path) 
     assert lifecycle.available_buying_power(account_id=ledger.account_id, currency="EUR", as_of=_day(16)) == Decimal("750")
 
 
-# D018-N003 (cutoff parity): a backdated fill recorded after a later-dated event is in neither projection
+# D018-N003 (cutoff parity): cash and projected fills select events by the same effective-time cutoff over the
+# whole append-ordered log, so a backdated fill recorded after a later-dated event is in both projections at its
+# effective time (full scan since d5bd4696; the earlier first-later-event prefix cut dropped such fills from both)
 def test_projected_fills_use_the_same_cutoff_prefix_as_cash(tmp_path: Path) -> None:
     ledger = _ledger(tmp_path)
     first = ledger.accept_proposal(_proposal(source="cut-a"), execution_price=10, occurred_at=_day(1))
     ledger.accept_proposal(_proposal(source="cut-b"), execution_price=10, occurred_at=_day(10))
     fill = ledger.record_fill(str(first["order_id"]), quantity=10, price=10, occurred_at=_day(5))  # backdated
     assert fill is not None
-    assert _cash(ledger, _day(7)) == pytest.approx(1_000)
-    assert ledger.projected_fill_ids(account_id=ledger.account_id, as_of=_day(7)) == frozenset()
+    assert _cash(ledger, _day(4)) == pytest.approx(1_000)
+    assert ledger.projected_fill_ids(account_id=ledger.account_id, as_of=_day(4)) == frozenset()
+    assert _cash(ledger, _day(7)) == pytest.approx(900)
+    assert len(ledger.projected_fill_ids(account_id=ledger.account_id, as_of=_day(7))) == 1
     assert len(ledger.projected_fill_ids(account_id=ledger.account_id, as_of=_day(11))) == 1
     assert _cash(ledger, _day(11)) == pytest.approx(900)
 

@@ -332,6 +332,11 @@ class BacktestService:
             return self.run_backtest(publish_guard=publish_guard)
         return self.run_backtest(publish_guard=publish_guard, as_of_date=as_of_date)
 
+    def load_cached_backtest(self, as_of_date: date | None = None) -> BacktestReport | None:
+        """Read a current cached report only; a cache miss never starts a backtest."""
+
+        return self._load_cached_backtest(as_of_date)
+
     def run_backtest(
         self,
         *,

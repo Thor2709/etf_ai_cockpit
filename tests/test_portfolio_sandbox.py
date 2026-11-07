@@ -1186,8 +1186,9 @@ def test_direct_and_look_through_views_select_rows_and_bind_selected_checksum() 
         snapshot,
         name="View selection",
         analysis_notional_eur=100_000,
-        target_weights={"DIRECT": 0.4, "INDIRECT": 0.2},
-        cash_weight=0.4,
+        target_weights={"DIRECT": 0.4},
+        cash_weight=0.6,
+        holdings_view="direct",
     )
     direct = analyse_portfolio_candidate(snapshot, candidate, holdings_view="direct")
     look_through = analyse_portfolio_candidate(snapshot, candidate, holdings_view="look_through")
@@ -1391,13 +1392,16 @@ def test_mixed_assets_keep_lineage_capability_and_explicit_why_not() -> None:
         snapshot,
         name="Mixed asset sandbox",
         analysis_notional_eur=100_000,
-        target_weights={"VWCE": 0.2, "AAPL": 0.2, "BOND-1": 0.2, "ETF-HOLDING": 0.1, "COIN": 0.1},
-        cash_weight=0.2,
+        target_weights={"VWCE": 0.2, "AAPL": 0.2, "BOND-1": 0.2, "COIN": 0.1},
+        cash_weight=0.3,
     )
 
     analysis = analyse_portfolio_candidate(snapshot, candidate)
     holdings = {row.instrument_id: row for row in analysis.holdings}
-    assert holdings["ETF-HOLDING"].holding_view == "look_through"
+    # The combined view excludes look-through rows where direct rows exist (no double counting, #981).
+    assert "ETF-HOLDING" not in holdings
+    look_through = {row.instrument_id: row for row in analyse_portfolio_candidate(snapshot, candidate, holdings_view="look_through").holdings}
+    assert look_through["ETF-HOLDING"].holding_view == "look_through"
     assert holdings["AAPL"].capability_status == "supported"
     assert holdings["BOND-1"].capability_status == "unavailable"
     assert holdings["COIN"].capability_status == "unsupported"

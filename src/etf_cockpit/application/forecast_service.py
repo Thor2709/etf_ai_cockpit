@@ -107,7 +107,7 @@ class ForecastService:
         price_frame = prices if prices is not None else load_prices(config=self.config)
         price_frame = price_frame.copy()
         # Promotion evidence is graded on the full stored history, not the shorter forecast calculation window.
-        evidence_prices = price_frame
+        evidence_prices = promotion_prices.copy() if promotion_prices is not None else price_frame
         context = reference_context if reference_context is not None else self.reference_context
         calculation_window = _calculation_window(context, as_of_date, price_frame)
         if calculation_window is None:
@@ -132,6 +132,7 @@ class ForecastService:
             raise ValueError("forecast cache request identity does not match the calculation request")
         pivot = price_frame.pivot(index="date", columns="etf_id", values="adjusted_close").sort_index()
         # Preserve row presence separately from the union pivot's holiday NaNs.
+        pivot.attrs["decision_time"] = calculation_window["decision_time"]
         pivot.attrs["timesfm_price_rows"] = {
             etf_id: group.sort_values("date")
             for etf_id, group in price_frame.groupby("etf_id", sort=False)
@@ -303,6 +304,7 @@ class ForecastService:
         run_id: str,
         *,
         model_name: str = "timesfm",
+        decision_time: str | None = None,
     ) -> list[ForecastResult]:
         from etf_cockpit.models.timesfm_adapter import TimesFMAdapter
         from etf_cockpit.models.timesfm3_adapter import TimesFM3Adapter
@@ -313,7 +315,8 @@ class ForecastService:
         try:
             for etf_id in etf_ids:
                 try:
-                    series = _timesfm_price_series(pivot, etf_id, as_of_date)
+                    canonical_decision_time = decision_time or pivot.attrs.get("decision_time")
+                    series = _baseline_price_series(pivot, etf_id, as_of_date, decision_time=canonical_decision_time)
                 except ValueError as exc:
                     forecasts.extend(adapter._status_results(
                         horizons, etf_id=etf_id, forecast_date=as_of_date,
@@ -585,6 +588,8 @@ def _apply_promotion(
 
     if row.model_name == "baseline":
         return replace(row, model_allowed_in_score=row.status == "ok" and row.expected_return is not None)
+    if shadow_flag:
+        return _shadow_forecast(row)
     promotion = _promotion_for_row(row, promotions)
     if row.status != "ok" or promotion is None:
         return _shadow_forecast(row) if shadow_flag else replace(row, model_allowed_in_score=False, promotion_status=NOT_PROVEN)
@@ -593,6 +598,7 @@ def _apply_promotion(
         and promotion.model_name == row.model_name
         and promotion.model_version == row.model_version
         and row.horizon_days == promotion.evidence_horizon_days
+        and promotion.evidence_window_open(row.forecast_date)
     )
     matched = row.model_version == promotion.model_version and row.horizon_days == promotion.evidence_horizon_days
     return replace(

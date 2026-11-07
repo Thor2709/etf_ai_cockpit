@@ -159,12 +159,11 @@ def _load_policy(path: Path) -> tuple[dict[str, str], dict[str, bool]]:
                 return fallback
             if row.get("network_access") is not False:
                 return fallback
+            flag = row.get("enabled", False)
+            if not isinstance(flag, bool):
+                return fallback  # a quoted "false" must never be read as truthy
             allowlist[plugin_id] = version
-            enabled[plugin_id] = (
-                False
-                if plugin_id in _REMOTE_FIXED_INCOME_PROVIDERS
-                else bool(row.get("enabled", False))
-            )
+            enabled[plugin_id] = False if plugin_id in _REMOTE_FIXED_INCOME_PROVIDERS else flag
         if set(allowlist) != set(_BUILTIN_VERSIONS):
             return fallback
         return allowlist, enabled

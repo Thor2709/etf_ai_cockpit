@@ -121,8 +121,8 @@ def component_scores(
     raw_weights = config.models.ensemble.get("weights")
     if not raw_weights:
         raise ConfigError("Score composite weights are unavailable: configs/score_engine_v3.yaml action_composite.weights.")
-    # A live model that no promoted forecast row backs (shadow or unproven) contributes no score. Its configured weight
-    # stays in the table (it is never moved to momentum/trend), so the composite coverage drops instead.
+    # Unbacked models carry no eligible input. Their configured weight still
+    # lowers coverage; D11 rescales the score over the available families.
     toto_backed = bool(toto_available and forecast_scores.get("toto"))
     timesfm_backed = bool(timesfm_available and forecast_scores.get("timesfm"))
     weights = effective_ensemble_weights(raw_weights, toto_available=toto_backed, timesfm_available=timesfm_backed)
@@ -160,13 +160,11 @@ def component_scores(
     # Share of the configured composite weight that held an eligible input (missing inputs lower it; never zero-filled).
     configured_weight = sum(weight for _, _, weight in active_components)
     frame["composite_coverage"] = (retained_weight / configured_weight) if configured_weight > 0 else 0.0
-    all_present = pd.Series(True, index=frame.index)
-    for mask in finite_components.values():
-        all_present &= mask
-    # Preserve the original sum exactly for complete rows; renormalise only rows
-    # with missing components. With no finite weighted evidence, remain unavailable.
+    # D11: one available-weight denominator for complete and incomplete rows.
+    # A single family is insufficient evidence, even if its weight is positive.
     if active_components:
-        weighted_score = weighted_score.where(all_present, weighted_score / retained_weight.where(retained_weight > 0))
+        available_count = sum(mask.astype(int) for mask in finite_components.values())
+        weighted_score = weighted_score / retained_weight.where((retained_weight > 0) & (available_count >= 2))
     else:
         weighted_score = pd.Series(float("nan"), index=frame.index)
     frame["total_score"] = (weighted_score - frame["cost_penalty"] - frame["turnover_penalty"]).clip(-1, 1)

@@ -205,9 +205,10 @@ def test_historical_fx_cutoff_is_per_row_and_cache_includes_cutoff() -> None:
 def test_timezone_aware_price_dates_convert_without_crashing(timezone: str) -> None:
     naive = _prices(1_000_000, "USD")
     aware = naive.copy()
+    # CM audit 20261023: FX quote dates may not be later than ingestion, so the fixture uses per-day ingestion (default _fx).
     aware["date"] = (aware["date"] + pd.Timedelta(hours=12)).dt.tz_localize(timezone)
-    expected, expected_info = _component(naive, "USD", _fx(ingested_at="2026-08-01T00:00:00Z"))
-    actual, actual_info = _component(aware, "USD", _fx(ingested_at="2026-08-01T00:00:00Z"))
+    expected, expected_info = _component(naive, "USD", _fx())
+    actual, actual_info = _component(aware, "USD", _fx())
     assert actual_info["avg_turnover_20"] == pytest.approx(1_000_000)
     assert actual_info == expected_info
     assert actual.raw_score == expected.raw_score
@@ -223,15 +224,15 @@ def test_timezone_aware_price_dates_convert_without_crashing(timezone: str) -> N
 @pytest.mark.parametrize("currency", ["USD", "EUR"])
 def test_every_turnover_row_requires_verified_currency(unknown: object, currency: str) -> None:
     prices = _prices(1_000_000, currency, currency_label=currency, count=20)
-    verified = _price_liquidity_lookup(prices, fx_rates=_fx(ingested_at="2026-08-01T00:00:00Z"))["X"]
+    verified = _price_liquidity_lookup(prices, fx_rates=_fx())["X"]
     assert verified["avg_turnover_20"] == pytest.approx(1_000_000)
     prices.loc[prices.index[1:], "currency"] = unknown
-    info = _price_liquidity_lookup(prices, fx_rates=_fx(ingested_at="2026-08-01T00:00:00Z"))["X"]
+    info = _price_liquidity_lookup(prices, fx_rates=_fx())["X"]
     assert info["avg_turnover_20"] is None
     assert "unknown" in info["fx_unavailable_reason"].lower()
     assert _liquidity_component(info).raw_score is None
     # Authoritative configuration can supply missing row currency, without changing the amount.
     supplied = _price_liquidity_lookup(
-        prices, currency_by_id={"X": currency}, fx_rates=_fx(ingested_at="2026-08-01T00:00:00Z")
+        prices, currency_by_id={"X": currency}, fx_rates=_fx()
     )["X"]
     assert supplied["avg_turnover_20"] == verified["avg_turnover_20"]
