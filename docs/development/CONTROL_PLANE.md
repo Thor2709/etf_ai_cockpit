@@ -230,6 +230,9 @@ or invalid, and files without a `serial_files` entry weigh their plain total).
 Refresh the file from the `junit-serial.xml`/`junit-parallel.xml` of a recent green release-gate
 run (all six shard artifacts) when many test files are missing from it; files without an entry are
 spread by hash at the median weight, so heavy new files can unbalance the shards.
+The per-source-state data seed (`tests/conftest.py`) also holds the sample backtest cache,
+computed against an initialised store without leftover `-wal`/`-shm` files (the cache is bound to
+the identity-master digest), so a worker does not recompute it for its first backtest-reading module.
 
 Product integration and lifecycle completion are distinct. When the ancestry
 guard requires the product on main, complete product gates first, merge that
