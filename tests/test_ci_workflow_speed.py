@@ -5,6 +5,8 @@ from typing import Any
 
 import yaml
 
+from scripts.supply_chain_scan import policy_locks
+
 WORKFLOW = Path(__file__).resolve().parents[1] / ".github" / "workflows" / "release-gate.yml"
 
 STEPS_AFTER_PROFILE = [
@@ -100,3 +102,18 @@ def test_preflight_skips_focused_pytest_only_when_pr_package_gate_covers_it() ->
     then_branch, else_branch = lines[if_line + 1 : else_line], lines[else_line + 1 : fi_line]
     assert [line for line in then_branch if flag in line] == [f"python scripts/validate_app.py --root . --changed {flag}"]
     assert else_branch == ["python scripts/validate_app.py --root . --changed"]  # no flag: full focused run
+
+
+def test_supply_chain_jobs_install_and_cache_every_policy_lock() -> None:
+    root = WORKFLOW.parents[2]
+    policy = yaml.safe_load((root / "configs" / "supply_chain_policy.yaml").read_text(encoding="utf-8"))
+    locks = policy_locks(policy)
+    assert len(locks) > 1  # the scan reads the release lock and the parser lock
+    for workflow in (WORKFLOW, WORKFLOW.with_name("supply-chain.yml")):
+        job = yaml.safe_load(workflow.read_text(encoding="utf-8"))["jobs"]["supply-chain"]
+        steps = {step["name"]: step for step in job["steps"]}
+        cached = steps["Set up pinned Python"]["with"]["cache-dependency-path"].split()
+        installs = steps["Install release tools"]["run"]
+        for lock in locks:
+            assert lock in cached, (workflow.name, lock)
+            assert f"--requirement {lock}" in installs, (workflow.name, lock)
