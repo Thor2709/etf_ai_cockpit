@@ -227,6 +227,9 @@ where `serial_files` holds the per-file seconds of the serial phase and `W` is
 `ETF_COCKPIT_XDIST_MAX` (the cap the workflow passes to `--xdist-workers auto`; 1 when unset
 or invalid, and files without a `serial_files` entry weigh their plain total).
 `scripts/update_test_durations.py` fills `serial_files` from `junit-serial.xml` reports.
+Refresh the file from the `junit-serial.xml`/`junit-parallel.xml` of a recent green release-gate
+run (all six shard artifacts) when many test files are missing from it; files without an entry are
+spread by hash at the median weight, so heavy new files can unbalance the shards.
 
 Product integration and lifecycle completion are distinct. When the ancestry
 guard requires the product on main, complete product gates first, merge that
