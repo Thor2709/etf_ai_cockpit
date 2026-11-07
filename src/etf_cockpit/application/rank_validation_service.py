@@ -93,7 +93,11 @@ def build_rank_validation_report(
         report.update(status="unavailable", reason=gap)
         return report
     report["inputs"]["price_rows_without_verifiable_known_at"] = int(  # type: ignore[index]
-        sum(1 for item in prices["known_at"] if pd.isna(pd.to_datetime(item, errors="coerce", utc=True)))
+        sum(
+            int(count)  # one parse per distinct stamp: the stamps repeat for every instrument of a session
+            for item, count in prices["known_at"].value_counts(dropna=False).items()
+            if pd.isna(pd.to_datetime(item, errors="coerce", utc=True))
+        )
     )
     parsed_dates = pd.to_datetime(prices["date"], errors="coerce")
     if parsed_dates.isna().all():
