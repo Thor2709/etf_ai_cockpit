@@ -79,3 +79,18 @@ def test_no_other_job_touches_defender_preferences() -> None:
     for name, job in _jobs().items():
         if name != "release-gate":
             assert "MpPreference" not in str(job), name
+
+
+def test_preflight_skips_focused_pytest_only_when_pr_package_gate_covers_it() -> None:
+    steps = {step["name"]: step for step in _jobs()["preflight"]["steps"]}
+    step = steps["Product and protected preflight"]
+    run = step["run"]
+    flag = "--tests-covered-by-release-gate"
+
+    assert step["env"]["PACKAGE_GATE_REQUIRED"] == "${{ needs.classifier.outputs.package_gate_required }}"
+    assert step["env"]["EVENT_NAME"] == "${{ github.event_name }}"
+    guard = '[ "$PACKAGE_GATE_REQUIRED" = "true" ] && [ "$EVENT_NAME" = "pull_request" ]'
+    assert guard in run
+    assert run.count(flag) == 1
+    assert run.index(guard) < run.index(flag)
+    assert run.count("scripts/validate_app.py --root . --changed") == 2  # flagged branch and unchanged fallback

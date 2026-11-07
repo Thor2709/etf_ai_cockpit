@@ -987,6 +987,51 @@ def test_changed_mode_without_xdist_keeps_the_single_serial_command(
     assert changed[0].no_tests_ok is False
 
 
+def test_changed_mode_covered_by_release_gate_skips_pytest_but_keeps_other_checks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(validate_app, "_changed_test_paths", lambda _root: ["tests/test_a.py"])
+    monkeypatch.setattr(release_gate, "resolve_xdist_workers", lambda: 3)
+
+    checks = validate_app._checks_for_mode(
+        ROOT, "changed", {"tests_covered_by_release_gate": True}, report_dir=tmp_path / "latest"
+    )
+    names = [check.name for check in checks]
+
+    assert names[:3] == ["issue_registry", "source_compile", "source_smoke"]
+    assert not any(check.name.startswith("changed_tests") and "pytest" in check.command for check in checks)
+    assert not any("pytest" in check.command for check in checks)
+    covered = next(check for check in checks if check.name == "changed_tests_covered_by_release_gate")
+    assert "tests/test_a.py" in covered.command[-1]
+    assert subprocess.run([*covered.command], capture_output=True, text=True, check=False).returncode == 0
+
+
+def test_covered_by_release_gate_still_fails_production_change_without_selected_tests(
+    monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(validate_app, "_changed_test_paths", lambda _root: [])
+    monkeypatch.setattr(validate_app, "_production_changes_without_tests", lambda _root: ["src/etf_cockpit/x.py"])
+
+    checks = validate_app._checks_for_mode(ROOT, "changed", {"tests_covered_by_release_gate": True})
+    scope = next(check for check in checks if check.name == "changed_scope")
+
+    assert subprocess.run([*scope.command], capture_output=True, text=True, check=False).returncode != 0
+
+
+def test_cli_flag_reaches_run_validation(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    seen: dict[str, object] = {}
+
+    def fake_run(_root, **kwargs):  # type: ignore[no-untyped-def]
+        seen.update(kwargs)
+        raise ValueError("stop")
+
+    monkeypatch.setattr(validate_app, "run_validation", fake_run)
+    validate_app.main(["--root", str(tmp_path), "--changed", "--tests-covered-by-release-gate"])
+    assert seen["tests_covered_by_release_gate"] is True
+    validate_app.main(["--root", str(tmp_path), "--changed"])
+    assert seen["tests_covered_by_release_gate"] is False
+
+
 def _raise_not_found(_name: str) -> str:
     import importlib.metadata
 
