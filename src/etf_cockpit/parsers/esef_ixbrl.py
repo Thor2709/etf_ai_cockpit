@@ -594,15 +594,29 @@ def _run_arelle_validation(
         process.terminate()
         process.join(1.0)
         raise TimeoutError("Arelle start-up exceeded the bounded timeout")
-    process.join(timeout_seconds)
+    # Wait for the RESULT (not for process exit): interpreter teardown is outside the bound and the queue is
+    # drained before the child is joined.
+    validation_deadline = time.monotonic() + timeout_seconds
+    while True:
+        remaining = validation_deadline - time.monotonic()
+        try:
+            result = messages.get(timeout=max(0.0, min(0.1, remaining)))
+            break
+        except queue.Empty:
+            if not process.is_alive():
+                try:
+                    result = messages.get(timeout=1.0)
+                    break
+                except queue.Empty:
+                    return ({"code": "arelle_validation", "severity": "error", "message": "Arelle exited without a validation result"},)
+            if remaining <= 0:
+                process.terminate()
+                process.join(1.0)
+                raise TimeoutError("Arelle validation exceeded the bounded timeout")
+    process.join(1.0)
     if process.is_alive():
         process.terminate()
         process.join(1.0)
-        raise TimeoutError("Arelle validation exceeded the bounded timeout")
-    try:
-        result = messages.get(timeout=1.0)
-    except queue.Empty:
-        return ({"code": "arelle_validation", "severity": "error", "message": "Arelle exited without a validation result"},)
     status = str(result.get("status", "error"))
     if status in {"ok", "validation_error"}:
         normalised: list[dict[str, str]] = []

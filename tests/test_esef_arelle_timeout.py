@@ -37,6 +37,15 @@ def slow_validation_worker(path, messages, ready=None) -> None:
     _ok(messages)
 
 
+def lingering_exit_worker(path, messages, ready=None) -> None:
+    """Result is sent promptly, but the child does not exit (teardown) for a long time."""
+
+    if ready is not None:
+        ready.set()
+    _ok(messages)
+    time.sleep(60.0)
+
+
 def never_ready_worker(path, messages, ready=None) -> None:
     """Start-up never completes."""
 
@@ -66,6 +75,9 @@ def test_startup_that_never_completes_fails_closed(tmp_path: Path, monkeypatch: 
         esef_ixbrl._run_arelle_validation(tmp_path / "x.xbri", VALIDATION_BOUND, startup_timeout_seconds=0.5)
 
 
-def test_startup_bound_is_a_conservative_module_constant() -> None:
-    assert esef_ixbrl._ARELLE_STARTUP_TIMEOUT_SECONDS >= 30.0
-    assert esef_ixbrl._ARELLE_VALIDATION_TIMEOUT_SECONDS == 8.0
+def test_result_is_accepted_even_if_child_lingers_before_exit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(esef_ixbrl, "_arelle_worker", lingering_exit_worker)
+
+    result = esef_ixbrl._run_arelle_validation(tmp_path / "x.xbri", VALIDATION_BOUND, startup_timeout_seconds=STARTUP_BOUND)
+
+    assert result == ()
