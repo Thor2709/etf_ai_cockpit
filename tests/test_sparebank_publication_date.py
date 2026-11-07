@@ -16,7 +16,8 @@ MING_URL = "https://filings.xbrl.org/7V6Z97IO7R1SEAO84Q32/2025-12-31/ESEF/NO/0/s
 
 
 def test_publication_date_uses_adjacent_api_metadata_not_import_time(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    # This tests publication dates; optional Arelle startup can time out under parallel load.
+    # Publication-date provenance is under test, not Arelle; the spawned
+    # validator child can exceed its 8 s bound on loaded CI runners.
     monkeypatch.setattr(esef_ixbrl, "_arelle_available", lambda: False)
     source = tmp_path / "synthetic-ming-2025.xbri"
     shutil.copyfile(FIXTURE, source)

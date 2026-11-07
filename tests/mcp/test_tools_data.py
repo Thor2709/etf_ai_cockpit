@@ -861,7 +861,7 @@ def test_confirmed_submission_identity_is_derived_from_token():
 
     context = _context()
     context.session = SimpleNamespace(find_active_workflow=lambda **_kwargs: None, application_api=SimpleNamespace(execute=execute))
-    token = "single-use-token-with-nonce"
+    token = "single-use-nonce"
     with use_call_context(context):
         assert tools_data.data_refresh("prices", confirm_token=token)["job_id"] == "submitted"
     submission_id = hashlib.sha256(token.encode("utf-8")).hexdigest()
