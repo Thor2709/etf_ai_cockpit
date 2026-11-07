@@ -460,9 +460,13 @@ def estimate_rebalance_cost(
 def compare_realised_fill(estimate: CostEstimate, *, reference_price: float, fill_price: float, filled_value_eur: float | None = None) -> dict[str, object]:
     """Return TCA-style evidence without changing the prior estimate."""
 
-    reference = _finite(reference_price)
-    fill = _finite(fill_price)
-    realised_bps = None if reference <= 0 else abs(fill - reference) / reference * 10_000.0
+    reference = _valid_quote(reference_price)
+    fill = _valid_quote(fill_price)
+    realised_bps = (
+        None
+        if reference is None or reference <= 0.0 or fill is None or fill <= 0.0
+        else abs(fill - reference) / reference * 10_000.0
+    )
     return {
         "estimate_id": estimate.estimate_id,
         "model_id": estimate.model_id,
@@ -580,7 +584,7 @@ def fill_feasibility(
     (``days_to_fill``, from the ADV).  No midpoint fill is ever invented.
     """
 
-    order = abs(_finite(order_value_eur))
+    order = abs(_finite_order_value(order_value_eur))
     rate = min(1.0, _non_negative(participation_rate))
 
     def result(status: str, fillable: float, days: int | None, reason: str) -> FillFeasibility:
@@ -589,10 +593,13 @@ def fill_feasibility(
 
     if order <= 0.0:
         return result("no_order", 0.0, 0, "no order value")
-    if manual_quote_required and _valid_quote(manual_quote_eur) in (None, 0.0):
+    manual_quote = _valid_quote(manual_quote_eur)
+    if manual_quote_required and manual_quote in (None, 0.0):
         return result("manual_quote_required", 0.0, None, "thin listing needs a manual quote; no midpoint fill is assumed")
     volume = _valid_quote(day_volume_shares)
     price = _valid_quote(price_eur)
+    if price is None and manual_quote_required:
+        price = manual_quote
     if volume is None or volume <= 0.0 or price is None or price <= 0.0:
         return result("no_fill_zero_volume", 0.0, None, "no traded volume on the execution session")
     if rate <= 0.0:

@@ -152,8 +152,9 @@ def test_valuation_and_quality_use_only_point_in_time_covered_constituents() -> 
     )
 
     assert summary.calculated_metrics["pe_ratio"]["value"] == pytest.approx(10.0)
-    assert [item["identity"] for item in summary.calculated_metrics["pe_ratio"]["contributors"]] == ["alpha"]
-    assert [item["identity"] for item in summary.calculated_metrics["roic"]["contributors"]] == ["alpha"]
+    # A10-F8: contributor lineage names the listing, preserving issuer aggregation.
+    assert [item["identity"] for item in summary.calculated_metrics["pe_ratio"]["contributors"]] == ["isin:US0378331005"]
+    assert [item["identity"] for item in summary.calculated_metrics["roic"]["contributors"]] == ["isin:US0378331005"]
     assert summary.calculated_metrics["roic"]["value"] == pytest.approx(0.12)
     assert summary.fundamental_data_coverage["pe_ratio"]["covered_weight"] == pytest.approx(0.5)
     assert summary.fundamental_data_coverage["roic"]["coverage_fraction"] == pytest.approx(0.5)

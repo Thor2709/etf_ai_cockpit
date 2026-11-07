@@ -358,11 +358,12 @@ def test_exact_match_cannot_use_identity_evidence_unknown_at_the_source_row_cuto
 
 
 def test_exact_match_to_multiple_entities_is_quarantined_with_stable_conflict(tmp_path: Path) -> None:
-    shared_lei = "5493001KJTIIGC8Y1R12"
+    # Audit PIT (d27b5d4c): entity-level LEI may lawfully be shared, so the ambiguity case uses an instrument-level identifier.
+    shared_lei = "US5493001KJT7"
     claims = tuple(
         IdentityClaim(
             instrument_id,
-            "lei",
+            "isin",
             shared_lei,
             "gleif",
             SourceAuthority.OFFICIAL,
@@ -381,7 +382,7 @@ def test_exact_match_to_multiple_entities_is_quarantined_with_stable_conflict(tm
         object_id="ISSUER-SHARED",
         parent_object_id=None,
         relationship=None,
-        identifiers={"lei": shared_lei},
+        identifiers={"isin": shared_lei},
         attributes={"name": "Shared issuer"},
         source="gleif",
         authority=SourceAuthority.OFFICIAL,

@@ -229,11 +229,12 @@ class Ledger:
             )):
                 continue
             reversal = self.connection.execute(
-                """SELECT effective_at, recorded_at FROM ledger_entries
+                """SELECT effective_at, recorded_at, settlement_at FROM ledger_entries
                    WHERE reversal_of_entry_id = ? AND authority = ? AND status = 'posted'""",
                 (entry_id, authority),
             ).fetchone()
-            if reversal is not None and all(_parse_instant(value) <= cutoff for value in reversal):
+            if (reversal is not None and reversal[2] is not None
+                    and all(_parse_instant(value) <= cutoff for value in reversal)):
                 continue
             cash_postings = [posting for posting in entry.postings if posting.account_id == account_id]
             if (cash_postings and len({posting.currency for posting in cash_postings}) == 1

@@ -41,7 +41,8 @@ def _period(year: int, *, known: str | None = None, currency: str = "EUR", **ove
     }
     values.update(overrides)
     known_at = datetime.fromisoformat(known or f"{year + 1}-02-15").replace(tzinfo=UTC)
-    return sm.Period(date(year, 12, 31), "FY", known_at, currency, "sec_edgar", values)
+    return sm.Period(date(year, 12, 31), "FY", known_at, currency, "sec_edgar", values,
+                     field_sources={"shares_outstanding": "sec_dei"})
 
 
 def _market(price: float = 50.0, currency: str = "EUR", **extra: object) -> MarketInputs:
@@ -235,6 +236,8 @@ def test_dividend_yield_is_unavailable_when_the_trailing_year_is_incomplete() ->
             "close": [48.0, 49.0, 50.0],
             "currency": ["EUR"] * 3,
             "dividends": [0.0, None, 0.0],
+            "stock_splits": [0.0] * 3,
+            "actions_evidenced": [True] * 3,
         }
     )
     market = su.market_inputs(prices, None, "EUR", DECISION, pd.DataFrame(columns=store.FX_COLUMNS), CONFIG)
@@ -277,7 +280,8 @@ def test_disabled_delisted_stock_keeps_historical_fundamentals_and_peer_contribu
     monkeypatch.setattr(su, "load_user_peers", lambda _root: {"T": ["OLD"]})
     decision = datetime(2026, 3, 1, tzinfo=UTC)
     prices = pd.DataFrame(
-        {"etf_id": ["OLD", "T"], "date": pd.to_datetime(["2026-02-27", "2026-02-27"]), "close": [50.0, 50.0], "currency": ["EUR", "EUR"], "dividends": [0.0, 0.0]}
+        {"etf_id": ["OLD", "T"], "date": pd.to_datetime(["2026-02-27", "2026-02-27"]), "close": [50.0, 50.0], "currency": ["EUR", "EUR"], "dividends": [0.0, 0.0],
+         "stock_splits": [0.0, 0.0], "actions_evidenced": [True, True]}
     )
     evidence = su.build_universe_evidence(records, prices, decision, config=CONFIG)
     assert evidence.evidence["OLD"].metrics["revenue_cagr"].available
@@ -291,5 +295,6 @@ def test_ev_never_combines_net_debt_and_minority_interest_from_different_balance
     latest = periods[-1]
     periods[-1] = replace(latest, values={key: value for key, value in latest.values.items() if key != "minority_interest"})
     ev = _evidence(periods=periods).metrics["ev"]
-    assert ev.value is None and "period_mismatch" in ev.reason
+    # Audit stock_metrics.latest_balance ("without older fallback"): the stale minority interest is no longer used, so EV is missing, not mismatched.
+    assert ev.value is None and "missing_minority_interest" in ev.reason
     assert _evidence().metrics["ev"].value == pytest.approx(730.0)

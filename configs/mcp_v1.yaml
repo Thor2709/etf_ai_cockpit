@@ -1,0 +1,33 @@
+mcp:
+  # The queue worker is on by default for stdio and HTTP. Set the environment
+  # variable ETF_COCKPIT_MCP_WORKER_ENABLED=false to disable automatic draining.
+  # It polls idle queues every 100 ms and backs off 500 ms on writer contention.
+  remote:
+    # Remote access stays off until an operator configures OAuth and HTTPS.
+    enabled: false
+    host: 127.0.0.1
+    port: 8000
+    path: /mcp
+    profile: core
+    allowed_tiers: [read, research, paper]
+    oauth:
+      issuer_url_env: ETF_COCKPIT_MCP_ISSUER_URL
+      resource_url_env: ETF_COCKPIT_MCP_RESOURCE_URL
+  # Tokens receive only the tiers named by their verified OAuth scopes.
+  scope_tiers:
+    cockpit:read: [read]
+    cockpit:research: [research]
+    cockpit:paper: [paper]
+  rate_limits:
+    paper_order_place:
+      count: 20
+      window_seconds: 86400
+    ticket_export:
+      count: 10
+      window_seconds: 86400
+    data_refresh:
+      count: 4
+      window_seconds: 3600
+  tunnel:
+    enabled: false
+    max_duration_minutes: 30

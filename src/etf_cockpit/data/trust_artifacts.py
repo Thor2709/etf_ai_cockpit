@@ -972,6 +972,33 @@ def append_score_history(
     version_registry_signature: str = "unavailable",
     dependency_graph_hash: str = "unavailable",
 ) -> Path:
+    new_frame = build_score_history_frame(
+        scores,
+        run_id=run_id,
+        created_at=created_at,
+        version_registry_signature=version_registry_signature,
+        dependency_graph_hash=dependency_graph_hash,
+    )
+    return _append_parquet(
+        SCORE_HISTORY_PATH,
+        new_frame,
+        SCORE_HISTORY_COLUMNS,
+        id_columns=["run_id", "instrument_id"],
+        snapshot_hash_column="snapshot_hash",
+        run_id=run_id,
+    )
+
+
+def build_score_history_frame(
+    scores: Iterable[Any],
+    *,
+    run_id: str,
+    created_at: str,
+    version_registry_signature: str = "unavailable",
+    dependency_graph_hash: str = "unavailable",
+) -> pd.DataFrame:
+    """One complete score-history run snapshot (the rows ``append_score_history`` persists), with its snapshot hash."""
+
     scores = list(scores)
     if version_registry_signature == "unavailable":
         version_registry_signature = str(build_version_registry().get("registry_signature", "unavailable"))
@@ -1074,14 +1101,7 @@ def append_score_history(
     new_frame = pd.DataFrame(rows, columns=SCORE_HISTORY_COLUMNS)
     snapshot_hash = _run_snapshot_hash(new_frame)
     new_frame["snapshot_hash"] = snapshot_hash
-    return _append_parquet(
-        SCORE_HISTORY_PATH,
-        new_frame,
-        SCORE_HISTORY_COLUMNS,
-        id_columns=["run_id", "instrument_id"],
-        snapshot_hash_column="snapshot_hash",
-        run_id=run_id,
-    )
+    return new_frame
 
 
 def append_score_metric_history(scores: Iterable[Any], *, run_id: str, created_at: str) -> Path:

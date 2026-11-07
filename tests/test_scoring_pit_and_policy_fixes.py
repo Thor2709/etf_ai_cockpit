@@ -63,9 +63,9 @@ def test_candidate_peer_reference_ignores_future_and_undated_peers() -> None:
             "return_6m": [0.1, 0.9, 0.9],
         }
     )
-    assert s._candidate_relative_reference(frame, date(2026, 1, 20)) == pytest.approx(0.1)
+    assert s._candidate_relative_reference(frame, date(2026, 1, 20)) == ("return_6m", pytest.approx(0.1))
     # Without a decision date the legacy unbounded median is unchanged.
-    assert s._candidate_relative_reference(frame) == pytest.approx(0.9)
+    assert s._candidate_relative_reference(frame) == ("return_6m", pytest.approx(0.9))
     # No known peer at all: unavailable, never a median of future rows.
     assert s._candidate_relative_reference(frame, date(2025, 1, 1)) is None
 

@@ -1,0 +1,12 @@
+{
+  "cik":9000000002,
+  "entityName":"Synthetic Renamed Issuer",
+  "facts": {
+    "us-gaap": {"Revenues":{"units":{"USD":[
+      {"start":"2020-01-01","end":"2020-12-31","val":200,"accn":"synthetic-original-b","filed":"2021-02-19","fp":"FY","fy":2020}
+    ]}}},
+    "dei":{"EntityCommonStockSharesOutstanding":{"units":{"shares":[
+      {"end":"2021-02-01","val":30,"accn":"synthetic-original-b","filed":"2021-02-19","fp":"FY","fy":2020}
+    ]}}}
+  }
+}

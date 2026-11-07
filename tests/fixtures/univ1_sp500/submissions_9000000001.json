@@ -1,0 +1,11 @@
+{
+  "cik":"9000000001","name":"Synthetic Issuer A","tickers":["ZZA"],"formerNames":[],
+  "filings":{
+    "recent":{
+      "accessionNumber":["synthetic-original-a","synthetic-restated-a"],
+      "filingDate":["2021-02-19","2021-05-03"],
+      "acceptanceDateTime":["2021-02-19T22:31:00Z","2021-05-03T16:00:00Z"]
+    },
+    "files":[{"name":"CIK9000000001-submissions-001.json"}]
+  }
+}

@@ -161,6 +161,10 @@ def build_fundamental_evidence(
     stale_fields: list[str] = []
     warnings: list[str] = []
     temporal_valid = True
+    availability_reason = _availability_reason(resolved_available_at, reference_date)
+    if availability_reason:
+        warnings.append(availability_reason)
+        temporal_valid = False
     if parsed_as_of is None:
         warnings.append("ambiguous_as_of")
         temporal_valid = False
@@ -359,7 +363,7 @@ def merge_fundamental_sources(
                 revision=int(section.get("revision") or source.get("revision") or 1),
             )
             claims.append(claim)
-            claim_sections[_fundamental_claim_key(key, source_instrument, source_as_of, claim_source_id, value)] = {
+            claim_sections[_fundamental_claim_key(key, source_instrument, str(claim.period), claim_source_id, value)] = {
                 **dict(section),
                 "value": value,
                 "period_end": str(section.get("period_end") or source_as_of),
@@ -381,8 +385,8 @@ def merge_fundamental_sources(
         }
 
     resolution = resolve_conflicts(claims, decision_time=decision_time, policy=policy)
-    instruments = tuple(sorted({item.instrument_id for item in claims}))
-    periods = tuple(sorted({str(item.period or "") for item in claims}))
+    instruments = tuple(sorted({item.instrument_id for item in resolution.claims}))
+    periods = tuple(sorted({str(item.period or "") for item in resolution.claims}))
     flat_context_available = rejected == 0 and len(instruments) == 1 and len(periods) == 1
     canonical_instrument = instruments[0] if flat_context_available else None
     canonical_as_of = periods[0] if flat_context_available else None
@@ -440,7 +444,7 @@ def merge_fundamental_sources(
     selected["rejected_source_count"] = rejected
     selected["candidate_count"] = len(resolution.claims) + len(resolution.excluded_claims)
     selected["excluded_candidate_count"] = len(resolution.excluded_claims)
-    context_conflict = rejected == 0 and not flat_context_available
+    context_conflict = rejected == 0 and bool(resolution.claims) and not flat_context_available
     context_conflict_id = hashlib.sha256(
         json.dumps(
             {"instruments": instruments, "periods": periods, "candidate_count": len(claims)},
@@ -588,6 +592,11 @@ def assess_fundamental_row(
         else:
             freshness_status = "fresh"
 
+    availability_reason = _availability_reason(row.get("available_at"), reference_date)
+    if availability_reason:
+        reasons.append(availability_reason)
+        freshness_status = "future" if availability_reason == "future_available_at" else "unavailable"
+
     sections = _row_sections(row.get("sections_json"))
     for field_name in _FIELDS:
         section = sections.get(field_name)
@@ -663,10 +672,31 @@ def sort_fundamental_evidence(frame: pd.DataFrame) -> pd.DataFrame:
     return result.drop(columns=["_as_of_sort", "_known_sort", "_instrument_sort", "_checksum_sort", "_row_sort"]).reset_index(drop=True)
 
 
-def latest_fundamental_rows(frame: pd.DataFrame) -> pd.DataFrame:
-    """Select one latest deterministic evidence row per instrument."""
+def latest_fundamental_rows(
+    frame: pd.DataFrame, *, decision_time: str | date | pd.Timestamp | None = None,
+) -> pd.DataFrame:
+    """Select one latest row per instrument, optionally as known at a cutoff.
 
-    ordered = sort_fundamental_evidence(frame)
+    Without a cutoff this is the legacy storage projection, not score eligibility.
+    Date-only cutoffs mean midnight UTC, so intraday publications wait for an
+    explicit timestamp (or the following date).
+    """
+
+    candidates = frame
+    if decision_time is not None and not frame.empty:
+        cutoff = pd.to_datetime(decision_time, errors="raise", utc=True)
+        if pd.isna(cutoff):
+            raise ValueError("decision_time must be a valid timestamp")
+        known = pd.to_datetime(
+            frame.get("available_at", pd.Series(index=frame.index, dtype=object)),
+            errors="coerce", format="mixed", utc=True,
+        )
+        periods = pd.to_datetime(
+            frame.get("as_of_date", pd.Series(index=frame.index, dtype=object)),
+            errors="coerce", format="mixed", utc=True,
+        )
+        candidates = frame.loc[known.notna() & (known <= cutoff) & periods.notna() & (periods <= cutoff)]
+    ordered = sort_fundamental_evidence(candidates)
     if ordered.empty or "instrument_id" not in ordered.columns:
         return ordered
     return ordered.groupby(ordered["instrument_id"].astype(str), sort=True, as_index=False, group_keys=False).tail(1).reset_index(drop=True)
@@ -768,31 +798,28 @@ def _clean_row(evidence: FundamentalEvidence, checksum: str) -> dict[str, Any]:
 def _read_clean(path: Path) -> pd.DataFrame:
     if not path.exists():
         return pd.DataFrame()
-    try:
-        frame = pd.read_parquet(path)
-        if "executable_authority" in frame.columns:
-            frame["executable_authority"] = False
-        defaults: dict[str, object] = {
-            "sections_json": "{}",
-            "manual_review": False,
-            "merge_status": "single_source",
-            "rejected_source_count": 0,
-            "sector_relative_status": "unavailable",
-            "sector_relative_value": None,
-            "sector_relative_peer": "unavailable",
-            "sector_relative_benchmark": "unavailable",
-            "sector_relative_delta": None,
-            "sector_relative_limitation": "No sector-relative comparison evidence supplied.",
-            "available_at": None,
-        }
-        for column, default in defaults.items():
-            if column not in frame.columns:
-                frame[column] = default
-            elif default is not None:
-                frame[column] = frame[column].fillna(default)
-        return frame
-    except Exception:
-        return pd.DataFrame()
+    frame = pd.read_parquet(path)
+    if "executable_authority" in frame.columns:
+        frame["executable_authority"] = False
+    defaults: dict[str, object] = {
+        "sections_json": "{}",
+        "manual_review": False,
+        "merge_status": "single_source",
+        "rejected_source_count": 0,
+        "sector_relative_status": "unavailable",
+        "sector_relative_value": None,
+        "sector_relative_peer": "unavailable",
+        "sector_relative_benchmark": "unavailable",
+        "sector_relative_delta": None,
+        "sector_relative_limitation": "No sector-relative comparison evidence supplied.",
+        "available_at": None,
+    }
+    for column, default in defaults.items():
+        if column not in frame.columns:
+            frame[column] = default
+        elif default is not None:
+            frame[column] = frame[column].fillna(default)
+    return frame
 
 
 def _limitations_for_source(authority: str) -> tuple[str, ...]:
@@ -803,6 +830,22 @@ def _limitations_for_source(authority: str) -> tuple[str, ...]:
         "Missing metrics remain unavailable and are not treated as negative values.",
         "Fundamentals are context-only and cannot authorise an action.",
     )
+
+
+def _availability_reason(value: object, reference_date: date) -> str | None:
+    """A date reference is midnight UTC; never infer a publication timestamp."""
+
+    if pd.api.types.is_bool(value):
+        return "ambiguous_available_at"
+    try:
+        available = pd.to_datetime(value, errors="coerce", utc=True)
+        if pd.isna(available):
+            return "ambiguous_available_at"
+        if available > pd.Timestamp(reference_date, tz="UTC"):
+            return "future_available_at"
+    except (TypeError, ValueError):
+        return "ambiguous_available_at"
+    return None
 
 
 def _parse_date(value: object) -> date | None:

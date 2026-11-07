@@ -126,6 +126,11 @@ def _build_financial_projection_from_evidence(
         cutoff = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     decision = datetime.fromisoformat(cutoff.replace("Z", "+00:00"))
     cutoff = decision.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+    # identity.json is one file rewritten by every import; one written after this decision describes a later filing
+    # and must not pin the reporting period of an earlier decision (the evidence rows carry their own known_at).
+    identity_known = pd.to_datetime(identity.get("known_at"), errors="coerce", utc=True)
+    if identity and not pd.isna(identity_known) and identity_known > pd.Timestamp(decision):
+        identity = {}
     effective = str(effective_at or identity.get("effective_at") or cutoff).strip()
     requested_period = str(effective_at or identity.get("effective_at") or "").strip() or None
     if len(effective) == 10:

@@ -81,17 +81,8 @@ def _validate_esef_raw_checksum(path: Path, expected: str) -> None:
 def _resolve_sec_instrument(cik: str) -> str | None:
     """Resolve a unique persisted CIK mapping before falling back to review."""
 
-    try:
-        import pandas as pd
-
-        frame = pd.read_parquet(IDENTITY_PATH)
-        if "cik" not in frame.columns or "instrument_id" not in frame.columns:
-            return None
-        values = frame["cik"].map(lambda value: str(value).strip().upper().removeprefix("CIK").zfill(10))
-        matches = sorted({str(value) for value in frame.loc[values == cik, "instrument_id"] if str(value).strip()})
-        return matches[0] if len(matches) == 1 else None
-    except (OSError, ValueError, TypeError, ImportError):
-        return None
+    persisted = _persisted_sec_instruments(cik)
+    return persisted[0] if persisted is not None and len(persisted) == 1 else None
 
 
 def _normalise_sec_cik(value: object) -> str | None:
@@ -368,17 +359,8 @@ def _validate_sec_raw_document(
 def _sec_identity_matches(cik: str, instrument_id: str) -> bool:
     """Accept an explicit instrument only when the persisted CIK mapping is unique."""
 
-    try:
-        import pandas as pd
-
-        frame = pd.read_parquet(IDENTITY_PATH)
-        if "cik" not in frame.columns or "instrument_id" not in frame.columns:
-            return False
-        values = frame["cik"].map(lambda value: str(value).strip().upper().removeprefix("CIK").zfill(10))
-        candidates = sorted({str(value).strip() for value in frame.loc[values == cik, "instrument_id"] if str(value).strip()})
-        return len(candidates) == 1 and candidates[0] == instrument_id
-    except (OSError, ValueError, TypeError, ImportError):
-        return False
+    persisted = _persisted_sec_instruments(cik, instrument_id)
+    return persisted is not None and len(persisted) == 1 and persisted[0] == instrument_id
 
 
 def _load_vendor_statement_claims(instrument_id: str) -> tuple[dict[str, object], ...]:
@@ -391,8 +373,9 @@ def _load_vendor_statement_claims(instrument_id: str) -> tuple[dict[str, object]
         if not path.exists():
             return ()
         frame = pd.read_parquet(path)
-        if "instrument_id" in frame.columns:
-            frame = frame[frame["instrument_id"].astype(str) == instrument_id]
+        if "instrument_id" not in frame.columns:
+            return ()
+        frame = frame[frame["instrument_id"] == instrument_id]
         concept_columns = {"concept", "canonical_metric"} & set(frame.columns)
         period_columns = {"period", "end", "instant", "as_of_date"} & set(frame.columns)
         if not concept_columns or "unit" not in frame.columns or not period_columns:

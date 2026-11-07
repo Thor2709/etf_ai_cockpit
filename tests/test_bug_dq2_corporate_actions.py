@@ -172,7 +172,9 @@ def test_conflicting_old_action_is_ignored_with_the_rest_of_the_chart() -> None:
     old_a = _action("SPLIT-OLD-A", "split", ratio=2.0, ex_date="2019-05-02", source="provider:a")
     old_b = _action("SPLIT-OLD-B", "split", ratio=3.0, ex_date="2019-05-02", source="provider:b")
     result = apply_total_return_adjustments(_prices(["2024-01-10", "2024-01-11"], [100.0, 101.0]), (old_a, old_b))
-    assert result.status == "available"
+    # PX audit: conflicting provider vintages are resolved before range filtering and must
+    # quarantine the chart even when the actions predate it (they may not silently vanish).
+    assert result.status == "quarantined"
 
 
 # --- A010-N004 -------------------------------------------------------------------------

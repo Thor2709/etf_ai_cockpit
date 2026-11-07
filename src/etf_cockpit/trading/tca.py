@@ -376,14 +376,14 @@ def _forecast_total(forecast: Mapping[str, object] | None) -> tuple[str | None, 
     currency = _text(forecast.get("currency"))
     total = _number(forecast.get("total_cost_eur"))
     if total is not None:
-        return currency or "EUR", total
+        return "EUR", total
     total = _number(forecast.get("total_cost"))
     if total is not None:
         return currency, total
     cost_bps = _number(forecast.get("total_cost_bps"))
     order_value = _number(forecast.get("order_value_eur"))
     if cost_bps is not None and order_value is not None:
-        return currency or "EUR", order_value * cost_bps / 10_000.0
+        return "EUR", order_value * cost_bps / 10_000.0
     return currency, None
 
 

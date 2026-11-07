@@ -157,8 +157,6 @@ class SignalResult:
             object.__setattr__(self, "legacy_action", str(self.action).strip() or None)
         if self.research_state is ResearchState.MANUAL_REVIEW:
             object.__setattr__(self, "research_state", research_state_for_legacy_action(self.action))
-        if self.internal_intent is InternalSignalIntent.NONE:
-            object.__setattr__(self, "internal_intent", internal_intent_for_legacy_action(self.action))
         raw_analysis_status = str(self.analysis_status or "").strip().casefold()
         valid_analysis_status = raw_analysis_status in {"complete", "partial", "unavailable"}
         object.__setattr__(self, "analysis_status", normalise_analysis_status(raw_analysis_status))
@@ -177,7 +175,19 @@ class SignalResult:
             object.__setattr__(self, "research_promotion_allowed", False)
             object.__setattr__(self, "portfolio_review_allowed", False)
         object.__setattr__(self, "execution_allowed", False)
-        if self.authority_decision is None and valid_analysis_status and self.analysis_status == "unavailable":
+        intent_blocked = bool(self.blocked_by) or self.status in {"blocked", "failed"} or (
+            self.research_state not in {ResearchState.RESEARCH_CANDIDATE, ResearchState.HOLD_REVIEW, ResearchState.AVOID}
+        ) or (
+            self.authority_decision is not None and (
+                any(not gate.passed for gate in self.authority_decision.gates)
+                or (self.research_state is ResearchState.RESEARCH_CANDIDATE and not self.research_promotion_allowed)
+            )
+        )
+        if intent_blocked:
+            object.__setattr__(self, "internal_intent", InternalSignalIntent.NONE)
+        elif self.internal_intent is InternalSignalIntent.NONE:
+            object.__setattr__(self, "internal_intent", internal_intent_for_legacy_action(self.action))
+        if self.authority_decision is None and valid_analysis_status and self.analysis_status == "unavailable" and not intent_blocked:
             derived: AnalysisStatus = "partial" if self.blocked_by or self.warnings else "complete"
             object.__setattr__(self, "analysis_status", derived)
 

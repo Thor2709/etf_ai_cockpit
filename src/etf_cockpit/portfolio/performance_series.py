@@ -217,12 +217,12 @@ def build_portfolio_performance_series(
     # The last saved valuation before the range start anchors the first in-range
     # day's flow-adjusted return and P&L. It is never part of the displayed range,
     # the rebased TWR index or drawdown baseline.
+    range_mask = normalized["date"].ge(pd.Timestamp(range_start)) & normalized["date"].le(pd.Timestamp(range_end))
     anchor = normalized.loc[normalized["date"].lt(pd.Timestamp(range_start))].tail(1)
-    extended = pd.concat([anchor, selected], ignore_index=True)
-    rates = _conversion_rates(extended, selected_currency, fx_rates)
-    converted_extended = _convert_snapshots(extended, rates)
-    anchor_converted = converted_extended.iloc[: len(anchor)]
-    converted = converted_extended.iloc[len(anchor) :].reset_index(drop=True)
+    rates = _conversion_rates(normalized, selected_currency, fx_rates)
+    converted_history = _convert_snapshots(normalized, rates)
+    anchor_converted = converted_history.loc[anchor.index].reset_index(drop=True)
+    converted = converted_history.loc[range_mask].reset_index(drop=True)
     periods = _periods(range_start, range_end, selected_aggregation, selected["date"])
     points: list[PerformancePoint] = []
     daily_drawdowns: dict[int, tuple[float | None, str | None]] = {}
@@ -297,7 +297,7 @@ def build_portfolio_performance_series(
             point_value, metric_reason = daily_drawdowns[period_rows.index[-1]]
         else:
             previous_session: pd.DataFrame | None = None
-            if selected_metric == "twr_return" and selected_aggregation == "day":
+            if selected_metric in {"twr_return", "investment_pnl"} and selected_aggregation == "day":
                 earlier = selected.loc[selected["date"].lt(period_rows.iloc[0]["date"])].tail(1)
                 previous_session = earlier if not earlier.empty else anchor
             point_value, metric_reason = _metric_value(
@@ -602,6 +602,13 @@ def _metric_value(
         return None, "Drawdown requires the selected range's cumulative TWR index."
     if metric == "investment_pnl":
         if aggregation == "day":
+            if previous_session is None or previous_session.empty:
+                return None, "A prior saved valuation is required for daily investment P&L."
+            gap = expected_session_dates(previous_session.iloc[-1]["date"], period_rows.iloc[-1]["date"]).difference(
+                pd.DatetimeIndex([previous_session.iloc[-1]["date"], period_rows.iloc[-1]["date"]])
+            )
+            if not gap.empty:
+                return None, f"Missing daily valuation snapshots for dates: {', '.join(gap.strftime('%Y-%m-%d'))}."
             daily_pnl = _finite(converted_period.iloc[-1]["investment_pnl"])
             return (daily_pnl, None) if daily_pnl is not None else (None, "The saved daily investment P&L is unavailable.")
         anchored_rows = period_rows if prior_rows is None else pd.concat([prior_rows, period_rows])
@@ -616,6 +623,8 @@ def _metric_value(
             return None, "Saved net external flows are unavailable."
         return float(values.sum()), None
     if metric == "income":
+        if not period_rows["flow_status"].eq("available").all():
+            return None, "Unavailable flow classifications prevent income aggregation."
         dividends = pd.to_numeric(converted_period["dividends"], errors="coerce")
         coupons = pd.to_numeric(converted_period["coupons"], errors="coerce")
         if dividends.isna().any() or coupons.isna().any():
@@ -623,6 +632,8 @@ def _metric_value(
         value = float(dividends.sum() + coupons.sum())
         return (value, None) if math.isfinite(value) else (None, "Income total is invalid.")
     if metric == "fees_tax":
+        if not period_rows["flow_status"].eq("available").all():
+            return None, "Unavailable flow classifications prevent fees and tax aggregation."
         fees = pd.to_numeric(converted_period["fees"], errors="coerce")
         taxes = pd.to_numeric(converted_period["taxes"], errors="coerce")
         if fees.isna().any() or taxes.isna().any():

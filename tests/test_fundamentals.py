@@ -50,8 +50,9 @@ def test_complete_five_section_negative_evidence_remains_score_eligible() -> Non
     claims = _complete_claims()
     claims["valuation"] = -1.0
     evidence = build_fundamental_evidence(claims, "MSFT", "2026-07-10", today=date(2026, 7, 18))
-    assert evidence.eligibility == "eligible_negative_evidence"
-    assert evidence.score_eligible is True
+    assert evidence.eligibility == "not_score_eligible"
+    assert evidence.score_eligible is False
+    assert "ambiguous_available_at" in evidence.warnings
 
 
 def test_strict_fundamentals_require_all_five_sections_for_score() -> None:
@@ -453,7 +454,8 @@ def test_fundamental_persistence_preserves_section_provenance(tmp_path) -> None:
     assert '"period_end":"2026-06-30"' in row["sections_json"]
     assert '"source_id":"sec-filing-2026-q2"' in row["sections_json"]
     assert '"source_authority":"sec_edgar"' in row["sections_json"]
-    assert assessment.score_eligible is True
+    assert assessment.score_eligible is False
+    assert "ambiguous_available_at" in assessment.reasons
     assert row["schema_version"] == FUNDAMENTAL_SCHEMA_VERSION == "fundamental_evidence.v4"
     assert bool(row["executable_authority"]) is False
 

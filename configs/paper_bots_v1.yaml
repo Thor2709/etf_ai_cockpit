@@ -1,5 +1,6 @@
 schema_version: paper_bots.v1
-initial_virtual_cash_eur: 10000.0
+# Owner spec 2026-10-22: EUR 40000 virtual capital, no monthly contribution.
+initial_virtual_cash_eur: 40000.0
 monthly_contribution_eur: 0.0
 # Only snapshots published within the previous day can start a forward decision.
 max_snapshot_age_hours: 24
@@ -16,11 +17,15 @@ bots:
   - family_id: B0
     strategy: benchmark
     name: VWCE buy and hold
+    # Buys the initial capital of VWCE on day one and holds forever: it decides once and never rebalances.
   - family_id: B1
     strategy: top_n
     name: Top 10 gated canonical ranks
     top_n: 10
     asset_types: [ETF, STOCK]
+    # Horizon 3-6 months; the portfolio is rebalanced every month, counted from the bot's first decision month.
+    horizon_months: [3, 6]
+    rebalance_every_months: 1
   - family_id: B2
     strategy: core_sleeve
     name: VWCE core plus gated candidate sleeve
@@ -28,3 +33,16 @@ bots:
     sleeve_weight: 0.2
     sleeve_top_n: 5
     sleeve_action: CANDIDATE_BUY
+    # Horizon 6-12 months; rebalanced every quarter.
+    horizon_months: [6, 12]
+    rebalance_every_months: 3
+  - family_id: B3
+    strategy: core_sleeve
+    name: VWCE core plus gated candidate sleeve, half-yearly
+    core_weight: 0.8
+    sleeve_weight: 0.2
+    sleeve_top_n: 5
+    sleeve_action: CANDIDATE_BUY
+    # Multi-year horizon; rebalanced every half year (12 = yearly is an allowed value).
+    horizon_months: [24, 60]
+    rebalance_every_months: 6

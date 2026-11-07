@@ -6,6 +6,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from etf_cockpit.analysis.decision.contracts import DecisionDriver, DomainSlot
 from etf_cockpit.analysis.decision.opportunity import (
     _benchmark_scores,
@@ -230,14 +232,20 @@ def test_benchmark_rankers_use_scored_components_and_preserve_missing_scores() -
         "assessment": None,
     }
 
-    scores = _benchmark_scores(state)
+    # M/R/G are raw v3 scores: without a cohort scale they cannot enter the z-score composites.
+    unscaled = _benchmark_scores(state)
+    assert unscaled["M"] == 0.3 and unscaled["R"] == -0.4
+    assert unscaled["QVM"] is None and unscaled["five_factor"] is None
+
+    scales = {"M": (0.0, 0.5), "R": (0.0, 0.2), "G": (0.1, 0.2)}
+    scores = _benchmark_scores(state, scales)
     assert scores["M"] == 0.3
     assert scores["R"] == -0.4
-    assert scores["QVM"] == (2.0 + 1.0 + 0.3) / 3
-    assert scores["five_factor"] == (1.0 + 0.5 + 2.0 + 0.3 - 0.4) / 5
+    assert scores["QVM"] == pytest.approx((2.0 + 1.0 + 0.6) / 3)
+    assert scores["five_factor"] == pytest.approx((1.0 + 2.0 + 2.0 + 0.6 - 2.0) / 5)
 
     signal.components.momentum = None
-    missing = _benchmark_scores(state)
+    missing = _benchmark_scores(state, scales)
     assert missing["M"] is None
     assert missing["QVM"] is None
 

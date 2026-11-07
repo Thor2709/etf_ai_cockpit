@@ -67,7 +67,8 @@ def _period(
     }
     values.update(overrides)
     known = datetime.fromisoformat(known_at or f"{year + 1}-02-15").replace(tzinfo=UTC)
-    return sm.Period(date(year, 12, 31), "FY", known, "EUR", source, values)
+    return sm.Period(date(year, 12, 31), "FY", known, "EUR", source, values,
+                     field_sources={"shares_outstanding": "sec_dei"})
 
 
 def test_cash_only_sec_balance_keeps_cash_and_uses_a_covered_lower_bound() -> None:
@@ -275,7 +276,12 @@ def test_unattributed_consolidated_income_is_unavailable_when_nci_exists(income_
     initial = next(r for r in sources.parse_edgar_companyfacts(initial_payload, config, source_ref="first") if r["period_type"] == "FY")
     later = {**row, "known_at": "2026-03-10"}
     fallback = {**initial, "source": "yfinance", "known_at": "2026-03-11"}
-    versions = store.periods_for("T", pd.DataFrame([{**item, "instrument_id": "T"} for item in (initial, later, fallback)]), ["sec_edgar", "yfinance"])
+    reported_shares = {
+        "period_end": initial["period_end"], "period_type": "SHARES", "currency": "",
+        "known_at": initial["known_at"], "available_at": initial["known_at"],
+        "source": "sec_dei", "shares_outstanding": 10.0,
+    }
+    versions = store.periods_for("T", pd.DataFrame([{**item, "instrument_id": "T"} for item in (initial, later, fallback, reported_shares)]), ["sec_edgar", "yfinance"])
     market = MarketInputs(price=50.0, price_currency="USD", shares_fallback=10.0, shares_fallback_known_at=datetime(2026, 2, 10, tzinfo=UTC))
     earlier = build_stock_evidence("T", versions, datetime(2026, 2, 20, tzinfo=UTC), market, None, CONFIG)
     assert earlier.metrics["net_income"].value == 100.0

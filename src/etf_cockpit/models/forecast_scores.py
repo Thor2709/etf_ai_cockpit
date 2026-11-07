@@ -364,7 +364,12 @@ def _scoreable_forecast_rows(frame: pd.DataFrame, decision_time: object = None) 
     frame = frame[(frame["status"].astype(str).str.lower() == "ok") & allowed]
     frame = frame.dropna(subset=["etf_id", "model_name", "horizon_days", "expected_return"])
     mock = _is_mock_forecast_row(frame)
-    finite = np.isfinite(frame["horizon_days"]) & np.isfinite(frame["expected_return"]) & (frame["horizon_days"] > 0)
+    finite = (
+        np.isfinite(frame["horizon_days"])
+        & frame["horizon_days"].eq(np.floor(frame["horizon_days"]))
+        & np.isfinite(frame["expected_return"])
+        & (frame["horizon_days"] > 0)
+    )
     if bool(mock.any()):
         _LOGGER.warning("Dropped %d mock forecast row(s) from the score map: mock output is never scoreable.", int(mock.sum()))
     if bool((~finite).any()):
@@ -566,10 +571,20 @@ def forecast_return_distributions(
         validations_by_model: dict[str, dict[str, object]] = {}
         model_identities_valid_by_model: dict[str, bool] = {}
         for _, model_frame in instrument_frame.groupby("model_name", sort=True):
-            exact_horizon = model_frame.loc[model_frame["horizon_days"].eq(horizon_days)]
-            if exact_horizon.empty:
+            model_name = str(model_frame["model_name"].iloc[0])
+            if model_name == "timesfm3" and instrument_frame["model_name"].eq("timesfm").any():
                 continue
-            selected = _latest_row(exact_horizon)
+            exact_horizon = model_frame.loc[model_frame["horizon_days"].eq(horizon_days)]
+            if model_name in {"timesfm", "timesfm3"}:
+                family_rows = instrument_frame.loc[
+                    instrument_frame["model_name"].isin({"timesfm", "timesfm3"})
+                    & instrument_frame["horizon_days"].eq(horizon_days)
+                ]
+                selected = _select_model_row(family_rows, "timesfm", str(instrument_id))
+            else:
+                selected = _latest_row(exact_horizon)
+            if exact_horizon.empty and model_name not in {"timesfm", "timesfm3"}:
+                continue
             if selected is None:
                 continue
             if _target_identity_rejected(selected.get("target_id"), horizon_days):

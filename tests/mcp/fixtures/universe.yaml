@@ -1,0 +1,9 @@
+﻿etfs:
+  - id: VWCE
+    name: Fixture World ETF
+    isin: IE00BK5BQT80
+    ticker: VWCE.DE
+    currency: EUR
+    instrument_type: etf
+    tier: primary
+    enabled: true

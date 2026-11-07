@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from typing import Mapping
 
 from etf_cockpit.core.config import AppConfig
@@ -86,34 +87,49 @@ def _distribution_action(
     risk = score_distribution.get("risk_implementation")
     evidence = score_distribution.get("evidence_confidence")
     coverage = score_distribution.get("coverage")
-    if any(value is None for value in (attractiveness, expected_return, risk, evidence, coverage)):
+    # Forecast-domain rank weight is zero until an explicit promotion. A
+    # missing disabled forecast must not veto deterministic evidence (D12).
+    forecast_weight = score_distribution.get("forecast_weight", 0.0)
+    required = (attractiveness, risk, evidence, coverage, forecast_weight)
+    try:
+        if any(value is None or not math.isfinite(float(value)) for value in required):
+            return "hold"
+        if float(forecast_weight) < 0 or (float(forecast_weight) > 0 and expected_return is None):
+            return "hold"
+        if expected_return is not None and not math.isfinite(float(expected_return)):
+            return "hold"
+    except (TypeError, ValueError):
         return "hold"
     if float(coverage) < 0.5 or float(evidence) < 0.5:
         return "hold"
 
     limits = config.risks.signal_limits
-    if drift > hard_band and (float(attractiveness) < 0.45 or float(expected_return) < 0.45 or float(risk) < 0.40):
+    return_weak = expected_return is not None and float(expected_return) < 0.45
+    return_strong = expected_return is None or float(expected_return) >= 0.55
+    return_sell = expected_return is None or float(expected_return) <= 0.40
+    if drift > hard_band and (float(attractiveness) < 0.45 or return_weak or float(risk) < 0.40):
         if confidence >= limits.min_confidence_for_trim:
             return "trim"
-    if drift < -hard_band and float(attractiveness) >= 0.55 and float(expected_return) >= 0.55 and float(risk) >= 0.45:
+    if drift < -hard_band and float(attractiveness) >= 0.55 and return_strong and float(risk) >= 0.45:
         if confidence >= limits.min_confidence_for_buy:
             return "buy" if current_weight <= 0 else "add"
     if (
         float(attractiveness) <= 0.35
-        and float(expected_return) <= 0.40
+        and return_sell
         and float(risk) <= 0.40
         and confidence >= 0.65
         and current_weight > 0
         and trend_200 <= 0
     ):
         return "sell"
-    if current_weight > 0 and (float(attractiveness) < 0.45 or float(expected_return) < 0.45 or float(risk) < 0.40):
+    if current_weight > 0 and (float(attractiveness) < 0.45 or return_weak or float(risk) < 0.40):
         if confidence >= limits.min_confidence_for_trim:
             return "trim"
-    if float(attractiveness) >= 0.60 and float(expected_return) >= 0.55 and float(risk) >= 0.50:
+    if float(attractiveness) >= 0.60 and return_strong and float(risk) >= 0.50:
         if confidence >= limits.min_confidence_for_buy:
             return "buy" if current_weight <= 0 else "add"
-    if limits.no_trade_lower < float(attractiveness) < limits.no_trade_upper and abs(drift) <= hard_band:
+    attractiveness_raw = 2.0 * float(attractiveness) - 1.0
+    if limits.no_trade_lower < attractiveness_raw < limits.no_trade_upper and abs(drift) <= hard_band:
         return "no_trade"
     return "hold"
 

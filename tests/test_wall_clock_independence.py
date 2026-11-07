@@ -113,5 +113,7 @@ def test_partial_fill_buying_power_depends_on_the_as_of_not_the_wall_clock(tmp_p
 
     on_fill_day = datetime(2026, 9, 30, 11, tzinfo=timezone.utc)
     after_settlement = datetime(2099, 1, 1, tzinfo=timezone.utc)
-    assert lifecycle.available_buying_power(account_id="account-1", currency="EUR", as_of=on_fill_day) == Decimal("899.85")
-    assert lifecycle.available_buying_power(account_id="account-1", currency="EUR", as_of=after_settlement) == Decimal("899.85")
+    # A16 (TRADE): reserve the remaining 6/10 of the fee estimate; the
+    # filled quantity already carries its actual fee. Keep the date-bomb check.
+    assert lifecycle.available_buying_power(account_id="account-1", currency="EUR", as_of=on_fill_day) == Decimal("899.95")
+    assert lifecycle.available_buying_power(account_id="account-1", currency="EUR", as_of=after_settlement) == Decimal("899.95")

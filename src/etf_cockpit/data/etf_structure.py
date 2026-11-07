@@ -146,8 +146,16 @@ def _read_local_structural_rows(path: object, default_document_type: str) -> pd.
             "known_at": source.get("known_at") or source.get("ingested_at") or source.get("imported_at"),
             "page": source.get("page") or source.get("source_page"),
             "confidence": source.get("confidence"),
-            "status": source.get("status", "unknown"),
+            "status": source.get("status"),
         }
+        common.update({
+            alias: source.get(alias)
+            for alias in (
+                "coverage_status", "document_status", "document_source_id", "registered_source_id",
+                "source_sha256", "document_checksum", "document_known_at", "document_page",
+                "reporting_period_end",
+            )
+        })
         if source.get("field_name") or source.get("field"):
             records.append({**common, "field_name": source.get("field_name") or source.get("field"), "value": source.get("value")})
             continue
@@ -377,7 +385,7 @@ def project_etf_structure(
     rejected = [*rejected_registry, *rejected_candidates, *supplemental_rejections, *holding_rejections]
     if supplied_report_error:
         rejected.append({"reason_code": "supplied_report_records_invalid", "detail": supplied_report_error})
-    selected_sources = _latest_sources(registry, candidates)
+    selected_sources = _latest_sources(registry)
     usable = [item for item in candidates if item.source_id in selected_sources.get(_family(item.document_type), set())]
     visible_report_conflicts = _visible_report_conflict_fields(
         validated_reports, registry, target, decision, selected_sources=selected_sources
@@ -1090,7 +1098,7 @@ def _supplemental_candidates(
         source_id = _text(row.get("document_source_id")) or _text(row.get("registered_source_id")) or _text(row.get("source_id"))
         registered = registry_by_id.get(source_id or "")
         document_type = _text(row.get("document_type")) or default_document_type
-        page = _page(row.get("page", row.get("source_page", row.get("document_page"))))
+        page = _page(row.get("page")) or _page(row.get("source_page")) or _page(row.get("document_page"))
         value_text = _text(row.get("value"))
         row_checksum = _agreed_alias(
             row, ("source_sha256", "sha256", "checksum", "document_checksum"), _text
@@ -1132,7 +1140,7 @@ def _supplemental_candidates(
                 reason = "candidate_holdings_stale"
             elif completeness != "full":
                 reason = "candidate_holdings_incomplete"
-            elif authority != "issuer":
+            elif authority not in {"issuer", "official"}:
                 reason = "candidate_holdings_authority_ineligible"
             elif score_eligible is not True:
                 reason = "candidate_holdings_not_score_eligible"
@@ -1191,17 +1199,14 @@ def _make_candidate(target: str, field: str, value: str, source_id: str, registe
     ), ""
 
 
-def _latest_sources(registry: list[dict[str, object]], candidates: Iterable[StructureCandidate] = ()) -> dict[str, set[str]]:
+def _latest_sources(registry: list[dict[str, object]]) -> dict[str, set[str]]:
     result: dict[str, set[str]] = {}
     grouped: dict[tuple[str, str], list[dict[str, object]]] = {}
-    candidate_source_ids = {item.source_id for item in candidates}
     for row in registry:
         family = _family(str(row.get("document_kind") or row.get("document_type") or ""))
         if family not in DOCUMENT_FAMILIES:
             continue
         if str(row.get("coverage_status") or "available") not in _USABLE_STATUSES:
-            continue
-        if candidate_source_ids and str(row.get("source_id")) not in candidate_source_ids:
             continue
         kind = _text(row.get("document_kind")) or _text(row.get("document_type")) or ""
         normalised_kind = kind.casefold().replace("-", "_")
@@ -1936,6 +1941,13 @@ def _timestamp(value: object) -> datetime:
         return value.astimezone(timezone.utc) if value.tzinfo else value.replace(tzinfo=timezone.utc)
     if isinstance(value, date):
         return datetime.combine(value, time(23, 59, 59), tzinfo=timezone.utc)
+    if isinstance(value, str):
+        try:
+            date_only = date.fromisoformat(value)
+        except ValueError:
+            pass
+        else:
+            return datetime.combine(date_only, time(23, 59, 59), tzinfo=timezone.utc)
     return _parse_timestamp(str(value))
 
 

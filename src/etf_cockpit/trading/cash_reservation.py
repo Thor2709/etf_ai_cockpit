@@ -311,7 +311,8 @@ class CashReservationService:
             ).fetchall()
         except sqlite3.OperationalError as exc:
             raise CashReservationError(unavailable + "lifecycle journal is missing.") from exc
-        remaining = decimal_value(row[3], "original quantity", positive=True)
+        original_quantity = decimal_value(row[3], "original quantity", positive=True)
+        remaining = original_quantity
         if row[8] not in {"buy", "sell"} or remaining != decimal_value(row[10], "intent quantity", positive=True):
             raise CashReservationError(unavailable + "intent terms conflict.")
         price = decimal_value(row[4], "limit price", non_negative=True)
@@ -353,7 +354,8 @@ class CashReservationService:
                 active = remaining > 0
             if state in {"CANCELLED", "REJECTED"}:
                 active = False
-            amount = self._reservation_amount(remaining, price, fee) if active and row[8] == "buy" else Decimal("0")
+            remaining_fee = fee * remaining / original_quantity if remaining > 0 else Decimal("0")
+            amount = self._reservation_amount(remaining, price, remaining_fee) if active and row[8] == "buy" else Decimal("0")
             if instant <= cutoff:
                 amount_at_cutoff = amount
             prior, previous_time = state, instant
@@ -425,8 +427,11 @@ class CashReservationService:
             raise CashReservationError("The fill account or currency does not match its reservation.")
         if remaining_quantity < 0 or remaining_quantity > original_quantity:
             raise CashReservationError("The remaining fill quantity is outside the original order quantity.")
+        remaining_fee_estimate = (
+            fee_estimate * remaining_quantity / original_quantity if remaining_quantity > 0 else Decimal("0")
+        )
         amount = (
-            self._reservation_amount(remaining_quantity, limit_price, fee_estimate)
+            self._reservation_amount(remaining_quantity, limit_price, remaining_fee_estimate)
             if remaining_quantity > 0 and side == "buy"
             else Decimal("0")
         )
@@ -493,5 +498,5 @@ class CashReservationService:
 
     @staticmethod
     def _reservation_amount(quantity: Decimal, limit_price: Decimal, fee_estimate: Decimal) -> Decimal:
-        # Keep the complete fee estimate until the order finishes or is cancelled.
+        # The caller supplies the fee estimate allocated to the remaining quantity.
         return quantity * limit_price + fee_estimate

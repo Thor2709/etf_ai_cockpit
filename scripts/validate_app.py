@@ -99,6 +99,7 @@ def run_validation(
     phase_ids: Iterable[str] = (),
     report_root: Path | None = None,
     report_only: bool = False,
+    tests_covered_by_release_gate: bool = False,
 ) -> ValidationRun:
     """Run a local validation scope and write ``latest/validation.{json,md}``."""
 
@@ -118,6 +119,8 @@ def run_validation(
         "issue_ids": sorted({str(value) for value in issue_ids if str(value).strip()}),
         "phase_ids": sorted({str(value) for value in phase_ids if str(value).strip()}),
     }
+    if tests_covered_by_release_gate:
+        scope["tests_covered_by_release_gate"] = True  # recorded in the report: focused pytest was delegated
 
     scope_check = _validate_scope(root, mode, scope)
     if scope_check is not None:
@@ -221,7 +224,12 @@ def _checks_for_mode(
     ]
     if mode == "changed":
         changed_tests = _changed_test_paths(root)
-        if changed_tests:
+        if changed_tests and scope.get("tests_covered_by_release_gate") is True:
+            # The required full release-gate shards run every test; do not repeat the focused selection here.
+            shown = ", ".join(changed_tests[:5]) + (f" (+{len(changed_tests) - 5} more)" if len(changed_tests) > 5 else "")
+            message = f"Focused tests not run here; covered by the required release-gate shards: {shown}"
+            checks.append(_Check("changed_tests_covered_by_release_gate", (python, "-c", f"print({message!r})")))
+        elif changed_tests:
             junit_dir = report_dir or root / REPORT_DIRECTORY / "latest"
             workers = release_gate.resolve_xdist_workers()
             if workers > 0:
@@ -545,6 +553,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="record evidence without promotion actions; mandatory failures remain non-zero",
     )
+    parser.add_argument(
+        "--tests-covered-by-release-gate",
+        action="store_true",
+        help="with --changed: skip the focused pytest run because the required full release-gate shards run it",
+    )
     parser.add_argument("--issue", action="append", default=[], help="scope validation to a canonical issue ID")
     parser.add_argument("--phase", action="append", default=[], help="scope validation to a roadmap phase")
     parser.add_argument("--root", type=Path, default=Path.cwd())
@@ -574,6 +587,7 @@ def main(argv: list[str] | None = None) -> int:
             issue_ids=args.issue,
             phase_ids=args.phase,
             report_only=args.report_only,
+            tests_covered_by_release_gate=args.tests_covered_by_release_gate,
         )
     except (FileNotFoundError, ValueError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)

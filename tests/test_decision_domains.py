@@ -511,7 +511,7 @@ def test_legacy_v3_hash_and_reference_score_are_unchanged() -> None:
     # attractiveness reference score is (0.1325*0.8 + 0.1135*0.4) / 0.246 -> 8.1 (it was 7.5 with RS weighted).
     # FPQ: etf_exposure moved to risk role, non-price ETF families rescaled pro rata (v3.2.0 was 786f3645f6461d7f8c663f202d8ff8dbd52b7b768d4e1619b2f8d110997bab34).
     assert policy.formula_version == "score-engine-v3.3.0"
-    assert policy.formula_checksum == "77829855ab2daa8628757903e4cdd84bec5ec86f9eed3c37b9b2dfb27fdd580e"
+    assert policy.formula_checksum == "bcffa68b7a6455a62c53ff6ad0f24ab379629f7ed2e4191db3b3643933481b44"  # D3: STOCK headline weights changed.
     assert score.attractiveness_10 == pytest.approx(8.1, abs=1e-12)  # score_10 is rounded to 0.1
 
 

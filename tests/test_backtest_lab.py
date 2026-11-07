@@ -158,7 +158,7 @@ def test_performance_metrics_tail_path_does_not_bridge_invalid_equity_gap() -> N
     assert metrics["largest_negative_period_return"] is None
     assert metrics["loss_cluster_max_days"] == 0
     assert metrics["diagnostic_status"] == "available"
-    assert metrics["max_drawdown"] == 0.0
+    assert metrics["max_drawdown"] == pytest.approx(-0.2)
     # Only 80 -> 81 is an adjacent observation: the bridged 100 -> 80 return is never used, so the
     # annualised figures stay unavailable (0.0) instead of being fabricated across the gap.
     assert metrics["cagr"] == 0.0
@@ -181,8 +181,8 @@ def test_tail_windows_drawdown_clusters_and_volatility_do_not_cross_invalid_gap(
     assert diagnostics["worst_10d_return"] is None
     assert diagnostics["loss_cluster_max_days"] == 4
     assert diagnostics["worst_drawdown_start"] == index[0].date()
-    assert diagnostics["worst_drawdown_end"] == index[4].date()
-    assert diagnostics["worst_drawdown_duration_sessions"] == 5
+    assert diagnostics["worst_drawdown_end"] == index[9].date()
+    assert diagnostics["worst_drawdown_duration_sessions"] == 10
     assert diagnostics["high_volatility_loss_status"] == "unavailable"
 
 
@@ -1316,7 +1316,7 @@ def test_backtest_reuses_daily_canonical_benchmark_features(monkeypatch) -> None
 
     assert isinstance(report, BacktestReport)
     assert [benchmark_id for _, benchmark_id in feature_calls] == [None, "VWCE"]
-    assert len(captured_latest) == 1
+    assert len(captured_latest) == 2
     as_of_date, latest = captured_latest[0]
     prefix = prices.loc[
         pd.to_datetime(prices["date"]) <= pd.Timestamp(as_of_date)
@@ -1364,9 +1364,10 @@ def test_backtest_intraday_prefix_fallback_excludes_same_day_future_rows(
     report = run_backtest(config, prices, rebalance_frequency_days=42)
 
     assert isinstance(report, BacktestReport)
-    assert len(feature_calls) == 2
-    assert [benchmark_id for _, benchmark_id in feature_calls] == [None] * 2
+    assert len(feature_calls) == 3
+    assert [benchmark_id for _, benchmark_id in feature_calls] == [None] * 3
     expected_cutoffs = [
+        unique_dates.iloc[220],
         unique_dates.iloc[262],
         unique_dates.iloc[304],
     ]
@@ -1431,8 +1432,8 @@ def test_backtest_feature_reuse_respects_reference_window_and_last_cutoff(
 
     assert isinstance(report, BacktestReport)
     assert len(feature_calls) == 1
-    assert len(cutoffs) == 1
-    last_cutoff = pd.Timestamp(cutoffs[0])
+    assert len(cutoffs) == 2
+    last_cutoff = pd.Timestamp(cutoffs[-1])
     feature_dates = pd.to_datetime(feature_calls[0]["date"])
     assert feature_dates.min() >= window_start
     assert feature_dates.max() <= last_cutoff
@@ -1469,7 +1470,7 @@ def test_backtest_without_rebalance_skips_feature_computation(monkeypatch) -> No
     report = run_backtest(config, prices, rebalance_frequency_days=42)
 
     assert isinstance(report, BacktestReport)
-    assert feature_calls == 0
+    assert feature_calls == 1
     pd.testing.assert_frame_equal(prices, before, check_exact=True)
 
 

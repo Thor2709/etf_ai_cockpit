@@ -77,6 +77,11 @@ class SignalService:
         # Bind to the enabled universe, exactly like the snapshot and score consumers do.
         universe_prices = prices[prices["etf_id"].astype(str).isin(set(self.config.universe.enabled_ids))]
         calculation_window = _calculation_window(reference_context, effective_date, universe_prices)
+        decision_time = (
+            pd.Timestamp(calculation_window["decision_time"])
+            if calculation_window is not None
+            else pd.Timestamp(effective_date, tz="UTC") + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
+        )
         price_binding = (
             None
             if calculation_window is None
@@ -174,14 +179,14 @@ class SignalService:
             structure_confidence_caps=structure_caps,
             historical_forecasts=load_forecast_history(),
             calibration_prices=prices,
-            decision_time=pd.Timestamp(effective_date, tz="UTC"),
+            decision_time=decision_time,
         )
         _run_decision_shadow_guard(
             self.config,
             signals,
             decision_time=effective_date,
             latest_features=latest,
-            price_history=feature_frame,
+            price_history=prices,
         )
         return signals
 

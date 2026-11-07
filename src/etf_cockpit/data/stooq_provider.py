@@ -15,8 +15,9 @@ from etf_cockpit.data.providers import PriceProvider
 class StooqProvider(PriceProvider):
     name = "stooq"
 
-    def __init__(self, section: ProviderSection | None = None) -> None:
+    def __init__(self, section: ProviderSection | None = None, *, http_get=None) -> None:
         self.section = section or ProviderSection()
+        self.http_get = http_get
 
     def _enabled(self) -> bool:
         return (self.section.active_provider or "none").strip().lower() not in {"", "none"}
@@ -43,7 +44,7 @@ class StooqProvider(PriceProvider):
             # A disabled provider never touches the network; an inverted range is not a request.
             return pd.DataFrame()
         url = f"https://stooq.com/q/d/l/?s={symbol.lower()}&d1={start:%Y%m%d}&d2={end:%Y%m%d}&i=d"
-        response = requests_get_checked(requests.get, url, allowed=same_host_https(url), timeout=30)
+        response = requests_get_checked(self.http_get or requests.get, url, allowed=same_host_https(url), timeout=30)
         response.raise_for_status()
         from io import StringIO
 

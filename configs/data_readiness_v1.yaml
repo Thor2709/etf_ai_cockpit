@@ -1,0 +1,40 @@
+# Data-readiness launch gate (PLAN-T4-20261023, decision D10). No replay and no paper/forward bot starts unless every
+# decision date in the chosen interval passes every check (scripts/data_readiness.py). Thresholds are the owner's D10
+# recommendations; the entries marked "default" are open parameters set conservatively (documented in the handoff).
+schema_version: 1
+policy_version: data-readiness-v1
+execution_allowed: false
+
+# default: one decision date per 5 benchmark sessions, the cadence of the weekly score backfill (score_backfill.DEFAULT_EVERY_SESSIONS).
+decision_cadence_sessions: 5
+
+# D10: at least this many scoreable stocks and ETFs per decision date (scored with a final score and admitted by the eligibility log).
+min_scoreable_stocks: 200
+min_scoreable_etfs: 10
+# default: at least 95% of known active index members must have a dated identity binding and a stored price by the decision date.
+min_index_member_coverage: 0.95
+# default: only exact "Stock" / "ETF" rows count (certificates and equity certificates never inflate the counts). Case-insensitive.
+stock_count_asset_types: [stock]
+etf_count_asset_types: [etf]
+
+# D10: at least 90% of admitted instruments have EVERY family with headline weight > 0 (score_engine_v3.yaml headline_evidence,
+# D2) available and fresh. Zero-weight families never block. An asset type outside both lists below is incomplete (never ETF by default).
+min_family_complete_share: 0.90
+stock_like_asset_types: [stock, certificate, equity certificate]
+etf_policy_asset_types: [etf]
+# default: the score engine's own freshness vocabulary (simple_scores: {"ok", "fresh"}); anything else is not fresh.
+fresh_statuses: [ok, fresh]
+
+# D10: prices on at least 99% of sessions. Applied twice: (a) per decision date, the share of admitted instruments with a price row
+# dated on or before the date and at most max_stale_business_days old (the backfill's own staleness gate); (b) over the interval, the
+# share of sessions (union of every date any instrument has a price) on which the benchmark calendar instrument has a price.
+min_price_coverage_share: 0.99
+max_stale_business_days: 5
+
+# D10: zero gate-wiring failures: every scored row of a decision date stores a non-empty list of per-gate results
+# (gate_id, passed, severity, reason) in this column. A missing column or an empty list is a failure, never assumed.
+max_gate_wiring_failures: 0
+gate_results_column: gate_results
+
+# default: how many instrument ids a gap line lists (counts are always complete).
+max_gap_ids_listed: 10

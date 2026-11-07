@@ -27,6 +27,14 @@ def run_cli(main: Callable[[], int], *, record_paper_bots: bool = False) -> int:
                     f"Invalid ETF_COCKPIT_ROOT: {recorder_root}. Expected an application root "
                     "containing configs/universe.yaml and data/."
                 )
+        if record_paper_bots:
+            from etf_cockpit.application.data_readiness import paper_bot_readiness_failure
+
+            today = datetime.now(timezone.utc).date()
+            readiness_failure = paper_bot_readiness_failure(recorder_root, today, today)
+            if readiness_failure is not None:
+                print(f"Pipeline paper bots blocked:\n{readiness_failure}")
+                return 1
         result = main()
         if result == 0 and record_paper_bots:
             try:
@@ -42,6 +50,7 @@ def run_cli(main: Callable[[], int], *, record_paper_bots: bool = False) -> int:
                         + ": "
                         + (paper_result.reason or "one or more decision records are unavailable.")
                     )
+                    return 1
                 from etf_cockpit.portfolio.paper_bots_execution import run_paper_bot_execution
 
                 execution_result = run_paper_bot_execution(datetime.now(timezone.utc), root=recorder_root)
@@ -54,8 +63,10 @@ def run_cli(main: Callable[[], int], *, record_paper_bots: bool = False) -> int:
                         + ": "
                         + (execution_result.reason or "one or more executions are unavailable.")
                     )
+                    return 1
             except Exception as exc:
                 print(f"Paper bots unavailable: {type(exc).__name__}.")
+                return 1
         return result
     except (OSError, ValueError, KeyError) as exc:
         from etf_cockpit.core.session_log import redact_text

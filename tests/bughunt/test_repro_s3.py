@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import math
 from datetime import date
 from types import SimpleNamespace as N
@@ -26,7 +27,8 @@ from etf_cockpit.signals.friction_edge import estimate_friction_adjusted_return
 
 def test_s3_01_valid_score_evidence_passes_authority():
     components = s._attach_component_provenance(
-        [s._component("momentum", 1.0, ""), s._component("etf_exposure", 1.0, "")],
+        # S3-03 lane: holdings evidence must carry its own vintage date to be fresh, score-eligible evidence.
+        [s._component("momentum", 1.0, ""), dataclasses.replace(s._component("etf_exposure", 1.0, ""), as_of_date="2025-12-31", freshness_status="ok")],
         "2026-01-01",
         date(2026, 1, 1),
     )

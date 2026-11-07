@@ -143,19 +143,30 @@ class EtfLiquidityReport:
 
 def _scope_prices(price_history: pd.DataFrame, instrument_id: str, as_of: object = None) -> pd.DataFrame:
     frame = price_history.copy()
-    for column in _QUOTE_ID_COLUMNS:
-        if column in frame.columns:
-            frame = frame[frame[column].astype(str).eq(str(instrument_id))]
-            break
+    identity_columns = [column for column in _QUOTE_ID_COLUMNS if column in frame.columns]
+    if identity_columns:
+        # Every populated identity column must name this instrument (as for quotes); a row whose
+        # identity columns disagree is rejected instead of trusting the first column present.
+        frame = frame[_quote_identity_matches(frame, identity_columns, str(instrument_id))]
     if "date" not in frame.columns:
         return pd.DataFrame()
     frame["_date"] = pd.to_datetime(frame["date"], errors="coerce", utc=True, format="mixed")
-    frame = frame[frame["_date"].notna()].sort_values("_date", kind="stable")
+    frame = frame[frame["_date"].notna()]
+    cutoff = None
     if as_of is not None:
         cutoff = _as_of_timestamp(as_of, None)
         if cutoff is None:
             return pd.DataFrame()
         frame = frame[frame["_date"].le(cutoff)]
+    if "known_at" in frame.columns:
+        frame["_known_at"] = pd.to_datetime(frame["known_at"], errors="coerce", utc=True, format="mixed")
+        if cutoff is not None:
+            # A revision learned after the cutoff, or one whose known_at cannot be parsed, was not knowable.
+            frame = frame[frame["_known_at"].notna() & frame["_known_at"].le(cutoff)]
+        # Several revisions of one close: keep the most recently known (never an input-order accident).
+        frame = frame.sort_values(["_date", "_known_at"], kind="stable", na_position="first")
+    else:
+        frame = frame.sort_values("_date", kind="stable")
     return frame.drop_duplicates("_date", keep="last")
 
 
@@ -405,7 +416,8 @@ def calculate_etf_liquidity(
     if "close" not in frame.columns or "volume" not in frame.columns:
         return _empty_report(instrument, "Price history lacks close or volume, so turnover capacity is unavailable.")
     close = pd.to_numeric(frame["close"], errors="coerce")
-    volume = pd.to_numeric(frame["volume"], errors="coerce").fillna(0.0).clip(lower=0.0)
+    # Missing volume stays NaN (never zero-filled): it is excluded from medians and leaves turnover unavailable.
+    volume = pd.to_numeric(frame["volume"], errors="coerce").clip(lower=0.0)
     valid = close.gt(0) & frame["_date"].notna()
     frame = frame.loc[valid].copy()
     close = close.loc[valid]
@@ -418,7 +430,8 @@ def calculate_etf_liquidity(
     # currency evidence leaves euro turnover unavailable.
     native_currency = _native_currency(config, frame, instrument)
     latest_date = frame["_date"].iloc[-1]
-    decision_time = as_of if as_of is not None else latest_date
+    # End-of-day cutoff (as for the price rows): same-day FX stamped after 00:00 UTC is knowable.
+    decision_time = _as_of_timestamp(as_of, latest_date)
     fx = _fx_context(fx_evidence, native_currency, decision_time)
     turnover_is_eur = fx["fx_rate_to_eur"] is not None
     fx_rate_to_eur = fx["fx_rate_to_eur"]
@@ -428,6 +441,9 @@ def calculate_etf_liquidity(
     recent_turnover = turnover.loc[recent.index]
     turnover_20 = _finite(recent_turnover.tail(20).median() * fx_rate_to_eur) if turnover_is_eur else None
     turnover_60 = _finite(recent_turnover.median() * fx_rate_to_eur) if turnover_is_eur else None
+    # Capacity, order ratio and cost ADV need a positive finite 20-day turnover; zero or all-missing
+    # volume is unavailable evidence, not a measured zero capacity.
+    capacity_turnover = turnover_20 if turnover_20 is not None and turnover_20 > 0 else None
     high = pd.to_numeric(recent.get("high"), errors="coerce") if "high" in recent.columns else pd.Series(dtype=float)
     low = pd.to_numeric(recent.get("low"), errors="coerce") if "low" in recent.columns else pd.Series(dtype=float)
     spread = ((high - low) / recent_close).where(recent_close.gt(0)).dropna()
@@ -438,7 +454,7 @@ def calculate_etf_liquidity(
     gaps = ((opening / previous_close) - 1.0).abs().where(previous_close.gt(0)).dropna()
     gap_risk = _finite(gaps.quantile(0.95) * 10_000.0) if not gaps.empty else None
     adjusted = pd.to_numeric(frame.get("adjusted_close", close), errors="coerce")
-    returns = adjusted.pct_change().dropna()
+    returns = adjusted.pct_change(fill_method=None).dropna()
     volatility = _finite(returns.tail(60).std()) if len(returns) >= 2 else None
     zero_days = int((recent_volume <= 0).sum())
     zero_rate = zero_days / len(recent_volume) if len(recent_volume) else None
@@ -448,8 +464,8 @@ def calculate_etf_liquidity(
     order = max(0.0, _finite(order_value_eur) or 0.0)
     horizon = max(1, int(horizon_days))
     participation = min(1.0, max(0.0, _finite(getattr(config.costs.cost_model, "max_participation_rate", 0.1)) or 0.1))
-    exchange_capacity = turnover_20 * participation * horizon if turnover_20 is not None else None
-    order_ratio = order / turnover_20 if turnover_20 and order > 0 else None
+    exchange_capacity = capacity_turnover * participation * horizon if capacity_turnover is not None else None
+    order_ratio = order / capacity_turnover if capacity_turnover and order > 0 else None
     headroom = exchange_capacity - order if exchange_capacity is not None and order > 0 else None
     if order <= 0:
         capacity_status = "not_requested" if exchange_capacity is not None else "unavailable"
@@ -463,7 +479,7 @@ def calculate_etf_liquidity(
         config,
         instrument,
         order,
-        adv_eur=turnover_20,
+        adv_eur=capacity_turnover,
         daily_volatility=volatility,
         quoted_spread_bps=effective_spread,
         gap_bps=gap_risk,
@@ -473,14 +489,14 @@ def calculate_etf_liquidity(
         config,
         instrument,
         order,
-        adv_eur=turnover_20,
+        adv_eur=capacity_turnover,
         daily_volatility=volatility,
         quoted_spread_bps=effective_spread,
         gap_bps=gap_risk,
         stress_multiplier=max(1.0, _finite(stress_multiplier) or 1.0),
     )
     missing = set(quote.get("missing_evidence", set()))
-    if turnover_20 is None:
+    if capacity_turnover is None:
         missing.add("turnover")
     if not turnover_is_eur:
         missing.add("fx_rate_to_eur")
@@ -494,7 +510,10 @@ def calculate_etf_liquidity(
             f"{fx['fx_reason']} Euro turnover and exchange capacity are unavailable."
         )
     if zero_rate and zero_rate > 0:
-        warnings.append(f"{zero_days} of {len(recent_volume)} recent rows have zero or missing volume.")
+        warnings.append(f"{zero_days} of {len(recent_volume)} recent rows have zero volume.")
+    missing_volume_days = int(recent_volume.isna().sum())
+    if missing_volume_days:
+        warnings.append(f"{missing_volume_days} of {len(recent_volume)} recent rows have missing volume (not zero-filled).")
     if quote.get("stale_quote"):
         warnings.append("Imported quote evidence is stale relative to the selected price as-of date.")
     if quote.get("off_hours_quote"):

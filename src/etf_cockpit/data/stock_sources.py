@@ -9,17 +9,20 @@ from __future__ import annotations
 
 import json
 import math
+import re
 import time
 import urllib.request
 from collections import defaultdict
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
+from pathlib import Path
 from typing import Any
 
 import pandas as pd
 
 from etf_cockpit.analysis.stock_metrics import BALANCE_FIELDS, FLOW_FIELDS
+from etf_cockpit.core.paths import STATEMENT_FACTS_PATH
 from etf_cockpit.data.yfinance_provider import classify_provider_error
 
 # Accounting-identity legs (cash roll-forward, balance identity). They default here so a config that
@@ -168,7 +171,7 @@ def fetch_yfinance(
         result.reason = f"Yahoo returned no profile for {symbol} ({kind}): {text[:140]}"
         result.snapshot = {"known_at": known_at, "source": "yfinance", "status": result.status, "reason": result.reason}
         return result
-    financial_currency = str(info.get("financialCurrency") or info.get("currency") or "")
+    financial_currency = str(info.get("financialCurrency") or "").strip()
     quote_currency = str(info.get("currency") or "")
     snapshot: dict[str, Any] = {
         "known_at": known_at,
@@ -219,6 +222,13 @@ def fetch_yfinance(
     )
     result.rows = annual + quarterly
     result.statement_errors = dict(statement_errors)
+    if result.rows and not financial_currency:
+        result.rows = []
+        result.status = "unavailable"
+        result.reason = "financialCurrency is unavailable; statement values cannot be assigned a reporting currency"
+        snapshot.update(status=result.status, reason=result.reason)
+        result.snapshot = snapshot
+        return result
     snapshot.update(_analyst_fields(ticker))
     detail = "; ".join(f"{name}: {text}" for name, text in sorted(statement_errors.items()))
     if not result.rows and statement_errors:
@@ -300,19 +310,43 @@ def _days(start: str, end: str) -> int:
     return (date.fromisoformat(end) - date.fromisoformat(start)).days
 
 
-def parse_edgar_companyfacts(payload: Mapping[str, Any], config: Mapping[str, Any], *, source_ref: str) -> list[dict[str, Any]]:
+def parse_edgar_companyfacts(payload: Mapping[str, Any], config: Mapping[str, Any], *, source_ref: str,
+                            preselected_vintage: bool = False) -> list[dict[str, Any]]:
     """Discrete quarters, fiscal years and balance sheets as originally filed (known_at = filing date).
 
     Cash-flow items are cumulative within the fiscal year in 10-Q filings, so every flow field is
     differenced along its cumulative chain (same start date): Q2 = H1 - Q1, Q3 = 9M - H1, Q4 = FY - 9M.
     A value is taken from the earliest filing that reported it (as originally reported); later
     restatements never overwrite what was known earlier.
+
+    ``preselected_vintage`` maps an already PIT-selected snapshot, including late
+    restatements and comparatives. The caller must select visible facts first and
+    stamp the resulting rows with that snapshot's filing knowledge time.
     """
 
     concepts = {**IDENTITY_SEC_CONCEPTS, **(config.get("sec_edgar_concepts", {}) or {})}
     gaap = (payload.get("facts", {}) or {}).get("us-gaap", {}) or {}
     dei = (payload.get("facts", {}) or {}).get("dei", {}) or {}
     currency = ""
+    # Exclude late comparative-only facts: retaining them would postpone every
+    # original value on a row because the storage contract has one known_at.
+    max_lag = int((config.get("sec_edgar_rules", {}) or {}).get("max_original_filing_lag_days", 120))
+    filing_ends: dict[tuple[str, str], str] = {}
+    for concept_name in {name for names in concepts.values() for name in names}:
+        for unit, facts in (gaap.get(concept_name, {}).get("units", {}) or {}).items():
+            if unit == "shares" or "/" in unit:
+                continue
+            for fact in facts:
+                end, filed = _valid_filed(fact.get("end")), _valid_filed(fact.get("filed"))
+                if end and filed and end <= filed:
+                    key = (filed, str(fact.get("accn") or ""))
+                    filing_ends[key] = max(end, filing_ends.get(key, end))
+
+    def original(end: str, filed: str, fact: Mapping[str, Any]) -> bool:
+        if preselected_vintage:
+            return end <= filed
+        latest = filing_ends.get((filed, str(fact.get("accn") or "")), end)
+        return end == latest and 0 <= _days(end, filed) <= max_lag
     selected_flow_concepts: dict[tuple[str, str, str], str] = {}
     flow_cumulative: dict[str, dict[tuple[str, str], tuple[float, str, str]]] = defaultdict(dict)
     def collect_flow(name: str, concept_names: Sequence[str]) -> dict[tuple[str, str], tuple[float, str, str]]:
@@ -326,7 +360,7 @@ def parse_edgar_companyfacts(payload: Mapping[str, Any], config: Mapping[str, An
             local: dict[tuple[str, str], tuple[float, str, str]] = {}
             for entry in entries:
                 start, end, filed, value = entry.get("start"), entry.get("end"), _valid_filed(entry.get("filed")), _number(entry.get("val"))
-                if not (start and end and filed) or value is None:
+                if not (start and end and filed) or value is None or not original(end, filed, entry):
                     continue
                 key = (start, end)
                 if key not in local or filed < local[key][1]:
@@ -354,7 +388,7 @@ def parse_edgar_companyfacts(payload: Mapping[str, Any], config: Mapping[str, An
             ambiguous: set[str] = set()
             for entry in entries:
                 end, filed, value = entry.get("end"), _valid_filed(entry.get("filed")), _number(entry.get("val"))
-                if not (end and filed) or value is None:
+                if not (end and filed) or value is None or not original(end, filed, entry):
                     continue
                 if end not in local or filed < local[end][1]:
                     local[end] = (value, filed, unit)
@@ -365,7 +399,8 @@ def parse_edgar_companyfacts(payload: Mapping[str, Any], config: Mapping[str, An
                     ambiguous.add(end)
             for end, item in local.items():
                 if end not in ambiguous:
-                    merged.setdefault(end, item)
+                    if end not in merged or item[1] < merged[end][1]:
+                        merged[end] = item
             if not shares:
                 currency = currency or unit
         return merged
@@ -507,7 +542,6 @@ def parse_edgar_companyfacts(payload: Mapping[str, Any], config: Mapping[str, An
     debt_parts = {name: collect_instant([name]) for name in concepts.get("debt_parts", [])}
     lease_parts = {name: collect_instant([name]) for name in concepts.get("lease_parts", [])}
     shares = collect_instant(concepts.get("shares_outstanding", []), shares=True)
-    cover = collect_instant(["EntityCommonStockSharesOutstanding"], shares=True, source=dei)
 
     for (end, ptype), entry in list(rows.items()):
         def pick(series: Mapping[str, tuple[float, str, str]]) -> tuple[float, str, str] | None:
@@ -532,13 +566,6 @@ def parse_edgar_companyfacts(payload: Mapping[str, Any], config: Mapping[str, An
             # positive non-controlling balance makes it unsafe for parent-equity multiples.
             entry.pop("net_income_parent", None)
             entry.pop("net_income_parent_currency", None)
-        if "shares_outstanding" not in entry:
-            for cover_end, (value, filed, _unit) in cover.items():
-                # cover-page count of the filing that reports this period: filed within 120 days after the period end
-                if 0 <= (date.fromisoformat(filed) - date.fromisoformat(end)).days <= 120 and (date.fromisoformat(cover_end) >= date.fromisoformat(end)):
-                    entry["shares_outstanding"] = value
-                    entry["_filed"].append(filed)
-                    break
         cash_item, sti_item = pick(cash), pick(sti)
         if cash_item is not None:
             entry["cash"] = cash_item[0]
@@ -567,7 +594,8 @@ def parse_edgar_companyfacts(payload: Mapping[str, Any], config: Mapping[str, An
                 entry["lease_liabilities_currency"] = "currency_mismatch"
             entry["_filed"].extend(item[1] for _, item in lease_found)
 
-        debt_item = next(((name, pick(series)) for name, series in debt_totals.items() if pick(series) is not None), None)
+        debt_item = min(((name, pick(series)) for name, series in debt_totals.items() if pick(series) is not None),
+                        key=lambda item: item[1][1], default=None)
         if debt_item is not None:
             debt_name, debt = debt_item
             assert debt is not None
@@ -632,6 +660,31 @@ def parse_edgar_companyfacts(payload: Mapping[str, Any], config: Mapping[str, An
         if not any(name in entry for name in FLOW_FIELDS + BALANCE_FIELDS) and "value_status" not in entry:
             continue
         output.append(entry)
+    # A cover-page share count is a separate publication at its actual instant,
+    # never a balance-sheet value backdated to the preceding fiscal period.
+    # Keep every publication so the latest ambiguous filing can block an older
+    # count. Values from different classes are never summed or guessed.
+    publications: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+    cover_names = (config.get("sec_edgar_rules", {}) or {}).get("dei_shares", ["EntityCommonStockSharesOutstanding"])
+    for name in cover_names:
+        _, facts = _unit_values(dei.get(name, {}), shares=True)
+        for fact in facts:
+            end, filed, value = fact.get("end"), _valid_filed(fact.get("filed")), _number(fact.get("val"))
+            if end and filed and value is not None and end <= filed:
+                publications[(end, filed)].append(fact)
+    for (end, filed), facts in sorted(publications.items()):
+        values = {_number(fact.get("val")) for fact in facts}
+        conflicted = len(values) != 1 or any(fact.get("dimensions") or fact.get("segment") for fact in facts)
+        value = next(iter(values)) if len(values) == 1 else None
+        output.append({
+            "period_end": end, "period_type": "SHARES", "fiscal_year": int(end[:4]),
+            "currency": "", "source": "sec_dei", "source_ref": source_ref,
+            "known_at": filed, "available_at": filed,
+            "share_class": "unverified" if conflicted else "all_classes",
+            **({"shares_outstanding": value} if value is not None and value > 0 else {}),
+            **({"value_status": json.dumps({"shares_outstanding": "conflicted" if conflicted else "invalid"})}
+               if conflicted or value is None or value <= 0 else {}),
+        })
     return sorted(output, key=lambda item: (item["period_end"], item["period_type"]))
 
 
@@ -681,9 +734,261 @@ def fetch_edgar(
         result.status = "error"
         result.reason = f"SEC EDGAR companyfacts request for CIK {cik} failed: {str(exc)[:120]}"
         return result
-    result.rows = parse_edgar_companyfacts(payload, config, source_ref=f"sec_edgar:CIK{str(cik).zfill(10)}")
+    # SHARES publications are owned by sec_edgar_provider.parse_reported_shares (accession-level);
+    # keeping the parser's copy here would store every filing twice (one canonical path).
+    result.rows = [row for row in parse_edgar_companyfacts(payload, config, source_ref=f"sec_edgar:CIK{str(cik).zfill(10)}")
+                   if row.get("period_type") != "SHARES"]
     result.snapshot = {"source": "sec_edgar", "entity": payload.get("entityName"), "cik": str(cik).zfill(10)}
     if not result.rows:
         result.status = "no_statements"
         result.reason = f"SEC EDGAR holds no us-gaap statement facts for CIK {cik}"
+    return result
+
+
+# ---------------------------------------------------------------------------------------------
+# ESEF / IFRS statement facts (already imported into the statement-facts store; no network request)
+# ---------------------------------------------------------------------------------------------
+
+ESEF_SOURCE = "esef"
+# The only concept net_income_parent may come from. It is parent-only by definition, which is what justifies the explicit
+# ``observed`` state below; total ProfitLoss (parent + non-controlling) must never fill it, whatever the configuration says.
+ESEF_PARENT_INCOME_CONCEPTS = frozenset({"ProfitLossAttributableToOwnersOfParent"})
+_CURRENCY_UNIT = re.compile(r"^[A-Z]{3}$")
+_MEMBER_SPEC = re.compile(r"^([A-Za-z0-9_]+)\[([A-Za-z0-9_]+)\]$")
+
+
+def _esef_timestamp(value: object) -> pd.Timestamp | None:
+    stamp = pd.to_datetime(value, errors="coerce", utc=True)
+    return None if pd.isna(stamp) else stamp
+
+
+def _esef_member(dimensions: object) -> str | None:
+    """The member of a facts row whose only dimension is ComponentsOfEquityAxis; ``""`` for no dimension; None otherwise."""
+
+    text = "" if dimensions is None or (isinstance(dimensions, float) and math.isnan(dimensions)) else str(dimensions).strip()
+    if text in ("", "{}"):
+        return ""
+    try:
+        parsed = json.loads(text)
+    except ValueError:
+        return None
+    if not isinstance(parsed, dict) or set(parsed) != {"ifrs-full:ComponentsOfEquityAxis"}:
+        return None
+    return str(parsed["ifrs-full:ComponentsOfEquityAxis"]).split(":")[-1]
+
+
+def _esef_spec(spec: str) -> tuple[str, str]:
+    match = _MEMBER_SPEC.match(spec)
+    return (match.group(1), match.group(2)) if match else (spec, "")
+
+
+def parse_esef_statement_facts(facts: pd.DataFrame, config: Mapping[str, Any], *, source_ref: str) -> list[dict[str, Any]]:
+    """Annual Period rows from ESEF/IFRS statement facts, as originally reported.
+
+    ``known_at`` of a value is the registry ``date_added`` of the earliest filing that reported it; later
+    comparatives and restatements never replace what was known earlier, and a row becomes visible only at the
+    latest ``known_at`` among its values. Only consolidated, undimensioned ifrs-full facts qualify (plus the
+    equity-axis member fallbacks named in ``esef_concepts``). A fact without a valid ``known_at`` or a numeric
+    value is dropped; a field nobody tagged is simply absent (never zero), a disagreement is ``conflicted``.
+    """
+
+    concepts: dict[str, list[str]] = {name: list(items or []) for name, items in (config.get("esef_concepts", {}) or {}).items()}
+    if "net_income_parent" in concepts:
+        concepts["net_income_parent"] = [spec for spec in concepts["net_income_parent"] if spec in ESEF_PARENT_INCOME_CONCEPTS]
+    rules = config.get("esef_rules", {}) or {}
+    tolerance = float(rules.get("share_count_agreement", 0.01))
+    absolute_fields = set(rules.get("absolute_value_fields", []) or [])
+    if facts is None or facts.empty:
+        return []
+
+    wanted = {_esef_spec(spec) for specs in concepts.values() for spec in specs}
+    prepared: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+    for record in facts.to_dict("records"):
+        concept = str(record.get("concept") or "")
+        if str(record.get("taxonomy") or "") != "ifrs-full" or str(record.get("consolidation_scope") or "") != "consolidated":
+            continue
+        member = _esef_member(record.get("dimensions"))
+        if member is None or (concept, member) not in wanted:
+            continue
+        value = _number(record.get("value"))
+        known = _esef_timestamp(record.get("known_at"))
+        if value is None or known is None:
+            continue
+        start, end, instant = record.get("start"), record.get("end"), record.get("instant")
+        prepared[(concept, member)].append(
+            {
+                "value": value,
+                "known": known,
+                "unit": str(record.get("unit") or ""),
+                "start": str(start) if start else None,
+                "end": str(end) if end else None,
+                "instant": str(instant) if instant else None,
+            }
+        )
+
+    def collect(name: str, *, kind: str, unit_ok: Callable[[str], bool]) -> dict[Any, tuple[float, pd.Timestamp, str, bool]]:
+        """period key -> (value, known_at, unit, filings_agree); the earliest known_at wins, config order breaks a tie."""
+
+        merged: dict[Any, tuple[float, pd.Timestamp, str, bool]] = {}
+        for spec in (_esef_spec(item) for item in concepts.get(name, [])):
+            local: dict[Any, list[dict[str, Any]]] = defaultdict(list)
+            for item in prepared.get(spec, []):
+                if not unit_ok(item["unit"]):
+                    continue
+                if kind == "flow":
+                    if not (item["start"] and item["end"]):
+                        continue
+                    key: Any = (item["start"], item["end"])
+                else:
+                    key = item["instant"] or (item["end"] if not item["start"] else None)
+                    if not key:
+                        continue
+                local[key].append(item)
+            for key, items in local.items():
+                first_known = min(item["known"] for item in items)
+                earliest = [item for item in items if item["known"] == first_known]
+                if len({item["value"] for item in earliest}) > 1 or len({item["unit"] for item in earliest}) > 1:
+                    continue  # one filing, two different values for the same period: nothing is guessed
+                agree = True
+                if name == "shares_outstanding":
+                    pool = [item["value"] for item in items]
+                    agree = max(pool) - min(pool) <= tolerance * max(abs(value) for value in pool)
+                if key not in merged or first_known < merged[key][1]:
+                    merged[key] = (earliest[0]["value"], first_known, earliest[0]["unit"], agree)
+        return merged
+
+    def is_currency(unit: str) -> bool:
+        return bool(_CURRENCY_UNIT.match(unit))
+
+    flow = {name: collect(name, kind="flow", unit_ok=is_currency) for name in FLOW_FIELDS if concepts.get(name)}
+    instant_names = ("equity_parent", "minority_interest", "total_assets", "total_liabilities", "cash", "debt_total", "debt_noncurrent", "debt_current", "lease_total", "lease_noncurrent", "lease_current")
+    instant = {name: collect(name, kind="instant", unit_ok=is_currency) for name in instant_names if concepts.get(name)}
+    if concepts.get("shares_outstanding"):
+        instant["shares_outstanding"] = collect("shares_outstanding", kind="instant", unit_ok=lambda unit: unit == "shares")
+
+    rows: dict[str, dict[str, Any]] = {}
+    statuses: dict[str, dict[str, str]] = defaultdict(dict)
+    known_of: dict[str, list[pd.Timestamp]] = defaultdict(list)
+
+    for name, series in flow.items():
+        for (start, end), (value, known, unit, _agree) in series.items():
+            length = _days(start, end)
+            if not 345 <= length <= 385:
+                continue
+            entry = rows.setdefault(
+                end,
+                {
+                    "period_end": end,
+                    "period_type": "FY",
+                    "fiscal_year": int(end[:4]),
+                    "currency": "",
+                    "source": ESEF_SOURCE,
+                    "source_ref": source_ref,
+                    "reporting_standard": "ifrs",
+                    "consolidation_scope": "consolidated",
+                    "share_class": "all_classes",
+                },
+            )
+            entry.setdefault("period_days", length)
+            entry[name] = abs(value) if name in absolute_fields else value
+            entry[f"{name}_currency"] = unit
+            known_of[end].append(known)
+
+    for end, entry in rows.items():
+        def at(name: str, day: str = end) -> tuple[float, pd.Timestamp, str, bool] | None:
+            return instant.get(name, {}).get(day)
+
+        for name in ("equity_parent", "minority_interest", "total_assets", "total_liabilities", "cash"):
+            item = at(name)
+            if item is not None:
+                entry[name], entry[f"{name}_currency"] = item[0], item[2]
+                known_of[end].append(item[1])
+        shares = at("shares_outstanding")
+        if shares is not None:
+            if shares[3]:
+                entry["shares_outstanding"] = shares[0]
+                known_of[end].append(shares[1])
+            else:
+                statuses[end]["shares_outstanding"] = "conflicted"
+        # interest-bearing debt: a reported total, else non-current + current when both are tagged; one side alone is partial
+        total = at("debt_total")
+        if total is not None:
+            entry["ib_debt"], entry["ib_debt_currency"] = total[0], total[2]
+            known_of[end].append(total[1])
+        else:
+            parts = [item for item in (at("debt_noncurrent"), at("debt_current")) if item is not None]
+            if parts:
+                if len({item[2] for item in parts}) == 1:
+                    entry["ib_debt"], entry["ib_debt_currency"] = sum(item[0] for item in parts), parts[0][2]
+                    statuses[end]["ib_debt"] = "derived" if len(parts) == 2 else "partial"
+                else:
+                    entry["ib_debt_currency"] = "currency_mismatch"
+                known_of[end].extend(item[1] for item in parts)
+        lease = at("lease_total")
+        lease_parts = [item for item in (at("lease_noncurrent"), at("lease_current")) if item is not None]
+        if lease is not None:
+            entry["lease_liabilities"], entry["lease_liabilities_currency"] = lease[0], lease[2]
+            known_of[end].append(lease[1])
+        elif len(lease_parts) == 2:  # one side alone is not the liability: it stays unavailable
+            if lease_parts[0][2] == lease_parts[1][2]:
+                entry["lease_liabilities"], entry["lease_liabilities_currency"] = lease_parts[0][0] + lease_parts[1][0], lease_parts[0][2]
+                statuses[end]["lease_liabilities"] = "derived"
+            else:
+                entry["lease_liabilities_currency"] = "currency_mismatch"
+            known_of[end].extend(item[1] for item in lease_parts)
+        reported = [
+            str(entry[f"{name}_currency"])
+            for name in FLOW_FIELDS + BALANCE_FIELDS
+            if name != "shares_outstanding" and name in entry and entry.get(f"{name}_currency") not in (None, "currency_mismatch")
+        ]
+        if reported:
+            entry["currency"] = max(reported, key=reported.count)
+
+    output: list[dict[str, Any]] = []
+    for end, entry in rows.items():
+        if "net_income_parent" in entry:
+            # ProfitLossAttributableToOwnersOfParent is parent-only by definition: the explicit state tells the store
+            # that the ownership scope is verified, so a positive non-controlling interest does not drop the value
+            statuses[end].setdefault("net_income_parent", "observed")
+        entry["known_at"] = max(known_of[end]).isoformat(timespec="microseconds")
+        if statuses.get(end):
+            entry["value_status"] = json.dumps(statuses[end], sort_keys=True)
+        output.append(entry)
+    return sorted(output, key=lambda item: item["period_end"])
+
+
+def fetch_esef(
+    instrument_id: str,
+    config: Mapping[str, Any],
+    *,
+    facts: pd.DataFrame | None = None,
+    facts_path: Path | None = None,
+    root: Path | None = None,
+) -> FetchResult:
+    """ESEF/IFRS annual periods for one instrument from the imported statement-facts store (no network).
+
+    With ``root`` the store is ``<root>/data/clean/statement_facts.parquet``; the process-wide path is used only without one."""
+
+    result = FetchResult(ESEF_SOURCE)
+    if facts is None:
+        path = Path(facts_path) if facts_path else (Path(root) / "data" / "clean" / "statement_facts.parquet" if root else Path(STATEMENT_FACTS_PATH))
+        if not path.exists():
+            result.status, result.reason = "unavailable", f"no ESEF statement facts store at {path}"
+            return result
+        try:
+            facts = pd.read_parquet(path)
+        except Exception as exc:
+            result.status, result.reason = "error", f"ESEF statement facts store unreadable: {str(exc)[:120]}"
+            return result
+    if "instrument_id" not in facts.columns:
+        result.status, result.reason = "error", "ESEF statement facts store has no instrument_id column"
+        return result
+    own = facts[facts["instrument_id"].astype(str) == str(instrument_id)]
+    if own.empty:
+        result.status, result.reason = "unavailable", f"no ESEF statement facts imported for {instrument_id}"
+        return result
+    result.rows = parse_esef_statement_facts(own, config, source_ref=f"esef:filings_xbrl_org:{instrument_id}")
+    result.snapshot = {"source": ESEF_SOURCE, "entity": instrument_id}
+    if not result.rows:
+        result.status, result.reason = "no_statements", f"ESEF facts for {instrument_id} hold no mapped annual statement values"
     return result

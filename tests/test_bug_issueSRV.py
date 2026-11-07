@@ -39,7 +39,8 @@ def _period(year: int, **overrides: float) -> sm.Period:
     }
     values.update(overrides)
     known_at = datetime.fromisoformat(f"{year + 1}-02-15").replace(tzinfo=UTC)
-    return sm.Period(date(year, 12, 31), "FY", known_at, "EUR", "sec_edgar", values)
+    return sm.Period(date(year, 12, 31), "FY", known_at, "EUR", "sec_edgar", values,
+                     field_sources={"shares_outstanding": "sec_dei"})
 
 
 def _evidence(cohorts, **overrides: float):

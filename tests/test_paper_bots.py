@@ -17,6 +17,8 @@ from etf_cockpit.portfolio import paper_bots
 from etf_cockpit.signals.canonical_scoring import load_score_policy
 
 
+pytestmark = pytest.mark.usefixtures("readiness_pass")
+
 # Fixed recorder clock: the forward recorder only accepts the current UTC day, so tests that build
 # "minutes ago" cutoffs must not depend on the real wall clock (fails within minutes after 00:00 UTC).
 _NOW = datetime(2026, 10, 14, 12, 0, tzinfo=timezone.utc)
@@ -547,7 +549,7 @@ def test_failed_gate_never_enters_a_top_n_or_candidate_sleeve(monkeypatch, tmp_p
         monkeypatch, tmp_path / "cash-only", rows, no_candidates, now + timedelta(seconds=1)
     )
     cash_top_n = next(record for record in cash_result.records if record["bot_family"] == "B1")
-    assert cash_top_n["targets"] == {"cash_weight": 1.0}
+    assert cash_top_n["targets"] == {"VWCE": 1.0}
 
 
 def test_b0_stage_a_target_is_vwce_only_and_captures_price(monkeypatch, tmp_path: Path) -> None:
@@ -622,7 +624,7 @@ def _application_root(tmp_path: Path) -> Path:
     return root
 
 
-def test_pipeline_cli_runs_the_recorder_only_after_success(monkeypatch, tmp_path: Path) -> None:
+def test_pipeline_cli_runs_the_recorder_only_after_success(monkeypatch, capsys, tmp_path: Path) -> None:
     scripts = Path(__file__).resolve().parents[1] / "scripts"
     monkeypatch.syspath_prepend(str(scripts))
     root = _application_root(tmp_path)
@@ -638,7 +640,8 @@ def test_pipeline_cli_runs_the_recorder_only_after_success(monkeypatch, tmp_path
 
     assert cli.run_cli(lambda: 1, record_paper_bots=True) == 1
     assert calls == []
-    assert cli.run_cli(lambda: 0, record_paper_bots=True) == 0
+    assert cli.run_cli(lambda: 0, record_paper_bots=True) == 1
+    assert "Paper bot execution unavailable:" in capsys.readouterr().out
     assert len(calls) == 1
     assert calls[0][0].tzinfo is not None
     assert calls[0][1] == root.resolve()
@@ -667,7 +670,7 @@ def test_pipeline_cli_swallows_recorder_import_failure_after_success(monkeypatch
     cli = importlib.import_module("run_pipeline_cli")
     monkeypatch.setitem(sys.modules, "etf_cockpit.portfolio.paper_bots", None)
 
-    assert cli.run_cli(lambda: 0, record_paper_bots=True) == 0
+    assert cli.run_cli(lambda: 0, record_paper_bots=True) == 1
     assert "Paper bots unavailable: ModuleNotFoundError." in capsys.readouterr().out
 
 
@@ -693,7 +696,7 @@ def test_dirty_older_run_does_not_block_the_clean_bound_run(monkeypatch, tmp_pat
     result = _run_fixture(monkeypatch, tmp_path, old_rows + bound_rows, board, now, binding_rows=bound_rows)
 
     assert result.status == "available"
-    assert result.appended == 3
+    assert result.appended == 4
     assert all(record["status"] == "available" for record in result.records)
     assert result.snapshot_hash == "a" * 64
     assert result.warnings

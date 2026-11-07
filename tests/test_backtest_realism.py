@@ -221,10 +221,12 @@ def test_c018_n002_capacity_is_enforced_in_the_vector_backtest(config, prices) -
     assert capped.trade_log["capacity_fill_status"].str.contains("partial_fill|no_fill").any()
     assert (capped.trade_log["unfilled_eur"] > 0).any()
     assert (capped.trade_log["max_days_to_fill"] >= 1).all()
-    # Unfilled orders cut the traded turnover against the unconstrained run.
+    # The first-session rebalance can repair a capacity-limited initial allocation. Compare later
+    # rebalances, where unfilled orders cut the traded turnover against the unconstrained run.
     def traded(report) -> float:
         log = report.trade_log
-        return float(log.loc[log["strategy"] == "equal_weight", "turnover"].sum())
+        after_initial = pd.to_datetime(log["signal_date"]) > report.equity_curves.index[0]
+        return float(log.loc[log["strategy"].eq("equal_weight") & after_initial, "turnover"].sum())
 
     assert traded(capped) < traded(free)
     assert (capped.trade_log["remainder_policy"] == "cancelled_at_session_end").all()
@@ -674,7 +676,11 @@ def _eur_universe_with_equity_certificate(config, prices):
         item.model_copy(update={"currency": "EUR"}) if item.id == certificate.id else item for item in config.universe.etfs
     ]
     patched = config.model_copy(update={"universe": config.universe.model_copy(update={"etfs": etfs})})
-    return patched, prices[prices["etf_id"].isin(eur_ids | {certificate.id})], certificate.id
+    panel = prices[prices["etf_id"].isin(eur_ids | {certificate.id})].copy()
+    # Re-label the price rows too: rows quoting NOK against a configured EUR listing conflict, and the
+    # canonical EUR basis (correctly) leaves such an instrument's NAV unavailable instead of filling it.
+    panel.loc[panel["etf_id"].eq(certificate.id), "currency"] = "EUR"
+    return patched, panel, certificate.id
 
 
 def test_equity_certificate_without_quote_fills_flagged_cost_estimated_not_held_as_cash(config, prices) -> None:

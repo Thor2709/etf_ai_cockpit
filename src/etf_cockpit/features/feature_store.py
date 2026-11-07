@@ -20,6 +20,7 @@ from typing import Literal
 
 import pandas as pd
 
+from etf_cockpit.core.pandas_values import bool_like_or_none
 from etf_cockpit.data.local_storage import TransactionalStore
 
 
@@ -252,7 +253,8 @@ class LocalFeatureStore:
         entity_column = entity_column or _first_column(prices, _ENTITY_COLUMNS)
         if entity_column is None or date_column not in prices.columns or price_column not in prices.columns:
             raise FeatureStoreError(f"prices require an entity, {date_column!r} and adjusted prices")
-        if "is_adjusted" in prices.columns and not prices["is_adjusted"].fillna(False).all():
+        if "is_adjusted" in prices.columns and not prices["is_adjusted"].map(bool_like_or_none).eq(True).all():
+            # Strict parse: only true-like values count as adjusted ("False"/"0"/"no" strings are not truthy).
             raise FeatureStoreError("unadjusted prices cannot be used for targets")
         definitions = self._selected_targets(target_ids)
         if not definitions:
@@ -263,14 +265,36 @@ class LocalFeatureStore:
         source["__price"] = pd.to_numeric(source[price_column], errors="coerce")
         benchmark = _prepare_benchmark(benchmark_prices, date_column, price_column) if benchmark_prices is not None else None
         rows: list[dict[str, object]] = []
+        availability_column = next((name for name in ("available_at", "known_at") if name in source.columns), None)
+        if availability_column is not None:
+            source["__known"] = _available_timestamps(source[availability_column])
         for entity, group in source.groupby(entity_column, sort=True):
-            group = group.sort_values(["__date", "__price"], kind="stable").dropna(subset=["__price"]).reset_index(drop=True)  # equal-date revisions resolve by price, not input order
+            group = group.dropna(subset=["__price"])
+            if availability_column is not None:
+                # Latest known revision wins; price only breaks an exact known_at tie deterministically.
+                ordered = group.sort_values(["__date", "__known", "__price"], kind="stable", na_position="first")
+            else:
+                ordered = group.sort_values(["__date", "__price"], kind="stable")  # no known_at: equal-date revisions resolve by price, not input order
+            # One row per date: a duplicate revision must not shift the positional horizon indexing.
+            group = ordered.drop_duplicates("__date", keep="last").reset_index(drop=True)
+            if availability_column is not None:
+                # The decision-time price must have been KNOWN at the decision; later outcomes are not filtered.
+                origin_rows = ordered.dropna(subset=["__known"])
             for decision in decisions:
-                current = group[group["__date"] <= decision].tail(1)
-                if current.empty:
-                    continue
-                current_row = current.iloc[0]
-                current_position = int(current.index[-1])
+                if availability_column is not None:
+                    known_rows = origin_rows[(origin_rows["__date"] <= decision) & (origin_rows["__known"] <= decision)]
+                    if known_rows.empty:
+                        continue
+                    origin_date = known_rows["__date"].max()
+                    current_row = known_rows[known_rows["__date"] == origin_date].iloc[-1]
+                    matches = group.index[group["__date"] == origin_date]
+                    current_position = int(matches[-1])
+                else:
+                    current = group[group["__date"] <= decision].tail(1)
+                    if current.empty:
+                        continue
+                    current_row = current.iloc[0]
+                    current_position = int(current.index[-1])
                 current_price = float(current_row["__price"])
                 output: dict[str, object] = {entity_column: str(entity), "decision_time": decision.date().isoformat()}
                 for definition in definitions:
@@ -525,15 +549,29 @@ def _hash_payload(value: object) -> str:
 def _prepare_benchmark(frame: pd.DataFrame, date_column: str, price_column: str) -> pd.DataFrame:
     if date_column not in frame.columns or price_column not in frame.columns:
         raise FeatureStoreError("benchmark prices require date and adjusted_close columns")
-    result = frame[[date_column, price_column]].copy()
+    result = frame.copy()
     result["__date"] = _timestamps(result[date_column])
     result["__price"] = pd.to_numeric(result[price_column], errors="coerce")
-    return result.dropna(subset=["__date", "__price"]).sort_values("__date")
+    availability = next((name for name in ("available_at", "known_at") if name in result.columns), None)
+    keys = ["__date", "__price"]
+    if availability is not None:
+        # Revision protection (as for instrument origins): keep when each close was learned.
+        result["__known"] = _available_timestamps(result[availability])
+        keys = ["__date", "__known", "__price"]
+    result = result.dropna(subset=["__date", "__price"])
+    # Deterministic order: the last row per date is the latest known revision (price only breaks an exact tie).
+    return result.sort_values(keys, kind="stable", na_position="first")
 
 
 def _forward_benchmark_return(frame: pd.DataFrame, start: pd.Timestamp, end: pd.Timestamp) -> float | None:
-    left = frame[frame["__date"] <= start].tail(1)
-    right = frame[frame["__date"].gt(start) & frame["__date"].le(end)].tail(1)
+    origins = frame[frame["__date"] <= start]
+    if "__known" in frame.columns:
+        # The origin close must have been KNOWN at the decision; a later revision cannot change the denominator.
+        origins = origins[origins["__known"] <= start]
+    left = origins.tail(1)
+    # Excess returns require a benchmark close on the target's own end date; a nearby shorter
+    # horizon is not comparable with the instrument return.
+    right = frame[frame["__date"].eq(end)]
     if left.empty or right.empty or float(left.iloc[0]["__price"]) == 0:
         return None
     return float(right.iloc[0]["__price"]) / float(left.iloc[0]["__price"]) - 1.0

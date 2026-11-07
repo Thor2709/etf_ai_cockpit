@@ -31,6 +31,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+mcp = [
+  "mcp>=2,<3"
+]
 dev = [
   "pytest>=9,<10",
   "hypothesis>=6.140,<7",
@@ -39,7 +42,8 @@ dev = [
   "pytest-timeout>=2.4,<3"
 ]
 parsers = [
-  "arelle-release[esef]>=2.41.4,<2.42",
+  "arelle-release[esef]>=2.47.2,<2.48",
+  "pillow>=13.0.0,<14",
   "pdfplumber>=0.11.9,<0.12",
   "defusedxml>=0.7.1,<0.8",
   "feedparser>=6.0.11,<7"

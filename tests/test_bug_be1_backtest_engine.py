@@ -177,7 +177,11 @@ def test_c020_n001_sell_advisory_is_an_explicit_exit_not_a_two_percent_trim() ->
     assert _signal_weight_action(SimpleNamespace(action="hold")) == "hold"
     current = pd.Series({"A": 0.6, "B": 0.4})
     assert _next_signal_weights(current, current, {"B": _signal_weight_action(sell)})["B"] == 0.0
-    assert _next_signal_weights(current, current, {"B": _signal_weight_action(trim)})["B"] == pytest.approx(0.38)
+    # AUDFIX: trims consume the pipeline-suggested size (not a fixed 2% step); a sell ignores it and exits.
+    suggested = pd.Series({"A": 0.6, "B": 0.25})
+    assert _next_signal_weights(current, suggested, {"B": _signal_weight_action(trim)})["B"] == pytest.approx(0.25)
+    assert _next_signal_weights(current, suggested, {"B": _signal_weight_action(sell)})["B"] == 0.0
+    assert _next_signal_weights(current, current, {"B": _signal_weight_action(trim)})["B"] == pytest.approx(0.4)  # no 2% trim
 
 
 def _two_asset_prices(ids: list[str], doubling_at: int) -> pd.DataFrame:
@@ -204,8 +208,8 @@ def test_c017_n002_signals_see_drifted_holdings_not_the_stale_target(monkeypatch
     target = np.array([0.5, 0.5])  # shipped targets are all zero: equal-weight fallback
     drifted = target * np.array([1.0, 2.0])
     drifted = drifted / drifted.sum()
-    # The first rebalance (index 230) follows the doubling at 225: the held mix has drifted from the target.
-    held = seen[0].set_index("etf_id")["current_weight"]
+    # The scheduled rebalance (index 230) follows the initial index-220 rebalance and the doubling at 225.
+    held = seen[1].set_index("etf_id")["current_weight"]
     assert float(held[ids[1]]) == pytest.approx(float(drifted[1]), rel=1e-6)
     assert float(held[ids[1]]) != pytest.approx(float(target[1]), rel=1e-3)
 

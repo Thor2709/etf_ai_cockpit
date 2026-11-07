@@ -410,6 +410,24 @@ def _repo_write_guard() -> Iterator[None]:
 
 
 @pytest.fixture
+def readiness_pass(monkeypatch: pytest.MonkeyPatch):
+    """Opt downstream paper-bot tests into a recorded readiness evaluation double."""
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+
+    from etf_cockpit.application import data_readiness
+
+    evaluation = Mock(
+        name="readiness_pass_test_fixture",
+        return_value=SimpleNamespace(
+            passed=True, status="pass", source="test_fixture", execution_allowed=False,
+        ),
+    )
+    monkeypatch.setattr(data_readiness, "evaluate_readiness", evaluation)
+    return evaluation
+
+
+@pytest.fixture
 def tmp_path(request: pytest.FixtureRequest) -> Path:
     path = PYTEST_TEMP / "cases" / f"case_{uuid.uuid4().hex}"
     path.mkdir(parents=True, exist_ok=False)

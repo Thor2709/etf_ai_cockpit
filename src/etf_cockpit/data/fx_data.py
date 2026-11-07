@@ -89,6 +89,7 @@ class FxRateSnapshot:
     staleness_status: str
     available: bool
     reason: str | None
+    execution_allowed: Literal[False] = False
 
 
 @dataclass(frozen=True)
@@ -162,6 +163,20 @@ def validate_fx_rates(
     if errors:
         return FxValidation(_empty_fx_frame(), errors, warnings, None)
 
+    effective_available: pd.Series | None = None
+    if parsed_ingested_at is not None:
+        effective_available, availability_error = _effective_availability(
+            frame, parsed_ingested_at
+        )
+        if availability_error:
+            errors.append(availability_error)
+        elif (parsed_dates.dt.date > effective_available.dt.date).any():
+            errors.append(
+                "FX rates contain quote dates later than their availability timestamps."
+            )
+    if errors:
+        return FxValidation(_empty_fx_frame(), errors, warnings, None)
+
     normalised = pd.DataFrame()
     normalised["as_of_date"] = parsed_dates.dt.date
     normalised["base_currency"] = currencies.base_currency
@@ -171,15 +186,12 @@ def validate_fx_rates(
     normalised["source"] = _column_or_default(frame, "source", "manual_import")
     if parsed_ingested_at is not None:
         normalised["ingested_at"] = parsed_ingested_at
-        if "available_at" in frame.columns or "availability_basis" in frame.columns:
-            _, availability_error = _effective_availability(frame, parsed_ingested_at)
-            if availability_error:
-                errors.append(availability_error)
-            else:
-                if "available_at" in frame.columns:
-                    normalised["available_at"] = pd.to_datetime(frame["available_at"], errors="coerce", utc=True)
-                if "availability_basis" in frame.columns:
-                    normalised["availability_basis"] = frame["availability_basis"]
+        if effective_available is not None and "available_at" in frame.columns:
+            normalised["available_at"] = pd.to_datetime(
+                frame["available_at"], errors="coerce", utc=True
+            )
+        if "availability_basis" in frame.columns:
+            normalised["availability_basis"] = frame["availability_basis"]
     elif "available_at" in frame.columns or "availability_basis" in frame.columns:
         errors.append("FX availability needs ingested_at.")
     duplicates = normalised.duplicated(["as_of_date", "pair"])
@@ -366,7 +378,8 @@ def build_fx_rate_snapshot(
         return FxRateSnapshot(decision_date, None, (), None, None, "unknown", False, availability_error)
     quote_days = quote_dates.dt.date
     known_by_decision = available.dt.date.lt(known_date) if date_only else available.le(cutoff)
-    eligible = quote_days.le(decision_date) & known_by_decision
+    latest_allowed_quote_day = min(decision_date, known_date)
+    eligible = quote_days.le(latest_allowed_quote_day) & known_by_decision
     if not bool(eligible.any()):
         return FxRateSnapshot(
             decision_date,

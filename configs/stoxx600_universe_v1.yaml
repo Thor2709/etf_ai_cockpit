@@ -1,0 +1,18 @@
+schema_version: stoxx600-universe.v1
+scope: listing:stoxx600:all
+execution_allowed: false
+# Live bulk headers and JSON:API filter/links/entity shape remain unverified.
+# A mismatch fails closed. Source files and provenance are mandatory CLI inputs.
+gleif_isin_column: ISIN
+gleif_lei_column: LEI
+request_interval: 1.0
+# Transient HTTP/network failures are retried with exponential backoff (each retry passes the gate).
+http_retries: 4
+page_size: 100
+error_limit: 0
+entity_type: entity
+# Retained API examples have naive timestamps. Set UTC only after the registry's
+# timezone contract has been verified; null rejects them instead of guessing.
+date_added_timezone: null
+# Optional per-LEI exhaustive share-class axis -> member lists, independently reviewed.
+share_class_members: {}

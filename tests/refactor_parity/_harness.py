@@ -126,7 +126,18 @@ def run_capture(root: Path, output: Path, *, now_offset_days: int = 0) -> dict[s
     )
     if completed.returncode != 0:
         raise AssertionError(f"capture subprocess failed ({completed.returncode}):\n{completed.stderr[-4000:]}")
-    return json.loads(output.read_text(encoding="utf-8"))
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    # Like atomic-write guards, writer coordination and recovery diagnostics are
+    # runtime artifacts, not persisted product data. Exclude only these exact
+    # paths; newly persisted product files must still fail the schema golden.
+    files = payload["sections"]["persisted_schema"]["files"]
+    for relative in (
+        "data/.headless-writer.lock",
+        "data/.headless-writer.lock.owner.json",
+        "data/operations/headless_writer_audit.jsonl",
+    ):
+        files.pop(relative, None)
+    return payload
 
 
 # --- golden fixtures --------------------------------------------------------------------------------

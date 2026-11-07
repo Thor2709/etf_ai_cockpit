@@ -198,12 +198,12 @@ def test_missing_solvency_turns_a_buy_label_into_insufficient_evidence_and_keeps
 # 2. Coverage shrink cannot pass a gate.
 def test_coverage_shrink_cannot_pass_a_gate() -> None:
     blocked = ss._with_canonical_score(ss._with_critical_evidence(_strong_stock(with_solvency=False)))
-    assert blocked.score_coverage < 1.0
+    assert blocked.score_coverage == 1.0  # D2: every positive-weight family is present; solvency still fails.
     shown = apply_missing_data_penalty(blocked)
     values = score_display_values(shown)
     assert values["research_score_10"] == 8.9
-    assert values["display_adjusted_score_10"] == shown.final_score_10 != 8.9
-    assert 0.0 < values["evidence_coverage"] < 1.0
+    assert values["display_adjusted_score_10"] == shown.final_score_10 == 8.9
+    assert values["evidence_coverage"] == 1.0
     assert values["gate_failed"] is True and values["buy_eligible"] is False
     assert shown.final_label == "insufficient_evidence" and shown.final_action == "manual_review"
     assert "not a confidence or probability" in shown.one_line_reason
@@ -290,19 +290,19 @@ def _teaching_bank() -> dict[str, object]:
 def test_sparebank_without_confirmed_eierbrok_has_no_certified_valuation() -> None:
     confirmed = _teaching_bank()
     confirmed["facts"]["eierbrok"] = {"available": True, "value": 0.4}
-    certified = valuation(build_claim_state(confirmed), price=100)
+    certified = valuation(build_claim_state(confirmed), price=100, pit_verified=True)
     assert certified["certified"] is True and certified["certification"]["gate_id"] == "owner_claim"
 
     unconfirmed = copy.deepcopy(_teaching_bank())
     del unconfirmed["facts"]["eierbrok"]
-    result = valuation(build_claim_state(unconfirmed), price=100)
+    result = valuation(build_claim_state(unconfirmed), price=100, pit_verified=True)
     assert result["certified"] is False
     assert result["certification"]["reason_code"] == "OWNER_CLAIM_NOT_CONFIRMED"
     assert result["execution_allowed"] is False
 
     invalid = _teaching_bank()
     invalid["facts"]["eierbrok"] = {"available": True, "value": 1.7}
-    assert valuation(build_claim_state(invalid), price=100)["certified"] is False
+    assert valuation(build_claim_state(invalid), price=100, pit_verified=True)["certified"] is False
 
 
 def test_bank_gates_require_capital_and_owner_claim() -> None:
@@ -372,10 +372,10 @@ def test_authority_flags_are_separate_and_fail_closed() -> None:
     assert gates.evaluate_critical_gates(None, {"identity"}, decision_time=DECISION)[0].reason_code == "ASSET_CLASS_UNMAPPED"
     assert gates.evaluate_critical_gates("ETF", {"identity"}, decision_time=DECISION)[0].passed
     failed = gates.failed_gates(gates.evaluate_critical_gates("ETF", {"identity"}, decision_time=DECISION))
-    assert {r.gate_id for r in failed} == {"cost", "exposure"}
+    assert {r.gate_id for r in failed} == {"cost"}  # D2: absent ETF exposure is non-blocking
 
 
-def test_etf_without_exposure_loses_its_buy_label_but_not_its_score() -> None:
+def test_etf_without_exposure_keeps_its_buy_label_and_score_per_d2() -> None:
     components = [_simple("momentum", 0.9), _simple("trend", 0.9), _simple("relative_strength", 0.9), *_implementation()]
     score = ss.SimpleInstrumentScore(
         instrument_key="etf:ETF1",
@@ -396,7 +396,8 @@ def test_etf_without_exposure_loses_its_buy_label_but_not_its_score() -> None:
         final_action="add_candidate",
     )
     blocked = ss._with_critical_evidence(score)
-    assert blocked.final_label == "insufficient_evidence" and blocked.final_score_10 == 8.0
+    # D2: never-collected ETF exposure is non-blocking, so the label survives and the score stays.
+    assert blocked.final_label == "positive_evidence_candidate" and blocked.final_score_10 == 8.0
     with_exposure = ss._with_critical_evidence(
         ss.SimpleInstrumentScore(**{**score.__dict__, "components": [*components, _simple("etf_exposure", 0.4)]})
     )
@@ -421,13 +422,13 @@ def test_listed_bank_without_capital_evidence_loses_its_buy_label() -> None:
 
 def test_sparebank_ec_generic_score_needs_confirmed_owner_claim_and_capital(monkeypatch: pytest.MonkeyPatch) -> None:
     ec = ss.SimpleInstrumentScore(**{**_strong_stock(with_solvency=True).__dict__, "asset_type": "Equity certificate"})
-    monkeypatch.setattr(ss, "latest_sparebank_scores", lambda: {})
+    monkeypatch.setattr(ss, "latest_sparebank_scores", lambda **_: {})
     assert ss._with_critical_evidence(ec).final_label == "insufficient_evidence"  # no stored native row
     partial = {"ACME": {"final_combined_score_10": 6.0, "missing_components": "owner_claim_integrity|capital_liquidity_resilience"}}
-    monkeypatch.setattr(ss, "latest_sparebank_scores", lambda: partial)
+    monkeypatch.setattr(ss, "latest_sparebank_scores", lambda **_: partial)
     assert ss._with_critical_evidence(ec).final_label == "insufficient_evidence"  # claim unresolved
     covered = {"ACME": {"final_combined_score_10": 6.0, "missing_components": "marketability", "data_as_of_date": "2026-10-09"}}
-    monkeypatch.setattr(ss, "latest_sparebank_scores", lambda: covered)
+    monkeypatch.setattr(ss, "latest_sparebank_scores", lambda **_: covered)
     assert ss._with_critical_evidence(ec).final_label == "strong_evidence_candidate"
 
 

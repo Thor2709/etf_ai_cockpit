@@ -233,10 +233,10 @@ def build_daily_portfolio_snapshots(
                 "total_value": total_value,
                 "external_flow": external_flow,
                 "invested_capital": math.nan,
-                "dividends": event_totals["dividend"],
-                "coupons": event_totals["coupon"],
-                "fees": event_totals["fee"],
-                "taxes": event_totals["tax"],
+                "dividends": event_totals["dividend"] if flow_status == "available" else math.nan,
+                "coupons": event_totals["coupon"] if flow_status == "available" else math.nan,
+                "fees": event_totals["fee"] if flow_status == "available" else math.nan,
+                "taxes": event_totals["tax"] if flow_status == "available" else math.nan,
                 "investment_pnl": math.nan,
                 "period_return": math.nan,
                 "valuation_status": valuation_status,
@@ -352,6 +352,11 @@ def calculate_money_weighted_return(
         return _unavailable_result("At least two complete daily snapshots are required for MWR.")
     start_date = pd.Timestamp(selected.iloc[0]["date"])
     end_date = pd.Timestamp(selected.iloc[-1]["date"])
+    expected_dates = expected_session_dates(start_date, end_date)
+    missing_dates = expected_dates.difference(pd.DatetimeIndex(selected["date"]))
+    if not missing_dates.empty:
+        missing_dates_text = ", ".join(missing_dates.strftime("%Y-%m-%d"))
+        return _unavailable_result(f"Missing daily valuation snapshots for dates: {missing_dates_text}.")
     elapsed_days = int((end_date - start_date).days)
     if elapsed_days <= 0:
         return _unavailable_result("A positive measurement period is required for MWR.")

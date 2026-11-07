@@ -1,7 +1,7 @@
 # ETF AI Cockpit third-party notices
 
 This portable package contains the Python runtime dependencies listed in
-`requirements-release.txt`. Their exact versions and package identifiers are
+`requirements-release.txt` and `requirements-release-parsers.txt`. Their exact versions and package identifiers are
 recorded in the release CycloneDX SBOM; the SBOM is the authoritative
 machine-readable inventory shipped with each release.
 
@@ -16,6 +16,7 @@ reviewer can compare the package against the signed release manifest:
 | requests / Rich / joblib / scikit-learn / yfinance | Package metadata and SBOM component |
 | exchange-calendars | Apache-2.0; audited exchange-session/holiday dependency pinned in the release lock, used locally without runtime network access |
 | cryptography | Fernet/PBKDF2 backup encryption; package metadata and SBOM component |
+| arelle-release[esef] / Pillow / pdfplumber / defusedxml / feedparser | Parser dependencies; package metadata and SBOM components from the parser release lock |
 | pytest / Hypothesis / Ruff / mypy / pytest-timeout / pip-audit | Release-gate tooling; package metadata and SBOM component |
 
 No third-party source is silently bundled or downloaded by the application at

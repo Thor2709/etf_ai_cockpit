@@ -34,15 +34,19 @@ ANALYST_MAX_AGE_DAYS = 120  # 90-day estimate lookback plus 30 days; scoring.ana
 
 @dataclass(frozen=True)
 class MarketInputs:
-    """Decision-time market data; every value must already be known at the decision time."""
+    """Valuation data in as-traded share units, restored before construction.
 
-    price: float | None = None  # last close in ``price_currency`` (a minor unit such as GBp is allowed)
+    Stored-series callers use ``stock_universe.as_traded_close``; these prices
+    must never be passed to returns, momentum or risk calculations.
+    """
+
+    price: float | None = None  # as-traded close in ``price_currency`` (a minor unit such as GBp is allowed)
     price_currency: str | None = None
     price_date: date | None = None
     fx_to_reporting: float | None = None  # reporting-currency units per one major quote-currency unit at ``price_date``
     dividends_per_share_12m: float | None = None  # quote-currency units, trailing 12 months
     dividend_reason: str | None = None
-    price_series: tuple[tuple[date, float], ...] = ()  # month-end closes for the valuation history
+    price_series: tuple[tuple[date, float], ...] = ()  # as-traded month-end closes for valuation history
     shares_fallback: float | None = None
     shares_fallback_known_at: datetime | None = None
     unavailable_reason: str | None = None
@@ -234,7 +238,7 @@ class _Builder:
         valuation = config.get("valuation", {}) if isinstance(config.get("valuation"), Mapping) else {}
         self.valuation = valuation
         self.scoring = config.get("scoring", {}) if isinstance(config.get("scoring"), Mapping) else {}
-        self.reporting_currency = self.known[-1].currency if self.known else None
+        self.reporting_currency = (self.known[-1].currency or None) if self.known else None
         self.metrics: dict[str, Metric] = {}
         self.notes: list[str] = []
         self.peer_stats: dict[str, PeerStat] = {}
@@ -324,7 +328,7 @@ class _Builder:
     def shares(self) -> tuple[float | None, str | None, str | None]:
         market = self.market
         provider_ok = bool(market.shares_fallback and market.shares_fallback_known_at and market.shares_fallback_known_at <= self.decision_time)
-        balance = sm.latest_balance(self.known, ["shares_outstanding"])
+        balance = sm.latest_reported_shares(self.all_periods, self.decision_time)
         if balance is not None:
             filed = balance.values["shares_outstanding"]
             tolerance = float(self.valuation.get("share_count_tolerance", 0.25))
@@ -336,8 +340,6 @@ class _Builder:
                 self.notes.append(self.share_count_reason + "; market capitalization is unavailable.")
                 return None, None, None
             return filed, balance.source_of("shares_outstanding"), balance.period_end.isoformat()
-        if provider_ok:
-            return market.shares_fallback, "yfinance:snapshot", market.shares_fallback_known_at.date().isoformat()  # type: ignore[union-attr]
         return None, None, None
 
     def market_cap(self) -> tuple[float | None, str | None, dict[str, object]]:
@@ -431,6 +433,10 @@ class _Builder:
             opening = sm.opening_balance(self.known, window.end, ["equity_parent"])
             state_reason = self._state_blocked(("equity_parent",)) if close is None else None
             identity_reason = next((block for block in (self._balance_block(close), self._balance_block(opening)) if block is not None), None)
+            tiny = self._tiny_denominator(
+                {"closing parent equity": None if close is None else close.values.get("equity_parent")},
+                None if close is None or not close.has("total_assets") else close.values["total_assets"],
+            )
             base = sm.roe(
                 sm.window_sum(window, "net_income_parent"),
                 None if opening is None else opening.values["equity_parent"],
@@ -443,6 +449,8 @@ class _Builder:
                 base = _missing("roe", "currency_mismatch between income and equity")
             elif identity_reason is not None:
                 base = _missing("roe", identity_reason)
+            elif tiny is not None:
+                base = _missing("roe", tiny)
             elif state_reason is not None:
                 base = _missing("roe", state_reason)
             self.metrics["roe"] = _from(
@@ -458,8 +466,26 @@ class _Builder:
             self.metrics["roic"] = _missing("roic", self._no_window("EBIT, income tax and pretax income", ("ebit", "income_tax", "pretax_income")))
             return
         names = ["equity_parent", "ib_debt", "cash_sti"]
-        close = sm.balance_near(self.known, window.end, names, tolerance_days=45)
-        opening = sm.opening_balance(self.known, window.end, names)
+        # Select the balance first: missing cash on the nearest balance must not
+        # cause an older balance to stand in. A blocked cash+STI total stays blocked.
+        cash_only = False
+
+        def roic_balance(target: date, tolerance: int) -> Period | None:
+            nonlocal cash_only
+            balance = sm.balance_near(self.known, target, names[:2], tolerance_days=tolerance)
+            if balance is None or balance.blocked_state("cash_sti") or balance.values.get("__currency_cash_sti") == "currency_mismatch":
+                return None
+            cash_name = "cash_sti" if balance.has_numeric("cash_sti") else "cash"
+            if not balance.has(cash_name):
+                return None
+            if cash_name == "cash":
+                cash_only = True
+                return replace(balance, values={**balance.values, "cash_sti": balance.values["cash"],
+                                               "__currency_cash_sti": balance.values.get("__currency_cash") or balance.currency})
+            return balance
+
+        close = roic_balance(window.end, 45)
+        opening = roic_balance(window.end - timedelta(days=365), 40)
         if close is not None and opening is not None and (
             self._period_currency_mismatch(close, names + ["lease_liabilities"], window.currency)
             or self._period_currency_mismatch(opening, names + ["lease_liabilities"], window.currency)
@@ -508,6 +534,8 @@ class _Builder:
                 "as_of": None if close is None else close.period_end.isoformat(),
             },
         )
+        if cash_only and self.metrics["roic"].available:
+            self.metrics["roic"] = replace(self.metrics["roic"], reason="short-term investments are unknown; invested capital uses reported cash only")
 
     def _balance_block(self, period: Period | None) -> str | None:
         """Why a balance sheet cannot feed leverage or capital ratios: a failed accounting identity or anomaly guard.
@@ -716,13 +744,26 @@ class _Builder:
             self.metrics["net_debt_to_ebitda"] = _missing("net_debt_to_ebitda", reason, "net debt / (EBIT + D&A)")
         elif net.currency != window.currency:
             self.metrics["net_debt_to_ebitda"] = _missing("net_debt_to_ebitda", "currency_mismatch between debt and income")
+        elif (mismatch := self._balance_flow_reason(net, window.end)) is not None:
+            self.metrics["net_debt_to_ebitda"] = _missing("net_debt_to_ebitda", mismatch)
         else:
             value = sm.ebitda(sm.window_sum(window, "ebit"), sm.window_sum(window, "da"))
             tiny = self._tiny_denominator({"EBITDA": value}, sm.window_sum(window, "revenue"))
             if tiny is not None:
                 self.metrics["net_debt_to_ebitda"] = _missing("net_debt_to_ebitda", tiny, "net debt / (EBIT + D&A)")
             else:
-                self.metrics["net_debt_to_ebitda"] = _from("net_debt_to_ebitda", sm.net_debt_to_ebitda(net.value, value), **self._ctx(window))
+                self.metrics["net_debt_to_ebitda"] = _from("net_debt_to_ebitda", sm.net_debt_to_ebitda(net.value, value), **{**self._ctx(window), "as_of": min(str(net.as_of), window.end.isoformat())})
+
+    def _balance_flow_reason(self, balance: Metric, flow_end: date) -> str | None:
+        """Matched ratios retain the oldest leg; 45 days allows fiscal calendar drift."""
+        if balance.as_of is None:
+            return "balance-sheet date is unavailable"
+        if (reason := self._metric_freshness_reason(balance)) is not None:
+            return reason
+        tolerance = int((self.config.get("reporting", {}) or {}).get("balance_flow_tolerance_days", 45))
+        if abs((date.fromisoformat(balance.as_of) - flow_end).days) > tolerance:
+            return f"period_mismatch between balance ({balance.as_of}) and flows ({flow_end.isoformat()}); maximum gap is {tolerance} days"
+        return None
 
     def valuation_metrics(self) -> None:
         mcap, reason, ctx = self.market_cap()
@@ -772,6 +813,8 @@ class _Builder:
             self.metrics["pb"] = _missing("pb", "currency_mismatch between market cap and equity")
         elif (equity_block := self._balance_block(equity)) is not None:
             self.metrics["pb"] = _missing("pb", equity_block, "market cap / parent equity")
+        elif (tiny := self._tiny_denominator({"parent equity": equity.values["equity_parent"]}, equity.values.get("total_assets") if equity.has("total_assets") else None)) is not None:
+            self.metrics["pb"] = _missing("pb", tiny, "market cap / parent equity")
         else:
             base = sm.multiple("pb", "P/B", mcap, equity.values["equity_parent"], formula="market cap / parent equity", denominator_name="parent equity")
             self.metrics["pb"] = _from("pb", base, basis="latest balance", as_of=equity.period_end.isoformat(), currency=equity.currency, source=equity.source)
@@ -783,7 +826,11 @@ class _Builder:
         self.metrics["earnings_yield"] = self._yield_of_metric("earnings_yield", "net_income", mcap, "net income to parent / market cap")
         ebit = self.metrics["ebit"]
         if ebit.available and ev is not None and ev > 0 and ebit.currency == self.reporting_currency:
-            self.metrics["ebit_ev_yield"] = _from("ebit_ev_yield", sm.yield_of("ebit_ev_yield", "EBIT / EV", ebit.value, ev, formula="EBIT / enterprise value"), basis=ebit.basis, as_of=ebit.as_of, source=ebit.source)
+            mismatch = self._balance_flow_reason(self.metrics["ev"], date.fromisoformat(str(ebit.as_of)))
+            if mismatch is not None:
+                self.metrics["ebit_ev_yield"] = _missing("ebit_ev_yield", mismatch)
+            else:
+                self.metrics["ebit_ev_yield"] = _from("ebit_ev_yield", sm.yield_of("ebit_ev_yield", "EBIT / EV", ebit.value, ev, formula="EBIT / enterprise value"), basis=ebit.basis, as_of=min(str(ebit.as_of), str(self.metrics["ev"].as_of)), source=ebit.source)
         else:
             reason = self.metrics["ev"].reason if ev is None else "needs EBIT and a positive enterprise value"
             self.metrics["ebit_ev_yield"] = _missing("ebit_ev_yield", str(reason), "EBIT / enterprise value")
@@ -809,13 +856,21 @@ class _Builder:
             reason = str(self.metrics["ev"].reason) if key.startswith("ev") and self.metrics.get("ev") is not None else "needs market cap"
             self.metrics[key] = _missing(key, reason, formula)
             return
+        if key.startswith("ev_") and (mismatch := self._balance_flow_reason(self.metrics["ev"], window.end)) is not None:
+            self.metrics[key] = _missing(key, mismatch, formula)
+            return
         base = sm.multiple(key, METRIC_LABELS[key][0], numerator, sm.window_sum(window, item), formula=formula, denominator_name=denominator_name)
-        self.metrics[key] = _from(key, base, **self._ctx(window))
+        context = self._ctx(window)
+        if key.startswith("ev_"):
+            context["as_of"] = min(str(self.metrics["ev"].as_of), window.end.isoformat())
+        self.metrics[key] = _from(key, base, **context)
 
     def dividend_yield(self) -> None:
         market = self.market
         base = sm.dividend_yield(market.dividends_per_share_12m, market.price)
-        if market.dividends_per_share_12m is None and market.price is not None:
+        if market.price is None and market.unavailable_reason:
+            base = _missing("dividend_yield", market.unavailable_reason, base.formula)
+        elif market.dividends_per_share_12m is None and market.price is not None:
             base = _missing("dividend_yield", market.dividend_reason or "no dividend history is stored for this instrument", base.formula)
         self.metrics["dividend_yield"] = _from(
             "dividend_yield", base, basis="12 months", as_of=market.price_date.isoformat() if market.price_date else None, source="price file dividends"
@@ -856,6 +911,7 @@ class _Builder:
             self.metrics[key] = _missing(key, f"the price currency ({quote_major}) differs from the reporting currency ({reporting_major}); rebuilding past P/E needs a daily FX series, which is not loaded")
             return
         values: list[float] = []
+        dates: list[date] = []
         start = self.decision_time.date() - timedelta(days=int(365.25 * years))
         for sample_date, close in series:
             if sample_date < start or sample_date > self.decision_time.date():
@@ -863,6 +919,7 @@ class _Builder:
             value = self._pe_at(sample_date, close)
             if value is not None:
                 values.append(value)
+                dates.append(sample_date)
         self.history_points = len(values)
         if len(values) < min_points:
             self.metrics[key] = _missing(
@@ -878,7 +935,7 @@ class _Builder:
             value=rank,
             status=sm.OK,
             basis=f"{years}y point-in-time",
-            as_of=series[-1][0].isoformat(),
+            as_of=max(dates).isoformat(),
             source=f"{len(values)} month-end readings",
             formula="share of the instrument's own past month-end P/E readings (each from filings known then) at or below today's P/E",
         )
@@ -889,8 +946,12 @@ class _Builder:
             return None
         known = sm.known_periods(self.all_periods, moment)
         window = sm.flow_window(known, ["net_income_parent"], span_days=self.span)  # type: ignore[arg-type]
-        balance = sm.latest_balance(known, ["shares_outstanding"])
+        balance = sm.latest_reported_shares(self.all_periods, moment)
         if window is None or balance is None:
+            return None
+        if (when - window.end).days > self.stale_days or (when - balance.period_end).days > self.stale_days:
+            return None
+        if any(self._period_currency_mismatch(period, ("net_income_parent",), window.currency) for period in window.periods):
             return None
         income = sm.window_sum(window, "net_income_parent")
         price, _ = sm.to_currency(close, self.market.price_currency or "", window.currency, fx_rate=None, minor_units=self.minor)
@@ -994,7 +1055,9 @@ class _Builder:
         """Fiscal years known at the decision time that carry every statement field behind ``metric_key`` (at least 1: a TTM window is one year)."""
 
         fields = SHRINK_FIELDS[metric_key]
-        years = {p.period_end for p in self.known if p.period_type == "FY" and p.has(*fields)}
+        years = {p.period_end for p in self.known if p.period_type == "FY" and (
+            p.has(*fields) or (metric_key == "roic" and p.has(*fields[:-1], "cash") and not p.has_numeric("cash_sti") and not p.blocked_state("cash_sti"))
+        )}
         return max(1, len(years))
 
     def _band(self, metric_key: str, values: Sequence[float], raw: float, shrunk: float, score: float, *, lower_is_better: bool, cap: float | None) -> tuple[float, float] | None:
@@ -1158,12 +1221,13 @@ class _Builder:
             for key, label in (("earnings_yield", "Earnings yield"), ("fcf_yield", "FCF yield"), ("ebit_ev_yield", "EBIT/EV"))
         ]
         pct = self.metrics.get("pe_percentile")
-        if pct is not None and pct.available:
+        pe = self.metrics.get("pe")
+        if pct is not None and pct.available and self._metric_freshness_reason(pct) is None and pe is not None and pe.available and self._metric_freshness_reason(pe) is None:
             subs.append(self._sub(group, "pe_history_percentile", "P/E vs own history", pct.value, f"{pct.value * 100:.0f}th pct"))
         else:
-            subs.append(SubScore("pe_history_percentile", "P/E vs own history", None, "—", None, getattr(pct, "reason", None) or "not calculated"))
+            reason = (self._metric_freshness_reason(pe) if pe is not None else None) or (self._metric_freshness_reason(pct) if pct is not None else None) or getattr(pct, "reason", None) or "not calculated"
+            subs.append(SubScore("pe_history_percentile", "P/E vs own history", None, "—", None, reason))
         rel = self.metrics.get("pe_vs_peers")
-        pe = self.metrics.get("pe")
         if self.cohort_values is not None:
             if pe is not None and pe.available and self._metric_freshness_reason(pe) is None:
                 own_pe = float(pe.value)  # type: ignore[arg-type]
@@ -1181,7 +1245,7 @@ class _Builder:
     def quality_component(self) -> Component:
         group = "quality"
         subs = [
-            self._cohort_sub(self._metric_sub(group, key, key, label, tx.pct), key, group)
+            self._cohort_sub(self._metric_sub(group, key, key, label, tx.pct), key, group, yield_floor=True)
             for key, label in (("roe", "ROE"), ("roic", "ROIC"), ("ebit_margin", "EBIT margin"))
         ]
         leverage = self.metrics.get("net_debt_to_ebitda")

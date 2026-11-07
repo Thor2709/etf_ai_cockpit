@@ -210,7 +210,7 @@ class PreTradeControls:
              f"Instrument {instrument_id} is not in the independently configured allowlist."),
             ("max_order_value", order_value <= limits.max_order_value,
              f"Order value {order_value:.8f} exceeds the hard limit {limits.max_order_value:.8f}."),
-            ("max_position_exposure", proposed_exposure <= limits.max_position_exposure,
+            ("max_position_exposure", quantity < 0 or proposed_exposure <= limits.max_position_exposure,
              f"Position exposure {proposed_exposure:.8f} exceeds the hard limit {limits.max_position_exposure:.8f}."),
             ("max_daily_turnover", current_turnover + order_value <= limits.max_daily_turnover,
              f"Daily turnover {current_turnover + order_value:.8f} exceeds the hard limit {limits.max_daily_turnover:.8f}."),
@@ -353,16 +353,23 @@ class PreTradeControls:
         at = _aware_utc(occurred_at or datetime.now(timezone.utc), "occurred_at")
         actor = _clean_text(who, "who", 120)
         why = _clean_text(reason, "reason", 500)
+        limits_error: str | None = None
         try:
-            limits = self.load_limits()
+            cancel_open_orders = self.load_limits().cancel_open_paper_orders_on_kill_switch
         except PreTradeControlError as exc:
-            return self._block("limits_config", str(exc), actor, at)
+            # A failed limits read must not prevent the emergency stop. Use the
+            # documented safe fallback: cancel every open local paper order.
+            cancel_open_orders = True
+            limits_error = str(exc)
         with paper_ledger._lock, paper_ledger._file_lock():
+            details: dict[str, object] = {"cancel_open_paper_orders": cancel_open_orders}
+            if limits_error is not None:
+                details["limits_config_error"] = limits_error
             activated = self._append_event(
                 "kill_switch_activated", who=actor, when=at, why=why, expiry=None,
-                details={"cancel_open_paper_orders": limits.cancel_open_paper_orders_on_kill_switch},
+                details=details,
             )
-            if limits.cancel_open_paper_orders_on_kill_switch:
+            if cancel_open_orders:
                 events = paper_ledger._read_events()
                 state = paper_ledger._replay(events)
                 orders = state["orders"]
@@ -691,7 +698,7 @@ def _current_exposure(
     else:
         mark = position.get("mark_price")
         price = _positive_number(position.get("average_cost") if mark is None else mark, "position price")
-        fx = _positive_number(position.get("mark_fx_rate", 1), "position FX rate")
+        fx = _positive_number(position.get("mark_fx_rate"), "position FX rate")
         position_value = quantity * price * fx
 
     pending_value = Decimal("0")
@@ -709,7 +716,7 @@ def _current_exposure(
         if not isinstance(terms, Mapping):
             terms = order
         order_price = _positive_number(terms.get("execution_price"), "open order price")
-        order_fx = _positive_number(terms.get("fx_rate", 1), "open order FX rate")
+        order_fx = _positive_number(terms.get("fx_rate"), "open order FX rate")
         if remaining < 0:
             raise PreTradeControlError("An open order has invalid remaining quantity.")
         pending_value += remaining * order_price * order_fx
@@ -741,11 +748,11 @@ def _daily_turnover(
                 if isinstance(terms, Mapping):
                     accepted_quantity = abs(_finite_number(terms.get("quantity_delta"), "accepted order quantity"))
                     accepted_price = _positive_number(terms.get("execution_price"), "accepted order price")
-                    accepted_fx = _positive_number(terms.get("fx_rate", 1), "accepted order FX rate")
+                    accepted_fx = _positive_number(terms.get("fx_rate"), "accepted order FX rate")
                 else:
                     accepted_quantity = _positive_number(payload.get("quantity"), "accepted order quantity")
                     accepted_price = _positive_number(payload.get("execution_price"), "accepted order price")
-                    accepted_fx = _positive_number(payload.get("fx_rate", 1), "accepted order FX rate")
+                    accepted_fx = _positive_number(payload.get("fx_rate"), "accepted order FX rate")
                 value = accepted_quantity * accepted_price * accepted_fx
             except (KeyError, ValueError) as exc:
                 raise PreTradeControlError("Paper order history is invalid.") from exc

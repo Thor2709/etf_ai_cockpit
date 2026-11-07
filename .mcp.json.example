@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "etf-cockpit": {
+      "command": "python",
+      "args": ["scripts/run_mcp_server.py"],
+      "env": {
+        "ETF_COCKPIT_ROOT": "${ETF_COCKPIT_ROOT}",
+        "ETF_COCKPIT_MCP_TIERS": "read,research,paper",
+        "ETF_COCKPIT_MCP_PROFILE": "core",
+        "ETF_COCKPIT_MCP_CLIENT_ID": "local-stdio"
+      }
+    }
+  }
+}

@@ -559,14 +559,6 @@ def test_string_false_adjusted_flag_is_not_truthy(identifier: str) -> None:
     assert build_macro_context(prices, [{"id": "EQUITY", "name": "equity"}])["status"] != "unavailable"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "V8 C.C2.S21.N001 is real (RED on the base) but the strict fix drops every production "
-        "candidate-report row (the report carries no knowledge-time column) and contradicts "
-        "test_candidate_breadth_excludes_future_and_unproven_rows; held for an Opus decision."
-    ),
-)
 def test_candidate_without_any_knowledge_time_is_not_counted_in_breadth() -> None:
     report = pd.DataFrame(
         [

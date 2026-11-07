@@ -18,7 +18,8 @@ ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 PACKAGE = "etf_cockpit"
 
-PRESENTATION = frozenset({"app"})
+# Orchestrator decision 2026-11-02: mcp is a presentation-layer adapter, peer of app.
+PRESENTATION = frozenset({"app", "mcp"})
 APPLICATION = frozenset({"application"})
 COMPOSITION = frozenset({"", "main"})
 DOMAIN = frozenset({"analysis", "audit", "backtest", "features", "models", "portfolio", "signals", "trading", "validation"})
