@@ -13,6 +13,7 @@ import logging
 import multiprocessing
 import queue
 import re
+import time
 import zipfile
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
@@ -248,7 +249,7 @@ def parse_esef_package(path: Path) -> ParseResult[XbrlFact]:
         warnings.append(ParseWarning("arelle_unavailable", "Arelle validation adapter is unavailable; XML facts were parsed locally without invented authority", "warning"))
     else:
         try:
-            validation_messages = _run_arelle_validation(path, 8.0)
+            validation_messages = _run_arelle_validation(path, _ARELLE_VALIDATION_TIMEOUT_SECONDS)
         except TimeoutError as exc:
             arelle_ok = False
             warnings.append(ParseWarning("arelle_timeout", str(exc), "error"))
@@ -562,22 +563,60 @@ def _arelle_available() -> bool:
     return importlib.util.find_spec("arelle") is not None
 
 
-def _run_arelle_validation(path: Path, timeout_seconds: float = 8.0) -> tuple[dict[str, str], ...]:
-    """Run optional Arelle validation in a bounded child process."""
+# Validation bound: applies only once the child has imported Arelle and is ready to validate.
+_ARELLE_VALIDATION_TIMEOUT_SECONDS = 8.0
+# Start-up bound: spawn start-up plus the Arelle import (about 4 s on an idle machine, far more on a loaded
+# runner).  Deliberately generous; a child that exceeds it is terminated and the package is still rejected.
+_ARELLE_STARTUP_TIMEOUT_SECONDS = 60.0
+
+
+def _run_arelle_validation(
+    path: Path,
+    timeout_seconds: float = _ARELLE_VALIDATION_TIMEOUT_SECONDS,
+    *,
+    startup_timeout_seconds: float = _ARELLE_STARTUP_TIMEOUT_SECONDS,
+) -> tuple[dict[str, str], ...]:
+    """Run optional Arelle validation in a bounded child process.
+
+    The child start-up (interpreter, Arelle import) and the validation itself have separate bounds; both fail closed.
+    """
 
     context = multiprocessing.get_context("spawn")
     messages: multiprocessing.Queue[dict[str, object]] = context.Queue()
-    process = context.Process(target=_arelle_worker, args=(str(path), messages))
+    ready = context.Event()
+    process = context.Process(target=_arelle_worker, args=(str(path), messages, ready))
     process.start()
-    process.join(timeout_seconds)
+    startup_deadline = time.monotonic() + startup_timeout_seconds
+    # A child that dies before signalling ready falls through to the "exited without a validation result" path.
+    while not ready.is_set() and process.is_alive() and time.monotonic() < startup_deadline:
+        ready.wait(0.05)
+    if not ready.is_set() and process.is_alive():
+        process.terminate()
+        process.join(1.0)
+        raise TimeoutError("Arelle start-up exceeded the bounded timeout")
+    # Wait for the RESULT (not for process exit): interpreter teardown is outside the bound and the queue is
+    # drained before the child is joined.
+    validation_deadline = time.monotonic() + timeout_seconds
+    while True:
+        remaining = validation_deadline - time.monotonic()
+        try:
+            result = messages.get(timeout=max(0.0, min(0.1, remaining)))
+            break
+        except queue.Empty:
+            if not process.is_alive():
+                try:
+                    result = messages.get(timeout=1.0)
+                    break
+                except queue.Empty:
+                    return ({"code": "arelle_validation", "severity": "error", "message": "Arelle exited without a validation result"},)
+            if remaining <= 0:
+                process.terminate()
+                process.join(1.0)
+                raise TimeoutError("Arelle validation exceeded the bounded timeout")
+    process.join(1.0)
     if process.is_alive():
         process.terminate()
         process.join(1.0)
-        raise TimeoutError("Arelle validation exceeded the bounded timeout")
-    try:
-        result = messages.get(timeout=1.0)
-    except queue.Empty:
-        return ({"code": "arelle_validation", "severity": "error", "message": "Arelle exited without a validation result"},)
     status = str(result.get("status", "error"))
     if status in {"ok", "validation_error"}:
         normalised: list[dict[str, str]] = []
@@ -624,12 +663,14 @@ def _restrict_image_decoders() -> None:
     Image.ID[:] = [name for name in Image.ID if name in _ESEF_IMAGE_FORMATS]
 
 
-def _arelle_worker(path: str, messages: multiprocessing.Queue[dict[str, object]]) -> None:
+def _arelle_worker(path: str, messages: multiprocessing.Queue[dict[str, object]], ready: Any = None) -> None:
     try:
         _restrict_image_decoders()
         from arelle import Cntlr
 
         controller = Cntlr.Cntlr(logFileName="logToPrint")
+        if ready is not None:
+            ready.set()
         logger = getattr(controller, "logger", None)
         logger = logger if isinstance(logger, logging.Logger) else logging.getLogger("arelle")
         capture = _ArelleLogHandler()
