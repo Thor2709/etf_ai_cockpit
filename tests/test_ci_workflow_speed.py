@@ -92,5 +92,11 @@ def test_preflight_skips_focused_pytest_only_when_pr_package_gate_covers_it() ->
     guard = '[ "$PACKAGE_GATE_REQUIRED" = "true" ] && [ "$EVENT_NAME" = "pull_request" ]'
     assert guard in run
     assert run.count(flag) == 1
-    assert run.index(guard) < run.index(flag)
     assert run.count("scripts/validate_app.py --root . --changed") == 2  # flagged branch and unchanged fallback
+    lines = [line.strip() for line in run.splitlines()]
+    if_line = next(i for i, line in enumerate(lines) if line == f"if {guard}; then")
+    else_line = lines.index("else", if_line)
+    fi_line = lines.index("fi", else_line)
+    then_branch, else_branch = lines[if_line + 1 : else_line], lines[else_line + 1 : fi_line]
+    assert [line for line in then_branch if flag in line] == [f"python scripts/validate_app.py --root . --changed {flag}"]
+    assert else_branch == ["python scripts/validate_app.py --root . --changed"]  # no flag: full focused run

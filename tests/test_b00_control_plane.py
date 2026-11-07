@@ -999,8 +999,7 @@ def test_changed_mode_covered_by_release_gate_skips_pytest_but_keeps_other_check
     names = [check.name for check in checks]
 
     assert names[:3] == ["issue_registry", "source_compile", "source_smoke"]
-    assert not any(check.name.startswith("changed_tests") and "pytest" in check.command for check in checks)
-    assert not any("pytest" in check.command for check in checks)
+    assert not any("pytest" in part for check in checks for part in check.command)
     covered = next(check for check in checks if check.name == "changed_tests_covered_by_release_gate")
     assert "tests/test_a.py" in covered.command[-1]
     assert subprocess.run([*covered.command], capture_output=True, text=True, check=False).returncode == 0
