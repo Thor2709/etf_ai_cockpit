@@ -798,8 +798,26 @@ def fetch_cover_issuer(task: tuple[str, Layout]) -> dict:
                 "bytes_downloaded": downloaded}
 
 
-def step_cover(layout: Layout, workers: int) -> dict:
+def read_cik_list(path: Path) -> list[str]:
+    """One 10-digit CIK per line; blank lines and #-comments ignored; anything else is rejected."""
+    ciks = []
+    for number, line in enumerate(path.read_text(encoding="utf-8-sig").splitlines(), 1):
+        text = line.split("#", 1)[0].strip()
+        if not text:
+            continue
+        if not re.fullmatch(r"[0-9]{10}", text):
+            raise ValueError(f"malformed CIK on line {number}: {text!r}")
+        ciks.append(text)
+    if not ciks:
+        raise ValueError(f"{path} contains no CIK")
+    return sorted(set(ciks))
+
+
+def step_cover(layout: Layout, workers: int, subset: list[str] | None = None) -> dict:
     """Opt-in historical identities; preserve run_config.yaml byte-for-byte.
+
+    ``subset`` (report-only) scans just those candidate CIKs through the same issuer
+    path and returns their results; it derives and publishes no bindings or config.
 
     Scan supported filings dated >= 2019-06-01; older identity windows stay unbound.
     Existing resolution residues and exact normalised former security names are
@@ -830,13 +848,20 @@ def step_cover(layout: Layout, workers: int) -> dict:
     for ticker in candidate_tickers:
         candidate_tickers[ticker].update(cik_text(r["cik_str"]) for r in tickers.values() if r["ticker"] == sec_ticker(ticker))
     candidates = set().union(*candidate_tickers.values())
+    selected = sorted(candidates if subset is None else candidates & set(subset))
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        results = list(pool.map(fetch_cover_issuer, [(cik, layout) for cik in sorted(candidates)]))
+        results = list(pool.map(fetch_cover_issuer, [(cik, layout) for cik in selected]))
     downloaded = sum(r.get("bytes_downloaded", 0) for r in results)
     if storage.reason is not None:
         return {"status": "aborted", "reason": storage.reason,
                 "failed": [r["cik"] for r in results if r["status"] == "failed"], "issuer_outcomes": results,
                 "bytes_downloaded": downloaded}
+    if subset is not None:
+        by_cik = {r["cik"]: r for r in results}
+        return {"mode": "cover-evidence-subset", "status": "subset_report", "execution_allowed": False,
+                "issuers": [by_cik.get(cik, {"cik": cik, "status": "not_a_candidate"}) for cik in sorted(set(subset))],
+                "not_a_candidate": [cik for cik in sorted(set(subset)) if cik not in by_cik],
+                "failed": [r["cik"] for r in results if r["status"] == "failed"], "bytes_downloaded": downloaded}
     evidence = [row for result in results for row in result["evidence"]]
     snapshots = parse_fja_csv(Path(config["history_csv"]).read_text(encoding="utf-8"), **config["csv_shape"])
     events = parse_wikipedia_changes(Path(config["wikipedia_html"]).read_text(encoding="utf-8"),
@@ -1081,7 +1106,25 @@ def main(argv=None) -> int:
     parser.add_argument("--sec-rate", type=float, default=SEC_RATE)
     parser.add_argument("--cover-cache-budget-bytes", type=int, default=COVER_CACHE_BUDGET,
                         help="Extracted cover cache budget (default: 32 MiB); stops below 5 GiB free")
+    parser.add_argument("--ciks", type=Path,
+                        help="cover-evidence only: report-only run for the 10-digit CIKs in this file")
+    parser.add_argument("--subset-report", type=Path, help="Result report path, required with --ciks")
     args = parser.parse_args(argv)
+    subset = None
+    if args.ciks is not None or args.subset_report is not None:
+        if args.ciks is None:
+            parser.error("--subset-report is only valid with --ciks")
+        if args.step != "cover-evidence":
+            parser.error("--ciks is only valid with --step cover-evidence")
+        if args.subset_report is None:
+            parser.error("--subset-report is required with --ciks")
+        raw_tree = args.root.resolve() / "data" / "raw"
+        if args.subset_report.resolve().is_relative_to(raw_tree):
+            parser.error(f"--subset-report must be outside {raw_tree}")
+        try:
+            subset = read_cik_list(args.ciks)
+        except (OSError, ValueError) as exc:
+            parser.error(str(exc))
     if args.workers < 1:
         parser.error("--workers must be positive")
     if not 0 < args.sec_rate <= 8:
@@ -1097,7 +1140,13 @@ def main(argv=None) -> int:
     elif args.step == "sec":
         out = step_sec(layout, args.workers)
     elif args.step == "cover-evidence":
-        out = step_cover(layout, args.workers)
+        if subset is None:
+            out = step_cover(layout, args.workers)
+        else:
+            out = step_cover(layout, args.workers, subset=subset)
+            atomic_write_bytes(args.subset_report.resolve(), json.dumps(out, sort_keys=True, indent=1, default=str).encode(),
+                               lambda p: json.loads(p.read_text()))
+            out = {**{k: v for k, v in out.items() if k != "issuers"}, "subset_report": str(args.subset_report)}
     elif args.step == "prices":
         out = step_prices(layout, args.workers)
     elif args.step == "config":
