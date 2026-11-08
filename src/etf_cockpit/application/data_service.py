@@ -62,7 +62,10 @@ from etf_cockpit.data.trade_candidate_analysis import (
     refresh_candidate_analysis,
     write_candidate_price_snapshot,
 )
-from etf_cockpit.data.price_quarantine import quarantine_invalid_ohlc as _quarantine_invalid_ohlc
+from etf_cockpit.data.price_quarantine import (
+    quarantine_invalid_adjusted_close as _quarantine_invalid_adjusted_close,
+    quarantine_invalid_ohlc as _quarantine_invalid_ohlc,
+)
 from etf_cockpit.data.validation import (
     validate_holdings,
     validate_prices,
@@ -307,17 +310,17 @@ def _merge_incremental_price_result(
     window_start: date,
     start_date: date,
     end_date: date,
-) -> tuple[ProviderResult, tuple[str, ...]]:
+) -> tuple[ProviderResult, tuple[str, ...], pd.DataFrame | None]:
     carried = _carry_forward_failed_instruments(window_result, expected_ids=expected_ids)
     partial_missing = tuple(getattr(carried, "missing_ids", ()))
     if partial_missing and carried.data is not None:
         carried = dataclasses.replace(carried, status="ok")
     if not carried.ok or carried.data is None:
-        return carried, partial_missing
+        return carried, partial_missing, None
 
     window_data = window_result.data.copy() if window_result.data is not None else pd.DataFrame()
     if "etf_id" not in window_data.columns:
-        return carried, partial_missing
+        return carried, partial_missing, None
     window_data["date"] = _normalised_price_dates(window_data)
     stored_data = stored.copy()
     if "date" in stored_data.columns:
@@ -357,6 +360,7 @@ def _merge_incremental_price_result(
             full_reason_counts[full_reason] += 1
 
     full_data = pd.DataFrame()
+    full_quarantined = None
     failed_full_ids: set[str] = set()
     if full_ids:
         try:
@@ -366,6 +370,7 @@ def _merge_incremental_price_result(
         except Exception:
             failed_full_ids.update(full_ids)
         else:
+            full_result, full_quarantined = _quarantine_invalid_adjusted_close(full_result)
             if full_result.data is not None and "etf_id" in full_result.data.columns:
                 full_data = full_result.data.copy()
                 full_data["date"] = _normalised_price_dates(full_data)
@@ -438,7 +443,7 @@ def _merge_incremental_price_result(
         )
     else:
         result = dataclasses.replace(carried, status="ok", message=message, data=merged, metadata=metadata)
-    return result, missing_after_full
+    return result, missing_after_full, full_quarantined
 
 
 class DataService:
@@ -586,24 +591,58 @@ class DataService:
                 if stored.empty:
                     result = provider.fetch_prices([], start_date, end_date)
                     incremental_window_start = None
-                else:
-                    result, partial_missing = _merge_incremental_price_result(
-                        provider,
-                        result,
-                        stored=stored,
-                        expected_ids=expected_ids,
-                        window_start=incremental_window_start,
-                        start_date=start_date,
-                        end_date=end_date,
-                    )
+            fresh_result = result
+            result, adjusted_quarantined = _quarantine_invalid_adjusted_close(result)
+            full_quarantined = None
+            if incremental_window_start is not None:
+                result, partial_missing, full_quarantined = _merge_incremental_price_result(
+                    provider,
+                    result,
+                    stored=stored,
+                    expected_ids=expected_ids,
+                    window_start=incremental_window_start,
+                    start_date=start_date,
+                    end_date=end_date,
+                )
             if incremental_window_start is None:
                 result = _carry_forward_failed_instruments(result, expected_ids=expected_ids)
                 partial_missing = tuple(getattr(result, "missing_ids", ()))
                 if partial_missing and result.data is not None:
                     result = dataclasses.replace(result, status="ok")  # fresh + stored rows are real data; success stays False
+            rejected_ids: set[str] = set()
+            for rejected_frame in (adjusted_quarantined, full_quarantined):
+                if rejected_frame is not None:
+                    rejected_ids.update(rejected_frame["etf_id"].astype(str))
+            if not rejected_ids and (not result.ok or result.data is None):
+                return redact_text(str(result.message))
+            if rejected_ids:
+                result = dataclasses.replace(
+                    result, data=result.data.loc[~result.data["etf_id"].astype(str).isin(rejected_ids)]
+                )
+            result, quarantined = _quarantine_invalid_ohlc(result)
+            if rejected_ids:
+                # Restore from the locked store, including history outside the incremental span.
+                stored = _read_clean_price_store()
+                stored_ids = set(stored["etf_id"].astype(str)) if "etf_id" in stored.columns else set()
+                data = result.data
+                restore_ids = rejected_ids if result.ok else stored_ids
+                kept = stored.loc[stored["etf_id"].astype(str).isin(restore_ids)] if stored_ids else stored
+                data = pd.concat([data, kept], ignore_index=True)
+                metadata = dataclasses.replace(result.metadata, checksum=sha256_dataframe(data)) if result.metadata else None
+                result = dataclasses.replace(result, status="ok", data=data, metadata=metadata)
+                wanted = set(expected_ids) if expected_ids is not None else set(_FAILED_SYMBOL.findall(str(fresh_result.message)))
+                partial_missing = tuple(sorted(
+                    set(partial_missing) | ((wanted | rejected_ids) - stored_ids - set(data["etf_id"].astype(str)))
+                ))
+                adjusted_quarantined = fresh_result.data.loc[
+                    fresh_result.data["etf_id"].astype(str).isin(rejected_ids)
+                ].copy()
+                adjusted_quarantined["quarantine_reason"] = "invalid_adjusted_close"
+                if full_quarantined is not None:
+                    adjusted_quarantined = pd.concat([adjusted_quarantined, full_quarantined], ignore_index=True)
+                messages.append("Adjusted close invalid from Yahoo, stored history kept: " + ", ".join(sorted(rejected_ids)) + ".")
             if not result.ok or result.data is None:
                 return redact_text(str(result.message))
-            result, quarantined = _quarantine_invalid_ohlc(result)
             report = validate_prices(result.data, as_of_date=end_date)
             # Vendor OHLC glitches are quarantined row by row above, and a short history is a per-instrument
             # signal gate the snapshot re-applies; neither should block committing every other instrument.
@@ -612,13 +651,20 @@ class DataService:
                 f"{issue.etf_id}: {issue.message}" for issue in report.issues
                 if issue.severity == "block" and issue.code not in commit_tolerated
             ]
-            if block_issues:
+            if block_issues and not rejected_ids:
                 return "Yahoo Finance prices fetched but not committed because validation blocked them: " + "; ".join(block_issues)
-            if quarantined is not None and not quarantined.empty:
+            quarantine_parts = [frame for frame in (adjusted_quarantined, quarantined) if frame is not None and not frame.empty]
+            if quarantine_parts:
                 quarantine_path = _unused_quarantine_path(ROOT / "data" / "quality", end_date)
                 quarantine_path.parent.mkdir(parents=True, exist_ok=True)
-                quarantined.to_parquet(quarantine_path, index=False)
-                messages.append(f"Quarantined {len(quarantined)} invalid OHLC rows to {quarantine_path.name}.")
+                pd.concat(quarantine_parts, ignore_index=True).to_parquet(quarantine_path, index=False)
+                if quarantined is not None and not quarantined.empty:
+                    messages.append(f"Quarantined {len(quarantined)} invalid OHLC rows to {quarantine_path.name}.")
+            if block_issues:
+                if partial_missing:
+                    messages.insert(0, "PARTIAL refresh, not ok: no price data for " + ", ".join(sorted(partial_missing)) + ".")
+                messages.append("Yahoo Finance prices fetched but not committed because validation blocked them: " + "; ".join(block_issues))
+                return "\n".join(messages)
             with publication_scope(publish_guard):
                 commit_result = commit_price_import(result)
         messages.append(
