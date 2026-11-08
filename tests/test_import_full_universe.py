@@ -46,6 +46,7 @@ def _candidate(
         "asset_type": asset_type,
         "tier": "secondary",
         "enabled": enabled,
+        "currency": "EUR",
         **fields,
     }
 
@@ -208,6 +209,43 @@ def test_stock_verified_by_both_sources_is_enabled() -> None:
     assert entry.record is not None
     assert entry.record["enabled"] is True
     assert entry.record["isin_status"] == "verified"
+
+
+def test_missing_currency_is_quarantined_and_supplied_currency_is_uppercased() -> None:
+    missing_currency = _candidate("AAPL", "AAPL", "US0378331005")
+    missing_currency.pop("currency")
+    missing = importer._entry(
+        source="company",
+        source_row=2,
+        instrument_id="AAPL",
+        isin="US0378331005",
+        ticker="AAPL",
+        enabled=True,
+        reason="verified_isin_stock",
+        source_record=missing_currency,
+        asset_type="stock",
+        isin_status="verified",
+    )
+
+    supplied = importer._entry(
+        source="company",
+        source_row=2,
+        instrument_id="AAPL",
+        isin="US0378331005",
+        ticker="AAPL",
+        enabled=True,
+        reason="verified_isin_stock",
+        source_record=_candidate("AAPL", "AAPL", "US0378331005", currency="usd"),
+        asset_type="stock",
+        isin_status="verified",
+    )
+
+    assert missing.bucket == "quarantined"
+    assert missing.reason == "currency_unavailable"
+    assert missing.record is None
+    assert supplied.bucket == "imported"
+    assert supplied.record is not None
+    assert supplied.record["currency"] == "USD"
 
 
 def test_unverified_candidate_is_never_enabled() -> None:
