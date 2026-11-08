@@ -12,7 +12,7 @@ RUNNER = Path(__file__).resolve().parents[1] / "scripts" / "scheduled_refresh.ps
 
 pytestmark = pytest.mark.skipif(
     sys.platform != "win32" or shutil.which("powershell.exe") is None,
-    reason="Windows PowerShell job runner",
+    reason="requires Windows PowerShell (scheduled job runner)",
 )
 
 
