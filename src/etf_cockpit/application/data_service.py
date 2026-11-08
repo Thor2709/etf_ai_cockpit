@@ -92,6 +92,7 @@ from etf_cockpit.application.forecast_service import (
 
 ADJ_CLOSE_RTOL = 1e-6
 INCREMENTAL_OVERLAP_DAYS = 14
+FX_OVERLAP_DAYS = 14
 
 
 def _normalised_price_dates(frame: pd.DataFrame) -> pd.Series:
@@ -116,6 +117,43 @@ def _adjusted_price_basis_matches(stored: pd.DataFrame, fetched: pd.DataFrame) -
     return bool((relative_difference <= ADJ_CLOSE_RTOL).fillna(False).all())
 
 
+def _currency_basis_mismatch(stored: pd.DataFrame, fetched: pd.DataFrame) -> bool:
+    if "currency" not in stored.columns or "currency" not in fetched.columns:
+        return False
+    stored_currencies = stored["currency"].dropna().astype(str).str.strip()
+    if stored_currencies.nunique() > 1:
+        return True
+    if "date" not in stored.columns or "date" not in fetched.columns:
+        return False
+    old = stored[["date", "currency"]].copy()
+    new = fetched[["date", "currency"]].copy()
+    old["date"] = _normalised_price_dates(old)
+    new["date"] = _normalised_price_dates(new)
+    old = old.dropna(subset=["date"])
+    new = new.dropna(subset=["date"])
+    shared = new.merge(old, on="date", how="inner", suffixes=("_fetched", "_stored"))
+    shared = shared.dropna(subset=["currency_fetched", "currency_stored"])
+    fetched_labels = shared["currency_fetched"].astype(str).str.strip()
+    stored_labels = shared["currency_stored"].astype(str).str.strip()
+    return bool(fetched_labels.ne(stored_labels).any())
+
+
+def _incremental_full_reason(stored: pd.DataFrame, fetched: pd.DataFrame) -> str | None:
+    if _currency_basis_mismatch(stored, fetched):
+        return "currency mismatch"
+    if "date" not in stored.columns or "date" not in fetched.columns:
+        return "no overlap"
+    stored_dates = set(_normalised_price_dates(stored).dropna())
+    fetched_dates = set(_normalised_price_dates(fetched).dropna())
+    if not stored_dates.intersection(fetched_dates):
+        return "no overlap"
+    if "adjusted_close" not in stored.columns or "adjusted_close" not in fetched.columns:
+        return "adjusted mismatch"
+    if not _adjusted_price_basis_matches(stored, fetched):
+        return "adjusted mismatch"
+    return None
+
+
 def _read_clean_price_store() -> pd.DataFrame:
     path = CLEAN_DIR / "prices.parquet"
     try:
@@ -123,6 +161,137 @@ def _read_clean_price_store() -> pd.DataFrame:
     except Exception:
         # An unreadable store cannot safely anchor a short-window merge.
         return pd.DataFrame()
+
+
+def _fx_pair_series(frame: pd.DataFrame) -> pd.Series:
+    if "pair" in frame.columns:
+        return frame["pair"].fillna("").astype(str).str.strip().str.upper()
+    if {"base_currency", "quote_currency"}.issubset(frame.columns):
+        return (
+            frame["base_currency"].fillna("").astype(str).str.strip().str.upper()
+            + "/"
+            + frame["quote_currency"].fillna("").astype(str).str.strip().str.upper()
+        )
+    return pd.Series("", index=frame.index, dtype=object)
+
+
+def _fx_date_series(frame: pd.DataFrame) -> pd.Series:
+    column = next((name for name in ("as_of_date", "date", "rate_date") if name in frame.columns), None)
+    if column is None:
+        return pd.Series(pd.NaT, index=frame.index, dtype=object)
+    return pd.to_datetime(frame[column], errors="coerce").dt.date
+
+
+def _read_clean_fx_store() -> pd.DataFrame:
+    path = CLEAN_DIR / "fx.parquet"
+    return pd.read_parquet(path) if path.is_file() else pd.DataFrame()
+
+
+def _refresh_yfinance_fx(
+    provider: YFinanceProvider,
+    config: AppConfig,
+    *,
+    years: int,
+    end_date: date,
+    publish_guard: PublicationScopeFactory | None,
+) -> list[str]:
+    base_currency = str(config.targets.base_currency).strip().upper()
+    currencies = sorted(
+        {
+            str(instrument.currency).strip().upper()
+            for instrument in config.universe.etfs
+            if str(instrument.currency or "").strip()
+        }
+        - {base_currency}
+    )
+    pairs = [f"{currency}/{base_currency}" for currency in currencies]
+    if not pairs:
+        return []
+
+    try:
+        stored = _read_clean_fx_store()
+    except Exception:
+        return ["FX not refreshed: " + ", ".join(pairs) + "."]
+    stored_pairs = _fx_pair_series(stored)
+    stored_dates = _fx_date_series(stored)
+    fallback_start = years_before(end_date, years)
+    pair_windows: dict[date, list[str]] = {}
+    for pair in pairs:
+        pair_dates = stored_dates.loc[stored_pairs.eq(pair)].dropna()
+        start = max(pair_dates) - timedelta(days=FX_OVERLAP_DAYS) if not pair_dates.empty else fallback_start
+        pair_windows.setdefault(start, []).append(pair)
+
+    failed_pairs: set[str] = set()
+    fetched_parts: list[pd.DataFrame] = []
+    successful_template: ProviderResult | None = None
+    for start, window_pairs in pair_windows.items():
+        try:
+            result = provider.fetch_fx(window_pairs, start, end_date)
+        except WorkflowTransitionError:
+            raise
+        except Exception:
+            failed_pairs.update(window_pairs)
+            continue
+        if result.data is None:
+            failed_pairs.update(window_pairs)
+            continue
+
+        result_pairs = _fx_pair_series(result.data)
+        for pair in window_pairs:
+            pair_rows = result.data.loc[result_pairs.eq(pair)].copy()
+            if pair_rows.empty:
+                failed_pairs.add(pair)
+                continue
+            try:
+                validation = validate_fx_rates(
+                    pair_rows,
+                    source_name=result.metadata.source_name if result.metadata else result.provider_name,
+                    provider_or_manual_source=result.provider_name,
+                )
+            except Exception:
+                failed_pairs.add(pair)
+                continue
+            if not validation.ok:
+                failed_pairs.add(pair)
+                continue
+            fetched_parts.append(pair_rows)
+            if successful_template is None:
+                successful_template = result
+
+    if fetched_parts and successful_template is not None:
+        fetched = pd.concat(fetched_parts, ignore_index=True, sort=False)
+        fetched_pairs = _fx_pair_series(fetched)
+        fetched_dates = _fx_date_series(fetched)
+        parts: list[pd.DataFrame] = []
+        if not stored.empty:
+            for pair in sorted(set(stored_pairs)):
+                old_rows = stored.loc[stored_pairs.eq(pair)].copy()
+                if pair not in pairs or pair in failed_pairs:
+                    parts.append(old_rows)
+                    continue
+                replacement_dates = set(fetched_dates.loc[fetched_pairs.eq(pair)].dropna())
+                keep_old = ~stored_dates.loc[old_rows.index].isin(replacement_dates)
+                parts.append(old_rows.loc[keep_old])
+        parts.append(fetched)
+        merged = pd.concat(parts, ignore_index=True, sort=False)
+        fx_result = dataclasses.replace(
+            successful_template,
+            status="ok",
+            message=f"Fetched and merged FX rates for {len(set(fetched_pairs))} pairs.",
+            data=merged,
+        )
+        try:
+            with publication_scope(publish_guard):
+                commit_fx_import(fx_result)
+        except WorkflowTransitionError:
+            raise
+        except Exception:
+            failed_pairs.update(pairs)
+
+    messages: list[str] = []
+    if failed_pairs:
+        messages.append("FX not refreshed: " + ", ".join(sorted(failed_pairs)) + ".")
+    return messages
 
 
 def _merge_incremental_price_result(
@@ -168,6 +337,7 @@ def _merge_incremental_price_result(
 
     incremental_ids: list[str] = []
     full_ids: list[str] = []
+    full_reason_counts = {"no overlap": 0, "adjusted mismatch": 0, "currency mismatch": 0}
     for instrument_id in sorted(window_ids):
         old_rows = (
             stored_data[stored_data["etf_id"].astype(str).eq(instrument_id)].copy()
@@ -175,10 +345,12 @@ def _merge_incremental_price_result(
             else stored_data.iloc[0:0].copy()
         )
         new_rows = window_data[window_data["etf_id"].astype(str).eq(instrument_id)].copy()
-        if _adjusted_price_basis_matches(old_rows, new_rows):
+        full_reason = _incremental_full_reason(old_rows, new_rows)
+        if full_reason is None:
             incremental_ids.append(instrument_id)
         else:
             full_ids.append(instrument_id)
+            full_reason_counts[full_reason] += 1
 
     full_data = pd.DataFrame()
     failed_full_ids: set[str] = set()
@@ -229,8 +401,10 @@ def _merge_incremental_price_result(
 
     summary = (
         f"Incremental refresh: {len(incremental_ids)} incremental instruments, "
-        f"{len(full_ids)} full refetches (no overlap / adjusted mismatch), "
-        f"{len(not_returned_ids)} not returned."
+        f"{len(full_ids)} full refetches, {len(not_returned_ids)} not returned. "
+        f"Full refetch reasons: {full_reason_counts['no overlap']} no overlap, "
+        f"{full_reason_counts['adjusted mismatch']} adjusted mismatch, "
+        f"{full_reason_counts['currency mismatch']} currency mismatch."
     )
     if "etf_id" in full_data.columns:
         failed_full_ids.update(set(full_ids) - set(full_data["etf_id"].astype(str)))
@@ -373,6 +547,7 @@ class DataService:
         publish_guard: PublicationScopeFactory | None = None,
         incremental: bool = False,
         include_fundamentals: bool = True,
+        include_fx: bool = False,
     ) -> str:
         self.last_operation_succeeded = False
         end_date = date.today()
@@ -444,6 +619,17 @@ class DataService:
         )
         if partial_missing:
             messages.insert(0, "PARTIAL refresh, not ok: no price data for " + ", ".join(sorted(partial_missing)) + ".")
+
+        if include_fx:
+            messages.extend(
+                _refresh_yfinance_fx(
+                    provider,
+                    self.config,
+                    years=years,
+                    end_date=end_date,
+                    publish_guard=publish_guard,
+                )
+            )
 
         if include_reference_data:
             from etf_cockpit.data.etf_e1_fetch import fetch_etf_e1_reference_data

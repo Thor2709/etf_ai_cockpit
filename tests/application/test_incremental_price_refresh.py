@@ -24,10 +24,18 @@ class _FrozenDate(date):
 
 
 class _FakeProvider:
-    def __init__(self, ids: tuple[str, ...], results: list[ProviderResult]):
+    def __init__(
+        self,
+        ids: tuple[str, ...],
+        results: list[ProviderResult],
+        *,
+        fx_results: list[ProviderResult] | None = None,
+    ):
         self.ids = ids
         self.results = list(results)
+        self.fx_results = list(fx_results or [])
         self.calls: list[tuple[tuple[str, ...], date, date]] = []
+        self.fx_calls: list[tuple[tuple[str, ...], date, date]] = []
 
     def _symbol_map(self, symbols):
         selected = tuple(symbols) if symbols else self.ids
@@ -37,6 +45,11 @@ class _FakeProvider:
         self.calls.append((tuple(symbols), start_date, end_date))
         assert self.results, "unexpected provider call"
         return self.results.pop(0)
+
+    def fetch_fx(self, pairs, start_date, end_date):
+        self.fx_calls.append((tuple(pairs), start_date, end_date))
+        assert self.fx_results, "unexpected FX provider call"
+        return self.fx_results.pop(0)
 
 
 def _price_frame(instrument_id: str, rows: list[tuple[date, float, float, datetime]]) -> pd.DataFrame:
@@ -137,6 +150,64 @@ def _stored(clean_path: Path) -> pd.DataFrame:
     return frame
 
 
+def _fx_frame(pair: str, rows: list[tuple[date, float, datetime]]) -> pd.DataFrame:
+    base, quote = pair.split("/")
+    return pd.DataFrame(
+        [
+            {
+                "as_of_date": day,
+                "base_currency": base,
+                "quote_currency": quote,
+                "pair": pair,
+                "rate": rate,
+                "source": "yfinance",
+                "provider_symbol": pair.replace("/", ""),
+                "ingested_at": ingested_at,
+                "available_at": ingested_at,
+                "availability_basis": "live_ingestion",
+                "staleness_status": "unknown",
+                "fetched_at": ingested_at + timedelta(minutes=1),
+                "provider": "yfinance",
+            }
+            for day, rate, ingested_at in rows
+        ]
+    )
+
+
+def _fx_result(frame: pd.DataFrame | None, *, status: str = "ok", message: str = "Downloaded test FX.") -> ProviderResult:
+    return ProviderResult("yfinance", "fx", status, message, frame)
+
+
+def _fx_config(currencies: tuple[str, ...]):
+    return SimpleNamespace(
+        targets=SimpleNamespace(base_currency="EUR"),
+        universe=SimpleNamespace(etfs=[SimpleNamespace(currency=currency) for currency in currencies]),
+    )
+
+
+def _capture_fx_commits(monkeypatch, tmp_path: Path, clean_path: Path):
+    commits: list[ProviderResult] = []
+    commit = data_service.commit_fx_import
+
+    def commit_to_tmp(result):
+        commits.append(result)
+        return commit(
+            result,
+            clean_path=clean_path,
+            raw_dir=tmp_path / "data" / "raw" / "fx",
+            snapshots_dir=tmp_path / "data" / "snapshots" / "fx",
+        )
+
+    monkeypatch.setattr(data_service, "commit_fx_import", commit_to_tmp)
+    return commits
+
+
+def _read_fx(path: Path) -> pd.DataFrame:
+    frame = pd.read_parquet(path)
+    frame["as_of_date"] = pd.to_datetime(frame["as_of_date"]).dt.date
+    return frame
+
+
 def test_incremental_merge_keeps_history_and_appends_new_day(monkeypatch, tmp_path):
     floor = years_before(_TODAY, 5)
     window_start = date(2026, 10, 19)
@@ -190,6 +261,55 @@ def test_adjusted_close_mismatch_full_refetches_only_that_instrument(monkeypatch
     assert bbb.loc[bbb["date"].eq(shared), "close"].iloc[0] == 100
     assert provider.calls[1][0] == ("AAA",)
     assert "1 incremental instruments, 1 full refetches" in message
+
+
+def test_currency_label_change_with_matching_adjusted_close_full_refetches_only_that_instrument(monkeypatch, tmp_path):
+    floor = years_before(_TODAY, 5)
+    shared = date(2026, 10, 30)
+    stored = pd.concat(
+        [
+            _price_frame("AAA", [_bar(floor), _bar(shared)]),
+            _price_frame("BBB", [_bar(floor), _bar(shared)]),
+        ],
+        ignore_index=True,
+    )
+    window = pd.concat(
+        [
+            _price_frame("AAA", [_bar(shared), _bar(_TODAY)]).assign(currency="USD"),
+            _price_frame("BBB", [_bar(shared), _bar(_TODAY)]),
+        ],
+        ignore_index=True,
+    )
+    full = _price_frame("AAA", [_bar(floor), _bar(shared), _bar(_TODAY)]).assign(currency="USD")
+    provider = _FakeProvider(("AAA", "BBB"), [_result(window), _result(full)])
+
+    clean_path, message = _run(provider, monkeypatch, tmp_path, stored)
+
+    final = _stored(clean_path)
+    assert set(final.loc[final["etf_id"].eq("AAA"), "currency"]) == {"USD"}
+    assert set(final.loc[final["etf_id"].eq("BBB"), "currency"]) == {"EUR"}
+    assert provider.calls[1][0] == ("AAA",)
+    assert "1 currency mismatch" in message
+
+
+def test_multiple_stored_currency_labels_force_full_refetch(monkeypatch, tmp_path):
+    floor = years_before(_TODAY, 5)
+    shared = date(2026, 10, 30)
+    stored = pd.concat(
+        [
+            _price_frame("AAA", [_bar(floor)]).assign(currency="GBP"),
+            _price_frame("AAA", [_bar(shared)]),
+        ],
+        ignore_index=True,
+    )
+    window = _price_frame("AAA", [_bar(shared), _bar(_TODAY)])
+    full = _price_frame("AAA", [_bar(floor), _bar(shared), _bar(_TODAY)])
+    provider = _FakeProvider(("AAA",), [_result(window), _result(full)])
+
+    _clean_path, message = _run(provider, monkeypatch, tmp_path, stored)
+
+    assert provider.calls[1][0] == ("AAA",)
+    assert "1 currency mismatch" in message
 
 
 def test_missing_history_or_no_shared_date_uses_full_refetch(monkeypatch, tmp_path):
@@ -321,3 +441,96 @@ def test_skip_fundamentals_never_calls_stock_refresh(monkeypatch, tmp_path):
 
     assert calls == []
     assert "Stock fundamentals skipped (weekly job)." in message
+
+
+def test_include_fx_refreshes_configured_pairs_merges_rows_and_commits_once(monkeypatch, tmp_path):
+    price = _price_frame("AAA", [_bar(_TODAY)])
+    stored_latest = datetime(2026, 11, 7, 20, tzinfo=_UTC)
+    stored_old = datetime(2026, 11, 1, 20, tzinfo=_UTC)
+    stored_cad = datetime(2026, 11, 3, 20, tzinfo=_UTC)
+    jpy_fetch = _fx_frame("JPY/EUR", [(_TODAY, 0.0062, datetime(2026, 11, 8, 20, tzinfo=_UTC))])
+    usd_fetch = _fx_frame("USD/EUR", [(date(2026, 11, 7), 0.93, datetime(2026, 11, 8, 20, tzinfo=_UTC))])
+    provider = _FakeProvider(
+        ("AAA",),
+        [_result(price)],
+        fx_results=[_fx_result(jpy_fetch), _fx_result(usd_fetch)],
+    )
+    clean_path = _prepare(monkeypatch, tmp_path, provider)
+    fx_path = clean_path.parent / "fx.parquet"
+    stored_fx = pd.concat(
+        [
+            _fx_frame("USD/EUR", [(date(2026, 11, 1), 0.91, stored_old)]),
+            _fx_frame("USD/EUR", [(date(2026, 11, 7), 0.92, stored_latest)]),
+            _fx_frame("CAD/EUR", [(date(2026, 11, 3), 0.67, stored_cad)]),
+        ],
+        ignore_index=True,
+    )
+    stored_fx.to_parquet(fx_path, index=False)
+    commits = _capture_fx_commits(monkeypatch, tmp_path, fx_path)
+
+    message = DataService(config=_fx_config(("USD", "JPY", "EUR"))).refresh_yfinance_data(
+        years=5,
+        include_reference_data=False,
+        include_fundamentals=False,
+        include_fx=True,
+    )
+
+    assert set(provider.fx_calls) == {
+        (("JPY/EUR",), years_before(_TODAY, 5), _TODAY),
+        (("USD/EUR",), date(2026, 10, 24), _TODAY),
+    }
+    assert len(commits) == 1
+    merged_input = commits[0].data
+    old_usd = merged_input.loc[
+        merged_input["pair"].eq("USD/EUR") & (pd.to_datetime(merged_input["as_of_date"]).dt.date == date(2026, 11, 1))
+    ].iloc[0]
+    assert pd.Timestamp(old_usd["ingested_at"]) == pd.Timestamp(stored_old)
+    assert pd.Timestamp(old_usd["fetched_at"]) == pd.Timestamp(stored_old + timedelta(minutes=1))
+
+    final = _read_fx(fx_path)
+    assert set(final["pair"]) == {"USD/EUR", "JPY/EUR", "CAD/EUR"}
+    usd_nov_1 = final.loc[final["pair"].eq("USD/EUR") & final["as_of_date"].eq(date(2026, 11, 1))].iloc[0]
+    usd_nov_7 = final.loc[final["pair"].eq("USD/EUR") & final["as_of_date"].eq(date(2026, 11, 7))].iloc[0]
+    assert usd_nov_1["rate"] == 0.91
+    assert pd.Timestamp(usd_nov_1["ingested_at"]) == pd.Timestamp(stored_old)
+    assert usd_nov_7["rate"] == 0.93
+    assert len(final.loc[final["pair"].eq("USD/EUR") & final["as_of_date"].eq(date(2026, 11, 7))]) == 1
+    assert "Validated and committed 1 price rows" in message
+
+
+def test_failed_fx_pair_keeps_stored_rows_and_price_commit(monkeypatch, tmp_path):
+    price = _price_frame("AAA", [_bar(_TODAY)])
+    old_ingested = datetime(2026, 11, 7, 20, tzinfo=_UTC)
+    provider = _FakeProvider(
+        ("AAA",),
+        [_result(price)],
+        fx_results=[_fx_result(None, status="error", message="JPY/EUR: no rows returned")],
+    )
+    clean_path = _prepare(monkeypatch, tmp_path, provider)
+    fx_path = clean_path.parent / "fx.parquet"
+    stored = _fx_frame("JPY/EUR", [(date(2026, 11, 7), 0.006, old_ingested)])
+    stored.to_parquet(fx_path, index=False)
+    commits = _capture_fx_commits(monkeypatch, tmp_path, fx_path)
+
+    service = DataService(config=_fx_config(("JPY", "EUR")))
+    message = service.refresh_yfinance_data(
+        years=5,
+        include_reference_data=False,
+        include_fundamentals=False,
+        include_fx=True,
+    )
+
+    assert service.last_operation_succeeded
+    assert clean_path.is_file()
+    assert _stored(clean_path)["date"].max() == _TODAY
+    assert _read_fx(fx_path)["rate"].tolist() == [0.006]
+    assert len(commits) == 0
+    assert "FX not refreshed: JPY/EUR" in message
+
+
+def test_include_fx_false_never_calls_fetch_fx(monkeypatch, tmp_path):
+    provider = _FakeProvider(("AAA",), [_result(_price_frame("AAA", [_bar(_TODAY)]))])
+
+    _run(provider, monkeypatch, tmp_path)
+
+    assert provider.fx_calls == []

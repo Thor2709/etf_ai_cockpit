@@ -237,3 +237,31 @@ def test_cli_refresh_flags_reach_refresh_and_defaults_keep_one_argument_call(mon
         (Path(tmp_path).resolve(),),
         {"incremental": True, "include_fundamentals": False},
     )
+
+
+def test_cli_refresh_fx_flag_reaches_refresh(monkeypatch, tmp_path: Path, capsys) -> None:
+    script = Path(__file__).resolve().parents[1] / "scripts" / "run_daily_paper.py"
+    main = runpy.run_path(str(script))["main"]
+    events: list[str] = []
+    calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
+    _wire_pipeline(monkeypatch, events)
+    session = SimpleNamespace(snapshot=SimpleNamespace())
+    monkeypatch.setattr(
+        daily_paper,
+        "_refresh",
+        lambda *args, **kwargs: calls.append((args, kwargs)) or (session, "prices refreshed"),
+    )
+    config_path = tmp_path / "configs" / "universe.yaml"
+    is_file = Path.is_file
+    monkeypatch.setattr(Path, "is_file", lambda path: path == config_path or is_file(path))
+    monkeypatch.setenv("ETF_COCKPIT_ROOT", str(tmp_path))
+
+    assert main(["--root", str(tmp_path), "--dry-run", "--refresh-fx"]) == 0
+    capsys.readouterr()
+
+    assert calls == [
+        (
+            (Path(tmp_path).resolve(),),
+            {"incremental": False, "include_fundamentals": True, "include_fx": True},
+        )
+    ]
