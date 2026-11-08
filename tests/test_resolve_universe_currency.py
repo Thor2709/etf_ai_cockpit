@@ -6,6 +6,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Mapping
 
+import pytest
+
 from etf_cockpit.data import universe_store, yfinance_provider
 from etf_cockpit.data.universe_store import UniverseRecord, load_universe, save_universe
 from scripts import resolve_universe_currency as resolver
@@ -134,7 +136,7 @@ def test_missing_currency_and_not_found_are_disabled(tmp_path: Path, monkeypatch
     _seed(root, _record("EMPTY", "EMPTY"), _record("GONE", "GONE"))
     _install_symbols(monkeypatch, {"EMPTY": "EMPTY", "GONE": "GONE"})
     ticker_factory, _ = _factory({
-        "EMPTY": {},
+        "EMPTY": {"currency": None},
         "GONE": RuntimeError("404 not found"),
     })
     out = tmp_path / "currencies.csv"
@@ -183,13 +185,20 @@ def test_transient_errors_and_missing_symbol_retry_without_changes_on_commit(
     assert _summary(capsys)["actions"]["retry"] == 3
 
 
+@pytest.mark.parametrize("lazy", [False, True])
 def test_fast_info_key_error_retries_without_changes_on_commit(
-    tmp_path: Path, monkeypatch, capsys,
+    tmp_path: Path, monkeypatch, capsys, lazy: bool,
 ) -> None:
     root = tmp_path / "root"
     initial = _seed(root, _record("BROKEN", "BROKEN"))
     _install_symbols(monkeypatch, {"BROKEN": "BROKEN"})
-    ticker_factory, _ = _factory({"BROKEN": KeyError("currentTradingPeriod")})
+
+    class LazyFastInfo:
+        def __getitem__(self, key: str):
+            assert key == "currency"
+            raise KeyError("currentTradingPeriod")
+
+    ticker_factory, _ = _factory({"BROKEN": LazyFastInfo() if lazy else KeyError("currentTradingPeriod")})
     before = {path.relative_to(root): path.read_bytes() for path in root.rglob("*") if path.is_file()}
     out = tmp_path / "currencies.csv"
 
@@ -209,13 +218,14 @@ def test_fast_info_key_error_retries_without_changes_on_commit(
     assert summary["backup_path"] is None
 
 
+@pytest.mark.parametrize("currency", [None, ""])
 def test_fast_info_without_currency_is_disabled_on_commit(
-    tmp_path: Path, monkeypatch, capsys,
+    tmp_path: Path, monkeypatch, capsys, currency: str | None,
 ) -> None:
     root = tmp_path / "root"
     _seed(root, _record("EMPTY", "EMPTY"))
     _install_symbols(monkeypatch, {"EMPTY": "EMPTY"})
-    ticker_factory, _ = _factory({"EMPTY": {}})
+    ticker_factory, _ = _factory({"EMPTY": {"currency": currency}})
     out = tmp_path / "currencies.csv"
 
     result = resolver.main(
@@ -241,7 +251,7 @@ def test_commit_saves_once_with_start_revision_and_backup(
     _install_symbols(monkeypatch, {"USD": "USD", "EMPTY": "EMPTY", "SAME": "SAME"})
     ticker_factory, _ = _factory({
         "USD": {"currency": "USD"},
-        "EMPTY": {},
+        "EMPTY": {"currency": None},
         "SAME": {"currency": "EUR"},
     })
     original_save = universe_store.save_universe

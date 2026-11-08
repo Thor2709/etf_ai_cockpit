@@ -52,14 +52,12 @@ def lookup_yahoo_currency(
         limiter.acquire()
         ticker = ticker_factory(symbol)
         fast_info = ticker.fast_info
+        value = fast_info["currency"]
     except Exception as error:
         return None, classify_error(error)
-    try:
-        return fast_info["currency"], None
-    except KeyError:
+    if value is None or not str(value).strip():
         return None, None
-    except Exception as error:
-        return None, classify_error(error)
+    return value, None
 
 
 def resolve_records(
