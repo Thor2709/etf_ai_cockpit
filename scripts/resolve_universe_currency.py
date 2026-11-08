@@ -51,10 +51,11 @@ def lookup_yahoo_currency(
     try:
         limiter.acquire()
         ticker = ticker_factory(symbol)
+        fast_info = ticker.fast_info
     except Exception as error:
         return None, classify_error(error)
     try:
-        return ticker.fast_info["currency"], None
+        return fast_info["currency"], None
     except KeyError:
         return None, None
     except Exception as error:
@@ -215,6 +216,11 @@ def _commit_rows(
     if not report.valid:
         raise ValueError("universe validation failed: " + "; ".join(report.errors))
     if updated == original:
+        current_revision = store.load_universe(root).revision
+        if current_revision != snapshot.revision:
+            raise store.UniverseRevisionConflict(
+                f"Expected revision {snapshot.revision or '<empty>'}, found {current_revision or '<empty>'}"
+            )
         return snapshot.revision, None
 
     result = store.save_universe(

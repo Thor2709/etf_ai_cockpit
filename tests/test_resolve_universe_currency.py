@@ -6,8 +6,6 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Mapping
 
-import pytest
-
 from etf_cockpit.data import universe_store, yfinance_provider
 from etf_cockpit.data.universe_store import UniverseRecord, load_universe, save_universe
 from scripts import resolve_universe_currency as resolver
@@ -185,6 +183,56 @@ def test_transient_errors_and_missing_symbol_retry_without_changes_on_commit(
     assert _summary(capsys)["actions"]["retry"] == 3
 
 
+def test_fast_info_key_error_retries_without_changes_on_commit(
+    tmp_path: Path, monkeypatch, capsys,
+) -> None:
+    root = tmp_path / "root"
+    initial = _seed(root, _record("BROKEN", "BROKEN"))
+    _install_symbols(monkeypatch, {"BROKEN": "BROKEN"})
+    ticker_factory, _ = _factory({"BROKEN": KeyError("currentTradingPeriod")})
+    before = {path.relative_to(root): path.read_bytes() for path in root.rglob("*") if path.is_file()}
+    out = tmp_path / "currencies.csv"
+
+    result = resolver.main(
+        ["--root", str(root), "--out", str(out), "--commit"],
+        ticker_factory=ticker_factory,
+        limiter=FakeLimiter(),
+    )
+
+    assert result == 3
+    row = _csv(out)[0]
+    assert (row["action"], row["reason"]) == ("retry", "error")
+    assert load_universe(root).revision == initial.revision
+    assert {path.relative_to(root): path.read_bytes() for path in root.rglob("*") if path.is_file()} == before
+    summary = _summary(capsys)
+    assert summary["actions"]["retry"] == 1
+    assert summary["backup_path"] is None
+
+
+def test_fast_info_without_currency_is_disabled_on_commit(
+    tmp_path: Path, monkeypatch, capsys,
+) -> None:
+    root = tmp_path / "root"
+    _seed(root, _record("EMPTY", "EMPTY"))
+    _install_symbols(monkeypatch, {"EMPTY": "EMPTY"})
+    ticker_factory, _ = _factory({"EMPTY": {}})
+    out = tmp_path / "currencies.csv"
+
+    result = resolver.main(
+        ["--root", str(root), "--out", str(out), "--commit"],
+        ticker_factory=ticker_factory,
+        limiter=FakeLimiter(),
+    )
+
+    assert result == 0
+    row = _csv(out)[0]
+    assert (row["action"], row["reason"]) == ("disable", "currency_unavailable")
+    saved = load_universe(root).records[0]
+    assert saved.enabled is False
+    assert saved.currency == "EUR"
+    assert _summary(capsys)["actions"]["disable"] == 1
+
+
 def test_commit_saves_once_with_start_revision_and_backup(
     tmp_path: Path, monkeypatch, capsys,
 ) -> None:
@@ -259,6 +307,53 @@ def test_concurrent_universe_change_refuses_commit_without_partial_writes(
     assert current.records[0].name == "Concurrent update"
     assert current.records[0].currency == "EUR"
     assert _summary(capsys)["save_error"].startswith("UniverseRevisionConflict:")
+
+
+def test_noop_commit_refuses_changed_revision_without_writes(
+    tmp_path: Path, monkeypatch, capsys,
+) -> None:
+    root = tmp_path / "root"
+    initial = _seed(root, _record("RACE", "RACE"))
+    _install_symbols(monkeypatch, {"RACE": "RACE"})
+    concurrent_files: dict[Path, bytes] = {}
+    original_save = universe_store.save_universe
+    save_calls: list[str] = []
+
+    def save_spy(records, expected_revision, **kwargs):
+        save_calls.append(expected_revision)
+        return original_save(records, expected_revision, **kwargs)
+
+    monkeypatch.setattr(universe_store, "save_universe", save_spy)
+
+    def racing_factory(symbol: str):
+        current = load_universe(root)
+        concurrent = universe_store.edit_record(current.records, "RACE", name="Concurrent update")
+        original_save(concurrent, current.revision, root=root)
+        concurrent_files.update(
+            {path.relative_to(root): path.read_bytes() for path in root.rglob("*") if path.is_file()}
+        )
+        return SimpleNamespace(fast_info={"currency": "EUR"})
+
+    out = tmp_path / "currencies.csv"
+    result = resolver.main(
+        ["--root", str(root), "--out", str(out), "--commit"],
+        ticker_factory=racing_factory,
+        limiter=FakeLimiter(),
+    )
+
+    assert result == 2
+    assert _csv(out)[0]["action"] == "keep"
+    assert save_calls == []
+    assert concurrent_files
+    assert {path.relative_to(root): path.read_bytes() for path in root.rglob("*") if path.is_file()} == concurrent_files
+    current = load_universe(root)
+    assert current.revision != initial.revision
+    captured = capsys.readouterr()
+    summary = json.loads(captured.out)
+    assert summary["save_error"].startswith("UniverseRevisionConflict:")
+    assert initial.revision in captured.err
+    assert current.revision in captured.err
+    assert "universe save refused" in captured.err
 
 
 def test_invalid_universe_validation_refuses_commit(tmp_path: Path, monkeypatch, capsys) -> None:
