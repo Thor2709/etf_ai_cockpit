@@ -232,14 +232,15 @@ def _refresh_yfinance_fx(
         except Exception:
             failed_pairs.update(window_pairs)
             continue
-        if result.data is None:
+        if not result.ok or result.data is None:
             failed_pairs.update(window_pairs)
             continue
 
         result_pairs = _fx_pair_series(result.data)
+        reported_failures = set(re.findall(r"\b([A-Z]{3}/[A-Z]{3}):", str(result.message).upper()))
         for pair in window_pairs:
             pair_rows = result.data.loc[result_pairs.eq(pair)].copy()
-            if pair_rows.empty:
+            if pair in reported_failures or pair_rows.empty:
                 failed_pairs.add(pair)
                 continue
             try:
@@ -355,18 +356,24 @@ def _merge_incremental_price_result(
     full_data = pd.DataFrame()
     failed_full_ids: set[str] = set()
     if full_ids:
-        full_result = provider.fetch_prices(full_ids, start_date, end_date)
-        if full_result.data is not None and "etf_id" in full_result.data.columns:
-            full_data = full_result.data.copy()
-            full_data["date"] = _normalised_price_dates(full_data)
-            full_data = full_data[full_data["etf_id"].astype(str).isin(full_ids)]
+        try:
+            full_result = provider.fetch_prices(full_ids, start_date, end_date)
+        except WorkflowTransitionError:
+            raise
+        except Exception:
+            failed_full_ids.update(full_ids)
         else:
-            full_data = pd.DataFrame(columns=window_data.columns)
-        if not full_result.ok:
-            failed_full_ids = set(_FAILED_SYMBOL.findall(str(full_result.message))) & set(full_ids)
-            if not failed_full_ids:
-                failed_full_ids = set(full_ids)
-            full_data = full_data[~full_data["etf_id"].astype(str).isin(failed_full_ids)]
+            if full_result.data is not None and "etf_id" in full_result.data.columns:
+                full_data = full_result.data.copy()
+                full_data["date"] = _normalised_price_dates(full_data)
+                full_data = full_data[full_data["etf_id"].astype(str).isin(full_ids)]
+            else:
+                full_data = pd.DataFrame(columns=window_data.columns)
+            if not full_result.ok:
+                failed_full_ids = set(_FAILED_SYMBOL.findall(str(full_result.message))) & set(full_ids)
+                if not failed_full_ids:
+                    failed_full_ids = set(full_ids)
+                full_data = full_data[~full_data["etf_id"].astype(str).isin(failed_full_ids)]
 
     parts = [preserved] if not preserved.empty else []
     for instrument_id in sorted(window_ids):

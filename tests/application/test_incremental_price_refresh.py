@@ -5,10 +5,12 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pandas as pd
+import pytest
 
 from etf_cockpit.application import data_service
 from etf_cockpit.application.data_service import DataService
 from etf_cockpit.core.values import years_before
+from etf_cockpit.core.workflow import WorkflowTransitionError
 from etf_cockpit.data.provenance import metadata_from_frame
 from etf_cockpit.data.providers import ProviderResult
 
@@ -27,7 +29,7 @@ class _FakeProvider:
     def __init__(
         self,
         ids: tuple[str, ...],
-        results: list[ProviderResult],
+        results: list[ProviderResult | Exception],
         *,
         fx_results: list[ProviderResult] | None = None,
     ):
@@ -44,7 +46,10 @@ class _FakeProvider:
     def fetch_prices(self, symbols, start_date, end_date):
         self.calls.append((tuple(symbols), start_date, end_date))
         assert self.results, "unexpected provider call"
-        return self.results.pop(0)
+        result = self.results.pop(0)
+        if isinstance(result, Exception):
+            raise result
+        return result
 
     def fetch_fx(self, pairs, start_date, end_date):
         self.fx_calls.append((tuple(pairs), start_date, end_date))
@@ -407,6 +412,56 @@ def test_failed_full_refetch_without_stored_history_reports_missing_instrument(m
     assert "PARTIAL refresh, not ok: no price data for AAA." in message
 
 
+def test_full_refetch_exception_keeps_full_instruments_and_commits_incremental(monkeypatch, tmp_path):
+    floor = years_before(_TODAY, 5)
+    shared = date(2026, 10, 30)
+    stored = pd.concat(
+        [_price_frame(instrument_id, [_bar(floor), _bar(shared)]) for instrument_id in ("AAA", "BBB", "CCC")],
+        ignore_index=True,
+    )
+    window = pd.concat(
+        [
+            _price_frame("AAA", [_bar(shared, adjusted=110), _bar(_TODAY)]),
+            _price_frame("BBB", [_bar(shared), _bar(_TODAY)]).assign(currency="USD"),
+            _price_frame("CCC", [_bar(shared, 102, adjusted=100), _bar(_TODAY, 103)]),
+        ],
+        ignore_index=True,
+    )
+    provider = _FakeProvider(("AAA", "BBB", "CCC"), [_result(window), RuntimeError("full refetch failed")])
+
+    clean_path, message = _run(provider, monkeypatch, tmp_path, stored)
+
+    final = _stored(clean_path)
+    for instrument_id in ("AAA", "BBB"):
+        actual = final.loc[final["etf_id"].eq(instrument_id)].reset_index(drop=True)
+        expected = _stored_from_frame(stored.loc[stored["etf_id"].eq(instrument_id)]).reset_index(drop=True)
+        pd.testing.assert_frame_equal(actual, expected, check_dtype=False)
+        assert _TODAY not in set(actual["date"])
+    incremental = final.loc[final["etf_id"].eq("CCC")]
+    assert set(incremental["date"]) == {floor, shared, _TODAY}
+    assert incremental.loc[incremental["date"].eq(shared), "close"].iloc[0] == 102
+    assert incremental.loc[incremental["date"].eq(_TODAY), "close"].iloc[0] == 103
+    assert provider.calls[1] == (("AAA", "BBB"), floor, _TODAY)
+    assert "Full refetch unavailable for: AAA, BBB." in message
+    assert "Validated and committed 7 price rows" in message
+
+
+def test_full_refetch_workflow_transition_error_propagates(monkeypatch, tmp_path):
+    shared = date(2026, 10, 30)
+    stored = _price_frame("AAA", [_bar(shared)])
+    window = _price_frame("AAA", [_bar(shared, adjusted=110), _bar(_TODAY)])
+    provider = _FakeProvider(("AAA",), [_result(window), WorkflowTransitionError("cancelled")])
+    clean_path = _prepare(monkeypatch, tmp_path, provider, stored)
+    stored_bytes = clean_path.read_bytes()
+
+    with pytest.raises(WorkflowTransitionError, match="cancelled"):
+        DataService(config=None).refresh_yfinance_data(
+            years=5, include_reference_data=False, incremental=True, include_fundamentals=False,
+        )
+
+    assert clean_path.read_bytes() == stored_bytes
+
+
 def _stored_from_frame(frame: pd.DataFrame) -> pd.DataFrame:
     result = frame.copy()
     result["date"] = pd.to_datetime(result["date"]).dt.date
@@ -534,3 +589,47 @@ def test_include_fx_false_never_calls_fetch_fx(monkeypatch, tmp_path):
     _run(provider, monkeypatch, tmp_path)
 
     assert provider.fx_calls == []
+
+
+@pytest.mark.parametrize(
+    ("status", "failure_message"),
+    [("error", "FX fetch failed"), ("error", "JPY/EUR: fetch failed"), ("ok", "JPY/EUR: fetch failed")],
+)
+def test_fx_failure_with_rows_keeps_pair_and_commits_other_pairs(monkeypatch, tmp_path, status, failure_message):
+    old_ingested = datetime(2026, 11, 7, 20, tzinfo=_UTC)
+    new_ingested = datetime(2026, 11, 8, 20, tzinfo=_UTC)
+    failed_rows = _fx_frame("JPY/EUR", [(date(2026, 11, 7), 0.007, new_ingested), (_TODAY, 0.008, new_ingested)])
+    usd_rows = _fx_frame("USD/EUR", [(date(2026, 11, 6), 0.94, new_ingested), (_TODAY, 0.95, new_ingested)])
+    provider = _FakeProvider(
+        ("AAA",),
+        [_result(_price_frame("AAA", [_bar(_TODAY)]))],
+        fx_results=[
+            _fx_result(failed_rows, status=status, message=failure_message),
+            _fx_result(usd_rows),
+        ],
+    )
+    clean_path = _prepare(monkeypatch, tmp_path, provider)
+    fx_path = clean_path.parent / "fx.parquet"
+    stored_jpy = _fx_frame("JPY/EUR", [(date(2026, 11, 7), 0.006, old_ingested)])
+    stored_usd = _fx_frame("USD/EUR", [(date(2026, 11, 6), 0.92, old_ingested)])
+    pd.concat([stored_jpy, stored_usd], ignore_index=True).to_parquet(fx_path, index=False)
+    commits = _capture_fx_commits(monkeypatch, tmp_path, fx_path)
+
+    message = DataService(config=_fx_config(("JPY", "USD", "EUR"))).refresh_yfinance_data(
+        years=5, include_reference_data=False, include_fundamentals=False, include_fx=True,
+    )
+
+    assert len(commits) == 1
+    committed_jpy = commits[0].data.loc[commits[0].data["pair"].eq("JPY/EUR")].reset_index(drop=True)
+    pd.testing.assert_frame_equal(committed_jpy, stored_jpy, check_dtype=False)
+    final = _read_fx(fx_path)
+    final_jpy = final.loc[final["pair"].eq("JPY/EUR")].reset_index(drop=True)
+    preserved_columns = [column for column in final.columns if column != "staleness_status"]
+    pd.testing.assert_frame_equal(final_jpy[preserved_columns], stored_jpy[preserved_columns], check_dtype=False)
+    final_usd = final.loc[final["pair"].eq("USD/EUR")]
+    assert set(final_usd["as_of_date"]) == {date(2026, 11, 6), _TODAY}
+    assert final_usd.loc[final_usd["as_of_date"].eq(date(2026, 11, 6)), "rate"].iloc[0] == 0.94
+    assert final_usd.loc[final_usd["as_of_date"].eq(_TODAY), "rate"].iloc[0] == 0.95
+    assert "FX not refreshed: JPY/EUR." in message
+    assert "FX not refreshed: USD/EUR" not in message
+    assert _stored(clean_path)["date"].max() == _TODAY

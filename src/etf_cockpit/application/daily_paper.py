@@ -265,9 +265,14 @@ def run_daily_paper(
                 }
                 if refresh_fx:
                     refresh_options["include_fx"] = True
-                refresh = lambda: _refresh(resolved_root, **refresh_options)
+
+                def refresh():
+                    return _refresh(resolved_root, **refresh_options)
             else:
-                refresh = lambda: _refresh(resolved_root)
+
+                def refresh():
+                    return _refresh(resolved_root)
+
             session, refresh_message = _call("refresh", refresh)
             rescore_message = _call("rescore", lambda: _rescore(session))
             decision_session, gate_snapshot_id = _call(
