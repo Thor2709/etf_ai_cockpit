@@ -6,7 +6,7 @@ import dataclasses
 import re
 import threading
 from collections.abc import Callable, Sequence
-from datetime import date
+from datetime import date, timedelta
 from io import BytesIO
 from pathlib import Path
 import pandas as pd
@@ -88,6 +88,173 @@ from etf_cockpit.application.forecast_service import (
     _forecast_status_summary,
     ForecastService,
 )
+
+
+ADJ_CLOSE_RTOL = 1e-6
+INCREMENTAL_OVERLAP_DAYS = 14
+
+
+def _normalised_price_dates(frame: pd.DataFrame) -> pd.Series:
+    if "date" not in frame.columns:
+        return pd.Series(pd.NaT, index=frame.index, dtype=object)
+    return pd.to_datetime(frame["date"], errors="coerce").dt.date
+
+
+def _adjusted_price_basis_matches(stored: pd.DataFrame, fetched: pd.DataFrame) -> bool:
+    if not {"date", "adjusted_close"}.issubset(stored.columns) or not {"date", "adjusted_close"}.issubset(fetched.columns):
+        return False
+    old = stored[["date", "adjusted_close"]].copy()
+    new = fetched[["date", "adjusted_close"]].copy()
+    old["date"] = _normalised_price_dates(old)
+    new["date"] = _normalised_price_dates(new)
+    shared = new.merge(old, on="date", how="inner", suffixes=("_fetched", "_stored"))
+    if shared.empty:
+        return False
+    fetched_adjusted = pd.to_numeric(shared["adjusted_close_fetched"], errors="coerce")
+    stored_adjusted = pd.to_numeric(shared["adjusted_close_stored"], errors="coerce")
+    relative_difference = (fetched_adjusted / stored_adjusted - 1).abs()
+    return bool((relative_difference <= ADJ_CLOSE_RTOL).fillna(False).all())
+
+
+def _read_clean_price_store() -> pd.DataFrame:
+    path = CLEAN_DIR / "prices.parquet"
+    try:
+        return pd.read_parquet(path) if path.is_file() else pd.DataFrame()
+    except Exception:
+        # An unreadable store cannot safely anchor a short-window merge.
+        return pd.DataFrame()
+
+
+def _merge_incremental_price_result(
+    provider: YFinanceProvider,
+    window_result: ProviderResult,
+    *,
+    stored: pd.DataFrame,
+    expected_ids: tuple[str, ...] | None,
+    window_start: date,
+    start_date: date,
+    end_date: date,
+) -> tuple[ProviderResult, tuple[str, ...]]:
+    carried = _carry_forward_failed_instruments(window_result, expected_ids=expected_ids)
+    partial_missing = tuple(getattr(carried, "missing_ids", ()))
+    if partial_missing and carried.data is not None:
+        carried = dataclasses.replace(carried, status="ok")
+    if not carried.ok or carried.data is None:
+        return carried, partial_missing
+
+    window_data = window_result.data.copy() if window_result.data is not None else pd.DataFrame()
+    if "etf_id" not in window_data.columns:
+        return carried, partial_missing
+    window_data["date"] = _normalised_price_dates(window_data)
+    stored_data = stored.copy()
+    if "date" in stored_data.columns:
+        stored_data["date"] = _normalised_price_dates(stored_data)
+    window_ids = set(window_data["etf_id"].astype(str))
+    not_returned_ids = tuple(sorted(set(expected_ids or ()) - window_ids))
+
+    carried_data = carried.data.copy()
+    if "etf_id" in carried_data.columns:
+        preserved = carried_data[~carried_data["etf_id"].astype(str).isin(window_ids)].copy()
+    else:
+        preserved = carried_data.iloc[0:0].copy()
+    # Keep the original stored rows for every instrument omitted by the window fetch.
+    preserved_ids = set(preserved["etf_id"].astype(str)) if "etf_id" in preserved.columns else set()
+    if "etf_id" in stored_data.columns:
+        missing_from_carry = stored_data[
+            ~stored_data["etf_id"].astype(str).isin(window_ids | preserved_ids)
+        ]
+        if not missing_from_carry.empty:
+            preserved = pd.concat([preserved, missing_from_carry], ignore_index=True)
+
+    incremental_ids: list[str] = []
+    full_ids: list[str] = []
+    for instrument_id in sorted(window_ids):
+        old_rows = (
+            stored_data[stored_data["etf_id"].astype(str).eq(instrument_id)].copy()
+            if "etf_id" in stored_data.columns
+            else stored_data.iloc[0:0].copy()
+        )
+        new_rows = window_data[window_data["etf_id"].astype(str).eq(instrument_id)].copy()
+        if _adjusted_price_basis_matches(old_rows, new_rows):
+            incremental_ids.append(instrument_id)
+        else:
+            full_ids.append(instrument_id)
+
+    full_data = pd.DataFrame()
+    failed_full_ids: set[str] = set()
+    if full_ids:
+        full_result = provider.fetch_prices(full_ids, start_date, end_date)
+        if full_result.data is not None and "etf_id" in full_result.data.columns:
+            full_data = full_result.data.copy()
+            full_data["date"] = _normalised_price_dates(full_data)
+            full_data = full_data[full_data["etf_id"].astype(str).isin(full_ids)]
+        else:
+            full_data = pd.DataFrame(columns=window_data.columns)
+        if not full_result.ok:
+            failed_full_ids = set(_FAILED_SYMBOL.findall(str(full_result.message))) & set(full_ids)
+            if not failed_full_ids:
+                failed_full_ids = set(full_ids)
+            full_data = full_data[~full_data["etf_id"].astype(str).isin(failed_full_ids)]
+
+    parts = [preserved] if not preserved.empty else []
+    for instrument_id in sorted(window_ids):
+        old_rows = (
+            stored_data[stored_data["etf_id"].astype(str).eq(instrument_id)].copy()
+            if "etf_id" in stored_data.columns
+            else stored_data.iloc[0:0].copy()
+        )
+        new_rows = window_data[window_data["etf_id"].astype(str).eq(instrument_id)].copy()
+        if instrument_id in incremental_ids:
+            old_dates = _normalised_price_dates(old_rows)
+            new_dates = set(_normalised_price_dates(new_rows).dropna())
+            keep_old = old_dates.isna() | old_dates.lt(window_start) | (
+                old_dates.ge(window_start) & ~old_dates.isin(new_dates)
+            )
+            old_rows = old_rows.loc[keep_old]
+            parts.extend((old_rows, new_rows))
+            continue
+
+        refreshed_rows = full_data[full_data["etf_id"].astype(str).eq(instrument_id)] if "etf_id" in full_data.columns else full_data
+        # A failed full refetch must not mix its window rows with the stored adjustment basis.
+        parts.append(refreshed_rows if not refreshed_rows.empty else old_rows)
+
+    merged = pd.concat(parts, ignore_index=True) if parts else window_data.iloc[0:0].copy()
+    if "date" in merged.columns:
+        merged_dates = _normalised_price_dates(merged)
+        in_span = merged_dates.isna() | merged_dates.ge(start_date)
+        merged = merged.loc[in_span].copy()
+        merged["date"] = merged_dates.loc[in_span]
+    if {"etf_id", "date"}.issubset(merged.columns):
+        merged = merged.sort_values(["etf_id", "date"], kind="mergesort", na_position="last").reset_index(drop=True)
+
+    summary = (
+        f"Incremental refresh: {len(incremental_ids)} incremental instruments, "
+        f"{len(full_ids)} full refetches (no overlap / adjusted mismatch), "
+        f"{len(not_returned_ids)} not returned."
+    )
+    if "etf_id" in full_data.columns:
+        failed_full_ids.update(set(full_ids) - set(full_data["etf_id"].astype(str)))
+    else:
+        failed_full_ids.update(full_ids)
+    if failed_full_ids:
+        summary += " Full refetch unavailable for: " + ", ".join(sorted(failed_full_ids)) + "."
+    stored_ids = set(stored_data["etf_id"].astype(str)) if "etf_id" in stored_data.columns else set()
+    missing_after_full = tuple(sorted(set(partial_missing) | (failed_full_ids - stored_ids)))
+    metadata = dataclasses.replace(carried.metadata, checksum=sha256_dataframe(merged)) if carried.metadata else None
+    message = f"{carried.message} {summary}"
+    if missing_after_full:
+        result = PartialProviderResult(
+            carried.provider_name,
+            carried.dataset_type,
+            "ok",
+            message,
+            merged,
+            metadata,
+            missing_ids=missing_after_full,
+        )
+    else:
+        result = dataclasses.replace(carried, status="ok", message=message, data=merged, metadata=metadata)
+    return result, missing_after_full
 
 
 class DataService:
@@ -204,23 +371,51 @@ class DataService:
         years: int = 5,
         include_reference_data: bool = True,
         publish_guard: PublicationScopeFactory | None = None,
+        incremental: bool = False,
+        include_fundamentals: bool = True,
     ) -> str:
         self.last_operation_succeeded = False
         end_date = date.today()
         start_date = years_before(end_date, years)
         provider = YFinanceProvider.from_config(self.config)
         messages: list[str] = []
-
-        result = provider.fetch_prices([], start_date, end_date)
+        incremental_window_start: date | None = None
+        if incremental:
+            stored_snapshot = _read_clean_price_store()
+            if not stored_snapshot.empty and "date" in stored_snapshot.columns:
+                valid_dates = _normalised_price_dates(stored_snapshot).dropna()
+                if not valid_dates.empty:
+                    latest_stored_date = max(valid_dates)
+                    incremental_window_start = max(
+                        start_date,
+                        latest_stored_date - timedelta(days=INCREMENTAL_OVERLAP_DAYS),
+                    )
+        result = provider.fetch_prices([], incremental_window_start or start_date, end_date)
         symbol_map = getattr(provider, "_symbol_map", None)
         expected_ids = tuple(symbol_map([])) if callable(symbol_map) else None
         # Merge-with-stored and commit are one critical section: two concurrent partial refreshes
         # must not both start from the same stored snapshot and overwrite each other's rows.
         with _PRICE_REFRESH_LOCK:
-            result = _carry_forward_failed_instruments(result, expected_ids=expected_ids)
-            partial_missing = tuple(getattr(result, "missing_ids", ()))
-            if partial_missing and result.data is not None:
-                result = dataclasses.replace(result, status="ok")  # fresh + stored rows are real data; success stays False
+            if incremental_window_start is not None:
+                stored = _read_clean_price_store()
+                if stored.empty:
+                    result = provider.fetch_prices([], start_date, end_date)
+                    incremental_window_start = None
+                else:
+                    result, partial_missing = _merge_incremental_price_result(
+                        provider,
+                        result,
+                        stored=stored,
+                        expected_ids=expected_ids,
+                        window_start=incremental_window_start,
+                        start_date=start_date,
+                        end_date=end_date,
+                    )
+            if incremental_window_start is None:
+                result = _carry_forward_failed_instruments(result, expected_ids=expected_ids)
+                partial_missing = tuple(getattr(result, "missing_ids", ()))
+                if partial_missing and result.data is not None:
+                    result = dataclasses.replace(result, status="ok")  # fresh + stored rows are real data; success stays False
             if not result.ok or result.data is None:
                 return redact_text(str(result.message))
             result, quarantined = _quarantine_invalid_ohlc(result)
@@ -285,7 +480,10 @@ class DataService:
                         f"Clean data: {reference_commit.clean_path}.{warning_suffix}"
                     )
                 )
-        messages.append(_refresh_stock_fundamentals(self.config, publish_guard))
+        if include_fundamentals:
+            messages.append(_refresh_stock_fundamentals(self.config, publish_guard))
+        else:
+            messages.append("Stock fundamentals skipped (weekly job).")
         from etf_cockpit.data.holdings_registry import collect_daily
 
         try:

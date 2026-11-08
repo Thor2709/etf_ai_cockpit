@@ -99,10 +99,22 @@ def _new_session(root: Path) -> HeadlessSession:
     return HeadlessSession(SimpleNamespace(config=config), root=root)
 
 
-def _refresh(root: Path) -> tuple[HeadlessSession, str]:
+def _refresh(
+    root: Path,
+    *,
+    incremental: bool = False,
+    include_fundamentals: bool = True,
+) -> tuple[HeadlessSession, str]:
     session = _new_session(root)
     service = session.data_service_factory(session.snapshot.config)
-    message = service.refresh_yfinance_data(publish_guard=session.activity_publication)
+    if incremental or not include_fundamentals:
+        message = service.refresh_yfinance_data(
+            publish_guard=session.activity_publication,
+            incremental=incremental,
+            include_fundamentals=include_fundamentals,
+        )
+    else:
+        message = service.refresh_yfinance_data(publish_guard=session.activity_publication)
     if not getattr(service, "last_operation_succeeded", True):
         raise RuntimeError(str(message))
     session.refresh_snapshot()
@@ -218,6 +230,8 @@ def run_daily_paper(
     initial_cash_eur: Decimal | float = AI_INITIAL_CASH_EUR,
     monthly_contribution_eur: float = 0,
     dry_run: bool = False,
+    incremental_prices: bool = False,
+    skip_fundamentals: bool = False,
     now: datetime | None = None,
 ) -> DailyPaperResult:
     """Refresh and publish once, gate the newest completed session, and run paper-only stages."""
@@ -240,7 +254,15 @@ def run_daily_paper(
         return DailyPaperResult("blocked", "configuration", {"error": "The driver clock must be timezone-aware."})
     try:
         with cross_process_writer_guard(resolved_root):
-            session, refresh_message = _call("refresh", lambda: _refresh(resolved_root))
+            if incremental_prices or skip_fundamentals:
+                refresh = lambda: _refresh(
+                    resolved_root,
+                    incremental=incremental_prices,
+                    include_fundamentals=not skip_fundamentals,
+                )
+            else:
+                refresh = lambda: _refresh(resolved_root)
+            session, refresh_message = _call("refresh", refresh)
             rescore_message = _call("rescore", lambda: _rescore(session))
             decision_session, gate_snapshot_id = _call(
                 "readiness", lambda: _validate_readiness(resolved_root, session.snapshot, cutoff)

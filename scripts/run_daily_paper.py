@@ -19,6 +19,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--root", required=True, type=Path, help="Runtime data root with configs/universe.yaml.")
     parser.add_argument("--monthly-contribution-eur", type=float, default=0)
     parser.add_argument("--dry-run", action="store_true", help="Refresh, gate and publish but skip paper decisions and account opening.")
+    parser.add_argument("--incremental-prices", action="store_true", help="Refresh prices from the recent overlap window when history is available.")
+    parser.add_argument("--skip-fundamentals", action="store_true", help="Skip stock fundamentals during the price refresh.")
     args = parser.parse_args(argv)
     runtime_root = args.root.expanduser().resolve()
     if not (runtime_root / "configs" / "universe.yaml").is_file():
@@ -32,6 +34,8 @@ def main(argv: list[str] | None = None) -> int:
         runtime_root,
         monthly_contribution_eur=args.monthly_contribution_eur,
         dry_run=args.dry_run,
+        incremental_prices=args.incremental_prices,
+        skip_fundamentals=args.skip_fundamentals,
     )
     print(result.to_json())
     return result.exit_code

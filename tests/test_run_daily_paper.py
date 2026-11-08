@@ -206,3 +206,34 @@ def test_paper_bot_config_remains_exactly_four_families() -> None:
 
     assert {bot["family_id"] for bot in config["bots"]} == {"B0", "B1", "B2", "B3"}
     assert len(config["bots"]) == 4
+
+
+def test_cli_refresh_flags_reach_refresh_and_defaults_keep_one_argument_call(monkeypatch, tmp_path: Path, capsys) -> None:
+    script = Path(__file__).resolve().parents[1] / "scripts" / "run_daily_paper.py"
+    main = runpy.run_path(str(script))["main"]
+    events: list[str] = []
+    calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
+    _wire_pipeline(monkeypatch, events)
+    session = SimpleNamespace(snapshot=SimpleNamespace())
+    monkeypatch.setattr(
+        daily_paper,
+        "_refresh",
+        lambda *args, **kwargs: calls.append((args, kwargs)) or (session, "prices refreshed"),
+    )
+    config_path = tmp_path / "configs" / "universe.yaml"
+    is_file = Path.is_file
+    monkeypatch.setattr(Path, "is_file", lambda path: path == config_path or is_file(path))
+    monkeypatch.setenv("ETF_COCKPIT_ROOT", str(tmp_path))
+
+    assert main(["--root", str(tmp_path), "--dry-run"]) == 0
+    capsys.readouterr()
+    assert calls[-1] == ((Path(tmp_path).resolve(),), {})
+
+    assert main([
+        "--root", str(tmp_path), "--dry-run", "--incremental-prices", "--skip-fundamentals"
+    ]) == 0
+    capsys.readouterr()
+    assert calls[-1] == (
+        (Path(tmp_path).resolve(),),
+        {"incremental": True, "include_fundamentals": False},
+    )
