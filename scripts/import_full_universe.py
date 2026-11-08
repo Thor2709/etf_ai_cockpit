@@ -3,10 +3,11 @@
 Open defaults: expect 11,737 company census rows and 220 ETF records; stage
 100, then 1,000 cumulative candidates, then all remaining candidates; use four
 ordered thread workers for independent row identity checks; inspect the
-adjacent ``holdings_u1i`` directory when it exists; and use ``secondary``,
-``daily`` and ``EUR`` for missing tier, data-policy and currency values, matching
-the canonical import service. Missing holdings evidence is treated as
-unavailable, never as proof that an ETF is not a fund of funds. Only
+adjacent ``holdings_u1i`` directory when it exists; and use ``secondary`` and
+``daily`` for missing tier and data-policy values, matching the canonical
+import service. Rows without quote currency are quarantined; no currency is
+inferred. Missing holdings evidence is treated as unavailable, never as proof
+that an ETF is not a fund of funds. Only
 stocks verified by both census and candidate and explicitly enabled, resolved
 ETFs are enabled. Missing, malformed or contradictory stock verification is
 quarantined; only ``verified`` and ``needs_verification`` candidate statuses
@@ -228,7 +229,7 @@ def _make_record(
         "group": _text(source.get("group")),
         "enabled": enabled,
         "data_policy": _text(source.get("data_policy")) or "daily",
-        "currency": _text(source.get("currency")) or "EUR",
+        "currency": _text(source.get("currency")).upper(),
         "region": _text(source.get("region")) or _text(source.get("country")),
         "sector": _text(source.get("sector")),
         "theme": _text(source.get("theme")),
@@ -251,6 +252,8 @@ def _entry(
     asset_type: str,
     isin_status: str,
 ) -> AuditEntry:
+    if not _text(source_record.get("currency")):
+        return AuditEntry(source, source_row, instrument_id, isin, ticker, "quarantined", "currency_unavailable")
     record = _make_record(
         instrument_id=instrument_id,
         name=_text(source_record.get("name")),
@@ -280,7 +283,7 @@ def _universe_record(record: Mapping[str, object]) -> UniverseRecord:
         group=_text(record.get("group")),
         enabled=_boolean(record.get("enabled")) is True,
         data_policy=_text(record.get("data_policy")) or "daily",
-        currency=_text(record.get("currency")) or "EUR",
+        currency=_text(record.get("currency")).upper(),
         region=_text(record.get("region")),
         sector=_text(record.get("sector")),
         theme=_text(record.get("theme")),
