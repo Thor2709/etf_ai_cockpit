@@ -42,7 +42,8 @@ if ($Job -eq 'Weekly') {
 
 Write-Log "start $Job"
 $started = Get-Date
-& $Python @arguments 2>&1 | ForEach-Object { "$_" } | Add-Content -Path $log -Encoding UTF8
+# one short append per line keeps the log readable while the job runs (Add-Content in a pipeline locks it)
+& $Python @arguments 2>&1 | ForEach-Object { [IO.File]::AppendAllText($log, "$_`r`n", [Text.Encoding]::UTF8) }
 $code = $LASTEXITCODE
 Write-Log ('end {0} exit={1} duration={2:hh\:mm\:ss}' -f $Job, $code, ((Get-Date) - $started))
 if ($Job -eq 'Weekly' -and $code -eq 0) { Set-Content -Path $stamp -Value $today.ToString('yyyy-MM-dd') }
