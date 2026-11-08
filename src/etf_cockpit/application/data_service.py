@@ -232,12 +232,15 @@ def _refresh_yfinance_fx(
         except Exception:
             failed_pairs.update(window_pairs)
             continue
-        if not result.ok or result.data is None:
+        if result.data is None or result.data.empty:
             failed_pairs.update(window_pairs)
             continue
 
         result_pairs = _fx_pair_series(result.data)
         reported_failures = set(re.findall(r"\b([A-Z]{3}/[A-Z]{3}):", str(result.message).upper()))
+        if not result.ok and not reported_failures:
+            failed_pairs.update(window_pairs)
+            continue
         for pair in window_pairs:
             pair_rows = result.data.loc[result_pairs.eq(pair)].copy()
             if pair in reported_failures or pair_rows.empty:

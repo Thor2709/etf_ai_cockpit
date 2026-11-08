@@ -592,6 +592,64 @@ def test_include_fx_false_never_calls_fetch_fx(monkeypatch, tmp_path):
 
 
 @pytest.mark.parametrize(
+    ("failure_message", "usd_refreshed"),
+    [
+        ("Partial FX refresh rejected; no incomplete FX set was committed. JPY/EUR: [error] RuntimeError: x", True),
+        ("FX fetch failed without a pair-specific reason", False),
+    ],
+)
+def test_fx_group_error_preserves_failed_pairs(monkeypatch, tmp_path, failure_message, usd_refreshed):
+    stored_day = date(2026, 11, 7)
+    old_ingested = datetime(2026, 11, 7, 20, tzinfo=_UTC)
+    new_ingested = datetime(2026, 11, 8, 20, tzinfo=_UTC)
+    stored_jpy = _fx_frame("JPY/EUR", [(stored_day, 0.006, old_ingested)])
+    stored_usd = _fx_frame("USD/EUR", [(stored_day, 0.92, old_ingested)])
+    stored = pd.concat([stored_jpy, stored_usd], ignore_index=True)
+    fetched = pd.concat(
+        [
+            _fx_frame("JPY/EUR", [(stored_day, 0.007, new_ingested), (_TODAY, 0.008, new_ingested)]),
+            _fx_frame("USD/EUR", [(stored_day, 0.94, new_ingested), (_TODAY, 0.95, new_ingested)]),
+        ],
+        ignore_index=True,
+    )
+    provider = _FakeProvider(
+        ("AAA",),
+        [_result(_price_frame("AAA", [_bar(_TODAY)]))],
+        fx_results=[_fx_result(fetched, status="error", message=failure_message)],
+    )
+    clean_path = _prepare(monkeypatch, tmp_path, provider)
+    fx_path = clean_path.parent / "fx.parquet"
+    stored.to_parquet(fx_path, index=False)
+    stored_bytes = fx_path.read_bytes()
+    commits = _capture_fx_commits(monkeypatch, tmp_path, fx_path)
+
+    message = DataService(config=_fx_config(("JPY", "USD", "EUR"))).refresh_yfinance_data(
+        years=5, include_reference_data=False, include_fundamentals=False, include_fx=True,
+    )
+
+    assert provider.fx_calls == [(("JPY/EUR", "USD/EUR"), date(2026, 10, 24), _TODAY)]
+    final = _read_fx(fx_path)
+    if usd_refreshed:
+        assert len(commits) == 1
+        committed_jpy = commits[0].data.loc[commits[0].data["pair"].eq("JPY/EUR")].reset_index(drop=True)
+        pd.testing.assert_frame_equal(committed_jpy, stored_jpy, check_dtype=False)
+        final_jpy = final.loc[final["pair"].eq("JPY/EUR")].reset_index(drop=True)
+        preserved_columns = [column for column in final.columns if column != "staleness_status"]
+        pd.testing.assert_frame_equal(final_jpy[preserved_columns], stored_jpy[preserved_columns], check_dtype=False)
+        final_usd = final.loc[final["pair"].eq("USD/EUR")]
+        assert set(final_usd["as_of_date"]) == {stored_day, _TODAY}
+        assert final_usd.loc[final_usd["as_of_date"].eq(stored_day), "rate"].iloc[0] == 0.94
+        assert final_usd.loc[final_usd["as_of_date"].eq(_TODAY), "rate"].iloc[0] == 0.95
+        assert "FX not refreshed: JPY/EUR." in message
+        assert "FX not refreshed: USD/EUR" not in message
+    else:
+        assert commits == []
+        assert fx_path.read_bytes() == stored_bytes
+        pd.testing.assert_frame_equal(final, stored, check_dtype=False)
+        assert "FX not refreshed: JPY/EUR, USD/EUR." in message
+
+
+@pytest.mark.parametrize(
     ("status", "failure_message"),
     [("error", "FX fetch failed"), ("error", "JPY/EUR: fetch failed"), ("ok", "JPY/EUR: fetch failed")],
 )
