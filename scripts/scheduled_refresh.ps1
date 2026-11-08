@@ -40,6 +40,12 @@ if ($Job -eq 'Weekly') {
                    '--incremental-prices', '--skip-fundamentals', '--refresh-fx')
 }
 
+# Both jobs call Yahoo: run one at a time to keep 1 call/s (both may start at once after the laptop was off).
+$mutex = New-Object Threading.Mutex($false, 'Global\ETF-Cockpit-Data-Jobs')
+try {
+    if (-not $mutex.WaitOne(0)) { Write-Log 'waiting for the other data job to end'; $null = $mutex.WaitOne() }
+} catch [Threading.AbandonedMutexException] { }   # the other job was killed; the mutex is ours now
+
 Write-Log "start $Job"
 $started = Get-Date
 # one short append per line keeps the log readable while the job runs (Add-Content in a pipeline locks it)
@@ -47,4 +53,5 @@ $started = Get-Date
 $code = $LASTEXITCODE
 Write-Log ('end {0} exit={1} duration={2:hh\:mm\:ss}' -f $Job, $code, ((Get-Date) - $started))
 if ($Job -eq 'Weekly' -and $code -eq 0) { Set-Content -Path $stamp -Value $today.ToString('yyyy-MM-dd') }
+$mutex.ReleaseMutex()
 exit $code
