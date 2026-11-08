@@ -691,3 +691,83 @@ def test_fx_failure_with_rows_keeps_pair_and_commits_other_pairs(monkeypatch, tm
     assert "FX not refreshed: JPY/EUR." in message
     assert "FX not refreshed: USD/EUR" not in message
     assert _stored(clean_path)["date"].max() == _TODAY
+
+
+@pytest.mark.parametrize("invalid", [0.0, float("nan"), float("inf")])
+@pytest.mark.parametrize("has_history", [True, False])
+def test_invalid_adjusted_window_keeps_original_history(monkeypatch, tmp_path, invalid, has_history):
+    floor = years_before(_TODAY, 5)
+    shared = date(2026, 10, 30)
+    stored_a = _price_frame("A", [_bar(floor), _bar(shared)])
+    # Rejected history must survive even outside the normal incremental retention span.
+    stored_b = _price_frame("B", [_bar(floor - timedelta(days=10), 90), _bar(shared, 90)])
+    stored = pd.concat([stored_a, stored_b], ignore_index=True) if has_history else stored_a
+    window_a = _price_frame("A", [_bar(shared, 102, adjusted=100), _bar(_TODAY, 103)])
+    window_b = _price_frame("B", [_bar(shared, 102, adjusted=invalid), _bar(_TODAY, 103)])
+    window = pd.concat([window_a, window_b], ignore_index=True)
+    provider = _FakeProvider(("A", "B"), [_result(window)])
+    real_validate = data_service.validate_prices
+    clean_path = _prepare(monkeypatch, tmp_path, provider, stored)
+    monkeypatch.setattr(data_service, "validate_prices", real_validate)
+
+    message = DataService(config=None).refresh_yfinance_data(
+        include_reference_data=False, include_fundamentals=False, incremental=True,
+    )
+
+    final = _stored(clean_path)
+    expected_a = pd.concat([stored_a.iloc[:1], window_a], ignore_index=True)
+    pd.testing.assert_frame_equal(
+        final.loc[final.etf_id.eq("A")].reset_index(drop=True), _stored_from_frame(expected_a), check_dtype=False,
+    )
+    if has_history:
+        pd.testing.assert_frame_equal(
+            final.loc[final.etf_id.eq("B")].reset_index(drop=True), _stored_from_frame(stored_b), check_dtype=False,
+        )
+    else:
+        assert set(final.etf_id) == {"A"}
+        assert "PARTIAL refresh, not ok: no price data for B." in message
+    quarantine = pd.read_parquet(tmp_path / "data" / "quality" / "price_quarantine_2026-11-08.parquet")
+    pd.testing.assert_frame_equal(
+        quarantine.drop(columns="quarantine_reason"), window_b.reset_index(drop=True), check_dtype=False,
+    )
+    assert quarantine.quarantine_reason.tolist() == ["invalid_adjusted_close"] * 2
+    assert "Adjusted close invalid from Yahoo, stored history kept: B." in message
+    assert "Validated and committed" in message
+    assert len(provider.calls) == 1  # an invalid window cannot authorize a full refetch
+
+
+@pytest.mark.parametrize("has_history", [True, False])
+def test_invalid_adjusted_full_refetch_discards_window_and_keeps_history(monkeypatch, tmp_path, has_history):
+    floor = years_before(_TODAY, 5)
+    shared = date(2026, 10, 30)
+    stored_a = _price_frame("A", [_bar(floor), _bar(shared)])
+    stored_b = _price_frame("B", [_bar(floor - timedelta(days=10), 90), _bar(shared, 90)])
+    stored = pd.concat([stored_a, stored_b], ignore_index=True) if has_history else stored_a
+    window_a = _price_frame("A", [_bar(shared), _bar(_TODAY)])
+    window_b = _price_frame("B", [_bar(shared, adjusted=110), _bar(_TODAY, 103)])
+    full_b = _price_frame("B", [_bar(floor, adjusted=-1), _bar(shared), _bar(_TODAY)])
+    provider = _FakeProvider(("A", "B"), [_result(pd.concat([window_a, window_b])), _result(full_b)])
+    real_validate = data_service.validate_prices
+    clean_path = _prepare(monkeypatch, tmp_path, provider, stored)
+    monkeypatch.setattr(data_service, "validate_prices", real_validate)
+
+    message = DataService(config=None).refresh_yfinance_data(
+        include_reference_data=False, include_fundamentals=False, incremental=True,
+    )
+
+    final = _stored(clean_path)
+    assert set(final.loc[final.etf_id.eq("A"), "date"]) == {floor, shared, _TODAY}
+    if has_history:
+        pd.testing.assert_frame_equal(
+            final.loc[final.etf_id.eq("B")].reset_index(drop=True), _stored_from_frame(stored_b), check_dtype=False,
+        )
+    else:
+        assert set(final.etf_id) == {"A"}
+        assert "PARTIAL refresh, not ok: no price data for B." in message
+    quarantine = pd.read_parquet(tmp_path / "data" / "quality" / "price_quarantine_2026-11-08.parquet")
+    expected = pd.concat([window_b, full_b], ignore_index=True)
+    pd.testing.assert_frame_equal(quarantine.drop(columns="quarantine_reason"), expected, check_dtype=False)
+    assert set(quarantine.quarantine_reason) == {"invalid_adjusted_close"}
+    assert "Adjusted close invalid from Yahoo, stored history kept: B." in message
+    assert "Validated and committed" in message
+    assert provider.calls[1][0] == ("B",)
