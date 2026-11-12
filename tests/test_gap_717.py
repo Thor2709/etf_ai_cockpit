@@ -114,6 +114,17 @@ def test_resolution_order_pit_wall_and_fail_closed_identity(tmp_path: Path) -> N
     assert none["status"] == "UNRESOLVED" and none["selected_instrument_id"] is None and none["identity"] == {}  # unavailable, not a value
 
 
+def test_superseded_identifier_value_no_longer_resolves(tmp_path: Path) -> None:
+    identity = _identity(tmp_path)
+    corrected = IdentityClaim("SYNTH-EC-1", "isin", "NO0000000099", "fixture", SourceAuthority.OFFICIAL, "SYNTH-EC-1:isin",
+                              valid_from="2025-01-01T00:00:00Z", available_at="2026-02-01T00:00:00Z", revision=2)
+    identity.append_claims([corrected])
+    before, after = "2026-01-15T00:00:00+00:00", CUTOFF
+    assert identity.instruments_for_identifier("isin", "NO0000000001", effective_at=before, decision_time=before) == ("SYNTH-EC-1",)
+    assert identity.instruments_for_identifier("isin", "NO0000000001", effective_at=after, decision_time=after) == ()  # superseded
+    assert identity.instruments_for_identifier("isin", "NO0000000099", effective_at=after, decision_time=after) == ("SYNTH-EC-1",)
+
+
 def test_merger_continuity_pre_post_claims_and_foundation_consideration(tmp_path: Path) -> None:
     identity = _identity(tmp_path)
     runs, run = _run(tmp_path)

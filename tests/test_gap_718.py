@@ -216,6 +216,15 @@ def test_claim_identity_and_poor_price_gates(tmp_path: Path) -> None:
     assert emit_paper_proposal(dear, tmp_path / "p2") is None
 
 
+def test_trim_of_negative_edge_candidate_is_not_blocked_by_buy_side_friction(tmp_path: Path) -> None:
+    run, resolution = _bundle(tmp_path)
+    dear = _context(price=150.0, current_weight=0.05)  # negative buy-side edge: the position is cut to zero
+    trim = decide(run, resolution, dear, POLICY, AUTHORITY, attachments_verified=True)
+    assert trim.payload["sizing"]["target_weight"] == 0.0 and trim.action == "PROPOSE", trim.payload["reason_codes"]
+    friction = next(g for g in trim.proposal.gates if g.gate_id == "friction_edge")
+    assert friction.passed  # benefit = avoided underperformance versus the best alternative, not the buy-side edge
+
+
 def test_ceilings_liquidity_loss_confidence_and_fail_closed() -> None:
     base = dict(portfolio_value=1_000_000.0, bear_case_loss_fraction=0.50, adv_value=5_000_000.0, market_cap=10e9, effective_free_float=0.6,
                 sector_exposure_excluding_candidate=0.0, scenario_confidences=((0.5, "HIGH"), (0.5, "HIGH")))

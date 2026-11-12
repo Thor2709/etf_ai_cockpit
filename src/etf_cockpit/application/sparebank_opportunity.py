@@ -602,7 +602,8 @@ def _policy_proposal(decision_id: str, sizing: Mapping[str, Any], context: Decis
             as_of=as_of, expires_at=as_of + timedelta(hours=policy.proposal_ttl_hours),
             authority_policy_checksum=authority.authority_policy_checksum, gate_evidence=tuple(g for g in gates if g.gate_id in {*REQUIRED_GATES, *_GATE_CATEGORIES}),
             rationale="Cockpit-owned target from repriced Sparebank advisory input inside independent ceilings.", approvals=authority.approvals,
-            friction_gate=_friction_gate(abs(target_quantity - current_quantity) * price_base, economics, comparison, context, policy)))
+            friction_gate=_friction_gate(abs(target_quantity - current_quantity) * price_base, target_quantity < current_quantity,
+                                         economics, comparison, context, policy)))
     except ValueError as exc:
         return None, "BLOCK", [f"authority_unavailable:{exc}"]
     if proposal.proposal_allowed:
@@ -610,16 +611,22 @@ def _policy_proposal(decision_id: str, sizing: Mapping[str, Any], context: Decis
     return None, ("BLOCK" if proposal.outcome == "no_trade" else "REVIEW"), [f"proposal_policy_{proposal.outcome}"]
 
 
-def _friction_gate(order_value: float, economics: Mapping[str, Any], comparison: Mapping[str, Any], context: DecisionContext,
-                   policy: OpportunityPolicy) -> FrictionGateResult:
-    """Size-aware propose-or-hold verdict from the Cockpit's own repricing: gross benefit over the best alternative, then the
-    existing friction gate subtracts turnover, spread and uncertainty cost once (costs match ``reprice``; order value is in base currency)."""
+def _friction_gate(order_value: float, reducing: bool, economics: Mapping[str, Any], comparison: Mapping[str, Any],
+                   context: DecisionContext, policy: OpportunityPolicy) -> FrictionGateResult:
+    """Size-aware propose-or-hold verdict from the Cockpit's own repricing, then the existing friction gate subtracts turnover,
+    spread and uncertainty cost once (costs match ``reprice``).
+
+    ``order_value`` is in BASE currency (price x fx); it goes under the gate's ``order_value_eur`` key, which only checks that the
+    cost estimate and the order agree.  The gate consumes ``expected_benefit_bps`` as the benefit of executing the order, so the
+    buy-side edge (candidate gross return minus best alternative, over the horizon) is inverted for a reduction: selling avoids
+    that underperformance.  A trim of a positive-edge position therefore fails the gate and routes to REVIEW (fail closed)."""
 
     best = next((a for a in comparison["alternatives"] if a["id"] == comparison["best_alternative"]), None)
     alt_return = _num((best or {}).get("expected_return"))
     if alt_return is None or alt_return <= -1.0:
         return evaluate_friction_gate(None, order_value_eur=order_value, cost_estimate=None, uncertainty_bps=policy.friction_uncertainty_bps)
-    benefit_bps = (economics["gross_total_return"] - ((1.0 + alt_return) ** economics["horizon_years"] - 1.0)) * 1e4
+    edge_bps = (economics["gross_total_return"] - ((1.0 + alt_return) ** economics["horizon_years"] - 1.0)) * 1e4
+    benefit_bps = -edge_bps if reducing else edge_bps
     total_cost_bps = context.spread_bps + 2.0 * context.commission_bps + float(best.get("switching_cost_bps") or 0.0)
     return evaluate_friction_gate(
         benefit_bps, order_value_eur=order_value,
