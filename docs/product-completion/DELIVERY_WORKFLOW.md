@@ -181,7 +181,7 @@ upward when history, classification or cadence is unknown.
 - O: ordinary product work. Run focused and affected tests, UI/architecture
   and static checks, source smoke and the central cadence policy. Every pull
   request with `package_gate_required=false` (tiers E and O) also runs the
-  GitHub-hosted `focused-tests` job (ubuntu-latest, pinned release
+  GitHub-hosted `focused-tests` job (ubuntu-24.04, pinned release
   environment, `pytest -n auto`): `scripts/select_focused_tests.py --base
   <sha> --head <sha>` selects the changed test files, the tests that import a
   changed `src/etf_cockpit` module and, for changes under `src/etf_cockpit/app/`,
