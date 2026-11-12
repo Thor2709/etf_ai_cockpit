@@ -220,7 +220,7 @@ WSL Linux shard 2/3 measurement (`-m "not serial" -n 4`) took 270 seconds with
 `worksteal` versus 410 seconds with `loadfile`; the same 2,487 tests ran with
 identical results.
 
-CI shards (`ETF_COCKPIT_TEST_SHARD=k/3`, `tests/conftest.py`) are balanced with LPT over
+CI shards (`ETF_COCKPIT_TEST_SHARD=k/5`, `tests/conftest.py`) are balanced with LPT over
 `tests/file_durations.json`. A shard's wall time is parallel seconds divided by the xdist
 worker count plus serial-phase seconds, so each file weighs `(total - serial) / W + serial`,
 where `serial_files` holds the per-file seconds of the serial phase and `W` is
@@ -228,7 +228,7 @@ where `serial_files` holds the per-file seconds of the serial phase and `W` is
 or invalid, and files without a `serial_files` entry weigh their plain total).
 `scripts/update_test_durations.py` fills `serial_files` from `junit-serial.xml` reports.
 Refresh the file from the `junit-serial.xml`/`junit-parallel.xml` of a recent green release-gate
-run (all six shard artifacts) when many test files are missing from it; files without an entry are
+run (all ten shard artifacts) when many test files are missing from it; files without an entry are
 spread by hash at the median weight, so heavy new files can unbalance the shards.
 
 Product integration and lifecycle completion are distinct. When the ancestry

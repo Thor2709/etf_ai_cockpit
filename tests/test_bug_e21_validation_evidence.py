@@ -4,7 +4,7 @@ Per-ID outcome (base = 26b887ae, the commit before the TL1 train; this module ru
 scripts: 20 failed, 1 passed (the docs-only control); on the head: all pass):
   E21-N001 skipped tests counted as executed ........ FIXED (skip allowlist, protected modules, xfail by JUnit type only)
   E21-N002 merged + phase JUnit double-counted ...... FIXED (one canonical report per shard)
-  E21-N003 shard coverage not proven ................ FIXED (exact head, 1/3..3/3, duplicates, collection identities,
+  E21-N003 shard coverage not proven ................ FIXED (exact head, 1/N..N/N, duplicates, collection identities,
                                                        exact-head tracked-module inventory, unreadable reports fail)
   E21-N004 / E121-N004 --changed missed impacted tests FIXED (importer discovery, no-selection failure)
   E121-N001..N003 / E021-N001..N003 selector gaps: conftest/ui_acceptance, large selection, seed key  FIXED
@@ -22,6 +22,8 @@ import pytest
 
 import conftest
 from scripts import release_gate, select_focused_tests, validate_app, validation_summary
+
+SHARDS = range(1, validation_summary.EXPECTED_SHARD_COUNT + 1)
 
 HEAD = "b" * 40
 BASE = "a" * 40
@@ -113,7 +115,7 @@ def _artifacts(
     tmp_path: Path,
     *,
     sha: str = HEAD,
-    shards: tuple[int, ...] = (1, 2, 3),
+    shards: tuple[int, ...] = tuple(SHARDS),
     platforms: tuple[str, ...] = ("windows", "linux"),
     overlap: bool = False,
     phases: bool = True,
@@ -145,7 +147,7 @@ def _artifacts(
             if overlap:
                 nodeids.append("tests/shared.py::shared")
             evidence = {
-                "test_shard": f"{shard}/3", "collection_node_counts": {"full": len(names)},
+                "test_shard": f"{shard}/{len(SHARDS)}", "collection_node_counts": {"full": len(names)},
                 "collection_nodeids": nodeids,
             }
             (directory / "full_tests.log").write_text(
@@ -157,7 +159,7 @@ def _artifacts(
 def _collect(artifacts: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict:
     monkeypatch.setattr(validation_summary, "_tree_identity", lambda *_args: "d" * 64)
     monkeypatch.setattr(  # the exact-head tracked test inventory (unsharded evidence), as the git tree would give it
-        validation_summary, "_head_test_modules", lambda *_args: ["tests/m1.py", "tests/m2.py", "tests/m3.py"]
+        validation_summary, "_head_test_modules", lambda *_args: [f"tests/m{shard}.py" for shard in SHARDS]
     )
     return validation_summary.collect_summary(
         tmp_path,
@@ -173,7 +175,7 @@ def test_junit_totals_count_each_test_once_not_merged_plus_phase_reports(
 ) -> None:
     report = _collect(_artifacts(tmp_path), tmp_path, monkeypatch)
 
-    assert report["platform_junit"] == {"windows": 6, "linux": 6}  # 3 shards x 2 tests, not doubled
+    assert report["platform_junit"] == {"windows": 2 * len(SHARDS), "linux": 2 * len(SHARDS)}  # shards x 2 tests, not doubled
     assert validation_summary.validate_summary(report) == []
 
 
@@ -182,6 +184,8 @@ def test_terminal_summary_requires_all_shards_exact_sha_and_no_duplicates(
 ) -> None:
     one_shard = _collect(_artifacts(tmp_path / "a", shards=(1,)), tmp_path, monkeypatch)
     assert any("shards are incomplete" in error for error in validation_summary.validate_summary(one_shard))
+    missing_last = _collect(_artifacts(tmp_path / "e", shards=tuple(SHARDS)[:-1]), tmp_path, monkeypatch)
+    assert any("shards are incomplete" in error for error in validation_summary.validate_summary(missing_last))
 
     stale = _collect(_artifacts(tmp_path / "b", sha="c" * 40), tmp_path, monkeypatch)
     assert any("exact tested SHA" in error for error in validation_summary.validate_summary(stale))
@@ -219,26 +223,26 @@ def test_terminal_summary_requires_collection_identities_not_just_matching_total
 
     report = _collect(artifacts, tmp_path, monkeypatch)
 
-    assert report["platform_junit"] == {"windows": 6, "linux": 6}
+    assert report["platform_junit"] == {"windows": 2 * len(SHARDS), "linux": 2 * len(SHARDS)}
     assert any("collection" in error for error in validation_summary.validate_summary(report))
 
 
 def test_terminal_summary_requires_independent_unsharded_inventory_of_head_test_modules(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # Every shard omits tests/m4.py: logs and JUnit agree with each other, only the head tree shows the gap.
+    # Every shard omits tests/extra.py: logs and JUnit agree with each other, only the head tree shows the gap.
     artifacts = _artifacts(tmp_path)
     good = _collect(artifacts, tmp_path, monkeypatch)
     assert validation_summary.validate_summary(good) == []  # control
 
     monkeypatch.setattr(
-        validation_summary, "_head_test_modules", lambda *_args: ["tests/m1.py", "tests/m2.py", "tests/m3.py", "tests/m4.py"]
+        validation_summary, "_head_test_modules", lambda *_args: [*(f"tests/m{shard}.py" for shard in SHARDS), "tests/extra.py"]
     )
     omitted = validation_summary.collect_summary(
         tmp_path, artifacts, base=BASE, head=HEAD,
         job_results={"classifier": "success", "preflight": "success", "supply_chain": "success", "release": "success"},
     )
-    assert any("omit 1 test module(s)" in error and "tests/m4.py" in error for error in validation_summary.validate_summary(omitted))
+    assert any("omit 1 test module(s)" in error and "tests/extra.py" in error for error in validation_summary.validate_summary(omitted))
 
     # No readable git tree (tmp_path is not a repository): the inventory is absent, which fails closed.
     monkeypatch.undo()
@@ -258,7 +262,7 @@ def test_unreadable_or_missing_junit_of_an_empty_shard_fails_validation(
     directory = artifacts / f"release-gate-{HEAD}-linux-s3"
     log = directory / "full_tests.log"
     log.write_text(  # shard 3 collected nothing, so its absent results would otherwise match its collection
-        EVIDENCE_PREFIX + json.dumps({"test_shard": "3/3", "collection_node_counts": {"full": 0}, "collection_nodeids": []}) + "\n",
+        EVIDENCE_PREFIX + json.dumps({"test_shard": f"3/{len(SHARDS)}", "collection_node_counts": {"full": 0}, "collection_nodeids": []}) + "\n",
         encoding="utf-8",
     )
     for report in directory.glob("junit-*.xml"):

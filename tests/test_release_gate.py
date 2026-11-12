@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from scripts import release_gate
+from scripts import release_gate, validation_summary
 
 
 def test_full_suite_timeout_is_scoped_to_the_full_release_test_command(
@@ -189,12 +189,14 @@ def test_workflow_runs_xdist_auto_on_both_platforms_and_excludes_pull_request_pi
     assert re.search(r"arguments=\(--root \. --output \"\$output\" --allow-unsigned --xdist-workers auto\)", gate_step["run"])
     assert '== "linux"' not in gate_step["run"]
     assert gate_step["env"]["ETF_COCKPIT_XDIST_MAX"] == "4"
-    # Three file-level shards per platform run in parallel; the gate does not wait for preflight,
+    # Five file-level shards per platform run in parallel; the gate does not wait for preflight,
     # but validation-summary still requires preflight and every shard.
     gate = jobs["release-gate"]
-    assert gate["strategy"]["matrix"]["shard"] == [1, 2, 3]
+    assert gate["strategy"]["matrix"]["shard"] == [1, 2, 3, 4, 5]
+    assert gate["strategy"]["matrix"]["shard"] == list(range(1, validation_summary.EXPECTED_SHARD_COUNT + 1))
+    assert gate["name"].endswith("shard ${{ matrix.shard }}/5)")
     assert gate["strategy"]["matrix"]["platform"] == ["windows", "linux"]
-    assert gate_step["env"]["ETF_COCKPIT_TEST_SHARD"] == "${{ matrix.shard }}/3"
+    assert gate_step["env"]["ETF_COCKPIT_TEST_SHARD"] == "${{ matrix.shard }}/5"
     assert "preflight" not in gate["needs"]
     assert {"preflight", "release-gate"} <= set(jobs["validation-summary"]["needs"])
 
@@ -630,7 +632,7 @@ def test_release_workflow_is_matrixed_isolated_and_read_only() -> None:
     assert "\n  pull_request:\n" in trigger
     assert "\n  push:" not in trigger
     assert "windows-latest" in workflow
-    assert "ubuntu-latest" in workflow
+    assert "ubuntu-24.04" in workflow
     assert "fail-fast: false" in workflow
     assert "timeout-minutes: 50" in workflow
     assert "timeout-minutes: 55" in preflight

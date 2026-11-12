@@ -184,7 +184,7 @@ def _junit_tests(node: ET.Element) -> int:
 RELEASE_ARTIFACT_RE = re.compile(
     r"release-gate-(?P<sha>[^-]+)-(?P<platform>windows|linux)(?:-s(?P<shard>[0-9]+))?", re.IGNORECASE
 )
-EXPECTED_SHARD_COUNT = 3  # .github/workflows/release-gate.yml matrix.shard [1, 2, 3]
+EXPECTED_SHARD_COUNT = 5  # .github/workflows/release-gate.yml matrix.shard [1, 2, 3, 4, 5]
 SHARD_KEYS = {
     "collected", "collection_nodeids", "executed_keys", "duplicates", "expected_modules", "head_sha", "labels",
     "report_errors", "shards", "tests",
@@ -335,7 +335,7 @@ def _shard_coverage_errors(report: dict[str, Any]) -> list[str]:
         if record["head_sha"] != [tested]:
             errors.append(f"terminal summary {platform} shard evidence is not for the exact tested SHA")
         if record["shards"] != expected_numbers or record["labels"] != expected_labels:
-            errors.append(f"terminal summary {platform} shards are incomplete (expected 1/3 to 3/3)")
+            errors.append(f"terminal summary {platform} shards are incomplete (expected 1/{EXPECTED_SHARD_COUNT} to {EXPECTED_SHARD_COUNT}/{EXPECTED_SHARD_COUNT})")
         report_errors = record["report_errors"]
         if not isinstance(report_errors, list) or report_errors:
             errors.append(f"terminal summary {platform} JUnit evidence is missing or unreadable")
