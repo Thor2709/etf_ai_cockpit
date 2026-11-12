@@ -84,8 +84,9 @@ def _bundle(tmp_path: Path, env: dict | None = None, ids=("SYNTH-EC-1", "SYNTH-E
 
 def _returns() -> dict:
     rng = np.random.default_rng(718)
-    index = pd.bdate_range("2026-03-02", periods=120)
-    frame = pd.DataFrame({CANDIDATE: rng.normal(0.0004, 0.012, 120), "ETF-A": rng.normal(0.0002, 0.006, 120)}, index=index)
+    # ~5 years ending on the same day as before: the optimiser's estimation-error penalty (z x sigma / sqrt(years)) needs a realistic sample length
+    index = pd.bdate_range(end="2026-08-17", periods=1260)
+    frame = pd.DataFrame({CANDIDATE: rng.normal(0.0004, 0.012, 1260), "ETF-A": rng.normal(0.0002, 0.006, 1260)}, index=index)
     return returns_payload(frame)
 
 

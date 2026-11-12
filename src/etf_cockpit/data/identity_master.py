@@ -406,7 +406,15 @@ class IdentityMasterStore:
             for claim in self._load_claims()
             if _field(claim.field) == canonical_field and _identifier_value(canonical_field, claim.value) == normalised
         )
-        eligible = _eligible_claims(matching, effective_at=_optional_timestamp(effective_at, "effective_at"), decision_time=_optional_timestamp(decision_time, "decision_time"))
+        eligible = _latest_identifier_revisions(
+            tuple(
+                claim for claim in matching if _claim_is_eligible(
+                    claim,
+                    effective_at=_optional_timestamp(effective_at, "effective_at"),
+                    decision_time=_optional_timestamp(decision_time, "decision_time"),
+                )
+            )
+        )
         return tuple(sorted({claim.instrument_id for claim in eligible}))
 
     def projection(

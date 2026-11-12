@@ -36,6 +36,7 @@ from etf_cockpit.portfolio.proposal_policy import (
     save_proposal_decision,
 )
 from etf_cockpit.portfolio.sparebank_constraints import CeilingInputs, CeilingPolicy, CeilingResult, apply_ceiling, compute_ceilings
+from etf_cockpit.signals.friction_edge import FrictionGateResult, evaluate_friction_gate
 
 OPPORTUNITY_POLICY_VERSION = "sbi-opportunity.v1"
 DECISION_SCHEMA = "sparebank-cockpit-decision.v1"
@@ -114,6 +115,7 @@ class OpportunityPolicy:
     proposal_ttl_hours: float = 24.0
     optimiser_method: str = "robust_mean_risk"
     cash_weight: float = 0.0
+    friction_uncertainty_bps: float = 25.0  # friction-gate uncertainty cost; mirrors configs/paper_bots_execution_v1.yaml rule_uncertainty_bps
     ceilings: CeilingPolicy = field(default_factory=CeilingPolicy)
 
     def to_payload(self) -> dict[str, Any]:
@@ -124,7 +126,7 @@ class OpportunityPolicy:
             "min_excess_return": self.min_excess_return, "standalone_scenario": self.standalone_scenario,
             "transition_scenario": self.transition_scenario, "accepted_milestones": list(self.accepted_milestones),
             "proposal_ttl_hours": self.proposal_ttl_hours, "optimiser_method": self.optimiser_method,
-            "cash_weight": self.cash_weight, "ceilings": self.ceilings.to_payload(),
+            "cash_weight": self.cash_weight, "friction_uncertainty_bps": self.friction_uncertainty_bps, "ceilings": self.ceilings.to_payload(),
         }
 
     @classmethod
@@ -512,7 +514,7 @@ def decide(
     gates = _gate_evidence(issues)
     reason_codes = sorted({i["code"] for i in issues if i["severity"] in (BLOCK, REVIEW)})
     if action == "PROPOSE" and sizing["status"] == "available":
-        proposal, action, extra_codes = _policy_proposal(decision_id, sizing, context, policy, authority, gates, ceilings)
+        proposal, action, extra_codes = _policy_proposal(decision_id, sizing, context, policy, authority, gates, ceilings, economics, comparison)
         reason_codes += extra_codes
     elif action == "PROPOSE":
         action, reason_codes = BLOCK, ["sizing_unavailable"]
@@ -582,25 +584,47 @@ def _gate_evidence(issues: list[dict[str, str]]) -> tuple[GateEvidence, ...]:
 
 
 def _policy_proposal(decision_id: str, sizing: Mapping[str, Any], context: DecisionContext, policy: OpportunityPolicy,
-                     authority: ProposalAuthority, gates: tuple[GateEvidence, ...], ceilings: CeilingResult
+                     authority: ProposalAuthority, gates: tuple[GateEvidence, ...], ceilings: CeilingResult,
+                     economics: Mapping[str, Any], comparison: Mapping[str, Any]
                      ) -> tuple[ProposalDecision | None, str, list[str]]:
     price_base = context.price * context.fx_rate
     to_quantity = lambda weight: round(weight * context.portfolio_value / price_base, 8)  # noqa: E731
     as_of = _time(context.decision_time)
+    current_quantity, target_quantity = to_quantity(context.current_weight), to_quantity(sizing["target_weight"])
+    if current_quantity == target_quantity:
+        return None, BLOCK, ["proposal_policy_no_trade"]  # no order exists, so the size-aware friction gate cannot apply
     try:
         proposal = build_proposal_decision(ProposalRequest(
-            instrument_id=context.instrument_id, current_quantity=to_quantity(context.current_weight),
-            target_quantity=to_quantity(sizing["target_weight"]), strategy_id=authority.strategy_id, strategy_stage=authority.strategy_stage,
+            instrument_id=context.instrument_id, current_quantity=current_quantity,
+            target_quantity=target_quantity, strategy_id=authority.strategy_id, strategy_stage=authority.strategy_stage,
             model_id=authority.model_id, model_stage=authority.model_stage, account_id=authority.account_id, account_stage=authority.account_stage,
             optimiser_output_id=decision_id, portfolio_revision=context.portfolio_revision, data_revision=decision_id,
             as_of=as_of, expires_at=as_of + timedelta(hours=policy.proposal_ttl_hours),
             authority_policy_checksum=authority.authority_policy_checksum, gate_evidence=tuple(g for g in gates if g.gate_id in {*REQUIRED_GATES, *_GATE_CATEGORIES}),
-            rationale="Cockpit-owned target from repriced Sparebank advisory input inside independent ceilings.", approvals=authority.approvals))
+            rationale="Cockpit-owned target from repriced Sparebank advisory input inside independent ceilings.", approvals=authority.approvals,
+            friction_gate=_friction_gate(abs(target_quantity - current_quantity) * price_base, economics, comparison, context, policy)))
     except ValueError as exc:
         return None, "BLOCK", [f"authority_unavailable:{exc}"]
     if proposal.proposal_allowed:
         return proposal, "PROPOSE", []
     return None, ("BLOCK" if proposal.outcome == "no_trade" else "REVIEW"), [f"proposal_policy_{proposal.outcome}"]
+
+
+def _friction_gate(order_value: float, economics: Mapping[str, Any], comparison: Mapping[str, Any], context: DecisionContext,
+                   policy: OpportunityPolicy) -> FrictionGateResult:
+    """Size-aware propose-or-hold verdict from the Cockpit's own repricing: gross benefit over the best alternative, then the
+    existing friction gate subtracts turnover, spread and uncertainty cost once (costs match ``reprice``; order value is in base currency)."""
+
+    best = next((a for a in comparison["alternatives"] if a["id"] == comparison["best_alternative"]), None)
+    alt_return = _num((best or {}).get("expected_return"))
+    if alt_return is None or alt_return <= -1.0:
+        return evaluate_friction_gate(None, order_value_eur=order_value, cost_estimate=None, uncertainty_bps=policy.friction_uncertainty_bps)
+    benefit_bps = (economics["gross_total_return"] - ((1.0 + alt_return) ** economics["horizon_years"] - 1.0)) * 1e4
+    total_cost_bps = context.spread_bps + 2.0 * context.commission_bps + float(best.get("switching_cost_bps") or 0.0)
+    return evaluate_friction_gate(
+        benefit_bps, order_value_eur=order_value,
+        cost_estimate={"order_value_eur": order_value, "total_cost_bps": total_cost_bps, "spread_bps": context.spread_bps},
+        uncertainty_bps=policy.friction_uncertainty_bps)
 
 
 # ---------------------------------------------------------------------------- persistence and replay
