@@ -387,6 +387,37 @@ class IdentityMasterStore:
         )
         return _with_duplicate_conflicts(resolution, duplicates)
 
+    def instruments_for_identifier(
+        self,
+        field: str,
+        value: str,
+        *,
+        effective_at: str | datetime | None = None,
+        decision_time: str | datetime | None = None,
+    ) -> tuple[str, ...]:
+        """Read-only: canonical instruments holding an exact identifier claim known at the cut-off.
+
+        Revision streams that ever carried the value are reduced to their latest eligible revision before the
+        value is compared, so a superseded value no longer resolves.  ``IdentityResolutionError`` propagates
+        when a point-in-time cut-off meets a claim without ``available_at`` or ``valid_from``.
+        """
+
+        canonical_field = _field(field)
+        normalised = _identifier_value(canonical_field, value)
+        if not normalised:
+            return ()
+        claims = self._load_claims()
+        streams = {
+            _identifier_revision_key(claim) for claim in claims
+            if _field(claim.field) == canonical_field and _identifier_value(canonical_field, claim.value) == normalised
+        }
+        effective, decision = _optional_timestamp(effective_at, "effective_at"), _optional_timestamp(decision_time, "decision_time")
+        latest = _latest_identifier_revisions(tuple(
+            claim for claim in claims
+            if _identifier_revision_key(claim) in streams and _claim_is_eligible(claim, effective_at=effective, decision_time=decision)
+        ))
+        return tuple(sorted({claim.instrument_id for claim in latest if _identifier_value(canonical_field, claim.value) == normalised}))
+
     def projection(
         self,
         instrument_id: str,

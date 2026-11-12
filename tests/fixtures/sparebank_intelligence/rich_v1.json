@@ -1,0 +1,413 @@
+{
+  "advisory": [
+    {
+      "instrument_id": "SYNTH-EC-1",
+      "opportunity_score": 0.4,
+      "score_definition": "synthetic rank 0..1",
+      "state": "WATCH",
+      "suggested_exposure_range": {
+        "high": 0.02,
+        "low": 0.0
+      }
+    }
+  ],
+  "as_of": "2026-06-30",
+  "attachments": [
+    {
+      "attachment_id": "posterior-summary",
+      "media_type": "application/json",
+      "required": true,
+      "sha256": "6fbaff59709e520be346badc3d8cde8490a8a58e12f5d74cfa4ef82d58077014",
+      "size_bytes": 25
+    }
+  ],
+  "bank_state": [],
+  "code_revision": "fixture0000",
+  "content_hash": "aaf5703baf67fbdeb7f7ef92c5197ef7a63fd15d05f8e6bb0af7570d2cd48001",
+  "coverage": {
+    "distributions": true,
+    "owner_claims": true,
+    "valuations": true
+  },
+  "critical_missing": [],
+  "distributions": [
+    {
+      "horizon": "P3Y",
+      "instrument_id": "SYNTH-EC-1",
+      "p_cet1_breach": 0.03,
+      "p_value_exceeds_price": 0.62,
+      "quantiles": {
+        "p5": 70.0,
+        "p50": 110.0,
+        "p95": 150.0
+      },
+      "simulation_id": "sim-fixture-1"
+    }
+  ],
+  "execution_allowed": false,
+  "generated_at": "2026-09-02T08:00:00+00:00",
+  "known_at_cutoff": "2026-09-01T00:00:00+00:00",
+  "metrics": [
+    {
+      "confidence_class": "HIGH",
+      "definition_id": "def.nii",
+      "epistemic_class": "OBSERVED",
+      "known_at": "2026-08-20T06:00:00+00:00",
+      "metric_id": "nii",
+      "missingness": "PRESENT",
+      "period": "2026Q2",
+      "source_ref": "synthetic:report/nii",
+      "unit": "NOK_mn",
+      "value": 1200.0
+    },
+    {
+      "confidence_class": "HIGH",
+      "definition_id": "def.through_cycle_roe",
+      "epistemic_class": "NORMALISED",
+      "known_at": "2026-08-20T06:00:00+00:00",
+      "metric_id": "through_cycle_roe",
+      "missingness": "PRESENT",
+      "period": "2026Q2",
+      "source_ref": "synthetic:report/through_cycle_roe",
+      "unit": "ratio",
+      "value": 0.095
+    },
+    {
+      "confidence_class": "LOW",
+      "definition_id": "def.thesis_margin",
+      "epistemic_class": "THESIS",
+      "known_at": "2026-08-20T06:00:00+00:00",
+      "metric_id": "thesis_margin",
+      "missingness": "PRESENT",
+      "period": "2026Q2",
+      "source_ref": "synthetic:report/thesis_margin",
+      "unit": "ratio",
+      "value": 0.12
+    },
+    {
+      "confidence_class": "HIGH",
+      "definition_id": "def.mgmt_cet1_target",
+      "epistemic_class": "MANAGEMENT_TARGET",
+      "known_at": "2026-08-20T06:00:00+00:00",
+      "metric_id": "mgmt_cet1_target",
+      "missingness": "PRESENT",
+      "period": "2026Q2",
+      "source_ref": "synthetic:report/mgmt_cet1_target",
+      "unit": "ratio",
+      "value": 0.18
+    },
+    {
+      "confidence_class": "HIGH",
+      "definition_id": "def.cost_income",
+      "epistemic_class": "CALCULATED",
+      "known_at": "2026-08-20T06:00:00+00:00",
+      "metric_id": "cost_income",
+      "missingness": "PRESENT",
+      "period": "2026Q2",
+      "source_ref": "synthetic:report/cost_income",
+      "unit": "ratio",
+      "value": 0.52
+    },
+    {
+      "confidence_class": "HIGH",
+      "definition_id": "def.deposit_beta",
+      "epistemic_class": "MODEL_ESTIMATE",
+      "known_at": "2026-08-20T06:00:00+00:00",
+      "metric_id": "deposit_beta",
+      "missingness": "PRESENT",
+      "period": "2026Q2",
+      "source_ref": "synthetic:report/deposit_beta",
+      "unit": "ratio",
+      "value": 0.4
+    },
+    {
+      "confidence_class": "HIGH",
+      "definition_id": "def.tax_rate",
+      "epistemic_class": "ASSUMPTION",
+      "known_at": "2026-08-20T06:00:00+00:00",
+      "metric_id": "tax_rate",
+      "missingness": "PRESENT",
+      "period": "2026Q2",
+      "source_ref": "synthetic:report/tax_rate",
+      "unit": "ratio",
+      "value": 0.22
+    },
+    {
+      "confidence_class": "LOW",
+      "definition_id": "def.rumour_uplift",
+      "epistemic_class": "SPECULATION",
+      "known_at": "2026-08-20T06:00:00+00:00",
+      "metric_id": "rumour_uplift",
+      "missingness": "PRESENT",
+      "period": "2026Q2",
+      "source_ref": "synthetic:report/rumour_uplift",
+      "unit": "ratio",
+      "value": 0.05
+    },
+    {
+      "confidence_class": "LOW",
+      "definition_id": "def.stage3_ratio",
+      "epistemic_class": "OBSERVED",
+      "known_at": "2026-08-20T06:00:00+00:00",
+      "metric_id": "stage3_ratio",
+      "missingness": "MISSING",
+      "period": "2026Q2",
+      "source_ref": "synthetic:report/stage3_ratio",
+      "unit": "NOK_mn"
+    }
+  ],
+  "model_version": "synthetic-1",
+  "monitoring": {
+    "drivers": [
+      "deposit beta"
+    ],
+    "kill_variables": [
+      {
+        "comparator": "<",
+        "expires_at": "2027-03-01T00:00:00+00:00",
+        "threshold": 0.15,
+        "variable": "cet1_ratio"
+      }
+    ],
+    "limitations": [
+      "synthetic fixture"
+    ],
+    "weakening_observations": [
+      "NIM compression"
+    ]
+  },
+  "owner_claims": [
+    {
+      "bank_legal_entity": "Synthetic Sparebank 1",
+      "claimant_allocation_status": "RESOLVED",
+      "ec_count_current": 10000000,
+      "ec_count_fully_diluted": 10100000,
+      "eierandelskapital": {
+        "definition": "EC capital incl. premium per annual report",
+        "value": 1000.0
+      },
+      "eierbrok": {
+        "effective_at": "2026-06-30",
+        "known_at": "2026-08-01T00:00:00+00:00",
+        "value": 0.6499999999999999
+      },
+      "grunnfondskapital": {
+        "definition": "grunnfond capital per annual report",
+        "value": 400.0
+      },
+      "holdings": {
+        "effective_free_float": 0.6,
+        "foundation_share": 0.2,
+        "strategic_share": 0.1
+      },
+      "instrument_id": "SYNTH-EC-1",
+      "owner_valuation": {
+        "denominator_basis": "OWNER_ATTRIBUTABLE_EC",
+        "owner_attributable_book": 3000.0,
+        "owner_attributable_earnings": 300.0
+      },
+      "share_class": "EC",
+      "treasury_ec_count": 50000,
+      "voting_share": 0.55
+    },
+    {
+      "bank_legal_entity": "Synthetic Sparebank 2",
+      "claimant_allocation_status": "RESOLVED",
+      "ec_count_current": 20000000,
+      "ec_count_fully_diluted": 20200000,
+      "eierandelskapital": {
+        "definition": "EC capital incl. premium per annual report",
+        "value": 2000.0
+      },
+      "eierbrok": {
+        "effective_at": "2026-06-30",
+        "known_at": "2026-08-01T00:00:00+00:00",
+        "value": 0.6
+      },
+      "grunnfondskapital": {
+        "definition": "grunnfond capital per annual report",
+        "value": 800.0
+      },
+      "holdings": {
+        "effective_free_float": 0.6,
+        "foundation_share": 0.2,
+        "strategic_share": 0.1
+      },
+      "instrument_id": "SYNTH-EC-2",
+      "owner_valuation": {
+        "denominator_basis": "OWNER_ATTRIBUTABLE_EC",
+        "owner_attributable_book": 6000.0,
+        "owner_attributable_earnings": 600.0
+      },
+      "share_class": "EC",
+      "treasury_ec_count": 100000,
+      "voting_share": 0.55
+    },
+    {
+      "bank_legal_entity": "Synthetic Sparebank 3",
+      "claimant_allocation_status": "RESOLVED",
+      "ec_count_current": 30000000,
+      "ec_count_fully_diluted": 30300000,
+      "eierandelskapital": {
+        "definition": "EC capital incl. premium per annual report",
+        "value": 3000.0
+      },
+      "eierbrok": {
+        "effective_at": "2026-06-30",
+        "known_at": "2026-08-01T00:00:00+00:00",
+        "value": 0.5499999999999999
+      },
+      "grunnfondskapital": {
+        "definition": "grunnfond capital per annual report",
+        "value": 1200.0
+      },
+      "holdings": {
+        "effective_free_float": 0.6,
+        "foundation_share": 0.2,
+        "strategic_share": 0.1
+      },
+      "instrument_id": "SYNTH-EC-3",
+      "owner_valuation": {
+        "denominator_basis": "OWNER_ATTRIBUTABLE_EC",
+        "owner_attributable_book": 9000.0,
+        "owner_attributable_earnings": 900.0
+      },
+      "share_class": "EC",
+      "treasury_ec_count": 150000,
+      "voting_share": 0.55
+    }
+  ],
+  "producer": {
+    "engine_capability_profile": "fixture.v1",
+    "id": "synthetic-fixture"
+  },
+  "run_id": "run-fixture-rich-0001",
+  "schema": "sparebank-intelligence-result",
+  "schema_version": "1.0",
+  "science_version": "synthetic-1",
+  "status": "VALID",
+  "structural_events": [
+    {
+      "event_id": "evt-merger-0001",
+      "event_type": "MERGER",
+      "four_ratios": {
+        "bank_value_split": 0.6,
+        "post_merger_ec_class_split": 0.55,
+        "post_merger_eierbrok": 0.6,
+        "target_ec_conversion_ratio": 1.2
+      },
+      "history": [
+        {
+          "at": "2026-05-01T00:00:00+00:00",
+          "milestone": "announced"
+        },
+        {
+          "at": "2026-07-01T00:00:00+00:00",
+          "milestone": "approved"
+        }
+      ],
+      "integration_state": "legal_completion",
+      "ledger_refs": {
+        "accounting": "A1",
+        "capital_class": "C1",
+        "legal": "L1",
+        "security": "S1",
+        "valuation": "V1"
+      },
+      "milestone": "approved",
+      "owner_value_per_legacy_ec": 112.5,
+      "post_state": {
+        "combined": true
+      },
+      "pre_state": {
+        "standalone": true
+      },
+      "synergies": [
+        {
+          "component": "COST",
+          "state": "ANNOUNCED",
+          "value": 120.0
+        },
+        {
+          "component": "INTEGRATION_COST",
+          "state": "TARGET",
+          "value": 80.0
+        }
+      ]
+    }
+  ],
+  "valuations": [
+    {
+      "instrument_id": "SYNTH-EC-1",
+      "model_id": "synthetic.residual-income.v1",
+      "scenarios": [
+        {
+          "name": "downside",
+          "probability": 0.25,
+          "probability_confidence": "LOW",
+          "value": 80.0
+        },
+        {
+          "name": "standalone",
+          "probability": 0.5,
+          "probability_confidence": "MEDIUM",
+          "value": 110.0
+        },
+        {
+          "name": "upside",
+          "probability": 0.25,
+          "probability_confidence": "LOW",
+          "value": 140.0
+        }
+      ]
+    },
+    {
+      "instrument_id": "SYNTH-EC-2",
+      "model_id": "synthetic.residual-income.v1",
+      "scenarios": [
+        {
+          "name": "downside",
+          "probability": 0.25,
+          "probability_confidence": "LOW",
+          "value": 80.0
+        },
+        {
+          "name": "standalone",
+          "probability": 0.5,
+          "probability_confidence": "MEDIUM",
+          "value": 110.0
+        },
+        {
+          "name": "upside",
+          "probability": 0.25,
+          "probability_confidence": "LOW",
+          "value": 140.0
+        }
+      ]
+    },
+    {
+      "instrument_id": "SYNTH-EC-3",
+      "model_id": "synthetic.residual-income.v1",
+      "scenarios": [
+        {
+          "name": "downside",
+          "probability": 0.25,
+          "probability_confidence": "LOW",
+          "value": 80.0
+        },
+        {
+          "name": "standalone",
+          "probability": 0.5,
+          "probability_confidence": "MEDIUM",
+          "value": 110.0
+        },
+        {
+          "name": "upside",
+          "probability": 0.25,
+          "probability_confidence": "LOW",
+          "value": 140.0
+        }
+      ]
+    }
+  ]
+}
