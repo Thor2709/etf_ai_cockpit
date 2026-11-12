@@ -9,6 +9,8 @@ import pytest
 from scripts import validation_summary
 from scripts.validation_summary import validate_summary
 
+SHARDS = range(1, validation_summary.EXPECTED_SHARD_COUNT + 1)
+
 
 def _summary(tier: str) -> dict:
     package = tier in {"H", "C"}
@@ -31,7 +33,7 @@ def _summary(tier: str) -> dict:
         "platform_shards": (
             {
                 platform: {
-                    "head_sha": ["b" * 40], "shards": [1, 2, 3], "labels": ["1/3", "2/3", "3/3"],
+                    "head_sha": ["b" * 40], "shards": list(SHARDS), "labels": [f"{shard}/{len(SHARDS)}" for shard in SHARDS],
                     "collected": 4, "duplicates": 0, "tests": 4,
                     "collection_nodeids": [f"tests/m.py::t{number}" for number in range(4)],
                     "executed_keys": [["tests.m", f"t{number}"] for number in range(4)],
@@ -140,7 +142,7 @@ def test_terminal_collection_preserves_platform_artifact_directories(
         encoding="utf-8",
     )
     for platform in ("linux", "windows"):
-        for shard in (1, 2, 3):
+        for shard in SHARDS:
             directory = artifacts / f"release-gate-{'b' * 40}-{platform}-s{shard}"
             directory.mkdir(parents=True)
             (directory / "junit-full.xml").write_text(
@@ -148,7 +150,7 @@ def test_terminal_collection_preserves_platform_artifact_directories(
                 encoding="utf-8",
             )
             evidence = {
-                "test_shard": f"{shard}/3", "collection_node_counts": {"full": 1},
+                "test_shard": f"{shard}/{len(SHARDS)}", "collection_node_counts": {"full": 1},
                 "collection_nodeids": [f"tests/m{shard}.py::t"],
             }
             (directory / "full_tests.log").write_text(
@@ -159,7 +161,7 @@ def test_terminal_collection_preserves_platform_artifact_directories(
     preflight.write_text('<testsuite tests="126" />\n', encoding="utf-8")
     monkeypatch.setattr(validation_summary, "_tree_identity", lambda *_args: "d" * 64)
     monkeypatch.setattr(
-        validation_summary, "_head_test_modules", lambda *_args: [f"tests/m{shard}.py" for shard in (1, 2, 3)]
+        validation_summary, "_head_test_modules", lambda *_args: [f"tests/m{shard}.py" for shard in SHARDS]
     )
 
     report = validation_summary.collect_summary(
@@ -175,7 +177,7 @@ def test_terminal_collection_preserves_platform_artifact_directories(
         },
     )
 
-    assert report["platform_junit"] == {"windows": 3, "linux": 3}  # one per shard, deduped
+    assert report["platform_junit"] == {"windows": len(SHARDS), "linux": len(SHARDS)}  # one per shard, deduped
     assert validate_summary(report) == []
 
 
@@ -251,7 +253,7 @@ def _collect_candidate(
 ) -> dict[str, object]:
     monkeypatch.setattr(validation_summary, "_tree_identity", lambda *_args: "e" * 64)
     monkeypatch.setattr(
-        validation_summary, "_head_test_modules", lambda *_args: [f"tests/m{shard}.py" for shard in (1, 2, 3)]
+        validation_summary, "_head_test_modules", lambda *_args: [f"tests/m{shard}.py" for shard in SHARDS]
     )
     monkeypatch.setattr(
         validation_summary,
