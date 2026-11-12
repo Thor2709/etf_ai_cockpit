@@ -143,7 +143,7 @@ def test_workflow_defines_focused_tests_job_and_summary_requires_it() -> None:
     assert job["if"] == (
         "github.event_name == 'pull_request' && needs.classifier.outputs.package_gate_required != 'true'"
     )
-    assert job["runs-on"] == "ubuntu-latest"
+    assert job["runs-on"] == "ubuntu-24.04"
     names = [step["name"] for step in job["steps"]]
     assert names.index("Install pinned release environment") < names.index("Select and run focused tests")
     run = next(step for step in job["steps"] if step["name"] == "Select and run focused tests")["run"]

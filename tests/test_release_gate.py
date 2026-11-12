@@ -632,7 +632,7 @@ def test_release_workflow_is_matrixed_isolated_and_read_only() -> None:
     assert "\n  pull_request:\n" in trigger
     assert "\n  push:" not in trigger
     assert "windows-latest" in workflow
-    assert "ubuntu-latest" in workflow
+    assert "ubuntu-24.04" in workflow
     assert "fail-fast: false" in workflow
     assert "timeout-minutes: 50" in workflow
     assert "timeout-minutes: 55" in preflight

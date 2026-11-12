@@ -21,7 +21,7 @@ concurrency:
 
 jobs:
   classifier:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       tier: ${{ steps.classify.outputs.tier }}
       package_gate_required: ${{ steps.classify.outputs.package_gate_required }}
@@ -120,7 +120,7 @@ jobs:
 
   preflight:
     needs: classifier
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 55
     env:
       ETF_COCKPIT_VALIDATION_BASE_SHA: ${{ needs.classifier.outputs.base_sha }}
@@ -361,7 +361,7 @@ jobs:
 
   supply-chain:
     needs: classifier
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Check out source
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -432,7 +432,7 @@ jobs:
           - platform: windows
             runner: windows-latest
           - platform: linux
-            runner: ubuntu-latest
+            runner: ubuntu-24.04
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 50
     steps:
@@ -600,7 +600,7 @@ jobs:
       matrix:
         include:
           - platform: linux
-            os: ubuntu-latest
+            os: ubuntu-24.04
           - platform: windows
             os: windows-latest
     runs-on: ${{ matrix.os }}
@@ -740,7 +740,7 @@ jobs:
       needs.classifier.outputs.parallel_pilot_required == 'true' &&
       needs['parallel-pilot'].result == 'success'
     continue-on-error: true
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Check out source
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -802,7 +802,7 @@ jobs:
     # GitHub CI is the only test evidence. validation-summary fails when this job does not succeed.
     needs: [classifier]
     if: github.event_name == 'pull_request' && needs.classifier.outputs.package_gate_required != 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 40
     env:
       BASE_SHA: ${{ needs.classifier.outputs.base_sha }}
@@ -918,7 +918,7 @@ jobs:
   validation-summary:
     if: always()
     needs: [classifier, preflight, supply-chain, release-gate, focused-tests]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Check out source
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
