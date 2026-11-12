@@ -424,7 +424,7 @@ def test_arbitrary_local_import_is_retained_but_requires_manual_review(tmp_path:
     import etf_cockpit.application.filing_ingestion as filing_ingestion
     import pandas as pd
 
-    # This tests local-import authority; optional Arelle startup can time out under parallel load.
+    # Provenance is independent of the optional validator and its platform/runtime limits. Optional Arelle startup can time out under parallel load.
     monkeypatch.setattr(esef_ixbrl, "_arelle_available", lambda: False)
     local_package = tmp_path / "local-copy.xbri"
     local_package.write_bytes(FIXTURE.read_bytes())
@@ -443,6 +443,48 @@ def test_arbitrary_local_import_is_retained_but_requires_manual_review(tmp_path:
     inventory = pd.read_parquet(tmp_path / "filings_statements.parquet")
     assert facts["source_id"].astype(str).str.startswith("esef_local_import:").all()
     assert inventory["source_authority"].iat[0] == "manual_review"
+
+
+@pytest.mark.parametrize("validation_failure", ["error", "timeout", "runtime_error"])
+def test_local_import_validation_failure_retains_raw_without_clean_evidence(
+    tmp_path: Path, monkeypatch, validation_failure: str
+) -> None:
+    from etf_cockpit.app import state as state_module
+    import etf_cockpit.application.filing_ingestion_workflows as filing_ingestion_workflows
+    import etf_cockpit.application.filing_ingestion as filing_ingestion
+
+    local_package = tmp_path / "local-copy.xbri"
+    local_package.write_bytes(FIXTURE.read_bytes())
+    facts_path = tmp_path / "statement_facts.parquet"
+    inventory_path = tmp_path / "filings_statements.parquet"
+    monkeypatch.setattr(filing_ingestion_workflows, "STATEMENT_FACTS_PATH", facts_path)
+    monkeypatch.setattr(filing_ingestion_workflows, "FILINGS_STATEMENTS_PATH", inventory_path)
+    monkeypatch.setattr(filing_ingestion, "RAW_DIR", tmp_path / "raw")
+    monkeypatch.setattr(esef_ixbrl, "_arelle_available", lambda: True)
+
+    def fail_validation(path: Path, timeout_seconds: float):
+        assert path == local_package
+        assert timeout_seconds > 0
+        if validation_failure == "timeout":
+            raise TimeoutError("validator deadline exceeded")
+        if validation_failure == "runtime_error":
+            raise PermissionError("validator process unavailable")
+        return ({"code": "xbrl.error", "severity": "error", "message": "broken rule"},)
+
+    monkeypatch.setattr(esef_ixbrl, "_run_arelle_validation", fail_validation)
+    state = state_module.AppState.__new__(state_module.AppState)
+    state.last_message = "Ready"
+
+    message = state.import_esef_package(local_package, instrument_id="LOCAL_ENTITY")
+
+    expected_code = "arelle_timeout" if validation_failure == "timeout" else "arelle_validation"
+    assert expected_code in message
+    assert "Raw filing retained" in message
+    assert "source_authority=" not in message
+    digest = hashlib.sha256(local_package.read_bytes()).hexdigest()
+    assert (tmp_path / "raw" / "filings" / "eu_esef" / f"{digest}.xbri").read_bytes() == local_package.read_bytes()
+    assert not facts_path.exists()
+    assert not inventory_path.exists()
 
 
 def test_invalid_local_import_is_retained_without_clean_store_mutation(tmp_path: Path, monkeypatch) -> None:
