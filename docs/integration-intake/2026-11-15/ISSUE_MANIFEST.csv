@@ -1,0 +1,29 @@
+issue,title,gate,priority,depends_on,serial_after,lane,owned_files,readiness,relative_size
+INT-01,"Optional extras, lock files, intake records, offline boundary",G2,P0,-,-,X,pyproject.toml; configs/supply_chain_intake.yaml; packaging/THIRD_PARTY_NOTICES.md; plugins/builtins.py,READY for quant and pypdf (U1 approved 2026-11-15); other extras on later approval,small
+INT-02,Point-in-time cross-sectional panel,G1,P0,-,-,B,features/panel.py; features/feature_store.py,READY,medium
+INT-03,Statement line-item expansion,G1,P1,-,-,A,configs/stock_fundamentals_v1.yaml; analysis/stock_metrics.py; data/stock_fundamentals.py; data/stock_sources.py; parsers/sec_facts.py; parsers/esef_ixbrl.py,READY,medium
+INT-04,"Quality, earnings-quality and distress scores (native formulas)",G3,P1,INT-03,-,A,analysis/stock_metrics.py; analysis/formula_registry.py; data/stock_research.py; analysis/stock_evidence.py,READY,medium
+INT-05,Shadow quality and value sub-scores,G3,P1,"INT-02, INT-04",-,A,configs/decision_cutover_v1.yaml; analysis/stock_evidence.py,READY,medium
+INT-06,Earnings surprise and filing reaction (analyst-free),G1,P1,INT-02,INT-03 (data/stock_sources.py),D,data/earnings_surprise.py; data/stock_sources.py; data/sec_pit_facts.py,READY,medium
+INT-07,Estimates store and revision features,G3,P1,INT-06,-,D,data/estimates_store.py; data/fmp_provider.py; data/finnhub_provider.py,BLOCKED_BY_DATA (no entitled estimates source),medium
+INT-08,Cross-sectional LightGBM ranker,G3,P1,"INT-01, INT-02",INT-05 (configs/decision_cutover_v1.yaml),B,models/cross_sectional_ranker.py; models/model_zoo.py; configs/model_settings.yaml,READY (U1 approved 2026-11-15),large
+INT-09,Forecast-to-opportunity bridge,G1,P1,-,-,B,application/absolute_merit.py; analysis/decision/shadow_run.py,READY,medium
+INT-10,Valuation completion,G3,P2,INT-03,INT-04 (data/stock_research.py),A,data/capital_efficiency.py; data/stock_research.py,READY,medium
+INT-11,skfolio optimiser backend,G2,P2,INT-01,-,C,portfolio/optimiser_skfolio.py; portfolio/optimiser.py,READY (U1 approved 2026-11-15),medium
+INT-12,Covariance and expected-return estimators,G3,P2,INT-11,-,C,portfolio/robust_risk.py; portfolio/optimiser.py,READY (U1 approved 2026-11-15),small
+INT-13,Portfolio-aware Top-N and sizing,G3,P2,"INT-11, INT-12",-,C,portfolio/top_n_selection.py; portfolio/sizing.py; portfolio/risk_profiles.py,READY (U1 approved 2026-11-15),medium
+INT-14,"Volatility, tail and bootstrap models",G3,P2,INT-01,INT-12 (portfolio/robust_risk.py),C,models/volatility_models.py; portfolio/robust_risk.py; validation/protocol.py,READY (U1 approved 2026-11-15),medium
+INT-15A,Paper-bot optimiser challenger (B2-o),G3,P2,"INT-09, INT-11",-,C,portfolio/paper_bots.py; configs/paper_bots_v1.yaml,READY (U1 approved 2026-11-15),medium
+INT-15B,Paper-bot ranker challenger (B1-r),G3,P2,"INT-08, INT-15A",-,C,portfolio/paper_bots.py; configs/paper_bots_v1.yaml,READY (U1 approved 2026-11-15),small
+INT-16,Point-in-time factor exposures,G3,P2,INT-02,-,C,portfolio/factor_risk.py,READY,medium
+INT-17,SEC insider and 13F evidence,G3,P2,INT-01,-,D,data/sec_ownership.py; data/sec_edgar_provider.py,NEEDS_AUTHORITY (U1: extra not yet approved),medium
+INT-18,8-K earnings releases and 10-K sections,G4,P3,"INT-06, INT-17",-,D,data/sec_filing_documents.py; data/earnings_surprise.py,NEEDS_AUTHORITY (U1: extra not yet approved),medium
+INT-19,"Macro fetchers, indicators and regime label",G3,P2,INT-01,-,D,data/fred_provider.py; data/ecb_provider.py; data/macro_warehouse.py; features/macro.py; features/regime.py,READY (U1 approved 2026-11-15),medium
+INT-20,EODHD dataset adapter,G3,P1,INT-03,-,D,data/eodhd_import.py,BLOCKED_BY_DATA (dump not delivered),large
+INT-21,ETF look-through fundamentals roll-up,G3,P2,"INT-03, INT-04",-,A,analysis/look_through.py; data/holdings_registry.py,READY,medium
+INT-22,FinanceDatabase reference import,G4,P3,-,-,D,scripts/import_financedatabase.py,READY,small
+INT-23,Chunk store and lexical search,G4,P4,-,-,E,data/document_chunks.py; application/research_evidence.py,READY,medium
+INT-24,Docling document worker,G4,P4,"INT-01, INT-23",-,E,application/docling_worker.py; application/document_parsers.py,NEEDS_AUTHORITY (U1: extra not yet approved),medium
+INT-25,Embedding retrieval and reranking,G4,P4,"INT-01, INT-23",-,E,data/document_embeddings.py; application/research_evidence.py,NEEDS_AUTHORITY (U1: extra not yet approved),small
+INT-26,"LLM structured output, presets and report export",G4,P4,INT-23,INT-25 (application/research_evidence.py),E,audit/local_llm.py; application/research_report.py,READY,small
+INT-27,Chronos-2 forecast adapter (shadow),G4,P4,"INT-01, INT-09",-,B,models/chronos2_adapter.py; application/forecast_service.py,NEEDS_AUTHORITY (U1: extra not yet approved),medium
