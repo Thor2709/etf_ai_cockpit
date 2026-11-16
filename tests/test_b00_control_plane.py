@@ -327,7 +327,7 @@ def test_persisted_control_extensions_do_not_require_reauthorisation(
         record["canonical_id"]
         for record in registry["records"]
         if record["source_kind"] == "control_extension"
-    } == {"ISSUE-0177", "ISSUE-0178", "ISSUE-0179", "ISSUE-0180", "ISSUE-0181"}
+    } == {"ISSUE-0177", "ISSUE-0178", "ISSUE-0179", "ISSUE-0180", "ISSUE-0181", "ISSUE-0182"}
 
 
 def test_persisted_control_extension_accepts_reviewed_lifecycle_status(

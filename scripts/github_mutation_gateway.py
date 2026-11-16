@@ -46,6 +46,15 @@ RECOVERY_SOURCE_SHA = "94e6376e1a81cdd11bc6c64adc1ebd6499c26bac"
 RECOVERY_HEAD_SHA = "f4f6707d19e4de0d26144971f6c254750e44aaa2"
 RECOVERY_STABLE_ID = "ISSUE-0018"
 RECOVERY_EVENT_NAME = "workflow_dispatch"
+# This first introduction on main authorises a receipt for one spent create.
+CREATE_RECEIPT_RECOVERY_PATH = Path("scripts/recover_issue_0182_receipt.py")
+CREATE_RECEIPT_RECOVERY_AUTHORITY_ID = (
+    "4710da2531f34e582a31f2b7578970f5b4bc21a0fe6ac8b7748b27750fee0b1c"
+)
+CREATE_RECEIPT_RECOVERY_SOURCE_SHA = "8b1ff6738ed0c8284799bab2d8b1c1ac92079180"
+CREATE_RECEIPT_RECOVERY_HEAD_SHA = "a918030121b8043e7a8ace413b3fdfe7969d0fa6"
+CREATE_RECEIPT_RECOVERY_ISSUE_ID = "6412342400"
+CREATE_RECEIPT_RECOVERY_NODE_ID = "I_kwDOTVHm5c8AAAABfjSUgA"
 BOT_AUTHORS = frozenset({"github-actions[bot]"})
 GITHUB_ACTIONS_BOT_USER_ID = "41898282"
 GITHUB_ACTIONS_APP_ID = "15368"
@@ -1774,6 +1783,49 @@ def build_create_receipt(
     return receipt, CREATE_RECEIPT_PREFIX + _json_bytes(receipt).decode()
 
 
+def _is_create_receipt_recovery(value: dict[str, Any]) -> bool:
+    return (
+        value.get("stable_id") == "ISSUE-0182"
+        and value.get("create_mutation_id") == CREATE_RECEIPT_RECOVERY_AUTHORITY_ID
+        and value.get("authority_id") == CREATE_RECEIPT_RECOVERY_AUTHORITY_ID
+        and value.get("issue_id") == CREATE_RECEIPT_RECOVERY_ISSUE_ID
+        and value.get("issue_node_id") == CREATE_RECEIPT_RECOVERY_NODE_ID
+        and value.get("source_sha") == CREATE_RECEIPT_RECOVERY_SOURCE_SHA
+        and value.get("head_sha") == CREATE_RECEIPT_RECOVERY_HEAD_SHA
+        and value.get("event_before") == CREATE_RECEIPT_RECOVERY_HEAD_SHA
+        and value.get("event_after") != CREATE_RECEIPT_RECOVERY_HEAD_SHA
+        and SHA_RE.fullmatch(str(value.get("event_after", ""))) is not None
+    )
+
+
+def validate_create_receipt_recovery_push(
+    root: Path, before: str, after: str, *, validating_candidate: bool = False,
+) -> None:
+    """Check the reviewed candidate or require its actual introducing main push."""
+    if (
+        before != CREATE_RECEIPT_RECOVERY_HEAD_SHA
+        or not SHA_RE.fullmatch(after)
+        or after == before
+    ):
+        raise ValueError("issue_0182_recovery_push_not_authorised")
+    if validating_candidate:
+        based_on_original = subprocess.run(
+            ["git", "merge-base", "--is-ancestor", before, after], cwd=root, check=False,
+        ).returncode == 0
+    else:
+        based_on_original = subprocess.check_output(
+            ["git", "rev-parse", f"{after}^"], cwd=root, text=True
+        ).strip() == before
+    if (
+        not based_on_original
+        or _git_blob_bytes(root, before, CREATE_RECEIPT_RECOVERY_PATH) is not None
+        or _git_blob_bytes(root, after, CREATE_RECEIPT_RECOVERY_PATH) is None
+        or _git_blob_bytes(root, before, AUTHORITY_PATH)
+        != _git_blob_bytes(root, after, AUTHORITY_PATH)
+    ):
+        raise ValueError("issue_0182_recovery_push_not_authorised")
+
+
 def parse_create_receipt(body: str) -> dict[str, Any] | None:
     if not body.startswith(CREATE_RECEIPT_PREFIX):
         return None
@@ -1825,8 +1877,13 @@ def parse_create_receipt(body: str) -> dict[str, Any] | None:
         value.get("event_name") != "push"
         or value.get("event_ref") != "refs/heads/main"
         or value.get("run_attempt") != "1"
-        or value.get("event_before") != value.get("source_sha")
-        or value.get("event_after") != value.get("head_sha")
+        or (
+            not _is_create_receipt_recovery(value)
+            and (
+                value.get("event_before") != value.get("source_sha")
+                or value.get("event_after") != value.get("head_sha")
+            )
+        )
         or not value.get("actor")
         or not value.get("pusher")
     ):
@@ -1922,6 +1979,7 @@ def validate_create_acceptance(issue: dict[str, Any]) -> dict[str, Any]:
         "receipt_mutation_id": receipt["receipt_mutation_id"],
         "receipt_comment_id": comment["id"],
         "receipt_body_sha256": _sha256(comment["body"]),
+        **({"recovery_push": receipt["event_after"]} if _is_create_receipt_recovery(receipt) else {}),
     }
 
 
@@ -1948,6 +2006,15 @@ def validate_projected_git_binding(
     root: Path, record: dict[str, Any], projected: dict[str, Any]
 ) -> None:
     """Prove a projected event's reported head and blobs remain recoverable."""
+
+    if "recovery_push" in projected:
+        activation = str(projected["recovery_push"])
+        validate_create_receipt_recovery_push(root, CREATE_RECEIPT_RECOVERY_HEAD_SHA, activation)
+        if subprocess.run(
+            ["git", "merge-base", "--is-ancestor", activation, "origin/main"],
+            cwd=root, check=False,
+        ).returncode:
+            raise ValueError("issue_0182_recovery_push_not_on_main")
 
     payload = record["payload"]
     source = str(projected.get("source_sha", ""))

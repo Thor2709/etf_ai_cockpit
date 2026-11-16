@@ -112,6 +112,13 @@ recovery cannot batch, the first rejected append stops further writes, and the
 zero-action readback still decides acceptance. A partial batch is treated like
 any other partial write: it stays unresolved and is never retried.
 
+For ISSUE-0182, the first authenticated main push introducing the reviewed
+receipt recovery can append one receipt to existing issue #1051. The writer
+verifies the original failed run, committed create authority, exact issue
+identity and live inventory. The receipt binds the original authority and
+actual recovery push. A valid receipt is a no-op. An uncertain append is
+resolved by readback without retry. Recovery cannot create another issue.
+
 The ledger is not a general GitHub database, issue tracker or event-sourcing
 framework. It must not grow speculative support for pull requests, labels,
 releases, tags, deployments or unrelated resources. After the bounded H-tier
