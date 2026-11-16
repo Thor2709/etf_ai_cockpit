@@ -1,6 +1,6 @@
 # Stock statements, fundamentals, valuation and sectors
 
-Phase `phase-03-stock-research` covers `ISSUE-0091–ISSUE-0102`. The issue registry remains the canonical source for titles, priorities, state and acceptance criteria; this document records phase-specific implementation guidance.
+Phase `phase-03-stock-research` covers `ISSUE-0091–ISSUE-0102, ISSUE-0183, ISSUE-0186–ISSUE-0189, ISSUE-0191`. The issue registry remains the canonical source for titles, priorities, state and acceptance criteria; this document records phase-specific implementation guidance.
 
 ## Objective
 
@@ -59,3 +59,9 @@ Follow [`DELIVERY_WORKFLOW.md`](../../DELIVERY_WORKFLOW.md) for current E/O/H/C 
 | `ISSUE-0100` | `P1` | `integrated` | `stock-research` | `ISSUE-0098` | - | - | - |
 | `ISSUE-0101` | `P1` | `integrated` | `stock-research` | `ISSUE-0098` | - | - | - |
 | `ISSUE-0102` | `P1` | `integrated` | `stock-research` | `ISSUE-0098` | - | - | - |
+| `ISSUE-0183` | `P1` | `planned` | `stock-research` | - | - | `ISSUE-0187`, `ISSUE-0191`, `ISSUE-0202`, `ISSUE-0203` | `ISSUE-0087`, `ISSUE-0091` |
+| `ISSUE-0186` | `P1` | `planned` | `stock-research` | `ISSUE-0182` | - | `ISSUE-0189`, `ISSUE-0200` | `ISSUE-0024`, `ISSUE-0087`, `ISSUE-0095`, `ISSUE-0126` |
+| `ISSUE-0187` | `P1` | `planned` | `stock-research` | `ISSUE-0183` | - | `ISSUE-0188`, `ISSUE-0203` | `ISSUE-0092`, `ISSUE-0093`, `ISSUE-0094` |
+| `ISSUE-0188` | `P1` | `planned` | `stock-research` | `ISSUE-0182`, `ISSUE-0187` | - | - | `ISSUE-0075`, `ISSUE-0092`, `ISSUE-0096`, `ISSUE-0120` |
+| `ISSUE-0189` | `P1` | `planned` | `stock-research` | `ISSUE-0186` | - | - | `ISSUE-0080`, `ISSUE-0095` |
+| `ISSUE-0191` | `P2` | `planned` | `stock-research` | `ISSUE-0183` | - | - | `ISSUE-0096`, `ISSUE-0097` |

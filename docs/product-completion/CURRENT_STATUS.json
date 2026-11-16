@@ -181,6 +181,33 @@
     "ISSUE-0180",
     "ISSUE-0181",
     "ISSUE-0182",
+    "ISSUE-0183",
+    "ISSUE-0184",
+    "ISSUE-0185",
+    "ISSUE-0186",
+    "ISSUE-0187",
+    "ISSUE-0188",
+    "ISSUE-0189",
+    "ISSUE-0190",
+    "ISSUE-0191",
+    "ISSUE-0192",
+    "ISSUE-0193",
+    "ISSUE-0194",
+    "ISSUE-0195",
+    "ISSUE-0196",
+    "ISSUE-0197",
+    "ISSUE-0198",
+    "ISSUE-0199",
+    "ISSUE-0200",
+    "ISSUE-0201",
+    "ISSUE-0202",
+    "ISSUE-0203",
+    "ISSUE-0204",
+    "ISSUE-0205",
+    "ISSUE-0206",
+    "ISSUE-0207",
+    "ISSUE-0208",
+    "ISSUE-0209",
     "UPDATEV2-0010",
     "UPDATEV2-0011",
     "UPDATEV2-0012",
@@ -208,18 +235,19 @@
     "closed": 17,
     "in_progress": 1,
     "integrated": 182,
+    "planned": 27,
     "ready": 1,
     "research_only": 2
   },
   "execution_allowed": false,
   "phase_counts": {
-    "phase-01-governance-scope": 58,
-    "phase-02-data-policy-identity": 33,
-    "phase-03-stock-research": 12,
-    "phase-04-etf-research": 6,
-    "phase-05-returns-risk-portfolio": 30,
-    "phase-06-model-research": 9,
-    "phase-07-backtest-paper-execution": 16,
+    "phase-01-governance-scope": 59,
+    "phase-02-data-policy-identity": 42,
+    "phase-03-stock-research": 18,
+    "phase-04-etf-research": 7,
+    "phase-05-returns-risk-portfolio": 36,
+    "phase-06-model-research": 11,
+    "phase-07-backtest-paper-execution": 18,
     "phase-08-frontend-api": 22,
     "phase-09-quality-release-security": 11,
     "phase-10-audit-documentation-governance": 5,
@@ -4871,6 +4899,625 @@
       ],
       "edges": [],
       "execution_allowed": false,
+      "issue_id": "ISSUE-0183",
+      "ready": true,
+      "reason_codes": [
+        "READY_NO_BLOCKING_DEPENDENCIES"
+      ],
+      "required_inputs": []
+    },
+    {
+      "activation_edges": [],
+      "activation_ready": true,
+      "activation_reason_codes": [
+        "ACTIVATION_READY_NO_DEPENDENCIES"
+      ],
+      "edges": [],
+      "execution_allowed": false,
+      "issue_id": "ISSUE-0184",
+      "ready": true,
+      "reason_codes": [
+        "READY_NO_BLOCKING_DEPENDENCIES"
+      ],
+      "required_inputs": []
+    },
+    {
+      "activation_edges": [],
+      "activation_ready": true,
+      "activation_reason_codes": [
+        "ACTIVATION_READY_NO_DEPENDENCIES"
+      ],
+      "edges": [],
+      "execution_allowed": false,
+      "issue_id": "ISSUE-0185",
+      "ready": true,
+      "reason_codes": [
+        "READY_NO_BLOCKING_DEPENDENCIES"
+      ],
+      "required_inputs": []
+    },
+    {
+      "activation_edges": [],
+      "activation_ready": true,
+      "activation_reason_codes": [
+        "ACTIVATION_READY_NO_DEPENDENCIES"
+      ],
+      "edges": [
+        {
+          "dependency_id": "ISSUE-0182",
+          "evidence_state": "unresolved",
+          "reason_code": "EDGE_UNRESOLVED",
+          "resolved": false
+        }
+      ],
+      "execution_allowed": false,
+      "issue_id": "ISSUE-0186",
+      "ready": false,
+      "reason_codes": [
+        "BLOCKED_UNRESOLVED_DEPENDENCY"
+      ],
+      "required_inputs": []
+    },
+    {
+      "activation_edges": [],
+      "activation_ready": true,
+      "activation_reason_codes": [
+        "ACTIVATION_READY_NO_DEPENDENCIES"
+      ],
+      "edges": [
+        {
+          "dependency_id": "ISSUE-0183",
+          "evidence_state": "unresolved",
+          "reason_code": "EDGE_UNRESOLVED",
+          "resolved": false
+        }
+      ],
+      "execution_allowed": false,
+      "issue_id": "ISSUE-0187",
+      "ready": false,
+      "reason_codes": [
+        "BLOCKED_UNRESOLVED_DEPENDENCY"
+      ],
+      "required_inputs": []
+    },
+    {
+      "activation_edges": [],
+      "activation_ready": true,
+      "activation_reason_codes": [
+        "ACTIVATION_READY_NO_DEPENDENCIES"
+      ],
+      "edges": [
+        {
+          "dependency_id": "ISSUE-0182",
+          "evidence_state": "unresolved",
+          "reason_code": "EDGE_UNRESOLVED",
+          "resolved": false
+        },
+        {
+          "dependency_id": "ISSUE-0187",
+          "evidence_state": "unresolved",
+          "reason_code": "EDGE_UNRESOLVED",
+          "resolved": false
+        }
+      ],
+      "execution_allowed": false,
+      "issue_id": "ISSUE-0188",
+      "ready": false,
+      "reason_codes": [
+        "BLOCKED_UNRESOLVED_DEPENDENCY"
+      ],
+      "required_inputs": []
+    },
+    {
+      "activation_edges": [],
+      "activation_ready": true,
+      "activation_reason_codes": [
+        "ACTIVATION_READY_NO_DEPENDENCIES"
+      ],
+      "edges": [
+        {
+          "dependency_id": "ISSUE-0186",
+          "evidence_state": "unresolved",
+          "reason_code": "EDGE_UNRESOLVED",
+          "resolved": false
+        }
+      ],
+      "execution_allowed": false,
+      "issue_id": "ISSUE-0189",
+      "ready": false,
+      "reason_codes": [
+        "BLOCKED_UNRESOLVED_DEPENDENCY"
+      ],
+      "required_inputs": []
+    },
+    {
+      "activation_edges": [],
+      "activation_ready": true,
+      "activation_reason_codes": [
+        "ACTIVATION_READY_NO_DEPENDENCIES"
+      ],
+      "edges": [
+        {
+          "dependency_id": "ISSUE-0182",
+          "evidence_state": "unresolved",
+          "reason_code": "EDGE_UNRESOLVED",
+          "resolved": false
+        },
+        {
+          "dependency_id": "ISSUE-0185",
+          "evidence_state": "unresolved",
+          "reason_code": "EDGE_UNRESOLVED",
+          "resolved": false
+        }
+      ],
+      "execution_allowed": false,
+      "issue_id": "ISSUE-0190",
+      "ready": false,
+      "reason_codes": [
+        "BLOCKED_UNRESOLVED_DEPENDENCY"
+      ],
+      "required_inputs": []
+    },
+    {
+      "activation_edges": [],
+      "activation_ready": true,
+      "activation_reason_codes": [
+        "ACTIVATION_READY_NO_DEPENDENCIES"
+      ],
+      "edges": [
+        {
+          "dependency_id": "ISSUE-0183",
+          "evidence_state": "unresolved",
+          "reason_code": "EDGE_UNRESOLVED",
+          "resolved": false
+        }
+      ],
+      "execution_allowed": false,
+      "issue_id": "ISSUE-0191",
+      "ready": false,
+      "reason_codes": [
+        "BLOCKED_UNRESOLVED_DEPENDENCY"
+      ],
+      "required_inputs": []
+    },
+    {
+      "activation_edges": [],
+      "activation_ready": true,
+      "activation_reason_codes": [
+        "ACTIVATION_READY_NO_DEPENDENCIES"
+      ],
+      "edges": [
+        {
+          "dependency_id": "ISSUE-0185",
+          "evidence_state": "unresolved",
+          "reason_code": "EDGE_UNRESOLVED",
+          "resolved": false
+        }
+      ],
+      "execution_allowed": false,
+      "issue_id": "ISSUE-0192",
+      "ready": false,
+      "reason_codes": [
+        "BLOCKED_UNRESOLVED_DEPENDENCY"
+      ],
+      "required_inputs": []
+    },
+    {
+      "activation_edges": [],
+      "activation_ready": true,
+      "activation_reason_codes": [
+        "ACTIVATION_READY_NO_DEPENDENCIES"
+      ],
+      "edges": [
+        {
+          "dependency_id": "ISSUE-0192",
+          "evidence_state": "unresolved",
+          "reason_code": "EDGE_UNRESOLVED",
+          "resolved": false
+        }
+      ],
+      "execution_allowed": false,
+      "issue_id": "ISSUE-0193",
+      "ready": false,
+      "reason_codes": [
+        "BLOCKED_UNRESOLVED_DEPENDENCY"
+      ],
+      "required_inputs": []
+    },
+    {
+      "activation_edges": [],
+      "activation_ready": true,
+      "activation_reason_codes": [
+        "ACTIVATION_READY_NO_DEPENDENCIES"
+      ],
+      "edges": [
+        {
+          "dependency_id": "ISSUE-0192",
+          "evidence_state": "unresolved",
+          "reason_code": "EDGE_UNRESOLVED",
+          "resolved": false
+        },
+        {
+          "dependency_id": "ISSUE-0193",
+          "evidence_state": "unresolved",
+          "reason_code": "EDGE_UNRESOLVED",
+          "resolved": false
+        }
+      ],
+      "execution_allowed": false,
+      "issue_id": "ISSUE-0194",
+      "ready": false,
+      "reason_codes": [
+        "BLOCKED_UNRESOLVED_DEPENDENCY"
+      ],
+      "required_inputs": []
+    },
+    {
+      "activation_edges": [],
+      "activation_ready": true,
+      "activation_reason_codes": [
+        "ACTIVATION_READY_NO_DEPENDENCIES"
+      ],
+      "edges": [
+        {
+          "dependency_id": "ISSUE-0185",
+          "evidence_state": "unresolved",
+          "reason_code": "EDGE_UNRESOLVED",
+          "resolved": false
+        }
+      ],
+      "execution_allowed": false,
+      "issue_id": "ISSUE-0195",
+      "ready": false,
+      "reason_codes": [
+        "BLOCKED_UNRESOLVED_DEPENDENCY"
+      ],
+      "required_inputs": []
+    },
+    {
+      "activation_edges": [],
+      "activation_ready": true,
+      "activation_reason_codes": [
+        "ACTIVATION_READY_NO_DEPENDENCIES"
+      ],
+      "edges": [
+        {
+          "dependency_id": "ISSUE-0184",
+          "evidence_state": "unresolved",
+          "reason_code": "EDGE_UNRESOLVED",
+          "resolved": false
+        },
+        {
+          "dependency_id": "ISSUE-0192",
+          "evidence_state": "unresolved",
+          "reason_code": "EDGE_UNRESOLVED",
+          "resolved": false
+        }
+      ],
+      "execution_allowed": false,
+      "issue_id": "ISSUE-0196",
+      "ready": false,
+      "reason_codes": [
+        "BLOCKED_UNRESOLVED_DEPENDENCY"
+      ],
+      "required_inputs": []
+    },
+    {
+      "activation_edges": [],
+      "activation_ready": true,
+      "activation_reason_codes": [
+        "ACTIVATION_READY_NO_DEPENDENCIES"
+      ],
+      "edges": [
+        {
+          "dependency_id": "ISSUE-0190",
+          "evidence_state": "unresolved",
+          "reason_code": "EDGE_UNRESOLVED",
+          "resolved": false
+        },
+        {
+          "dependency_id": "ISSUE-0196",
+          "evidence_state": "unresolved",
+          "reason_code": "EDGE_UNRESOLVED",
+          "resolved": false
+        }
+      ],
+      "execution_allowed": false,
+      "issue_id": "ISSUE-0197",
+      "ready": false,
+      "reason_codes": [
+        "BLOCKED_UNRESOLVED_DEPENDENCY"
+      ],
+      "required_inputs": []
+    },
+    {
+      "activation_edges": [],
+      "activation_ready": true,
+      "activation_reason_codes": [
+        "ACTIVATION_READY_NO_DEPENDENCIES"
+      ],
+      "edges": [
+        {
+          "dependency_id": "ISSUE-0182",
+          "evidence_state": "unresolved",
+          "reason_code": "EDGE_UNRESOLVED",
+          "resolved": false
+        }
+      ],
+      "execution_allowed": false,
+      "issue_id": "ISSUE-0198",
+      "ready": false,
+      "reason_codes": [
+        "BLOCKED_UNRESOLVED_DEPENDENCY"
+      ],
+      "required_inputs": []
+    },
+    {
+      "activation_edges": [],
+      "activation_ready": true,
+      "activation_reason_codes": [
+        "ACTIVATION_READY_NO_DEPENDENCIES"
+      ],
+      "edges": [
+        {
+          "dependency_id": "ISSUE-0185",
+          "evidence_state": "unresolved",
+          "reason_code": "EDGE_UNRESOLVED",
+          "resolved": false
+        }
+      ],
+      "execution_allowed": false,
+      "issue_id": "ISSUE-0199",
+      "ready": false,
+      "reason_codes": [
+        "BLOCKED_UNRESOLVED_DEPENDENCY"
+      ],
+      "required_inputs": []
+    },
+    {
+      "activation_edges": [],
+      "activation_ready": true,
+      "activation_reason_codes": [
+        "ACTIVATION_READY_NO_DEPENDENCIES"
+      ],
+      "edges": [
+        {
+          "dependency_id": "ISSUE-0186",
+          "evidence_state": "unresolved",
+          "reason_code": "EDGE_UNRESOLVED",
+          "resolved": false
+        },
+        {
+          "dependency_id": "ISSUE-0199",
+          "evidence_state": "unresolved",
+          "reason_code": "EDGE_UNRESOLVED",
+          "resolved": false
+        }
+      ],
+      "execution_allowed": false,
+      "issue_id": "ISSUE-0200",
+      "ready": false,
+      "reason_codes": [
+        "BLOCKED_UNRESOLVED_DEPENDENCY"
+      ],
+      "required_inputs": []
+    },
+    {
+      "activation_edges": [],
+      "activation_ready": true,
+      "activation_reason_codes": [
+        "ACTIVATION_READY_NO_DEPENDENCIES"
+      ],
+      "edges": [
+        {
+          "dependency_id": "ISSUE-0185",
+          "evidence_state": "unresolved",
+          "reason_code": "EDGE_UNRESOLVED",
+          "resolved": false
+        }
+      ],
+      "execution_allowed": false,
+      "issue_id": "ISSUE-0201",
+      "ready": false,
+      "reason_codes": [
+        "BLOCKED_UNRESOLVED_DEPENDENCY"
+      ],
+      "required_inputs": []
+    },
+    {
+      "activation_edges": [],
+      "activation_ready": true,
+      "activation_reason_codes": [
+        "ACTIVATION_READY_NO_DEPENDENCIES"
+      ],
+      "edges": [
+        {
+          "dependency_id": "ISSUE-0183",
+          "evidence_state": "unresolved",
+          "reason_code": "EDGE_UNRESOLVED",
+          "resolved": false
+        }
+      ],
+      "execution_allowed": false,
+      "issue_id": "ISSUE-0202",
+      "ready": false,
+      "reason_codes": [
+        "BLOCKED_UNRESOLVED_DEPENDENCY"
+      ],
+      "required_inputs": []
+    },
+    {
+      "activation_edges": [],
+      "activation_ready": true,
+      "activation_reason_codes": [
+        "ACTIVATION_READY_NO_DEPENDENCIES"
+      ],
+      "edges": [
+        {
+          "dependency_id": "ISSUE-0183",
+          "evidence_state": "unresolved",
+          "reason_code": "EDGE_UNRESOLVED",
+          "resolved": false
+        },
+        {
+          "dependency_id": "ISSUE-0187",
+          "evidence_state": "unresolved",
+          "reason_code": "EDGE_UNRESOLVED",
+          "resolved": false
+        }
+      ],
+      "execution_allowed": false,
+      "issue_id": "ISSUE-0203",
+      "ready": false,
+      "reason_codes": [
+        "BLOCKED_UNRESOLVED_DEPENDENCY"
+      ],
+      "required_inputs": []
+    },
+    {
+      "activation_edges": [],
+      "activation_ready": true,
+      "activation_reason_codes": [
+        "ACTIVATION_READY_NO_DEPENDENCIES"
+      ],
+      "edges": [],
+      "execution_allowed": false,
+      "issue_id": "ISSUE-0204",
+      "ready": true,
+      "reason_codes": [
+        "READY_NO_BLOCKING_DEPENDENCIES"
+      ],
+      "required_inputs": []
+    },
+    {
+      "activation_edges": [],
+      "activation_ready": true,
+      "activation_reason_codes": [
+        "ACTIVATION_READY_NO_DEPENDENCIES"
+      ],
+      "edges": [],
+      "execution_allowed": false,
+      "issue_id": "ISSUE-0205",
+      "ready": true,
+      "reason_codes": [
+        "READY_NO_BLOCKING_DEPENDENCIES"
+      ],
+      "required_inputs": []
+    },
+    {
+      "activation_edges": [],
+      "activation_ready": true,
+      "activation_reason_codes": [
+        "ACTIVATION_READY_NO_DEPENDENCIES"
+      ],
+      "edges": [
+        {
+          "dependency_id": "ISSUE-0185",
+          "evidence_state": "unresolved",
+          "reason_code": "EDGE_UNRESOLVED",
+          "resolved": false
+        },
+        {
+          "dependency_id": "ISSUE-0205",
+          "evidence_state": "unresolved",
+          "reason_code": "EDGE_UNRESOLVED",
+          "resolved": false
+        }
+      ],
+      "execution_allowed": false,
+      "issue_id": "ISSUE-0206",
+      "ready": false,
+      "reason_codes": [
+        "BLOCKED_UNRESOLVED_DEPENDENCY"
+      ],
+      "required_inputs": []
+    },
+    {
+      "activation_edges": [],
+      "activation_ready": true,
+      "activation_reason_codes": [
+        "ACTIVATION_READY_NO_DEPENDENCIES"
+      ],
+      "edges": [
+        {
+          "dependency_id": "ISSUE-0185",
+          "evidence_state": "unresolved",
+          "reason_code": "EDGE_UNRESOLVED",
+          "resolved": false
+        },
+        {
+          "dependency_id": "ISSUE-0205",
+          "evidence_state": "unresolved",
+          "reason_code": "EDGE_UNRESOLVED",
+          "resolved": false
+        }
+      ],
+      "execution_allowed": false,
+      "issue_id": "ISSUE-0207",
+      "ready": false,
+      "reason_codes": [
+        "BLOCKED_UNRESOLVED_DEPENDENCY"
+      ],
+      "required_inputs": []
+    },
+    {
+      "activation_edges": [],
+      "activation_ready": true,
+      "activation_reason_codes": [
+        "ACTIVATION_READY_NO_DEPENDENCIES"
+      ],
+      "edges": [
+        {
+          "dependency_id": "ISSUE-0205",
+          "evidence_state": "unresolved",
+          "reason_code": "EDGE_UNRESOLVED",
+          "resolved": false
+        }
+      ],
+      "execution_allowed": false,
+      "issue_id": "ISSUE-0208",
+      "ready": false,
+      "reason_codes": [
+        "BLOCKED_UNRESOLVED_DEPENDENCY"
+      ],
+      "required_inputs": []
+    },
+    {
+      "activation_edges": [],
+      "activation_ready": true,
+      "activation_reason_codes": [
+        "ACTIVATION_READY_NO_DEPENDENCIES"
+      ],
+      "edges": [
+        {
+          "dependency_id": "ISSUE-0184",
+          "evidence_state": "unresolved",
+          "reason_code": "EDGE_UNRESOLVED",
+          "resolved": false
+        },
+        {
+          "dependency_id": "ISSUE-0185",
+          "evidence_state": "unresolved",
+          "reason_code": "EDGE_UNRESOLVED",
+          "resolved": false
+        }
+      ],
+      "execution_allowed": false,
+      "issue_id": "ISSUE-0209",
+      "ready": false,
+      "reason_codes": [
+        "BLOCKED_UNRESOLVED_DEPENDENCY"
+      ],
+      "required_inputs": []
+    },
+    {
+      "activation_edges": [],
+      "activation_ready": true,
+      "activation_reason_codes": [
+        "ACTIVATION_READY_NO_DEPENDENCIES"
+      ],
+      "edges": [],
+      "execution_allowed": false,
       "issue_id": "UPDATEV2-0010",
       "ready": false,
       "reason_codes": [
@@ -5199,6 +5846,7 @@
     "ISSUE-0177",
     "ISSUE-0178",
     "ISSUE-0182",
+    "ISSUE-0185",
     "UPDATEV2-0011",
     "UPDATEV2-0012",
     "UPDATEV2-0021",
@@ -5254,6 +5902,8 @@
     "ISSUE-0179",
     "ISSUE-0180",
     "ISSUE-0181",
+    "ISSUE-0183",
+    "ISSUE-0184",
     "UPDATEV2-0014",
     "UPDATEV2-0018",
     "UPDATEV2-0020",
@@ -5289,8 +5939,10 @@
     "UPDATEV2-0025",
     "UPDATEV2-0030",
     "ISSUE-0061",
-    "ISSUE-0062"
+    "ISSUE-0062",
+    "ISSUE-0204",
+    "ISSUE-0205"
   ],
   "schema_version": "1.0",
-  "source_registry_sha256": "894a9fe78097e3df619573b377b2dee3349542c566adbcced0a4536a8bd85240"
+  "source_registry_sha256": "b510eedfd2b848ad10c09c1f9c73829a633e7a130e2f205fea3ec7c7da6c103b"
 }

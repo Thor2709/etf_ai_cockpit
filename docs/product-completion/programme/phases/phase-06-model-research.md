@@ -1,6 +1,6 @@
 # Training, validation and model governance
 
-Phase `phase-06-model-research` covers `ISSUE-0117–ISSUE-0124, ISSUE-0182`. The issue registry remains the canonical source for titles, priorities, state and acceptance criteria; this document records phase-specific implementation guidance.
+Phase `phase-06-model-research` covers `ISSUE-0117–ISSUE-0124, ISSUE-0182, ISSUE-0190, ISSUE-0209`. The issue registry remains the canonical source for titles, priorities, state and acceptance criteria; this document records phase-specific implementation guidance.
 
 ## Objective
 
@@ -55,4 +55,6 @@ Follow [`DELIVERY_WORKFLOW.md`](../../DELIVERY_WORKFLOW.md) for current E/O/H/C 
 | `ISSUE-0122` | `P1` | `integrated` | `model-governance` | `ISSUE-0120` | - | - | - |
 | `ISSUE-0123` | `P0/P1` | `integrated` | `model-governance` | `ISSUE-0108`, `ISSUE-0120` | - | `ISSUE-0124`, `ISSUE-0157`, `ISSUE-0172`, `ISSUE-0174` | - |
 | `ISSUE-0124` | `P0/P1` | `integrated` | `model-governance` | `ISSUE-0117`, `ISSUE-0123` | - | - | - |
-| `ISSUE-0182` | `P0` | `in_progress` | `model-governance` | - | - | - | `ISSUE-0119`, `ISSUE-0120`, `ISSUE-0126` |
+| `ISSUE-0182` | `P0` | `in_progress` | `model-governance` | - | - | `ISSUE-0186`, `ISSUE-0188`, `ISSUE-0190`, `ISSUE-0198` | `ISSUE-0119`, `ISSUE-0120`, `ISSUE-0126` |
+| `ISSUE-0190` | `P1` | `planned` | `model-governance` | `ISSUE-0182`, `ISSUE-0185` | - | `ISSUE-0197` | `ISSUE-0117`, `ISSUE-0119`, `ISSUE-0120`, `ISSUE-0121`, `ISSUE-0122` |
+| `ISSUE-0209` | `P3` | `planned` | `model-governance` | `ISSUE-0184`, `ISSUE-0185` | - | - | `ISSUE-0108`, `ISSUE-0121`, `ISSUE-0123`, `ISSUE-0124` |
