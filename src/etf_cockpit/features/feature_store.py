@@ -160,6 +160,7 @@ class LocalFeatureStore:
         entity_column: str | None = None,
         date_column: str = "date",
         mode: Literal["offline", "paper", "live"] = "offline",
+        include_feature_availability: bool = False,
     ) -> pd.DataFrame:
         """Build a point-in-time matrix using only available feature rows."""
 
@@ -204,6 +205,9 @@ class LocalFeatureStore:
                 selected_times: list[pd.Timestamp] = []
                 selected_available: list[pd.Timestamp] = []
                 for definition in definitions:
+                    stamp_column = f"{definition.feature_id}_available_at"
+                    if include_feature_availability:
+                        output[stamp_column] = None
                     cutoff = decision.normalize() - pd.Timedelta(days=definition.availability_delay_days)
                     candidates = entity_rows[(entity_rows["__feature_time"].dt.normalize() <= cutoff) & (entity_rows["__feature_time"] <= decision) & (entity_rows["__available_at"] <= decision)]
                     if candidates.empty:
@@ -223,6 +227,8 @@ class LocalFeatureStore:
                     else:
                         output[definition.feature_id] = _safe_scalar(raw)
                         output[f"missing_{definition.feature_id}"] = False
+                        if include_feature_availability:
+                            output[stamp_column] = selected["__available_at"].isoformat()
                     selected_times.append(selected["__feature_time"])
                     selected_available.append(selected["__available_at"])
                 # feature_time is the observation instant only; availability is reported separately.
@@ -348,7 +354,7 @@ class LocalFeatureStore:
         ends = _timestamps(targets[end_column])
         decisions = _timestamps(targets["decision_time"])
         unknown = decisions.lt(cutoff) & ends.isna()
-        overlaps = int((decisions.lt(cutoff) & (ends.ge(cutoff) | ends.isna())).sum())
+        overlaps = int((decisions.lt(cutoff) & ~labels_available_by(ends, cutoff, exclusive=True)).sum())
         safe = overlaps == 0
         message = "safe" if safe else "embargo_unknown" if unknown.any() else "training targets overlap the validation embargo window"
         return LeakageCheck(safe, overlaps, definition.embargo_days, message)
@@ -470,7 +476,7 @@ def _parse_timestamp(value: str | date | datetime | pd.Timestamp, *, normalize: 
 def _decision_key(decision: pd.Timestamp) -> str:
     """Date for date-only decisions; the full timestamp when it carries a time of day."""
 
-    return decision.date().isoformat() if decision == decision.normalize() else decision.isoformat(timespec="seconds")
+    return decision.date().isoformat() if decision == decision.normalize() else decision.isoformat()
 
 
 def _timestamps(values: Iterable[object], *, normalize: bool = True) -> pd.Series:
@@ -506,6 +512,15 @@ def _available_timestamps(values: Iterable[object]) -> pd.Series:
         return stamp
 
     return pd.to_datetime(series.map(convert), errors="coerce")
+
+
+def labels_available_by(
+    values: Iterable[object], validation_start: str | date | datetime, *, exclusive: bool = False,
+) -> pd.Series:
+    """Use the same label-availability rule for timestamp folds and legacy embargo dates."""
+    ends = _available_timestamps(values)
+    cutoff = _available_timestamps([validation_start]).iloc[0]
+    return ends.lt(cutoff) if exclusive else ends.le(cutoff)
 
 
 def _naive_utc_or_local_date(value: object) -> pd.Timestamp:
