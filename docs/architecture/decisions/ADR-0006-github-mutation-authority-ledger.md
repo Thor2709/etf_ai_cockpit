@@ -112,6 +112,12 @@ recovery cannot batch, the first rejected append stops further writes, and the
 zero-action readback still decides acceptance. A partial batch is treated like
 any other partial write: it stays unresolved and is never retried.
 
+A committed canonical intake can project one create at a time. The checksum
+covers the other reviewed creates, and readback requires that exact remainder.
+The existing managed refresh can separately project downstream metadata while
+preserving the accepted status anchor. Every create still needs its own fresh
+authority and receipt. Preparing an already accepted create produces no append.
+
 For ISSUE-0182, the first authenticated main push introducing the reviewed
 receipt recovery can append one receipt to existing issue #1051. The writer
 verifies the original failed run, committed create authority, exact issue

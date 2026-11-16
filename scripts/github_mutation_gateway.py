@@ -2383,6 +2383,16 @@ def managed_refresh_updates(
             raise ValueError("managed_refresh_protected_change")
         prefix, old, suffix = _refresh_block(issue["body"], stable_id)
         desired = sync.managed_block(record)
+        projection = project_status_events(issue)
+        if (
+            projection.get("accepted")
+            and projection.get("event_count", 0) > 0
+            and projection.get("status") == record.get("programme_status")
+        ):
+            anchor = STATUS_RE.search(old)
+            if anchor is None:
+                raise ValueError("managed_refresh_missing_status_anchor")
+            desired = STATUS_RE.sub(lambda _match: anchor.group(0), desired, count=1)
         # Fixed template structure and identical protected lines exclude hidden,
         # duplicate, injected, or status-bearing edits within the block.
         old_lines, new_lines = old.split("\n"), desired.split("\n")
@@ -2512,7 +2522,7 @@ def apply_reviewed_managed_refresh(
     phase = "validation"
     number: int | None = None
     try:
-        registry = validate_reviewed_managed_refresh(
+        validate_reviewed_managed_refresh(
             root, plan, remote, authority_record=authority_record,
             git_binding=git_binding, attestation=attestation,
         )
@@ -2537,7 +2547,7 @@ def apply_reviewed_managed_refresh(
         ]
         if sync.inventory_sha256(fresh) != plan["remote_inventory_sha256"]:
             raise ValueError("managed_refresh_stale_inventory")
-        canonical = {row["canonical_id"]: row for row in sync.registry_sync_records(registry)}
+        reviewed_bodies = {action["remote_number"]: action["body"] for action in plan["actions"]}
         reviewed = {int(row["number"]): normalise_refresh_snapshot(row) for row in remote}
         fresh_by_number = {int(row["number"]): normalise_refresh_snapshot(row) for row in fresh}
         for update in authority_record["payload"]["updates"]:
@@ -2556,8 +2566,9 @@ def apply_reviewed_managed_refresh(
             if pre != reviewed[number] or refresh_observation(update, pre) != "pre":
                 evidence["terminal_status"] = "stale_preimage"
                 return evidence
-            prefix, _, suffix = _refresh_block(pre["body"], update["stable_id"])
-            body = prefix + sync.managed_block(canonical[update["stable_id"]]) + suffix
+            body = reviewed_bodies[number]
+            if _sha256(body) != update["postimage_body_sha256"]:
+                raise ValueError("managed_refresh_postimage_hash_mismatch")
             error = False
             # No remote read or body preparation may intervene between this
             # fresh main/run/OIDC authority check and the one PATCH attempt.

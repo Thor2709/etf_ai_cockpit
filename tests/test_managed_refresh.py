@@ -135,6 +135,26 @@ def apply(data: dict[str, Any], memory: Memory) -> dict[str, Any]:
     )
 
 
+def test_refresh_keeps_the_accepted_status_anchor(
+    prepared: dict[str, Any], monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry = prepared["registry"]
+    remote = prepared["remote"]
+    registry["records"][0]["programme_status"] = "integrated"
+    monkeypatch.setattr(
+        gateway, "project_status_events",
+        lambda issue: (
+            {"accepted": True, "event_count": 2, "status": "integrated"}
+            if issue["number"] == 1 else {"accepted": True, "event_count": 0, "status": "planned"}
+        ),
+    )
+    plan = sync.plan_actions(registry, remote)
+    changes = gateway.managed_refresh_updates(registry, plan, remote)
+    first = next(row for row in plan["actions"] if row["remote_number"] == 1)
+    assert "- Programme status: `planned`" in first["body"]
+    assert changes[0]["managed_field_deltas"] == ["Blocking dependencies"]
+
+
 def resign(plan: dict[str, Any]) -> None:
     plan["plan_sha256"] = sync.plan_sha256(plan)
 
