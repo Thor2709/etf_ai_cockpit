@@ -228,8 +228,16 @@ def build_pit_panel(
     if price_frame["_date"].isna().any():
         raise PanelContractError("price session dates must be valid")
     sessions = sorted(benchmark["date"].map(lambda value: pd.Timestamp(value).date()).unique())
+    # The inherited forward-return helper indexes sessions from the whole
+    # frame. Refuse mismatched calendars rather than change the label horizon.
+    if set(price_frame["_date"]) != set(sessions):
+        raise PanelContractError("candidate sessions must match the VWCE calendar for labels")
     openings = benchmark.copy()
     openings["_date"] = openings["date"].map(lambda value: pd.Timestamp(value).date())
+    if openings["session_open_at"].map(
+        lambda value: pd.notna(value) and pd.Timestamp(value).tzinfo is not None
+    ).eq(False).any():
+        raise PanelContractError("market opening instants must have explicit UTC offsets")
     openings["_open"] = pd.to_datetime(openings["session_open_at"], errors="coerce", utc=True)
     if openings["_date"].duplicated().any() or openings["_open"].isna().any():
         raise PanelContractError("VWCE sessions require unique and observed market opening instants")
@@ -276,6 +284,9 @@ def build_pit_panel(
         panel[f"label_start_{horizon}"] = starts
         panel[f"label_end_{horizon}"] = ends
         panel[f"label_available_at_{horizon}"] = maturities
+    panel["delisted"] = panel[
+        [f"fwd_status_{h}" for h in horizons]
+    ].astype(str).apply(lambda row: any("delist" in status for status in row), axis=1)
     # All model features are unavailable until their individual publication
     # cut-offs; the combined label is mature only when *all* horizons are.
     availability_columns = [f"label_available_at_{h}" for h in horizons]
