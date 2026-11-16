@@ -7,14 +7,19 @@ outcome columns must never be passed into the inference feature matrix.
 
 from __future__ import annotations
 
+from bisect import bisect_right
 from dataclasses import dataclass
 from datetime import date, datetime
+from numbers import Integral
+from pathlib import Path
 from typing import Iterable, Sequence
 
 import pandas as pd
 
+from etf_cockpit.analysis.decision.rank_validation import _aware_timestamp, _date_value, _forward_return
 from etf_cockpit.core.pandas_values import bool_like_or_none
-from etf_cockpit.features.feature_store import LocalFeatureStore
+from etf_cockpit.data.universe_membership import membership_frame
+from etf_cockpit.features.feature_store import LocalFeatureStore, _timestamps, labels_available_by
 from etf_cockpit.validation.protocol import ValidationSpec, build_walk_forward_splits
 
 
@@ -51,29 +56,41 @@ class DateGroupedFold:
     embargoed_dates: tuple[str, ...]
 
 
-def _timestamps(values: Iterable[object]) -> pd.Series:
-    return pd.to_datetime(pd.Series(list(values)), errors="coerce", utc=True)
+def _observed_instants(values: pd.Series) -> pd.Series:
+    return pd.to_datetime(values.map(_aware_timestamp), errors="coerce", utc=True)
 
 
 def _decisions(values: Iterable[str | date | datetime]) -> list[pd.Timestamp]:
-    parsed = pd.to_datetime(list(values), errors="coerce", utc=True)
+    parsed = pd.to_datetime(list(values), format="mixed", errors="coerce", utc=True)
     if pd.isna(parsed).any():
         raise PanelContractError("decision times must be valid, explicit timestamps")
     return sorted(set(pd.Timestamp(item) for item in parsed))
 
 
 def _membership_rows(
-    membership: pd.DataFrame, decisions: Sequence[pd.Timestamp],
+    membership: pd.DataFrame | str, decisions: Sequence[pd.Timestamp], root: Path,
 ) -> tuple[pd.DataFrame, dict[str, str]]:
+    if isinstance(membership, str):
+        snapshots = [
+            _membership_rows(
+                membership_frame(membership, cutoff, root=root).assign(pit_grade="observed"),
+                (cutoff,), root,
+            )
+            for cutoff in decisions
+        ]
+        return (
+            pd.concat([rows for rows, _ in snapshots], ignore_index=True),
+            {key: reason for _, excluded in snapshots for key, reason in excluded.items()},
+        )
     if not _MEMBERSHIP_COLUMNS.issubset(membership.columns):
         raise PanelContractError(
             "membership needs dated complete snapshots, known_at and observed PIT grade"
         )
     frame = membership.copy()
-    frame["_snapshot"] = pd.to_datetime(frame["snapshot_date"], errors="coerce").dt.date
-    frame["_start"] = pd.to_datetime(frame["valid_from"], errors="coerce").dt.date
-    frame["_end"] = pd.to_datetime(frame["valid_to"], errors="coerce").dt.date
-    frame["_known"] = pd.to_datetime(frame["known_at"], errors="coerce", utc=True)
+    frame["_snapshot"] = frame["snapshot_date"].map(_date_value)
+    frame["_start"] = frame["valid_from"].map(_date_value)
+    frame["_end"] = frame["valid_to"].map(_date_value)
+    frame["_known"] = _observed_instants(frame["known_at"])
     frame["_complete"] = frame["snapshot_complete"].map(bool_like_or_none).eq(True)
     frame["_observed"] = frame["pit_grade"].eq("observed")
     rows: list[dict[str, object]] = []
@@ -91,6 +108,7 @@ def _membership_rows(
             or snapshot["_known"].isna().any()
             or snapshot["_known"].gt(cutoff).any()
             or snapshot["_start"].isna().any()
+            or (snapshot["valid_to"].notna() & snapshot["_end"].isna()).any()
             or snapshot["instrument_id"].isna().any()
             or snapshot["instrument_id"].astype(str).duplicated().any()
         ):
@@ -111,7 +129,7 @@ def _membership_rows(
 
 def build_pit_panel(
     decision_times: Iterable[str | date | datetime],
-    membership: pd.DataFrame,
+    membership: pd.DataFrame | str,
     feature_ids: Sequence[str],
     horizons: Sequence[int] = (63, 126),
     *,
@@ -119,72 +137,70 @@ def build_pit_panel(
 ) -> pd.DataFrame:
     """Build one deterministic row per as-known decision date and instrument.
 
-    All sources are explicit because otherwise a four-argument call could
-    silently consult present-day membership or data. A feature with a missing
-    publication timestamp or approximated PIT grade is unavailable. Label
-    availability requires an observed next-session `session_open_at` for
-    the VWCE benchmark; without it labels cannot enter model training.
+    Pass local membership rows or a scope in the local membership ledger.
+    Use explicit adjusted EUR prices and observed VWCE session opens. An
+    unobserved input or a label unavailable at its next open stays null.
     """
     decisions = _decisions(decision_times)
-    horizons = tuple(sorted(set(int(value) for value in horizons)))
-    if not horizons or any(value <= 0 for value in horizons):
+    if not decisions:
+        raise PanelContractError("at least one decision time is required")
+    if not horizons or any(isinstance(value, bool) or not isinstance(value, Integral) or value <= 0 for value in horizons):
         raise PanelContractError("horizons must contain positive session counts")
+    horizons = tuple(sorted(set(int(value) for value in horizons)))
     if len(set(feature_ids)) != len(feature_ids):
         raise PanelContractError("feature ids must be unique")
     definitions = {item.feature_id: item for item in inputs.feature_store.feature_catalogue()}
     unknown = set(feature_ids).difference(definitions)
     if unknown:
         raise PanelContractError(f"unregistered features: {', '.join(sorted(unknown))}")
-    panel, insufficient = _membership_rows(membership, decisions)
+    panel, insufficient = _membership_rows(membership, decisions, inputs.feature_store.root)
     if panel.empty:
         raise PanelContractError(f"no complete observed membership snapshots: {insufficient}")
     source = inputs.features.copy()
     if not {"instrument_id", "date", "pit_grade"}.issubset(source.columns):
         raise PanelContractError("feature observations require instrument_id, date and pit_grade")
-    if "available_at" not in source:
-        if "known_at" not in source:
-            raise PanelContractError("feature observations require publication/knowledge timestamps")
-        source["available_at"] = source["known_at"]
+    time_columns = [name for name in ("available_at", "known_at") if name in source]
+    if not time_columns:
+        raise PanelContractError("feature observations require publication/knowledge timestamps")
+    stamps = source[time_columns].apply(_observed_instants)
+    source["available_at"] = stamps.max(axis=1, skipna=False)
     source = source.loc[
-        source["pit_grade"].eq("observed")
-        & pd.to_datetime(source["available_at"], errors="coerce", utc=True).notna()
+        source["pit_grade"].eq("observed") & source["available_at"].notna() & source["instrument_id"].notna()
     ].copy()
+    if not source.empty:
+        vintage_dates = _timestamps(source["date"], normalize=False)
+        vintages = source.groupby([source["instrument_id"], vintage_dates, source["available_at"]], sort=False)
+        for column in sorted({definitions[feature].source_column for feature in feature_ids} & set(source)):
+            source.loc[vintages[column].transform("nunique").gt(1), column] = None
     by_group: dict[str, list[str]] = {}
     for feature in feature_ids:
         by_group.setdefault(definitions[feature].source_dataset, []).append(feature)
-    for group, ids in sorted(by_group.items()):
-        # Existing materialisation selects the newest allowed vintage for
-        # each feature. The grouping preserves its separately audited time.
-        if source.empty:
-            for feature in ids:
-                panel[feature] = None
-            panel[f"{group}_available_at"] = None
-            continue
+    if feature_ids and not source.empty:
         matrix = inputs.feature_store.materialise(
-            source,
-            decisions,
-            feature_ids=ids,
-            entity_column="instrument_id",
-            date_column="date",
-            mode="offline",
+            source, decisions, feature_ids=feature_ids, entity_column="instrument_id",
+            include_feature_availability=True,
         )
-        if matrix.empty:
-            for feature in ids:
-                panel[feature] = None
-            panel[f"{group}_available_at"] = None
-            continue
-        matrix = matrix[["instrument_id", "decision_time", "available_at", *ids]].copy()
         matrix["decision_time"] = pd.to_datetime(
-            matrix["decision_time"], errors="coerce", utc=True
+            matrix["decision_time"], format="mixed", errors="coerce", utc=True
         ).map(lambda value: value.isoformat() if not pd.isna(value) else None)
-        matrix.rename(columns={"available_at": f"{group}_available_at"}, inplace=True)
+        for feature in feature_ids:
+            matrix[feature] = matrix[feature].mask(matrix[f"missing_{feature}"])
+        groups = []
+        for group, ids in sorted(by_group.items()):
+            field = f"{group}_available_at"
+            times = matrix[[f"{feature}_available_at" for feature in ids]].apply(
+                lambda values: pd.to_datetime(values, format="mixed", errors="coerce", utc=True)
+            )
+            matrix[field] = times.max(axis=1).map(lambda stamp: stamp.isoformat() if pd.notna(stamp) else None)
+            groups.append(field)
         panel = panel.merge(
-            matrix, on=["instrument_id", "decision_time"],
+            matrix[["instrument_id", "decision_time", *feature_ids, *groups]],
+            on=["instrument_id", "decision_time"],
             how="left", validate="one_to_one",
         )
-    for feature in feature_ids:
-        if feature not in panel:
-            panel[feature] = None
+    else:
+        for column in [*feature_ids, *(f"{group}_available_at" for group in sorted(by_group))]:
+            panel[column] = None
     # Per-date transformations are computed solely from that date's
     # as-known cross-section; no future date contributes to a feature.
     for pair, name in (
@@ -221,28 +237,25 @@ def build_pit_panel(
     if not prices["currency"].eq("EUR").all() or not benchmark["currency"].eq("EUR").all():
         raise PanelContractError("label prices must use EUR with an explicit FX conversion upstream")
 
-    # Reuse the existing delisting-aware forward return logic unchanged.
-    from etf_cockpit.analysis.decision.rank_validation import _forward_return
-    price_frame = pd.concat([prices, benchmark], ignore_index=True)
-    price_frame["_date"] = pd.to_datetime(price_frame["date"], errors="coerce").dt.date
+    price_frame = pd.concat([prices.loc[prices["instrument_id"].ne("VWCE")], benchmark], ignore_index=True)
+    price_frame["_date"] = price_frame["date"].map(_date_value)
     if price_frame["_date"].isna().any():
         raise PanelContractError("price session dates must be valid")
-    sessions = sorted(benchmark["date"].map(lambda value: pd.Timestamp(value).date()).unique())
-    # The inherited forward-return helper indexes sessions from the whole
-    # frame. Refuse mismatched calendars rather than change the label horizon.
-    if set(price_frame["_date"]) != set(sessions):
-        raise PanelContractError("candidate sessions must match the VWCE calendar for labels")
-    openings = benchmark.copy()
-    openings["_date"] = openings["date"].map(lambda value: pd.Timestamp(value).date())
-    if openings["session_open_at"].map(
-        lambda value: pd.notna(value) and pd.Timestamp(value).tzinfo is not None
-    ).eq(False).any():
-        raise PanelContractError("market opening instants must have explicit UTC offsets")
-    openings["_open"] = pd.to_datetime(openings["session_open_at"], errors="coerce", utc=True)
-    if openings["_date"].duplicated().any() or openings["_open"].isna().any():
-        raise PanelContractError("VWCE sessions require unique and observed market opening instants")
-    opens = dict(zip(openings["_date"], openings["_open"], strict=True))
-    panel["delisted"] = False
+    price_by_instrument = {
+        instrument: rows
+        for instrument, rows in price_frame.groupby(price_frame["instrument_id"].astype(str), sort=False)
+    }
+    empty_prices = price_frame.iloc[:0]
+    openings = pd.DataFrame({"date": benchmark["date"].map(_date_value),
+                             "open_at": _observed_instants(benchmark["session_open_at"])})
+    openings = openings.loc[openings["open_at"].dt.date.eq(openings["date"])].drop_duplicates()
+    opens = openings.loc[~openings["date"].duplicated(keep=False)].set_index("date")["open_at"]
+    sessions = sorted(benchmark["date"].map(_date_value).unique())
+    first_forward = {
+        day: bisect_right(sessions, day)
+        for day in set(pd.Timestamp(value).date() for value in panel["decision_time"])
+    }
+    delisted = pd.Series(False, index=panel.index)
     for horizon in horizons:
         returns: list[float | None] = []
         excesses: list[float | None] = []
@@ -250,10 +263,11 @@ def build_pit_panel(
         starts: list[str | None] = []
         ends: list[str | None] = []
         maturities: list[str | None] = []
-        for item in panel.itertuples(index=False):
+        baselines: dict[pd.Timestamp, tuple[float | None, str]] = {}
+        for row, item in enumerate(panel.itertuples(index=False)):
             cutoff = pd.Timestamp(item.decision_time)
-            future = [session for session in sessions if session > cutoff.date()]
-            if len(future) < horizon:
+            position = first_forward[cutoff.date()] + horizon - 1
+            if position >= len(sessions):
                 returns.append(None)
                 excesses.append(None)
                 statuses.append("forward_price_window_not_matured")
@@ -261,11 +275,23 @@ def build_pit_panel(
                 ends.append(None)
                 maturities.append(None)
                 continue
-            end = future[horizon - 1]
-            later = [session for session in sessions if session > end]
-            available_at = opens[later[0]].isoformat() if later else None
-            candidate, status = _forward_return(price_frame, str(item.instrument_id), cutoff, horizon)
-            baseline, benchmark_status = _forward_return(price_frame, "VWCE", cutoff, horizon)
+            end = sessions[position]
+            next_open = opens.get(sessions[position + 1]) if position + 1 < len(sessions) else None
+            if next_open is None:
+                candidate, baseline, status, benchmark_status = None, None, "next_session_open_unavailable", "available"
+            else:
+                instrument = str(item.instrument_id)
+                candidate, status = _forward_return(
+                    price_by_instrument.get(instrument, empty_prices), instrument, cutoff, horizon,
+                    target_session=end, outcome_known_by=next_open,
+                )
+                if cutoff not in baselines:
+                    baselines[cutoff] = _forward_return(
+                        price_by_instrument.get("VWCE", empty_prices), "VWCE", cutoff, horizon,
+                        target_session=end, outcome_known_by=next_open,
+                    )
+                baseline, benchmark_status = baselines[cutoff]
+            delisted.iloc[row] |= "delist" in status
             returns.append(candidate)
             excesses.append(
                 candidate - baseline
@@ -277,21 +303,21 @@ def build_pit_panel(
             )
             starts.append(cutoff.date().isoformat())
             ends.append(end.isoformat())
-            maturities.append(available_at)
+            maturities.append(next_open.isoformat() if next_open is not None and candidate is not None and baseline is not None else None)
         panel[f"fwd_total_{horizon}"] = returns
         panel[f"fwd_excess_{horizon}"] = excesses
         panel[f"fwd_status_{horizon}"] = statuses
         panel[f"label_start_{horizon}"] = starts
         panel[f"label_end_{horizon}"] = ends
         panel[f"label_available_at_{horizon}"] = maturities
-    panel["delisted"] = panel[
-        [f"fwd_status_{h}" for h in horizons]
-    ].astype(str).apply(lambda row: any("delist" in status for status in row), axis=1)
+    panel["delisted"] = delisted
+    panel["label_start"] = panel["decision_date"]
+    panel["label_end"] = panel[f"label_end_{horizons[-1]}"]
     # All model features are unavailable until their individual publication
     # cut-offs; the combined label is mature only when *all* horizons are.
     availability_columns = [f"label_available_at_{h}" for h in horizons]
     panel["label_available_at"] = (
-        pd.to_datetime(panel[availability_columns].stack(), errors="coerce", utc=True)
+        pd.to_datetime(panel[availability_columns].stack(), format="mixed", errors="coerce", utc=True)
         .groupby(level=0).max().reindex(panel.index).map(
             lambda value: value.isoformat() if not pd.isna(value) else None
         )
@@ -310,7 +336,8 @@ def build_pit_panel(
         "insufficient_decision_times": insufficient,
         "membership_pit_grade": "observed",
         "membership_source": (
-            str(membership["source"].iloc[0])
+            f"universe_membership:{membership}" if isinstance(membership, str)
+            else str(membership["source"].iloc[0])
             if "source" in membership and membership["source"].nunique() == 1
             else "mixed_or_unknown"
         ),
@@ -331,6 +358,8 @@ def canonical_panel_rows(panel: pd.DataFrame) -> pd.DataFrame:
         raise PanelContractError("canonical panel needs decision_time and instrument_id")
     return panel.sort_values(
         ["decision_time", "instrument_id"], kind="stable",
+        key=lambda values: pd.to_datetime(values, format="mixed", errors="coerce", utc=True)
+        if values.name == "decision_time" else values.astype(str),
     ).reset_index(drop=True)
 
 
@@ -339,14 +368,14 @@ def date_grouped_folds(panel: pd.DataFrame, spec: ValidationSpec) -> tuple[DateG
     if not {"decision_time", "instrument_id", "label_available_at"}.issubset(panel):
         raise PanelContractError("folds require decision_time, instrument_id and label_available_at")
     source = panel.copy()
-    source["_date"] = pd.to_datetime(source["decision_time"], errors="coerce", utc=True).dt.date
-    if source["_date"].isna().any() or source["instrument_id"].isna().any():
+    source["_decision"] = pd.to_datetime(source["decision_time"], format="mixed", errors="coerce", utc=True)
+    source["_date"] = source["_decision"].dt.date
+    if source["_decision"].isna().any() or source["instrument_id"].isna().any():
         raise PanelContractError("invalid date or security in panel")
-    if source.duplicated(["_date", "instrument_id"]).any():
-        raise PanelContractError("multiple rows for a single decision date and instrument")
+    if source.duplicated(["_decision", "instrument_id"]).any():
+        raise PanelContractError("multiple rows for a single decision time and instrument")
     dates = tuple(sorted(source["_date"].unique()))
     ordered = canonical_panel_rows(source)
-    ordered["_available"] = pd.to_datetime(ordered["label_available_at"], errors="coerce", utc=True)
     raw = build_walk_forward_splits(
         n_samples=len(dates), spec=spec, strict_label_purge=True,
     )
@@ -354,18 +383,17 @@ def date_grouped_folds(panel: pd.DataFrame, spec: ValidationSpec) -> tuple[DateG
     for fold in raw:
         train_days = {dates[pos] for pos in fold.train_indices}
         validation_days = {dates[pos] for pos in fold.validation_indices}
-        validation_start = pd.Timestamp(min(validation_days), tz="UTC")
+        valid = ordered.index[ordered["_date"].isin(validation_days)]
+        validation_start = ordered.loc[valid, "_decision"].min()
         train = ordered.index[
             ordered["_date"].isin(train_days)
-            & ordered["_available"].notna()
-            & ordered["_available"].le(validation_start)
+            & labels_available_by(_observed_instants(ordered["label_available_at"]), validation_start)
         ]
-        valid = ordered.index[ordered["_date"].isin(validation_days)]
         result.append(DateGroupedFold(
             fold=fold.fold,
             train_rows=tuple(int(i) for i in train),
             validation_rows=tuple(int(i) for i in valid),
-            train_dates=tuple(date.isoformat() for date in sorted(train_days)),
+            train_dates=tuple(day.isoformat() for day in sorted(set(ordered.loc[train, "_date"]))),
             validation_dates=tuple(date.isoformat() for date in sorted(validation_days)),
             purged_dates=tuple(dates[pos].isoformat() for pos in fold.purged_indices),
             embargoed_dates=tuple(dates[pos].isoformat() for pos in fold.embargoed_indices),
@@ -373,18 +401,22 @@ def date_grouped_folds(panel: pd.DataFrame, spec: ValidationSpec) -> tuple[DateG
     return tuple(result)
 
 
-def panel_evidence_inventory(panel: pd.DataFrame) -> dict[str, object]:
+def panel_evidence_inventory(
+    panel: pd.DataFrame, *, folds: Sequence[DateGroupedFold] = (),
+) -> dict[str, object]:
     """Conservative descriptive statistics for evidence sufficiency, not promotion."""
     if not {"decision_time", "instrument_id"}.issubset(panel):
         raise PanelContractError("panel evidence inventory needs decision_time and instrument_id")
     if panel.empty:
         return {
             "decision_dates": 0, "instruments_per_date": {}, "matured_labels": {},
+            "matured_labels_by_fold": {},
             "non_overlapping_periods": {}, "delisted_share": None,
             "membership_source": panel.attrs.get("membership_source", "unknown"),
             "membership_pit_grade": panel.attrs.get("membership_pit_grade", "unknown"),
         }
-    decision_dates = pd.to_datetime(panel["decision_time"], errors="coerce", utc=True).dt.date
+    panel = canonical_panel_rows(panel)
+    decision_dates = pd.to_datetime(panel["decision_time"], format="mixed", errors="coerce", utc=True).dt.date
     as_of = pd.Timestamp(panel.attrs.get("as_of", panel["decision_time"].max()))
     if as_of.tzinfo is None:
         as_of = as_of.tz_localize("UTC")
@@ -396,15 +428,23 @@ def panel_evidence_inventory(panel: pd.DataFrame) -> dict[str, object]:
         and column.rsplit("_", 1)[-1].isdigit()
     )
     matured, independent = {}, {}
+    matured_by_fold: dict[int, dict[str, dict[str, int]]] = {fold.fold: {} for fold in folds}
     for horizon in horizons:
         label = f"fwd_total_{horizon}"
         maturity = f"label_available_at_{horizon}"
         end = f"label_end_{horizon}"
         eligible = (
             panel[label].notna()
-            & pd.to_datetime(panel[maturity], errors="coerce", utc=True).le(as_of)
+            & _observed_instants(panel[maturity]).le(as_of)
         ) if maturity in panel else pd.Series(False, index=panel.index)
+        if f"fwd_excess_{horizon}" in panel:
+            eligible &= panel[f"fwd_excess_{horizon}"].notna()
         matured[str(horizon)] = int(eligible.sum())
+        for fold in folds:
+            matured_by_fold[fold.fold][str(horizon)] = {
+                "train": int(eligible.iloc[list(fold.train_rows)].sum()),
+                "validation": int(eligible.iloc[list(fold.validation_rows)].sum()),
+            }
         intervals = sorted(set(
             (decision_dates.loc[index], pd.Timestamp(panel.loc[index, end]).date())
             for index in panel.index[eligible]
@@ -430,6 +470,7 @@ def panel_evidence_inventory(panel: pd.DataFrame) -> dict[str, object]:
             for day, count in panel.groupby(decision_dates)["instrument_id"].nunique().items()
         },
         "matured_labels": matured,
+        "matured_labels_by_fold": matured_by_fold,
         "non_overlapping_periods": independent,
         "delisted_share": delisted,
         "membership_source": panel.attrs.get("membership_source", "unknown"),

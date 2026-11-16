@@ -16,6 +16,13 @@ publication/acceptance, retrieval and knowledge chronology, provenance and
 revision identity. Conflicts and missing chronology remain explicit and fail
 closed; they are never silently merged or zero-filled.
 
+ISSUE-0182 builds the research panel from explicit local observations or the
+captured membership ledger at each decision time. Feature groups retain their
+availability times. Adjusted EUR forward labels share the VWCE session
+calendar and use only outcome evidence known by the next observed session
+open. Validation keeps each decision date together and excludes training
+labels unavailable at the first validation decision.
+
 ## Consequences
 
 As-of queries and replay require versioned evidence. ISSUE-0153 must resolve

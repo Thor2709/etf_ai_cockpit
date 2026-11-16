@@ -1231,12 +1231,18 @@ def _forward_return(
     instrument_id: str,
     cutoff: pd.Timestamp,
     holding_period_sessions: int,
+    *,
+    target_session: date | None = None,
+    outcome_known_by: pd.Timestamp | None = None,
 ) -> tuple[float | None, str]:
-    all_sessions = sorted(
-        value
-        for value in (prices["_date"] if "_date" in prices else prices["date"].map(_date_value)).dropna().unique()
-        if value > cutoff.date()
-    )
+    if target_session is None:
+        all_sessions = sorted(
+            value
+            for value in (prices["_date"] if "_date" in prices else prices["date"].map(_date_value)).dropna().unique()
+            if value > cutoff.date()
+        )
+        if len(all_sessions) >= holding_period_sessions:
+            target_session = all_sessions[holding_period_sessions - 1]
     frame = prices.loc[prices["instrument_id"].astype(str).eq(instrument_id)].copy()
     frame["_known"] = frame["known_at"].map(_aware_timestamp)
     if "_date" not in frame:
@@ -1255,13 +1261,18 @@ def _forward_return(
         return None, "entry_price_unavailable_at_decision_time"
     entry_date = entry_rows["_date"].max()
     entry_candidates = entry_rows.loc[entry_rows["_date"].eq(entry_date)]
+    if outcome_known_by is not None:
+        entry_candidates = entry_candidates.loc[entry_candidates["_known"].eq(entry_candidates["_known"].max())]
     if len(entry_candidates) != 1:
         return None, "entry_price_ambiguous"
     entry = float(entry_candidates.iloc[0]["_close"])
-    if len(all_sessions) < holding_period_sessions:
+    if target_session is None:
         return None, "forward_price_window_not_matured"
-    target_date = all_sessions[holding_period_sessions - 1]
-    future = frame.loc[frame["_date"].map(lambda value: cutoff.date() < value <= target_date)]
+    future = frame.loc[frame["_date"].map(lambda value: cutoff.date() < value <= target_session)]
+    if outcome_known_by is not None:
+        future = future.loc[future["_known"].notna() & future["_known"].le(outcome_known_by)]
+        latest = future.groupby("_date")["_known"].transform("max")
+        future = future.loc[future["_known"].eq(latest)]
     if "delisted" in future.columns:
         delisted = future.loc[future["delisted"].map(_true_flag)]
     else:
@@ -1269,6 +1280,10 @@ def _forward_return(
     if not delisted.empty:
         terminal_date = delisted["_date"].min()
         terminal_rows = delisted.loc[delisted["_date"].eq(terminal_date)]
+        if outcome_known_by is not None:
+            terminal_rows = future.loc[future["_date"].eq(terminal_date)]
+            if len(terminal_rows) != 1:
+                return None, "delisting_terminal_value_ambiguous"
         if "delisting_return" in terminal_rows and len(terminal_rows):
             terminal_return = _finite_or(terminal_rows.iloc[-1]["delisting_return"], math.nan)
             if math.isfinite(terminal_return):
@@ -1277,7 +1292,7 @@ def _forward_return(
         if _finite(terminal_price) and float(terminal_price) >= 0:
             return float(terminal_price) / entry - 1.0, "available_delisted_terminal_price"
         return None, "delisting_terminal_value_unavailable"
-    target = frame.loc[frame["_date"].eq(target_date)]
+    target = future.loc[future["_date"].eq(target_session)]
     if len(target) != 1 or not _finite(target.iloc[0]["_close"]) or float(target.iloc[0]["_close"]) <= 0:
         return None, "target_price_unavailable"
     return float(target.iloc[0]["_close"]) / entry - 1.0, "available"
