@@ -321,8 +321,21 @@ def build_pit_panel(
     return panel
 
 
+def canonical_panel_rows(panel: pd.DataFrame) -> pd.DataFrame:
+    """Canonical input order for the row positions returned by date_grouped_folds.
+
+    Applying the fold indices directly to an unsorted input frame is unsafe.
+    Model callers must index this canonical frame, not the original order.
+    """
+    if not {"decision_time", "instrument_id"}.issubset(panel):
+        raise PanelContractError("canonical panel needs decision_time and instrument_id")
+    return panel.sort_values(
+        ["decision_time", "instrument_id"], kind="stable",
+    ).reset_index(drop=True)
+
+
 def date_grouped_folds(panel: pd.DataFrame, spec: ValidationSpec) -> tuple[DateGroupedFold, ...]:
-    """Split sorted unique decision dates, never security rows, and purge immature labels."""
+    """Split unique dates and purge labels; row indices reference canonical_panel_rows(panel)."""
     if not {"decision_time", "instrument_id", "label_available_at"}.issubset(panel):
         raise PanelContractError("folds require decision_time, instrument_id and label_available_at")
     source = panel.copy()
@@ -332,7 +345,7 @@ def date_grouped_folds(panel: pd.DataFrame, spec: ValidationSpec) -> tuple[DateG
     if source.duplicated(["_date", "instrument_id"]).any():
         raise PanelContractError("multiple rows for a single decision date and instrument")
     dates = tuple(sorted(source["_date"].unique()))
-    ordered = source.sort_values(["_date", "instrument_id"], kind="stable").reset_index(drop=True)
+    ordered = canonical_panel_rows(source)
     ordered["_available"] = pd.to_datetime(ordered["label_available_at"], errors="coerce", utc=True)
     raw = build_walk_forward_splits(
         n_samples=len(dates), spec=spec, strict_label_purge=True,
