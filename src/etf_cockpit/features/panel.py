@@ -14,6 +14,7 @@ from numbers import Integral
 from pathlib import Path
 from typing import Iterable, Sequence
 
+import exchange_calendars as xcals
 import pandas as pd
 
 from etf_cockpit.analysis.decision.rank_validation import _aware_timestamp, _date_value, _forward_return
@@ -138,8 +139,8 @@ def build_pit_panel(
     """Build one deterministic row per as-known decision date and instrument.
 
     Pass local membership rows or a scope in the local membership ledger.
-    Use explicit adjusted EUR prices and observed VWCE session opens. An
-    unobserved input or a label unavailable at its next open stays null.
+    Use explicit adjusted EUR prices and the VWCE Xetra session calendar.
+    An unobserved input or a label unavailable at its next open stays null.
     """
     decisions = _decisions(decision_times)
     if not decisions:
@@ -219,13 +220,8 @@ def build_pit_panel(
     prices = inputs.prices.copy()
     benchmark = inputs.benchmark_prices.copy()
     needed_prices = {"instrument_id", "date", "known_at", "adjusted_close"}
-    if not needed_prices.issubset(prices) or not {
-        "date", "known_at", "adjusted_close", "session_open_at"
-    }.issubset(benchmark):
-        raise PanelContractError(
-            "adjusted prices require identity, dates and knowledge timestamps; "
-            "VWCE also needs observed next-session open times"
-        )
+    if not needed_prices.issubset(prices) or not (needed_prices - {"instrument_id"}).issubset(benchmark):
+        raise PanelContractError("adjusted prices require identity, dates and knowledge timestamps")
     if "instrument_id" not in benchmark:
         benchmark["instrument_id"] = "VWCE"
     if not benchmark["instrument_id"].astype(str).eq("VWCE").all():
@@ -247,11 +243,13 @@ def build_pit_panel(
         for instrument, rows in price_frame.groupby(price_frame["instrument_id"].astype(str), sort=False)
     }
     empty_prices = price_frame.iloc[:0]
-    openings = pd.DataFrame({"date": benchmark["date"].map(_date_value),
-                             "open_at": _observed_instants(benchmark["session_open_at"])})
-    openings = openings.loc[openings["open_at"].dt.date.eq(openings["date"])].drop_duplicates()
-    opens = openings.loc[~openings["date"].duplicated(keep=False)].set_index("date")["open_at"]
-    sessions = sorted(benchmark["date"].map(_date_value).unique())
+    first_day = decisions[0].date()
+    last_day = benchmark["date"].map(_date_value).max()
+    opens: dict[date, pd.Timestamp] = {}
+    if pd.notna(last_day) and last_day > first_day:
+        calendar = xcals.get_calendar("XETR", start=str(first_day), end=str(last_day))
+        opens = {day.date(): stamp for day, stamp in calendar.schedule["open"].items()}
+    sessions = sorted(opens)
     first_forward = {
         day: bisect_right(sessions, day)
         for day in set(pd.Timestamp(value).date() for value in panel["decision_time"])

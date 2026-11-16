@@ -18,9 +18,10 @@ closed; they are never silently merged or zero-filled.
 
 ISSUE-0182 builds the research panel from explicit local observations or the
 captured membership ledger at each decision time. Feature groups retain their
-availability times. Adjusted EUR forward labels share the VWCE session
-calendar and use only outcome evidence known by the next observed session
-open. Validation keeps each decision date together and excludes training
+availability times. Adjusted EUR forward labels use the Xetra session calendar
+for VWCE and use only outcome evidence known by the next session open. A
+missing benchmark bar leaves the excess label unavailable. Validation keeps each
+decision date together and excludes training
 labels unavailable at the first validation decision.
 
 ## Consequences

@@ -65,7 +65,6 @@ def _case(tmp_path):
             "instrument_id": "VWCE", "date": day,
             "known_at": day + "T16:00:00Z",
             "adjusted_close": 100.0 + index,
-            "session_open_at": day + "T08:00:00Z",
             "is_adjusted": True, "currency": "EUR",
         })
     return store, pd.DataFrame(source), membership, pd.DataFrame(prices), pd.DataFrame(vwce)
@@ -151,6 +150,19 @@ def test_panel_purges_late_label_evidence_and_keeps_observed_delisting(tmp_path)
     assert panel.loc["B", "fwd_total_1"] == -1.0
     assert panel.loc["B", "delisted"]
     assert panel.loc["B", "label_available_at"] == "2026-01-07T08:00:00+00:00"
+
+
+def test_missing_benchmark_bar_does_not_shift_the_holding_window(tmp_path):
+    store, features, membership, prices, benchmark = _case(tmp_path)
+    benchmark = benchmark.loc[benchmark["date"].ne("2026-01-06")]
+    panel = build_pit_panel(
+        ["2026-01-05T17:00:00Z"], membership, ["quality_score"], horizons=(1,),
+        inputs=PITPanelInputs(store, features, prices, benchmark),
+    )
+    assert panel["label_end_1"].tolist() == ["2026-01-06"] * 2
+    assert panel["fwd_total_1"].tolist() == pytest.approx([0.02, 0.01])
+    assert panel["fwd_excess_1"].isna().all()
+    assert panel["label_available_at_1"].isna().all()
 
 
 def test_cross_source_feature_dependencies_keep_group_times_and_never_zero_fill(tmp_path):
