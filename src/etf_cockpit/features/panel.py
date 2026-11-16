@@ -157,8 +157,9 @@ def build_pit_panel(
     if panel.empty:
         raise PanelContractError(f"no complete observed membership snapshots: {insufficient}")
     source = inputs.features.copy()
-    if not {"instrument_id", "date", "pit_grade"}.issubset(source.columns):
-        raise PanelContractError("feature observations require instrument_id, date and pit_grade")
+    feature_date = "date" if "date" in source else "effective_at"
+    if not {"instrument_id", feature_date, "pit_grade"}.issubset(source.columns):
+        raise PanelContractError("feature observations require instrument_id, date or effective_at, and pit_grade")
     time_columns = [name for name in ("available_at", "known_at") if name in source]
     if not time_columns:
         raise PanelContractError("feature observations require publication/knowledge timestamps")
@@ -168,7 +169,7 @@ def build_pit_panel(
         source["pit_grade"].eq("observed") & source["available_at"].notna() & source["instrument_id"].notna()
     ].copy()
     if not source.empty:
-        vintage_dates = _timestamps(source["date"], normalize=False)
+        vintage_dates = _timestamps(source[feature_date], normalize=False)
         vintages = source.groupby([source["instrument_id"], vintage_dates, source["available_at"]], sort=False)
         for column in sorted({definitions[feature].source_column for feature in feature_ids} & set(source)):
             source.loc[vintages[column].transform("nunique").gt(1), column] = None
@@ -178,7 +179,7 @@ def build_pit_panel(
     if feature_ids and not source.empty:
         matrix = inputs.feature_store.materialise(
             source, decisions, feature_ids=feature_ids, entity_column="instrument_id",
-            include_feature_availability=True,
+            date_column=feature_date, include_feature_availability=True,
         )
         matrix["decision_time"] = pd.to_datetime(
             matrix["decision_time"], format="mixed", errors="coerce", utc=True

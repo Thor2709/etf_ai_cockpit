@@ -177,7 +177,8 @@ def test_cross_source_feature_dependencies_keep_group_times_and_never_zero_fill(
 
 def test_effective_time_is_part_of_the_feature_cutoff(tmp_path):
     store, features, membership, prices, benchmark = _case(tmp_path)
-    features.loc[features["instrument_id"].eq("A"), "date"] = "2026-01-05T19:00:00Z"
+    features = features.rename(columns={"date": "effective_at"})
+    features.loc[features["instrument_id"].eq("A"), "effective_at"] = "2026-01-05T19:00:00Z"
     panel = build_pit_panel(
         ["2026-01-05T17:00:00Z"], membership, ["quality_score"], horizons=(1,),
         inputs=PITPanelInputs(store, features, prices, benchmark),

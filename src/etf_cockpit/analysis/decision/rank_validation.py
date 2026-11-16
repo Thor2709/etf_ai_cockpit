@@ -1271,8 +1271,11 @@ def _forward_return(
     future = frame.loc[frame["_date"].map(lambda value: cutoff.date() < value <= target_session)]
     if outcome_known_by is not None:
         future = future.loc[future["_known"].notna() & future["_known"].le(outcome_known_by)]
-        latest = future.groupby("_date")["_known"].transform("max")
-        future = future.loc[future["_known"].eq(latest)]
+        outcome_columns = tuple(column for column in ("_close", "delisted", "delisting_return") if column in future)
+        known_outcomes = _latest_price_rows(future, outcome_columns)
+        if known_outcomes is None:
+            return None, "forward_price_evidence_ambiguous"
+        future = known_outcomes
     if "delisted" in future.columns:
         delisted = future.loc[future["delisted"].map(_true_flag)]
     else:
@@ -1280,10 +1283,6 @@ def _forward_return(
     if not delisted.empty:
         terminal_date = delisted["_date"].min()
         terminal_rows = delisted.loc[delisted["_date"].eq(terminal_date)]
-        if outcome_known_by is not None:
-            terminal_rows = future.loc[future["_date"].eq(terminal_date)]
-            if len(terminal_rows) != 1:
-                return None, "delisting_terminal_value_ambiguous"
         if "delisting_return" in terminal_rows and len(terminal_rows):
             terminal_return = _finite_or(terminal_rows.iloc[-1]["delisting_return"], math.nan)
             if math.isfinite(terminal_return):
@@ -1679,12 +1678,14 @@ def _cutoff_text(cutoff: pd.Timestamp) -> str:
     return cutoff.isoformat().replace("+00:00", "Z")
 
 
-def _latest_price_rows(group: pd.DataFrame) -> pd.DataFrame | None:
+def _latest_price_rows(
+    group: pd.DataFrame, value_columns: Sequence[str] = ("_close",),
+) -> pd.DataFrame | None:
     """Latest-known row per session date; ``None`` when tied latest rows disagree."""
 
     ordered = group.sort_values(["_date", "_known"], kind="stable")
     latest = ordered.loc[ordered["_known"].eq(ordered.groupby("_date")["_known"].transform("max"))]
-    if (latest.groupby("_date")["_close"].nunique(dropna=False) > 1).any():
+    if latest.groupby("_date")[list(value_columns)].nunique(dropna=False).gt(1).any(axis=None):
         return None
     return latest.drop_duplicates("_date", keep="last")
 
