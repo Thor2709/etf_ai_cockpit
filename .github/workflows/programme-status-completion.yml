@@ -5,13 +5,8 @@ on:
     branches: [main]
     paths:
       - .github/issue-transitions/github-mutation-authority.jsonl
-  workflow_dispatch:
-    inputs:
-      recover_issue_0182:
-        description: "Receipt-only recovery for ISSUE-0182 / GitHub #1051"
-        required: false
-        type: boolean
-        default: false
+      - scripts/recover_issue_0182_receipt.py
+  workflow_dispatch: {}
 
 permissions:
   actions: read
@@ -64,6 +59,7 @@ jobs:
       - name: Guard and apply reviewed status completion
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENT_BEFORE: ${{ github.event.before }}
         run: |
           git fetch --no-tags origin main
           args=(
@@ -72,7 +68,10 @@ jobs:
             --evidence-out artifacts/programme-status-completion/evidence.json
             --apply
           )
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ inputs.recover_issue_0182 }}" == "true" ]]; then
+          recovery=scripts/recover_issue_0182_receipt.py
+          if [[ "${{ github.event_name }}" == "push" ]] \
+             && ! git cat-file -e "$EVENT_BEFORE:$recovery" 2>/dev/null \
+             && git cat-file -e "HEAD:$recovery"; then
             python -m scripts.recover_issue_0182_receipt \
               --root . \
               --evidence-out artifacts/programme-status-completion/evidence.json \

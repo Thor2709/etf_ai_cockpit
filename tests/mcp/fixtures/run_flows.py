@@ -37,6 +37,13 @@ def seed(root, flow):
     assert metadata["execution_allowed"] is False
     prices = pd.read_csv(fixtures / "prices.csv")
     assert len(prices) == metadata["data"]["prices"]["rows"]
+    if flow == 1:
+        # Keep the offline refresh fixture recent while preserving its weekdays and knowledge lag.
+        dates = pd.to_datetime(prices["date"])
+        age = (date.today() - dates.max().date()).days
+        shift = pd.Timedelta(weeks=(age - 1) // 7)
+        prices["date"] = (dates + shift).dt.strftime("%Y-%m-%d")
+        prices["known_at"] = (pd.to_datetime(prices["known_at"], utc=True) + shift).dt.strftime("%Y-%m-%dT%H:%M:%SZ")
     write_prices(prices)
     path = root / "data" / "clean" / "prices.parquet"
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -62,6 +69,7 @@ def seed(root, flow):
     save_universe(universe.records, "", root=root)
     from etf_cockpit.portfolio.paper_trading import PaperLedger
     PaperLedger(root, account_id="l9-paper").open_account(initial_cash=10000.0)
+    return prices
 
 
 def identity_get_json(_url):
@@ -77,11 +85,10 @@ def identity_ticker(_symbol):
                                  "currency": "EUR", "country": "Germany", "exchange": "GER"})
 
 
-def market_download(symbol, *, start, end, **_kwargs):
+def market_download(symbol, *, start, end, fixture_prices, **_kwargs):
     assert symbol == "VWCE.DE", f"No market response fixture for {symbol}"
-    prices = pd.read_csv(Path(__file__).parent / "prices.csv")
-    dates = pd.to_datetime(prices["date"])
-    prices = prices.loc[(dates >= pd.Timestamp(start)) & (dates < pd.Timestamp(end))].copy()
+    dates = pd.to_datetime(fixture_prices["date"])
+    prices = fixture_prices.loc[(dates >= pd.Timestamp(start)) & (dates < pd.Timestamp(end))].copy()
     # Explicit fixture evidence: this accumulating VWCE history has no cash
     # distributions or stock splits; actions=True still returns both columns.
     prices["Dividends"] = 0.0
@@ -94,7 +101,7 @@ def unavailable_reference_http(*_args, **_kwargs):
     raise OSError("Offline fixture: issuer/public reference input unavailable")
 
 
-def context(root):
+def context(root, prices):
     import yfinance
     from etf_cockpit.application import stock_service
     from etf_cockpit.application.headless_session import HeadlessSession
@@ -106,7 +113,7 @@ def context(root):
     from etf_cockpit.mcp.registry import CallContext, RateLimiter
     stock_service.lookup_instrument = partial(resolve, get_json=identity_get_json,
         post_json=identity_post_json, ticker_factory=identity_ticker)
-    yfinance.download = market_download
+    yfinance.download = partial(market_download, fixture_prices=prices)
     yfinance.Ticker = lambda _symbol: SimpleNamespace(info={}, fast_info={})
     etf_e1_fetch.get_checked = unavailable_reference_http
     session = HeadlessSession(build_snapshot(force_sample=False), root=root)
@@ -361,8 +368,7 @@ def flow6(ctx):
 
 if __name__ == "__main__":
     selected, root_arg = int(sys.argv[1]), Path(sys.argv[2]).resolve()
-    seed(root_arg, selected)
-    active = context(root_arg)
+    active = context(root_arg, seed(root_arg, selected))
     try:
         globals()[f"flow{selected}"](active)
     except ToolDefect as defect:

@@ -3,17 +3,13 @@
 The original GitHub Actions writer created #1051 but returned
 `conflict_after_write` before appending its acceptance receipt. This module
 cannot create, edit or delete an issue; it can only append the missing receipt
-for that exact issue, under a fresh authenticated GitHub Actions dispatch.
-
-Remove this entry point after the recovery has been independently accepted.
+for that exact issue, under the authenticated first push introducing the recovery.
 """
 
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
-import os
 from pathlib import Path
 from typing import Any, Callable
 
@@ -24,9 +20,9 @@ from scripts import sync_github_issues as sync
 TARGET = "ISSUE-0182"
 ISSUE_NUMBER = 1051
 ORIGINAL_WRITER_RUN = "43787208470"
-ORIGINAL_HEAD = "a918030121b8043e7a8ace413b3fdfe7969d0fa6"
-AUTHORITY_ID = "4710da2531f34e582a31f2b7578970f5b4bc21a0fe6ac8b7748b27750fee0b1c"
-DISPATCH_INPUT = {"recover_issue_0182": "true"}
+ORIGINAL_HEAD = gateway.CREATE_RECEIPT_RECOVERY_HEAD_SHA
+AUTHORITY_ID = gateway.CREATE_RECEIPT_RECOVERY_AUTHORITY_ID
+ZERO_SUMMARY = status.ZERO_SUMMARY
 
 
 def validate_existing_issue(issue: dict[str, Any], authority: dict[str, Any]) -> str:
@@ -41,8 +37,8 @@ def validate_existing_issue(issue: dict[str, Any], authority: dict[str, Any]) ->
         or snapshot["body"] != expected_body
         or snapshot["state"] != "open"
         or snapshot["labels"]
-        or not snapshot["id"]
-        or not snapshot["node_id"]
+        or snapshot["id"] != gateway.CREATE_RECEIPT_RECOVERY_ISSUE_ID
+        or snapshot["node_id"] != gateway.CREATE_RECEIPT_RECOVERY_NODE_ID
         or snapshot["url"] not in (
             f"https://api.github.com/repos/{gateway.REPO}/issues/{ISSUE_NUMBER}",
             f"https://github.com/{gateway.REPO}/issues/{ISSUE_NUMBER}",
@@ -67,68 +63,16 @@ def validate_existing_issue(issue: dict[str, Any], authority: dict[str, Any]) ->
     return "pending"
 
 
-def _attest_dispatch(run_reader: Callable[[str], dict[str, Any]]) -> dict[str, str]:
-    keys = (
-        "GITHUB_ACTIONS", "GITHUB_EVENT_NAME", "GITHUB_REF", "GITHUB_SHA",
-        "GITHUB_RUN_ATTEMPT", "GITHUB_RUN_ID", "GITHUB_RUN_NUMBER",
-        "GITHUB_WORKFLOW_REF", "GITHUB_REPOSITORY", "GITHUB_ACTOR",
-        "GITHUB_EVENT_PATH",
-    )
-    env = {key: os.environ.get(key, "") for key in keys}
-    event_path = Path(env["GITHUB_EVENT_PATH"])
-    if (
-        env["GITHUB_ACTIONS"] != "true"
-        or env["GITHUB_EVENT_NAME"] != "workflow_dispatch"
-        or env["GITHUB_REF"] != "refs/heads/main"
-        or env["GITHUB_RUN_ATTEMPT"] != "1"
-        or not gateway.SHA_RE.fullmatch(env["GITHUB_SHA"])
-        or not event_path.is_file()
-    ):
-        raise ValueError("issue_0182_recovery_requires_first_party_dispatch")
-    event_bytes = event_path.read_bytes()
-    event = json.loads(event_bytes)
-    if (
-        not isinstance(event, dict)
-        or event.get("ref") != "refs/heads/main"
-        or event.get("inputs") not in (DISPATCH_INPUT, {"recover_issue_0182": True})
-    ):
-        raise ValueError("issue_0182_recovery_dispatch_input_mismatch")
-    attestation = {
-        "event_name": "workflow_dispatch",
-        "event_ref": "refs/heads/main",
-        "run_attempt": "1",
-        "event_before": status._git(Path.cwd(), "rev-parse", ORIGINAL_HEAD + "^"),
-        "event_after": ORIGINAL_HEAD,
-        "actor": env["GITHUB_ACTOR"],
-        "pusher": env["GITHUB_ACTOR"],
-        "run_id": env["GITHUB_RUN_ID"],
-        "run_number": env["GITHUB_RUN_NUMBER"],
-        "workflow_ref": env["GITHUB_WORKFLOW_REF"],
-        "repository": env["GITHUB_REPOSITORY"],
-        "event_payload_sha256": hashlib.sha256(event_bytes).hexdigest(),
-        "oidc_event_name": "workflow_dispatch",
-        "oidc_ref": "refs/heads/main",
-        "oidc_sha": env["GITHUB_SHA"],
-        "oidc_workflow_sha": env["GITHUB_SHA"],
-    }
-    gateway._validate_run_attestation(attestation)
-    status.validate_live_actions_run(attestation, run_reader)
-    return attestation
-
-
 def _original_authority(root: Path) -> tuple[dict[str, Any], dict[str, str], list[dict[str, Any]]]:
-    if status._git(root, "rev-parse", "HEAD") != status._git(root, "rev-parse", "origin/main"):
-        raise ValueError("issue_0182_recovery_not_exact_main")
     if not status._is_ancestor(root, ORIGINAL_HEAD, "origin/main"):
         raise ValueError("issue_0182_original_create_head_not_on_main")
     before = gateway._git_blob_bytes(root, ORIGINAL_HEAD + "^", gateway.AUTHORITY_PATH)
     after = gateway._git_blob_bytes(root, ORIGINAL_HEAD, gateway.AUTHORITY_PATH)
     current = gateway._git_blob_bytes(root, "HEAD", gateway.AUTHORITY_PATH)
-    if before is None or after is None or current is None or not after.startswith(before):
+    if before is None or after is None or current != after or not after.startswith(before):
         raise ValueError("issue_0182_original_authority_blob_invalid")
     old_records = gateway.parse_authority_ledger(before)
     intro_records = gateway.parse_authority_ledger(after)
-    records = gateway.parse_authority_ledger(current)
     if (
         len(intro_records) != len(old_records) + 1
         or intro_records[-1].get("authority_id") != AUTHORITY_ID
@@ -136,7 +80,6 @@ def _original_authority(root: Path) -> tuple[dict[str, Any], dict[str, str], lis
         or intro_records[-1].get("sequence") != len(old_records)
         or intro_records[-1].get("payload", {}).get("stable_id") != TARGET
         or intro_records[-1].get("payload", {}).get("source_sha") != status._git(root, "rev-parse", ORIGINAL_HEAD + "^")
-        or records[: len(intro_records)] != intro_records
     ):
         raise ValueError("issue_0182_original_create_authority_mismatch")
     binding = {
@@ -146,7 +89,19 @@ def _original_authority(root: Path) -> tuple[dict[str, Any], dict[str, str], lis
         "ledger_blob_sha256": gateway._sha256(after),
     }
     gateway.validate_projected_git_binding(root, intro_records[-1], binding)
-    return intro_records[-1], binding, records
+    return intro_records[-1], binding, intro_records
+
+
+def _readback(root: Path, records: list[dict[str, Any]], remote: list[dict[str, Any]]) -> None:
+    registry = json.loads((root / sync.REGISTRY_PATH).read_bytes())
+    history = root / sync.DEFAULT_MAP_PATH
+    plan = sync.plan_actions(
+        registry, remote,
+        historical_map=json.loads(history.read_bytes()) if history.exists() else None,
+        authority_records=records, authority_root=root,
+    )
+    if plan["summary"] != ZERO_SUMMARY:
+        raise ValueError("issue_0182_recovery_zero_action_readback_failed")
 
 
 def recover(
@@ -156,9 +111,22 @@ def recover(
     run_reader: Callable[[str], dict[str, Any]] = status.read_actions_run,
     proof_verifier: Callable[[dict[str, str]], None] | None = None,
     main_fetcher: Callable[[Path], None] = status.fetch_origin_main,
+    remote_reader: Callable[[], list[dict[str, Any]]] = sync.gh_list_issues,
+    expected_parent: str | None = None,
+    expected_head: str | None = None,
 ) -> dict[str, Any]:
-    """Perform at most one receipt POST after verifying the original issue."""
-    attestation = _attest_dispatch(run_reader)
+    """Validate the candidate or append one missing receipt on its first push."""
+    applying = expected_parent is None and expected_head is None
+    attestation = status.github_actions_push_attestation(run_reader) if applying else {}
+    parent = attestation.get("event_before", expected_parent or "")
+    head = attestation.get("event_after", expected_head or "")
+    if applying:
+        main_fetcher(root)
+    if status._git(root, "rev-parse", "HEAD") != head or (
+        applying and status._git(root, "rev-parse", "origin/main") != head
+    ):
+        raise ValueError("issue_0182_recovery_head_mismatch")
+    gateway.validate_create_receipt_recovery_push(root, parent, head)
     original_run = run_reader(ORIGINAL_WRITER_RUN)
     if (
         str(original_run.get("id")) != ORIGINAL_WRITER_RUN
@@ -171,17 +139,31 @@ def recover(
         or original_run.get("repository", {}).get("full_name") != gateway.REPO
     ):
         raise ValueError("issue_0182_original_failed_run_not_verified")
-    main_fetcher(root)
     authority, binding, records = _original_authority(root)
     client = transport or gateway.GhMutationTransport()
     expected_marker = gateway.CREATE_MARKER_TEMPLATE.format(AUTHORITY_ID)
-    inventory = client.list_issues()
-    if sum(expected_marker in str(row.get("body") or "") for row in inventory) != 1:
+    stable_marker = f"<!-- etf-ai-cockpit:stable-id={TARGET} -->"
+    remote = remote_reader()
+    matches = [row for row in remote if int(row["number"]) == ISSUE_NUMBER]
+    if len(matches) != 1 or any(
+        sum(marker in str(row.get("body") or "") for row in remote) != 1
+        for marker in (expected_marker, stable_marker)
+    ):
         raise ValueError("issue_0182_recovery_duplicate_or_missing_create_marker")
-    issue = client.fetch_issue(ISSUE_NUMBER)
+    issue = matches[0]
     state = validate_existing_issue(issue, authority)
     if state == "accepted":
-        return {"accepted": True, "terminal_status": "already_accepted", "transport_writes": 0}
+        _readback(root, records, remote)
+        return {"accepted": True, "terminal_status": "already_accepted",
+                "transport_writes": 0, "zero_action_readback": True}
+    others = [row for row in remote if row is not issue]
+    if (
+        gateway.claim_inventory_sha256(others) != authority["payload"]["claim_inventory_sha256"]
+        or not gateway.reconcile_authority_ledger(records[:-1], others, root=root).get("accepted")
+    ):
+        raise ValueError("issue_0182_recovery_other_claims_changed")
+    if not applying:
+        return {"accepted": False, "terminal_status": "validated", "transport_writes": 0}
 
     if proof_verifier is None:
         used_jtis: set[str] = set()
@@ -196,10 +178,13 @@ def recover(
                 used_jtis=used_jtis,
             )
 
-    proof_verifier(attestation)
     main_fetcher(root)
-    _original_authority(root)
+    if status._git(root, "rev-parse", "origin/main") != head:
+        raise ValueError("issue_0182_recovery_head_mismatch")
+    gateway.validate_create_receipt_recovery_push(root, parent, head)
     # Freshly read and compare the exact issue immediately before the one POST.
+    if gateway.claim_inventory_sha256(client.list_issues()) != gateway.claim_inventory_sha256(remote):
+        raise ValueError("issue_0182_recovery_stale_before_receipt")
     fresh = client.fetch_issue(ISSUE_NUMBER)
     if gateway.normalise_issue_snapshot(fresh) != gateway.normalise_issue_snapshot(issue):
         raise ValueError("issue_0182_recovery_stale_before_receipt")
@@ -220,22 +205,28 @@ def recover(
             "workflow_ref", "repository", "event_payload_sha256"
         )},
     )
-    # Never retry an ambiguous POST, never generate a second issue.
-    client.append_comment(ISSUE_NUMBER, receipt_body)
-    final = client.fetch_issue(ISSUE_NUMBER)
-    if not gateway._postwrite_matches(fresh, final, receipt_body):
-        raise RuntimeError("issue_0182_recovery_conflict_after_receipt")
-    if validate_existing_issue(final, authority) != "accepted":
-        raise RuntimeError("issue_0182_recovery_receipt_not_accepted")
-    # Independent reconciliation is required before the recovery is complete.
-    remote = sync.gh_list_issues()
-    reconciled = gateway.reconcile_authority_ledger(records, remote, root=root)
-    if not reconciled.get("accepted"):
-        raise RuntimeError("issue_0182_recovery_ledger_readback_failed")
+    proof_verifier(attestation)
+    evidence = {"transport_writes": 1, "zero_action_readback": False}
+    try:
+        try:
+            client.append_comment(ISSUE_NUMBER, receipt_body)
+        except Exception as exc:
+            if not gateway._is_ambiguous_write_error(exc):
+                raise
+        final = client.fetch_issue(ISSUE_NUMBER)
+        if (
+            not gateway._postwrite_matches(fresh, final, receipt_body)
+            or validate_existing_issue(final, authority) != "accepted"
+        ):
+            raise RuntimeError("issue_0182_recovery_receipt_unresolved")
+        _readback(root, records, remote_reader())
+    except Exception as exc:
+        raise gateway.MutationTransportError(str(exc), evidence) from exc
     return {
         "accepted": True,
         "terminal_status": "receipt_written_and_reconciled",
         "transport_writes": 1,
+        "zero_action_readback": True,
         "issue_number": ISSUE_NUMBER,
         "authority_id": AUTHORITY_ID,
         "receipt_mutation_id": receipt["receipt_mutation_id"],
@@ -247,22 +238,29 @@ def main() -> int:
     parser.add_argument("--root", type=Path, default=Path.cwd())
     parser.add_argument("--evidence-out", type=Path, required=True)
     parser.add_argument("--apply", action="store_true")
+    parser.add_argument("--expected-parent")
+    parser.add_argument("--expected-head")
     args = parser.parse_args()
+    if (args.apply and (args.expected_parent or args.expected_head)) or (
+        not args.apply and not (args.expected_parent and args.expected_head)
+    ):
+        parser.error("use --apply or provide both expected commit identities to validate")
     evidence = {
-        "schema_version": "etf-ai-cockpit.issue-0182-create-recovery/1.0",
+        "schema_version": "etf-ai-cockpit.status-completion-evidence/1.0",
+        "expected_parent_sha": args.expected_parent,
+        "expected_head_sha": args.expected_head,
         "execution_allowed": False,
         "accepted": False,
         "terminal_status": "not_started",
     }
     try:
-        if not args.apply:
-            raise ValueError("issue_0182_receipt_recovery_requires_apply")
-        evidence.update(recover(args.root.resolve()))
-        if evidence["terminal_status"] == "already_accepted":
-            print("ISSUE_0182_RECEIPT_ALREADY_ACCEPTED")
-        else:
-            print("ISSUE_0182_RECEIPT_RECOVERED")
+        evidence.update(recover(
+            args.root.resolve(), expected_parent=args.expected_parent, expected_head=args.expected_head,
+        ))
+        print(evidence["terminal_status"])
     except Exception as exc:
+        if isinstance(exc, gateway.MutationGatewayError):
+            evidence.update(exc.evidence)
         evidence["terminal_status"] = "blocked"
         evidence["failure_reason"] = f"{type(exc).__name__}: {exc}"
         raise
