@@ -12,6 +12,7 @@ from etf_cockpit.features.panel import (
     PITPanelInputs,
     PanelContractError,
     build_pit_panel,
+    canonical_panel_rows,
     date_grouped_folds,
     panel_evidence_inventory,
 )
@@ -130,7 +131,16 @@ def test_fold_splits_are_by_date_with_label_availability_purge():
     original = date_grouped_folds(panel, spec)
     shuffled = date_grouped_folds(panel.sample(frac=1, random_state=2), spec)
     assert original == shuffled
+    canonical = canonical_panel_rows(panel)
     for fold in original:
+        assert set(
+            pd.to_datetime(canonical.iloc[list(fold.train_rows)]["decision_time"], utc=True)
+            .dt.date.astype(str)
+        ).issubset(set(fold.train_dates))
+        assert set(
+            pd.to_datetime(canonical.iloc[list(fold.validation_rows)]["decision_time"], utc=True)
+            .dt.date.astype(str)
+        ) == set(fold.validation_dates)
         assert set(fold.train_dates).isdisjoint(fold.validation_dates)
         assert len(fold.validation_rows) == 6
         assert len(fold.train_rows) % 2 == 0
