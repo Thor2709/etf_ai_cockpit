@@ -693,7 +693,10 @@ def github_actions_recovery_attestation(
     if (
         not isinstance(event, dict)
         or event.get("ref") != "refs/heads/main"
-        or event.get("inputs") not in (None, {})
+        or event.get("inputs") not in (
+            None, {}, {"recover_issue_0182": "false"},
+            {"recover_issue_0182": False},
+        )
     ):
         raise mutation_gateway.MutationPolicyError(
             "invalid_status_recovery_event",
