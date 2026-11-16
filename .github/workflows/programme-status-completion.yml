@@ -5,7 +5,13 @@ on:
     branches: [main]
     paths:
       - .github/issue-transitions/github-mutation-authority.jsonl
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      recover_issue_0182:
+        description: "Receipt-only recovery for ISSUE-0182 / GitHub #1051"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   actions: read
@@ -66,10 +72,17 @@ jobs:
             --evidence-out artifacts/programme-status-completion/evidence.json
             --apply
           )
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            args+=(--recover-issue-0018-status)
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ inputs.recover_issue_0182 }}" == "true" ]]; then
+            python -m scripts.recover_issue_0182_receipt \
+              --root . \
+              --evidence-out artifacts/programme-status-completion/evidence.json \
+              --apply
+          else
+            if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+              args+=(--recover-issue-0018-status)
+            fi
+            python -m scripts.apply_reviewed_status_completion "${args[@]}"
           fi
-          python -m scripts.apply_reviewed_status_completion "${args[@]}"
       - name: Upload status-completion evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
