@@ -93,6 +93,9 @@ def test_recognises_exact_valid_receipt_as_idempotent_no_op():
         ledger_blob_oid="1" * 40,
         ledger_blob_sha256="1" * 64,
         plan_sha256=authority["payload"]["plan_sha256"],
+        event_name="workflow_dispatch",
+        event_before=authority["payload"]["source_sha"],
+        event_after=recovery.ORIGINAL_HEAD,
     )
     issue["comments"] = [{
         "id": 999,
@@ -116,3 +119,25 @@ def test_dispatch_rejects_missing_github_actions_identity(monkeypatch):
     monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
     with pytest.raises(ValueError, match="requires_first_party_dispatch"):
         recovery._attest_dispatch(lambda _run_id: {})
+
+
+def test_parser_rejects_other_issues_using_recovery_dispatch():
+    authority = _authority()
+    issue = _issue(authority)
+    _, body = gateway.build_create_receipt(
+        issue,
+        mutation_id="9" * 64,
+        stable_id="ISSUE-0183",
+        authority_id="9" * 64,
+        authority_sequence=195,
+        source_sha=authority["payload"]["source_sha"],
+        head_sha=recovery.ORIGINAL_HEAD,
+        ledger_blob_oid="1" * 40,
+        ledger_blob_sha256="1" * 64,
+        plan_sha256=authority["payload"]["plan_sha256"],
+        event_name="workflow_dispatch",
+        event_before=authority["payload"]["source_sha"],
+        event_after=recovery.ORIGINAL_HEAD,
+    )
+    with pytest.raises(ValueError, match="invalid_create_receipt_workflow_binding"):
+        gateway.parse_create_receipt(body)
