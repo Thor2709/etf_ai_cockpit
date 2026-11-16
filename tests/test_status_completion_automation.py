@@ -1753,7 +1753,8 @@ def test_workflow_permissions_trigger_and_convergence_deferral() -> None:
     }
     assert status_workflow[True]["push"]["branches"] == ["main"]
     assert status_workflow[True]["push"]["paths"] == [
-        ".github/issue-transitions/github-mutation-authority.jsonl"
+        ".github/issue-transitions/github-mutation-authority.jsonl",
+        "scripts/recover_issue_0182_receipt.py",
     ]
     assert status_workflow[True]["workflow_dispatch"] == {}
     assert "inputs:" not in status_text
@@ -1781,6 +1782,8 @@ def test_workflow_permissions_trigger_and_convergence_deferral() -> None:
     assert "issues: read" in release
     assert isinstance(yaml.safe_load(release), dict)
     assert "steps.github_authority.outputs.changed == 'true'" in release
+    assert "python -m scripts.recover_issue_0182_receipt" in release
+    assert "scripts/recover_issue_0182_receipt.py" in convergence
     assert module_invocation in release
     assert direct_script_invocation not in release
     assert (
