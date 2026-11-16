@@ -1284,8 +1284,11 @@ def _forward_return(
         terminal_date = delisted["_date"].min()
         terminal_rows = delisted.loc[delisted["_date"].eq(terminal_date)]
         if "delisting_return" in terminal_rows and len(terminal_rows):
-            terminal_return = _finite_or(terminal_rows.iloc[-1]["delisting_return"], math.nan)
-            if math.isfinite(terminal_return):
+            reported_return = terminal_rows.iloc[-1]["delisting_return"]
+            if pd.notna(reported_return):
+                terminal_return = _finite_or(reported_return, math.nan)
+                if not math.isfinite(terminal_return) or terminal_return < -1:
+                    return None, "delisting_terminal_return_invalid"
                 return terminal_return, "available_delisting_return"
         terminal_price = terminal_rows.iloc[-1]["_close"] if len(terminal_rows) else None
         if _finite(terminal_price) and float(terminal_price) >= 0:

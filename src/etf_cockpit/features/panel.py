@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from bisect import bisect_right
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from numbers import Integral
 from pathlib import Path
 from typing import Iterable, Sequence
@@ -247,7 +247,9 @@ def build_pit_panel(
     last_day = benchmark["date"].map(_date_value).max()
     opens: dict[date, pd.Timestamp] = {}
     if pd.notna(last_day) and last_day > first_day:
-        calendar = xcals.get_calendar("XETR", start=str(first_day), end=str(last_day))
+        # The first open after the last bar is a calendar event. It does not
+        # require another observed close.
+        calendar = xcals.get_calendar("XETR", start=str(first_day), end=str(last_day + timedelta(days=7)))
         opens = {day.date(): stamp for day, stamp in calendar.schedule["open"].items()}
     sessions = sorted(opens)
     first_forward = {
@@ -266,7 +268,7 @@ def build_pit_panel(
         for row, item in enumerate(panel.itertuples(index=False)):
             cutoff = pd.Timestamp(item.decision_time)
             position = first_forward[cutoff.date()] + horizon - 1
-            if position >= len(sessions):
+            if position >= len(sessions) or sessions[position] > last_day:
                 returns.append(None)
                 excesses.append(None)
                 statuses.append("forward_price_window_not_matured")

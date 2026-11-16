@@ -70,11 +70,12 @@ def _case(tmp_path):
     return store, pd.DataFrame(source), membership, pd.DataFrame(prices), pd.DataFrame(vwce)
 
 
-def test_panel_excludes_late_and_approximated_feature_revisions(tmp_path):
+@pytest.mark.parametrize("cutoff", ["2026-01-05T17:00:00Z", "2026-01-05T17:00:00.250Z"])
+def test_panel_excludes_late_and_approximated_feature_revisions(tmp_path, cutoff):
     store, features, membership, prices, benchmark = _case(tmp_path)
     data = PITPanelInputs(store, features, prices, benchmark)
     panel = build_pit_panel(
-        ["2026-01-05T17:00:00Z"], membership,
+        [cutoff], membership,
         ["quality_score", "value_score"], horizons=(1,), inputs=data,
     )
     assert len(panel) == 2
@@ -92,7 +93,7 @@ def test_panel_excludes_late_and_approximated_feature_revisions(tmp_path):
     pd.testing.assert_frame_equal(
         panel,
         build_pit_panel(
-            ["2026-01-05T17:00:00Z"],
+            [cutoff],
             membership.sample(frac=1, random_state=1),
             ["quality_score", "value_score"],
             horizons=(1,),
@@ -134,22 +135,39 @@ def test_panel_uses_local_captured_membership_as_known_and_roundtrips_versions(t
         assert restored[version].tolist() == panel[version].tolist()
 
 
-def test_panel_purges_late_label_evidence_and_keeps_observed_delisting(tmp_path):
+@pytest.mark.parametrize("delisting_return, expected", [(-1.0, -1.0), (-1.25, None)])
+def test_panel_purges_late_label_evidence_and_keeps_observed_delisting(tmp_path, delisting_return, expected):
     store, features, membership, prices, benchmark = _case(tmp_path)
     a_target = prices["instrument_id"].eq("A") & prices["date"].eq("2026-01-06")
     b_target = prices["instrument_id"].eq("B") & prices["date"].eq("2026-01-06")
     prices.loc[a_target, "known_at"] = "2026-01-08T16:00:00Z"
     prices["delisted"] = b_target
-    prices.loc[b_target, "delisting_return"] = -1.0
+    prices.loc[b_target, "delisting_return"] = delisting_return
     panel = build_pit_panel(
         ["2026-01-05T17:00:00Z"], membership, ["quality_score"], horizons=(1,),
         inputs=PITPanelInputs(store, features, prices, benchmark),
     ).set_index("instrument_id")
     assert pd.isna(panel.loc["A", "fwd_total_1"])
     assert pd.isna(panel.loc["A", "label_available_at"])
-    assert panel.loc["B", "fwd_total_1"] == -1.0
     assert panel.loc["B", "delisted"]
-    assert panel.loc["B", "label_available_at"] == "2026-01-07T08:00:00+00:00"
+    if expected is None:
+        assert pd.isna(panel.loc["B", "fwd_total_1"])
+        assert panel.loc["B", "fwd_status_1"] == "delisting_terminal_return_invalid"
+    else:
+        assert panel.loc["B", "fwd_total_1"] == expected
+        assert panel.loc["B", "label_available_at"] == "2026-01-07T08:00:00+00:00"
+
+
+def test_final_benchmark_close_matures_at_the_next_session_open(tmp_path):
+    store, features, membership, prices, benchmark = _case(tmp_path)
+    benchmark = benchmark.loc[benchmark["date"].le("2026-01-06")]
+    panel = build_pit_panel(
+        ["2026-01-05T17:00:00Z"], membership, ["quality_score"], horizons=(1,),
+        inputs=PITPanelInputs(store, features, prices, benchmark),
+    )
+    assert panel["fwd_total_1"].tolist() == pytest.approx([0.02, 0.01])
+    assert panel["fwd_excess_1"].tolist() == pytest.approx([0.01, 0.0])
+    assert panel["label_available_at_1"].tolist() == ["2026-01-07T08:00:00+00:00"] * 2
 
 
 def test_missing_benchmark_bar_does_not_shift_the_holding_window(tmp_path):

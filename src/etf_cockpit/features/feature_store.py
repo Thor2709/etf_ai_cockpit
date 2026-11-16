@@ -476,7 +476,7 @@ def _parse_timestamp(value: str | date | datetime | pd.Timestamp, *, normalize: 
 def _decision_key(decision: pd.Timestamp) -> str:
     """Date for date-only decisions; the full timestamp when it carries a time of day."""
 
-    return decision.date().isoformat() if decision == decision.normalize() else decision.isoformat(timespec="seconds")
+    return decision.date().isoformat() if decision == decision.normalize() else decision.isoformat()
 
 
 def _timestamps(values: Iterable[object], *, normalize: bool = True) -> pd.Series:
