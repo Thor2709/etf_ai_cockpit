@@ -46,6 +46,14 @@ RECOVERY_SOURCE_SHA = "94e6376e1a81cdd11bc6c64adc1ebd6499c26bac"
 RECOVERY_HEAD_SHA = "f4f6707d19e4de0d26144971f6c254750e44aaa2"
 RECOVERY_STABLE_ID = "ISSUE-0018"
 RECOVERY_EVENT_NAME = "workflow_dispatch"
+# Exactly one previously created issue may have its missing create receipt
+# completed by a new authenticated Actions dispatch. Never generalise this to
+# rerun creates or to other authorities without a separately reviewed change.
+CREATE_RECEIPT_RECOVERY_AUTHORITY_ID = (
+    "4710da2531f34e582a31f2b7578970f5b4bc21a0fe6ac8b7748b27750fee0b1c"
+)
+CREATE_RECEIPT_RECOVERY_SOURCE_SHA = "8b1ff6738ed0c8284799bab2d8b1c1ac92079180"
+CREATE_RECEIPT_RECOVERY_HEAD_SHA = "a918030121b8043e7a8ace413b3fdfe7969d0fa6"
 BOT_AUTHORS = frozenset({"github-actions[bot]"})
 GITHUB_ACTIONS_BOT_USER_ID = "41898282"
 GITHUB_ACTIONS_APP_ID = "15368"
@@ -1821,8 +1829,18 @@ def parse_create_receipt(body: str) -> dict[str, Any] | None:
             )
         }
     )
+    exact_dispatch_recovery = (
+        value.get("event_name") == "workflow_dispatch"
+        and value.get("stable_id") == "ISSUE-0182"
+        and value.get("create_mutation_id") == CREATE_RECEIPT_RECOVERY_AUTHORITY_ID
+        and value.get("authority_id") == CREATE_RECEIPT_RECOVERY_AUTHORITY_ID
+        and value.get("source_sha") == CREATE_RECEIPT_RECOVERY_SOURCE_SHA
+        and value.get("head_sha") == CREATE_RECEIPT_RECOVERY_HEAD_SHA
+        and value.get("event_before") == CREATE_RECEIPT_RECOVERY_SOURCE_SHA
+        and value.get("event_after") == CREATE_RECEIPT_RECOVERY_HEAD_SHA
+    )
     if (
-        value.get("event_name") != "push"
+        (value.get("event_name") != "push" and not exact_dispatch_recovery)
         or value.get("event_ref") != "refs/heads/main"
         or value.get("run_attempt") != "1"
         or value.get("event_before") != value.get("source_sha")
