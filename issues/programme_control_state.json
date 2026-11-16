@@ -15591,6 +15591,74 @@
       "verified_commit": "125791086f67d4327a9920ec5edf5463dd19611c",
       "verified_date": "2026-10-01"
     },
+    "ISSUE-0182": {
+      "acceptance_evidence": [],
+      "canonical_definition": {
+        "acceptance_criteria": [
+          {
+            "id": "AC1",
+            "text": "Features with availability after the decision or with an approximated grade are null. A later input revision does not alter the earlier decision row."
+          },
+          {
+            "id": "AC2",
+            "text": "Shuffled inputs yield identical panels and folds. Each decision date belongs to at most one validation fold, with its cross-section intact."
+          },
+          {
+            "id": "AC3",
+            "text": "Each training label is available by the associated validation start. A delisted instrument retains its sourced terminal label."
+          },
+          {
+            "id": "AC4",
+            "text": "The Parquet artifact retains its three version identifiers and the inventory exposes membership provenance and label coverage."
+          }
+        ],
+        "activation_dependencies": [],
+        "blocking_dependencies": [],
+        "capability_lane": "CORE_ANALYSIS",
+        "contract_markdown": "Canonical successor to INT-02 from [intake issue #1022](https://github.com/Thor2709/etf_ai_cockpit/issues/1022).",
+        "exclusions": [
+          "Model training or promotion",
+          "New dependency, provider or execution authority"
+        ],
+        "objective": "Provide a reusable point-in-time research panel with leakage-safe features, labels and chronological folds.",
+        "owner": "model-governance",
+        "phase": "phase-06-model-research",
+        "priority": "P0",
+        "related_issues": [
+          "ISSUE-0119",
+          "ISSUE-0120",
+          "ISSUE-0126"
+        ],
+        "release_blocking": false,
+        "required_inputs": [],
+        "rollback": "Remove the research panel entry point and rebuild its derived output from local evidence.",
+        "scope": [
+          "Implement build_pit_panel(decision_times, membership, feature_ids, horizons=(63, 126)) on historical replay membership and the feature store, with one row per decision time and instrument. Expose <group>_available_at and preserve missing values.",
+          "Compute candidate and VWCE adjusted EUR simple total returns. Expose fwd_total_<h>, fwd_excess_<h>, label_start, label_end and label_available_at at the first session open after label end. Reuse replay delisting treatment.",
+          "Compute per-date cross-sectional transforms including quality_x_value and value_x_momentum rank products. Run the existing leakage check on the joined data. Record panel, feature-set and label versions in Parquet.",
+          "Implement date_grouped_folds(panel, spec) on sorted unique decision dates with strict label purge, then remove training rows whose labels are unavailable at validation start.",
+          "Provide panel_evidence_inventory(panel) with decision dates, instruments per date, matured labels per horizon and fold, non-overlapping periods per horizon, delisted share and membership source and point-in-time grade."
+        ],
+        "title": "Point-in-time cross-sectional panel (from #1022)",
+        "validation": {
+          "required": [
+            "Focused point-in-time membership, revision, delisting, maturity and fold tests.",
+            "Independent whole-diff and risk reviews and required Linux and Windows packaged gates."
+          ],
+          "tier": "H"
+        }
+      },
+      "dependency_edge_evidence": {},
+      "phase": "phase-06-model-research",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "Owner routing decision on 2026-11-16 for a managed successor to intake issue #1022",
+        "to": "planned"
+      },
+      "verified_commit": "1afe17c09fb53299f7c46459254d94ce8323acd1",
+      "verified_date": "2026-11-16"
+    },
     "UPDATEV2-0010": {
       "acceptance_evidence": [],
       "dependency_edge_evidence": {},

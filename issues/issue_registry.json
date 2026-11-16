@@ -39,8 +39,8 @@
   ],
   "counts": {
     "canonical_closed_package_records": 17,
-    "canonical_open_package_records": 185,
-    "canonical_records": 202,
+    "canonical_open_package_records": 186,
+    "canonical_records": 203,
     "closed_index_records": 17,
     "current_open_ledger_records": 97,
     "final_release_new_records": 24,
@@ -49,7 +49,7 @@
     "package_current_open_records": 72,
     "package_current_records": 76,
     "package_proposed_records": 83,
-    "package_records": 202
+    "package_records": 203
   },
   "dependency_reconciliation": [
     {
@@ -8477,6 +8477,21 @@
       "required_inputs": [
         "ISSUE-0149"
       ]
+    },
+    {
+      "activation_edges": [],
+      "activation_ready": true,
+      "activation_reason_codes": [
+        "ACTIVATION_READY_NO_DEPENDENCIES"
+      ],
+      "edges": [],
+      "execution_allowed": false,
+      "issue_id": "ISSUE-0182",
+      "ready": true,
+      "reason_codes": [
+        "READY_NO_BLOCKING_DEPENDENCIES"
+      ],
+      "required_inputs": []
     },
     {
       "activation_edges": [],
@@ -28453,6 +28468,92 @@
       "write_conflict_group": "data-platform"
     },
     {
+      "acceptance_criteria": [
+        {
+          "id": "AC1",
+          "text": "Features with availability after the decision or with an approximated grade are null. A later input revision does not alter the earlier decision row."
+        },
+        {
+          "id": "AC2",
+          "text": "Shuffled inputs yield identical panels and folds. Each decision date belongs to at most one validation fold, with its cross-section intact."
+        },
+        {
+          "id": "AC3",
+          "text": "Each training label is available by the associated validation start. A delisted instrument retains its sourced terminal label."
+        },
+        {
+          "id": "AC4",
+          "text": "The Parquet artifact retains its three version identifiers and the inventory exposes membership provenance and label coverage."
+        }
+      ],
+      "acceptance_evidence": [],
+      "activation_dependencies": [],
+      "blocking_dependencies": [],
+      "canonical_id": "ISSUE-0182",
+      "capability_lane": "CORE_ANALYSIS",
+      "classification": "proposed_new",
+      "contract_markdown": "Canonical successor to INT-02 from [intake issue #1022](https://github.com/Thor2709/etf_ai_cockpit/issues/1022).",
+      "dependency_candidates": [],
+      "dependency_conversions": [],
+      "dependency_edge_evidence": {},
+      "downstream_issues": [],
+      "epic": "",
+      "evidence_grade": "",
+      "exclusions": [
+        "Model training or promotion",
+        "New dependency, provider or execution authority"
+      ],
+      "ledger_state": "open",
+      "normative_amendments": [],
+      "objective": "Provide a reusable point-in-time research panel with leakage-safe features, labels and chronological folds.",
+      "owner": "model-governance",
+      "package_status": "",
+      "phase": "phase-06-model-research",
+      "priority": "P0",
+      "programme_status": "planned",
+      "provenance": {
+        "amendment_references": [],
+        "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
+        "primary_source": "issues/programme_control_state.json",
+        "schema_version": "1.0",
+        "source_record_id": "ISSUE-0182"
+      },
+      "related_issues": [
+        "ISSUE-0119",
+        "ISSUE-0120",
+        "ISSUE-0126"
+      ],
+      "release_blocking": false,
+      "required_inputs": [],
+      "risk": {
+        "categories": [],
+        "level": "medium"
+      },
+      "rollback": "Remove the research panel entry point and rebuild its derived output from local evidence.",
+      "scope": [
+        "Implement build_pit_panel(decision_times, membership, feature_ids, horizons=(63, 126)) on historical replay membership and the feature store, with one row per decision time and instrument. Expose <group>_available_at and preserve missing values.",
+        "Compute candidate and VWCE adjusted EUR simple total returns. Expose fwd_total_<h>, fwd_excess_<h>, label_start, label_end and label_available_at at the first session open after label end. Reuse replay delisting treatment.",
+        "Compute per-date cross-sectional transforms including quality_x_value and value_x_momentum rank products. Run the existing leakage check on the joined data. Record panel, feature-set and label versions in Parquet.",
+        "Implement date_grouped_folds(panel, spec) on sorted unique decision dates with strict label purge, then remove training rows whose labels are unavailable at validation start.",
+        "Provide panel_evidence_inventory(panel) with decision dates, instruments per date, matured labels per horizon and fold, non-overlapping periods per horizon, delisted share and membership source and point-in-time grade."
+      ],
+      "source_file": "issues/programme_control_state.json",
+      "source_kind": "control_extension",
+      "source_record_id": "ISSUE-0182",
+      "source_title": "Point-in-time cross-sectional panel (from #1022)",
+      "title": "Point-in-time cross-sectional panel (from #1022)",
+      "validation": {
+        "required": [
+          "Focused point-in-time membership, revision, delisting, maturity and fold tests.",
+          "Independent whole-diff and risk reviews and required Linux and Windows packaged gates."
+        ],
+        "tier": "H"
+      },
+      "verified_commit": "1afe17c09fb53299f7c46459254d94ce8323acd1",
+      "verified_date": "2026-11-16",
+      "write_conflict_group": "model-governance"
+    },
+    {
       "acceptance_evidence": [],
       "activation_dependencies": [],
       "blocking_dependencies": [],
@@ -30370,11 +30471,12 @@
         "ISSUE-0121",
         "ISSUE-0122",
         "ISSUE-0123",
-        "ISSUE-0124"
+        "ISSUE-0124",
+        "ISSUE-0182"
       ],
-      "issue_range": "ISSUE-0117–ISSUE-0124",
+      "issue_range": "ISSUE-0117–ISSUE-0124, ISSUE-0182",
       "phase": "phase-06-model-research",
-      "record_count": 8,
+      "record_count": 9,
       "title": "Training, validation and model governance"
     },
     {
@@ -30487,7 +30589,7 @@
     "package_registry_sha256": "42f401c32d2fddb17af97333303f4aeea0f2d2f8384e2b8da382529c0c7d107c",
     "package_reviewed_commit": "e149db50945401fb014955f0f79794a909796a75",
     "package_sha256": "39e30adc22c34a2f80640fa895caa21473457cea5bd0de872927051f8f99839b",
-    "programme_control_state_sha256": "625c09836e3756b2b252dbfd65bd73fbf5ac2ead94fd7c8c523f4a745ff9aba7",
+    "programme_control_state_sha256": "565018925721ba7cc29d925c50fb3788972ec101d8d1e8971d019d765ccae93c",
     "repository": "Thor2709/etf_ai_cockpit",
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   }

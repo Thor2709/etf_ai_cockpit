@@ -1,27 +1,21 @@
 {
   "allow_downgrades": false,
   "allow_other_status_changes": false,
-  "allowed_status_transitions": [
-    {
-      "from": "blocked",
-      "issue_id": "ISSUE-0152",
-      "to": "ready"
-    }
-  ],
-  "base_commit": "6bafbdaf4975f2001d9692e5ba5c1133ab9d94f2",
-  "branch": "claude/issue-0152-lifecycler-20261003",
-  "issue_ids": [
-    "ISSUE-0152"
-  ],
+  "allowed_status_transitions": [],
+  "base_commit": "1afe17c09fb53299f7c46459254d94ce8323acd1",
+  "branch": "codex/int-02-admission",
+  "issue_ids": [],
   "registry_migration": {
-    "added_issue_ids": [],
-    "base_registry_sha256": "ef5af1dbf1d4f1f22d644a9a7a18a6c5aa99a75eb89fa6b26bc29450a629048b",
+    "added_issue_ids": [
+      "ISSUE-0182"
+    ],
+    "base_registry_sha256": "71e1114fa994afab0f0a529818ebdf2c9c09858bc07506c16bad775f2d58d29e",
     "generator": "scripts/generate_issue_registry.py",
-    "mode": "generation_base_and_status_transitions",
-    "proposed_registry_sha256": "71e1114fa994afab0f0a529818ebdf2c9c09858bc07506c16bad775f2d58d29e",
-    "reason": "Transition only ISSUE-0152 from blocked to ready; preserve dependencies, GitHub issue open state, external authority and execution_allowed=false.",
+    "mode": "canonical_schema_and_intake",
+    "proposed_registry_sha256": "88617ab43bd447762fb87c5813d72be81af8e25326fcb2d0f5c6cfbe15127252",
+    "reason": "Admit the residual INT-02 panel scope as a single planned canonical successor to #1022, reusing integrated feature, validation and replay contracts.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },
-  "schema_version": "1.2"
+  "schema_version": "1.1"
 }
