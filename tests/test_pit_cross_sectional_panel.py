@@ -1,0 +1,161 @@
+"""Focused evidence and leakage tests for ISSUE-0182's PIT panel."""
+
+from __future__ import annotations
+
+from datetime import timedelta
+
+import pandas as pd
+import pytest
+
+from etf_cockpit.features.feature_store import FeatureDefinition, LocalFeatureStore
+from etf_cockpit.features.panel import (
+    PITPanelInputs,
+    PanelContractError,
+    build_pit_panel,
+    date_grouped_folds,
+    panel_evidence_inventory,
+)
+from etf_cockpit.validation.protocol import ValidationSpec
+
+
+def _case(tmp_path):
+    store = LocalFeatureStore(tmp_path)
+    for identifier in ("quality_score", "value_score"):
+        store.register_feature(
+            FeatureDefinition(identifier, identifier, source_dataset="fundamentals")
+        )
+    instruments = ("A", "B")
+    source = []
+    for instrument, quality in (("A", 1.0), ("B", 2.0)):
+        source.extend([
+            {
+                "instrument_id": instrument, "date": "2026-01-05",
+                "available_at": "2026-01-05T10:00:00Z", "pit_grade": "observed",
+                "quality_score": quality, "value_score": 3.0 - quality,
+            },
+            {
+                "instrument_id": instrument, "date": "2026-01-05",
+                "available_at": "2026-01-06T10:00:00Z", "pit_grade": "observed",
+                "quality_score": 999.0, "value_score": 999.0,
+            },
+            {
+                "instrument_id": instrument, "date": "2026-01-05",
+                "available_at": "2026-01-05T09:00:00Z", "pit_grade": "approximated",
+                "quality_score": 888.0, "value_score": 888.0,
+            },
+        ])
+    membership = pd.DataFrame([
+        {
+            "instrument_id": instrument, "snapshot_date": "2026-01-05",
+            "snapshot_complete": True, "valid_from": "2025-01-01",
+            "valid_to": None, "known_at": "2026-01-05T08:00:00Z",
+            "pit_grade": "observed", "source": "snapshot-test",
+        } for instrument in instruments
+    ])
+    prices, vwce = [], []
+    for day, index in (("2026-01-05", 0), ("2026-01-06", 1), ("2026-01-07", 2)):
+        for instrument, initial in (("A", 100.0), ("B", 200.0)):
+            prices.append({
+                "instrument_id": instrument, "date": day,
+                "known_at": day + "T16:00:00Z",
+                "adjusted_close": initial + 2 * index,
+                "is_adjusted": True, "currency": "EUR",
+            })
+        vwce.append({
+            "instrument_id": "VWCE", "date": day,
+            "known_at": day + "T16:00:00Z",
+            "adjusted_close": 100.0 + index,
+            "session_open_at": day + "T08:00:00Z",
+            "is_adjusted": True, "currency": "EUR",
+        })
+    return store, pd.DataFrame(source), membership, pd.DataFrame(prices), pd.DataFrame(vwce)
+
+
+def test_panel_excludes_late_and_approximated_feature_revisions(tmp_path):
+    store, features, membership, prices, benchmark = _case(tmp_path)
+    data = PITPanelInputs(store, features, prices, benchmark)
+    panel = build_pit_panel(
+        ["2026-01-05T17:00:00Z"], membership,
+        ["quality_score", "value_score"], horizons=(1,), inputs=data,
+    )
+    assert len(panel) == 2
+    assert panel["instrument_id"].tolist() == ["A", "B"]
+    assert panel["quality_score"].tolist() == [1.0, 2.0]
+    assert panel["fwd_total_1"].tolist() == pytest.approx([0.02, 0.01])
+    assert panel["fwd_excess_1"].tolist() == pytest.approx([0.01, 0.0])
+    assert panel["label_available_at_1"].tolist() == [
+        "2026-01-07T08:00:00+00:00"
+    ] * 2
+    assert not panel["execution_allowed"].any()
+    assert panel["fundamentals_available_at"].notna().all()
+    pd.testing.assert_frame_equal(
+        panel,
+        build_pit_panel(
+            ["2026-01-05T17:00:00Z"],
+            membership.sample(frac=1, random_state=1),
+            ["quality_score", "value_score"],
+            horizons=(1,),
+            inputs=PITPanelInputs(store, features.sample(frac=1, random_state=4), prices, benchmark),
+        ),
+    )
+
+
+def test_membership_snapshot_after_decision_is_not_used(tmp_path):
+    store, features, membership, prices, benchmark = _case(tmp_path)
+    membership["known_at"] = "2026-01-06T10:00:00Z"
+    with pytest.raises(PanelContractError, match="no complete observed membership"):
+        build_pit_panel(
+            ["2026-01-05T17:00:00Z"], membership,
+            ["quality_score"], horizons=(1,),
+            inputs=PITPanelInputs(store, features, prices, benchmark),
+        )
+
+
+def test_fold_splits_are_by_date_with_label_availability_purge():
+    rows = []
+    start = pd.Timestamp("2026-01-01T17:00:00Z")
+    for i in range(18):
+        cutoff = start + pd.Timedelta(days=i)
+        available = cutoff + pd.Timedelta(days=2)
+        for instrument in ("A", "B"):
+            rows.append({
+                "decision_time": cutoff.isoformat(), "instrument_id": instrument,
+                "label_available_at": available.isoformat(),
+            })
+    panel = pd.DataFrame(rows)
+    spec = ValidationSpec(
+        n_splits=2, test_size=3, horizon=1, final_test_size=2,
+        embargo=0, bootstrap_repetitions=1,
+    )
+    original = date_grouped_folds(panel, spec)
+    shuffled = date_grouped_folds(panel.sample(frac=1, random_state=2), spec)
+    assert original == shuffled
+    for fold in original:
+        assert set(fold.train_dates).isdisjoint(fold.validation_dates)
+        assert len(fold.validation_rows) == 6
+        assert len(fold.train_rows) % 2 == 0
+        assert max(fold.train_dates) < min(fold.validation_dates)
+
+
+def test_inventory_counts_dates_not_instrument_rows():
+    panel = pd.DataFrame([
+        {
+            "decision_time": "2026-01-05T17:00:00Z",
+            "instrument_id": symbol,
+            "fwd_total_1": 0.01,
+            "label_end_1": "2026-01-06",
+            "label_available_at_1": "2026-01-07T08:00:00Z",
+            "delisted": symbol == "A",
+        } for symbol in ("A", "B")
+    ])
+    panel.attrs.update({
+        "as_of": "2026-01-08T17:00:00Z",
+        "membership_source": "fixture",
+        "membership_pit_grade": "observed",
+    })
+    report = panel_evidence_inventory(panel)
+    assert report["decision_dates"] == 1
+    assert report["instruments_per_date"] == {"2026-01-05": 2}
+    assert report["matured_labels"] == {"1": 2}
+    assert report["non_overlapping_periods"] == {"1": 1}
+    assert report["delisted_share"] == 0.5
