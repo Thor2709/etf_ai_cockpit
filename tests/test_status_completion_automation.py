@@ -1755,8 +1755,13 @@ def test_workflow_permissions_trigger_and_convergence_deferral() -> None:
     assert status_workflow[True]["push"]["paths"] == [
         ".github/issue-transitions/github-mutation-authority.jsonl"
     ]
-    assert status_workflow[True]["workflow_dispatch"] == {}
-    assert "inputs:" not in status_text
+    assert status_workflow[True]["workflow_dispatch"]["inputs"]["recover_issue_0182"] == {
+        "description": "Receipt-only recovery for ISSUE-0182 / GitHub #1051",
+        "required": False,
+        "type": "boolean",
+        "default": False,
+    }
+    assert "python -m scripts.recover_issue_0182_receipt" in status_text
     assert "--apply" in status_text
     assert "--recover-issue-0018-status" in status_text
     assert "--expected-parent" not in status_text
