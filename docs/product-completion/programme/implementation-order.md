@@ -7,7 +7,7 @@ Use `python scripts/programme_execution.py` for deterministic NOW/NEXT, followin
 3. **phase-03-stock-research** - Stock statements, fundamentals, valuation and sectors (ISSUE-0091–ISSUE-0102; 12 records).
 4. **phase-04-etf-research** - ETF economics, structure, exposure and context (ISSUE-0103–ISSUE-0107, ISSUE-0172; 6 records).
 5. **phase-05-returns-risk-portfolio** - Expected return, risk and portfolio construction (ISSUE-0008, ISSUE-0028–ISSUE-0029, ISSUE-0046, ISSUE-0051–ISSUE-0052, ISSUE-0059–ISSUE-0060, ISSUE-0064–ISSUE-0065, ISSUE-0108–ISSUE-0116, ISSUE-0154, ISSUE-0156–ISSUE-0157, ISSUE-0159, ISSUE-0162, ISSUE-0164, ISSUE-0166, ISSUE-0168, ISSUE-0173–ISSUE-0174, UPDATEV2-0026; 30 records).
-6. **phase-06-model-research** - Training, validation and model governance (ISSUE-0117–ISSUE-0124; 8 records).
+6. **phase-06-model-research** - Training, validation and model governance (ISSUE-0117–ISSUE-0124, ISSUE-0182; 9 records).
 7. **phase-07-backtest-paper-execution** - Backtest, paper trading and staged execution (ISSUE-0031–ISSUE-0032, ISSUE-0057, ISSUE-0066, ISSUE-0125–ISSUE-0135, ISSUE-0167; 16 records).
 8. **phase-08-frontend-api** - Typed local API and task-oriented frontend (ISSUE-0011, ISSUE-0016–ISSUE-0017, ISSUE-0020, ISSUE-0030, ISSUE-0037, ISSUE-0041–ISSUE-0043, ISSUE-0045, ISSUE-0136–ISSUE-0140, ISSUE-0158, ISSUE-0160–ISSUE-0161, ISSUE-0163, ISSUE-0165, ISSUE-0175, UPDATEV2-0027; 22 records).
 9. **phase-09-quality-release-security** - Quality, release, security and resilience (ISSUE-0141–ISSUE-0146, ISSUE-0169, ISSUE-0176–ISSUE-0178, ISSUE-0180; 11 records).

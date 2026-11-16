@@ -3,7 +3,7 @@
   "outputs": [
     {
       "path": ".github/status-transition-guard-manifest.json",
-      "sha256": "2453927678e551cea4d4b416177b38a0cf87a4f1c9fd7d914db1fd2deb483edb"
+      "sha256": "6816bb77846aa8d8d91ee1b397d0c846818623893de83ba22b059827ac5d0dd2"
     },
     {
       "path": "CHANGELOG.md",
@@ -15,7 +15,7 @@
     },
     {
       "path": "docs/product-completion/CURRENT_STATUS.json",
-      "sha256": "4f660454d02890bb337ca49dddb2be92182334bcf3b1b46cc189a47db54218d6"
+      "sha256": "50bce1922257ca6418ba931327f770e5e667a3c5a9e4f6192e02b50d0ae767ec"
     },
     {
       "path": "docs/product-completion/DELIVERY_WORKFLOW.md",
@@ -23,7 +23,7 @@
     },
     {
       "path": "docs/product-completion/PROGRESS.md",
-      "sha256": "e6447347829d065472b2b0e52806e12dd0e3fd39a09dfe0d6bf68d34900d60b0"
+      "sha256": "70c456d3a400b0f04ed1c6bef3e379afcb4be7e7884ebdeb831da38a57484818"
     },
     {
       "path": "docs/product-completion/programme/git-workflow.md",
@@ -31,7 +31,7 @@
     },
     {
       "path": "docs/product-completion/programme/implementation-order.md",
-      "sha256": "5ba8974ed203f5c423b877a93222f5cc857d32148495cd297848076539b35e70"
+      "sha256": "a31fb013279390142dca8911253815d59bc67a80195af696321721a16efd7696"
     },
     {
       "path": "docs/product-completion/programme/phases/phase-01-governance-scope.md",
@@ -55,7 +55,7 @@
     },
     {
       "path": "docs/product-completion/programme/phases/phase-06-model-research.md",
-      "sha256": "b209a069b3c043e09e64a7dd41bc40f923070ec186f1696c773773f2751c668c"
+      "sha256": "32397e108fa7d052dbc21255152f11dea0b06a65293438a6cc01c0f0401f92ac"
     },
     {
       "path": "docs/product-completion/programme/phases/phase-07-backtest-paper-execution.md",
@@ -83,11 +83,11 @@
     },
     {
       "path": "docs/product-completion/programme/readiness.json",
-      "sha256": "b321b22955990b7ab04644f92de4692861be82212981dce3e35d577bd87d144f"
+      "sha256": "42fa1fe9a15a77d5768e27ae06e7d8a18880e617f5e2c24c499a84e5f81686d9"
     },
     {
       "path": "docs/product-completion/programme/roadmap.md",
-      "sha256": "c6444d5dc5255654736e8c7a999d2eea01044d3c300bfbd816b1e402578aa37e"
+      "sha256": "6d50a6be22539d4bef6588a0cafc0331bf87adf4eb0cc9abf31341d77d043075"
     },
     {
       "path": "docs/product-completion/programme/test-and-performance-strategy.md",
@@ -99,7 +99,7 @@
     },
     {
       "path": "docs/product-completion/reconciliation/2026-07-21-2337f69/canonical-dag.json",
-      "sha256": "d8611c07d8f1f51bb919a804b4ffefd90d63bb2ee70d5f48ab55d630750111a3"
+      "sha256": "227ef0fa182945a3f9cb243898cac0235f3463a16d33b7dd73572e6a3c10d8f8"
     },
     {
       "path": "docs/product-completion/reconciliation/2026-07-21-2337f69/current-only-records.csv",
@@ -139,7 +139,7 @@
     },
     {
       "path": "docs/product-completion/reconciliation/2026-07-21-2337f69/ownership.csv",
-      "sha256": "2556b7f4726dc4ebc3ba552d0fa59eafefa3f7ab8d1df3c3498633721e76a8f2"
+      "sha256": "aaca3605a5a5625c29ef430c9b96e4457a2d177783e0d75d5071dec9b583c29e"
     },
     {
       "path": "docs/product-completion/reconciliation/2026-07-21-2337f69/package-discrepancies.md",
@@ -147,11 +147,11 @@
     },
     {
       "path": "docs/product-completion/reconciliation/2026-07-21-2337f69/source-to-canonical.csv",
-      "sha256": "69ced5196aa61a74e3150d0b2cc3a3682c8a854dcd7025e82e613960bb09d76f"
+      "sha256": "5427e180c987b014bb22e39745c5eca5a8b501d100490a5e90479e655076abc2"
     },
     {
       "path": "issues/issue_registry.json",
-      "sha256": "71e1114fa994afab0f0a529818ebdf2c9c09858bc07506c16bad775f2d58d29e"
+      "sha256": "88617ab43bd447762fb87c5813d72be81af8e25326fcb2d0f5c6cfbe15127252"
     },
     {
       "path": "issues/open.md",
@@ -159,7 +159,7 @@
     },
     {
       "path": "issues/programme_control_state.json",
-      "sha256": "625c09836e3756b2b252dbfd65bd73fbf5ac2ead94fd7c8c523f4a745ff9aba7"
+      "sha256": "565018925721ba7cc29d925c50fb3788972ec101d8d1e8971d019d765ccae93c"
     }
   ],
   "schema_version": "programme-generation.v1"
