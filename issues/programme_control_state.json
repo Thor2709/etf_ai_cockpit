@@ -5429,7 +5429,7 @@
       "acceptance_evidence": [
         {
           "evidence_references": [
-            "PR #545 merged the sole ISSUE-0099\u2192ISSUE-0098 dependency edge as complete in d149defcce3398c3cc463bc0d1cdbdf9a1e7cb4b with status guard and supply-chain validation passing",
+            "PR #545 merged the sole ISSUE-0099→ISSUE-0098 dependency edge as complete in d149defcce3398c3cc463bc0d1cdbdf9a1e7cb4b with status guard and supply-chain validation passing",
             "ISSUE-0098 peer-cohort.v1 supplies the required adapter registration, point-in-time cohort, robust statistics, lineage and replay boundary while ISSUE-0099 retains financial-sector implementation"
           ],
           "review_reference": "B04 ISSUE-0099 readiness after complete ISSUE-0098 dependency review",
@@ -5522,7 +5522,7 @@
         {
           "allow_downgrade": false,
           "evidence_references": [
-            "PR #545 merged the sole ISSUE-0099\u2192ISSUE-0098 dependency edge as complete in d149defcce3398c3cc463bc0d1cdbdf9a1e7cb4b with status guard and supply-chain validation passing",
+            "PR #545 merged the sole ISSUE-0099→ISSUE-0098 dependency edge as complete in d149defcce3398c3cc463bc0d1cdbdf9a1e7cb4b with status guard and supply-chain validation passing",
             "ISSUE-0098 peer-cohort.v1 supplies the required adapter registration, point-in-time cohort, robust statistics, lineage and replay boundary while ISSUE-0099 retains financial-sector implementation"
           ],
           "from": "planned",
@@ -5581,7 +5581,7 @@
       "acceptance_evidence": [
         {
           "evidence_references": [
-            "PR #551 merged the sole ISSUE-0100\u2192ISSUE-0098 dependency edge as complete in 65d35e21c397aaca77483cacc88babebdffd0014 with status guard and supply-chain validation passing",
+            "PR #551 merged the sole ISSUE-0100→ISSUE-0098 dependency edge as complete in 65d35e21c397aaca77483cacc88babebdffd0014 with status guard and supply-chain validation passing",
             "ISSUE-0098 peer-cohort.v1 supplies adapter registration, point-in-time cohort hierarchy, robust statistics, lineage and replay while ISSUE-0100 retains all REIT, utility and infrastructure implementation scope",
             "Canonical readiness reports READY_BLOCKING_EDGES_RESOLVED and execution_allowed remains false"
           ],
@@ -5676,7 +5676,7 @@
         {
           "allow_downgrade": false,
           "evidence_references": [
-            "PR #551 merged the sole ISSUE-0100\u2192ISSUE-0098 dependency edge as complete in 65d35e21c397aaca77483cacc88babebdffd0014 with status guard and supply-chain validation passing",
+            "PR #551 merged the sole ISSUE-0100→ISSUE-0098 dependency edge as complete in 65d35e21c397aaca77483cacc88babebdffd0014 with status guard and supply-chain validation passing",
             "ISSUE-0098 peer-cohort.v1 supplies adapter registration, point-in-time cohort hierarchy, robust statistics, lineage and replay while ISSUE-0100 retains all REIT, utility and infrastructure implementation scope",
             "Canonical readiness reports READY_BLOCKING_EDGES_RESOLVED and execution_allowed remains false"
           ],
@@ -5737,7 +5737,7 @@
       "acceptance_evidence": [
         {
           "evidence_references": [
-            "PR #557 merged the sole ISSUE-0101\u2192ISSUE-0098 dependency edge as complete in 4469b423e18cfb04a7150d38286645d06ea0af67 with status guard and supply-chain validation passing",
+            "PR #557 merged the sole ISSUE-0101→ISSUE-0098 dependency edge as complete in 4469b423e18cfb04a7150d38286645d06ea0af67 with status guard and supply-chain validation passing",
             "ISSUE-0098 peer-cohort.v1 supplies adapter registration, point-in-time cohort hierarchy, robust statistics, lineage and replay while ISSUE-0101 retains all energy, materials and industrial implementation scope",
             "Canonical readiness reports READY_BLOCKING_EDGES_RESOLVED and execution_allowed remains false"
           ],
@@ -5832,7 +5832,7 @@
         {
           "allow_downgrade": false,
           "evidence_references": [
-            "PR #557 merged the sole ISSUE-0101\u2192ISSUE-0098 dependency edge as complete in 4469b423e18cfb04a7150d38286645d06ea0af67 with status guard and supply-chain validation passing",
+            "PR #557 merged the sole ISSUE-0101→ISSUE-0098 dependency edge as complete in 4469b423e18cfb04a7150d38286645d06ea0af67 with status guard and supply-chain validation passing",
             "ISSUE-0098 peer-cohort.v1 supplies adapter registration, point-in-time cohort hierarchy, robust statistics, lineage and replay while ISSUE-0101 retains all energy, materials and industrial implementation scope",
             "Canonical readiness reports READY_BLOCKING_EDGES_RESOLVED and execution_allowed remains false"
           ],
@@ -5893,7 +5893,7 @@
       "acceptance_evidence": [
         {
           "evidence_references": [
-            "PR #638 merged the sole ISSUE-0102\u2192ISSUE-0098 dependency edge as complete in 179e16c71328c43a9475dce60743a2d1aeda5aa7 from exact reviewed head 871ea037c594844a0de9e72e7dbabd3405244b76",
+            "PR #638 merged the sole ISSUE-0102→ISSUE-0098 dependency edge as complete in 179e16c71328c43a9475dce60743a2d1aeda5aa7 from exact reviewed head 871ea037c594844a0de9e72e7dbabd3405244b76",
             "Release run 30737461361 passed classifier, preflight, supply-chain, authoritative Linux and Windows package gates and terminal validation summary; standalone status guard 30737461338 passed",
             "ISSUE-0098 peer-cohort.v1 supplies adapter registration, point-in-time cohort hierarchy, robust statistics, lineage and replay while ISSUE-0102 retains all software, semiconductor, healthcare and biotechnology implementation scope; convergence run 30738361187 was zero action and execution_allowed remains false"
           ],
@@ -5988,7 +5988,7 @@
         {
           "allow_downgrade": false,
           "evidence_references": [
-            "PR #638 merged the sole ISSUE-0102\u2192ISSUE-0098 dependency edge as complete in 179e16c71328c43a9475dce60743a2d1aeda5aa7 from exact reviewed head 871ea037c594844a0de9e72e7dbabd3405244b76",
+            "PR #638 merged the sole ISSUE-0102→ISSUE-0098 dependency edge as complete in 179e16c71328c43a9475dce60743a2d1aeda5aa7 from exact reviewed head 871ea037c594844a0de9e72e7dbabd3405244b76",
             "Release run 30737461361 passed classifier, preflight, supply-chain, authoritative Linux and Windows package gates and terminal validation summary; standalone status guard 30737461338 passed",
             "ISSUE-0098 peer-cohort.v1 supplies adapter registration, point-in-time cohort hierarchy, robust statistics, lineage and replay while ISSUE-0102 retains all software, semiconductor, healthcare and biotechnology implementation scope; convergence run 30738361187 was zero action and execution_allowed remains false"
           ],
@@ -15592,7 +15592,18 @@
       "verified_date": "2026-10-01"
     },
     "ISSUE-0182": {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "https://github.com/Thor2709/etf_ai_cockpit/pull/1053",
+            "https://github.com/Thor2709/etf_ai_cockpit/actions/runs/43973992554"
+          ],
+          "review_reference": "Owner-authorized root review for PR #1053 at 21befd15",
+          "reviewed_date": "2026-11-17",
+          "reviewer": "Codex root",
+          "status": "in_progress"
+        }
+      ],
       "canonical_definition": {
         "acceptance_criteria": [
           {
@@ -15650,14 +15661,29 @@
       },
       "dependency_edge_evidence": {},
       "phase": "phase-06-model-research",
-      "programme_status": "planned",
+      "programme_status": "in_progress",
       "status_transition": {
         "from": "planned",
-        "review_reference": "Owner routing decision on 2026-11-16 for a managed successor to intake issue #1022",
-        "to": "planned"
+        "review_reference": "Owner-authorized root review for PR #1053 at 21befd15",
+        "to": "in_progress"
       },
-      "verified_commit": "1afe17c09fb53299f7c46459254d94ce8323acd1",
-      "verified_date": "2026-11-16"
+      "transition_history": [
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "https://github.com/Thor2709/etf_ai_cockpit/pull/1053",
+            "https://github.com/Thor2709/etf_ai_cockpit/actions/runs/43973992554"
+          ],
+          "from": "planned",
+          "review_reference": "Owner-authorized root review for PR #1053 at 21befd15",
+          "reviewed_date": "2026-11-17",
+          "reviewer": "Codex root",
+          "to": "in_progress",
+          "verified_commit": "21befd158be198cb26b070b3a9ded6b207bd541e"
+        }
+      ],
+      "verified_commit": "21befd158be198cb26b070b3a9ded6b207bd541e",
+      "verified_date": "2026-11-17"
     },
     "UPDATEV2-0010": {
       "acceptance_evidence": [],

@@ -28486,7 +28486,18 @@
           "text": "The Parquet artifact retains its three version identifiers and the inventory exposes membership provenance and label coverage."
         }
       ],
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "https://github.com/Thor2709/etf_ai_cockpit/pull/1053",
+            "https://github.com/Thor2709/etf_ai_cockpit/actions/runs/43973992554"
+          ],
+          "review_reference": "Owner-authorized root review for PR #1053 at 21befd15",
+          "reviewed_date": "2026-11-17",
+          "reviewer": "Codex root",
+          "status": "in_progress"
+        }
+      ],
       "activation_dependencies": [],
       "blocking_dependencies": [],
       "canonical_id": "ISSUE-0182",
@@ -28510,7 +28521,7 @@
       "package_status": "",
       "phase": "phase-06-model-research",
       "priority": "P0",
-      "programme_status": "planned",
+      "programme_status": "in_progress",
       "provenance": {
         "amendment_references": [],
         "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
@@ -28549,8 +28560,8 @@
         ],
         "tier": "H"
       },
-      "verified_commit": "1afe17c09fb53299f7c46459254d94ce8323acd1",
-      "verified_date": "2026-11-16",
+      "verified_commit": "21befd158be198cb26b070b3a9ded6b207bd541e",
+      "verified_date": "2026-11-17",
       "write_conflict_group": "model-governance"
     },
     {
@@ -30589,7 +30600,7 @@
     "package_registry_sha256": "42f401c32d2fddb17af97333303f4aeea0f2d2f8384e2b8da382529c0c7d107c",
     "package_reviewed_commit": "e149db50945401fb014955f0f79794a909796a75",
     "package_sha256": "39e30adc22c34a2f80640fa895caa21473457cea5bd0de872927051f8f99839b",
-    "programme_control_state_sha256": "565018925721ba7cc29d925c50fb3788972ec101d8d1e8971d019d765ccae93c",
+    "programme_control_state_sha256": "e0b1428143c2c3f5360802b950a9b6089bd2cafe31a43650db9ea1417dcd4dde",
     "repository": "Thor2709/etf_ai_cockpit",
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   }

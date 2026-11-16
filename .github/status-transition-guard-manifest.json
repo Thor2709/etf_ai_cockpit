@@ -1,21 +1,27 @@
 {
   "allow_downgrades": false,
   "allow_other_status_changes": false,
-  "allowed_status_transitions": [],
-  "base_commit": "1afe17c09fb53299f7c46459254d94ce8323acd1",
-  "branch": "codex/int-02-admission",
-  "issue_ids": [],
+  "allowed_status_transitions": [
+    {
+      "from": "planned",
+      "issue_id": "ISSUE-0182",
+      "to": "in_progress"
+    }
+  ],
+  "base_commit": "1326f0cfec0e6c80a44cbee7948299a06e7add95",
+  "branch": "codex/issue-0182-status",
+  "issue_ids": [
+    "ISSUE-0182"
+  ],
   "registry_migration": {
-    "added_issue_ids": [
-      "ISSUE-0182"
-    ],
-    "base_registry_sha256": "71e1114fa994afab0f0a529818ebdf2c9c09858bc07506c16bad775f2d58d29e",
+    "added_issue_ids": [],
+    "base_registry_sha256": "88617ab43bd447762fb87c5813d72be81af8e25326fcb2d0f5c6cfbe15127252",
     "generator": "scripts/generate_issue_registry.py",
-    "mode": "canonical_schema_and_intake",
-    "proposed_registry_sha256": "88617ab43bd447762fb87c5813d72be81af8e25326fcb2d0f5c6cfbe15127252",
-    "reason": "Admit the residual INT-02 panel scope as a single planned canonical successor to #1022, reusing integrated feature, validation and replay contracts.",
+    "mode": "generation_base_and_status_transitions",
+    "proposed_registry_sha256": "894a9fe78097e3df619573b377b2dee3349542c566adbcced0a4536a8bd85240",
+    "reason": "Project the recorded start of ISSUE-0182 before the protected completion replay.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },
-  "schema_version": "1.1"
+  "schema_version": "1.2"
 }
