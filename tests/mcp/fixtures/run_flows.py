@@ -85,8 +85,10 @@ def identity_ticker(_symbol):
                                  "currency": "EUR", "country": "Germany", "exchange": "GER"})
 
 
-def market_download(symbol, *, start, end, fixture_prices, **_kwargs):
+def market_download(symbol, *, start, end, fixture_prices=None, **_kwargs):
     assert symbol == "VWCE.DE", f"No market response fixture for {symbol}"
+    if fixture_prices is None:
+        fixture_prices = pd.read_csv(Path(__file__).parent / "prices.csv")
     dates = pd.to_datetime(fixture_prices["date"])
     prices = fixture_prices.loc[(dates >= pd.Timestamp(start)) & (dates < pd.Timestamp(end))].copy()
     # Explicit fixture evidence: this accumulating VWCE history has no cash
@@ -101,7 +103,7 @@ def unavailable_reference_http(*_args, **_kwargs):
     raise OSError("Offline fixture: issuer/public reference input unavailable")
 
 
-def context(root, prices):
+def context(root, prices=None):
     import yfinance
     from etf_cockpit.application import stock_service
     from etf_cockpit.application.headless_session import HeadlessSession
