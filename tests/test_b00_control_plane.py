@@ -323,11 +323,17 @@ def test_persisted_control_extensions_do_not_require_reauthorisation(
 
     registry = build_registry(ROOT, verify_base=False)
 
+    control = issue_registry_core.load_control_state(ROOT)
+    expected_extensions = {
+        issue_id for issue_id, record in control["records"].items()
+        if "canonical_definition" in record
+    }
+    assert {f"ISSUE-{number:04d}" for number in range(177, 183)} <= expected_extensions
     assert {
         record["canonical_id"]
         for record in registry["records"]
         if record["source_kind"] == "control_extension"
-    } == {"ISSUE-0177", "ISSUE-0178", "ISSUE-0179", "ISSUE-0180", "ISSUE-0181", "ISSUE-0182"}
+    } == expected_extensions
 
 
 def test_persisted_control_extension_accepts_reviewed_lifecycle_status(
