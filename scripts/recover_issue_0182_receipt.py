@@ -43,7 +43,10 @@ def validate_existing_issue(issue: dict[str, Any], authority: dict[str, Any]) ->
         or snapshot["labels"]
         or not snapshot["id"]
         or not snapshot["node_id"]
-        or snapshot["url"] != f"https://github.com/{gateway.REPO}/issues/{ISSUE_NUMBER}"
+        or snapshot["url"] not in (
+            f"https://api.github.com/repos/{gateway.REPO}/issues/{ISSUE_NUMBER}",
+            f"https://github.com/{gateway.REPO}/issues/{ISSUE_NUMBER}",
+        )
     ):
         raise ValueError("issue_0182_recovery_projection_mismatch")
     acceptance = gateway.validate_create_acceptance(issue)
