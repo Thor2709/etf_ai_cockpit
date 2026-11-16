@@ -1798,15 +1798,26 @@ def _is_create_receipt_recovery(value: dict[str, Any]) -> bool:
     )
 
 
-def validate_create_receipt_recovery_push(root: Path, before: str, after: str) -> None:
-    """Require a first-parent introduction off the reviewed, spent create head."""
+def validate_create_receipt_recovery_push(
+    root: Path, before: str, after: str, *, validating_candidate: bool = False,
+) -> None:
+    """Check the reviewed candidate or require its actual introducing main push."""
     if (
         before != CREATE_RECEIPT_RECOVERY_HEAD_SHA
         or not SHA_RE.fullmatch(after)
         or after == before
-        or subprocess.check_output(
+    ):
+        raise ValueError("issue_0182_recovery_push_not_authorised")
+    if validating_candidate:
+        based_on_original = subprocess.run(
+            ["git", "merge-base", "--is-ancestor", before, after], cwd=root, check=False,
+        ).returncode == 0
+    else:
+        based_on_original = subprocess.check_output(
             ["git", "rev-parse", f"{after}^"], cwd=root, text=True
-        ).strip() != before
+        ).strip() == before
+    if (
+        not based_on_original
         or _git_blob_bytes(root, before, CREATE_RECEIPT_RECOVERY_PATH) is not None
         or _git_blob_bytes(root, after, CREATE_RECEIPT_RECOVERY_PATH) is None
         or _git_blob_bytes(root, before, AUTHORITY_PATH)

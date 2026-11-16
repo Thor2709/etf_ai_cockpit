@@ -126,7 +126,7 @@ def recover(
         applying and status._git(root, "rev-parse", "origin/main") != head
     ):
         raise ValueError("issue_0182_recovery_head_mismatch")
-    gateway.validate_create_receipt_recovery_push(root, parent, head)
+    gateway.validate_create_receipt_recovery_push(root, parent, head, validating_candidate=not applying)
     original_run = run_reader(ORIGINAL_WRITER_RUN)
     if (
         str(original_run.get("id")) != ORIGINAL_WRITER_RUN

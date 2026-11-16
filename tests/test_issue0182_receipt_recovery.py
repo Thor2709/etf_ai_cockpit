@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import subprocess
 
 import pytest
 
@@ -119,6 +120,35 @@ def test_recovery_rejects_missing_github_actions_identity(tmp_path, monkeypatch)
         recovery.recover(tmp_path)
 
 
+def test_reviewed_candidate_can_have_multiple_commits_but_apply_requires_merge_parent(tmp_path, monkeypatch):
+    def git(*args):
+        return subprocess.check_output(["git", *args], cwd=tmp_path, text=True).strip()
+
+    git("init", "-q")
+    git("config", "user.name", "Test")
+    git("config", "user.email", "test@example.invalid")
+    ledger = tmp_path / gateway.AUTHORITY_PATH
+    ledger.parent.mkdir(parents=True)
+    ledger.write_bytes(b"original ledger\n")
+    git("add", ".")
+    git("commit", "-qm", "spent create")
+    base = git("rev-parse", "HEAD")
+    monkeypatch.setattr(gateway, "CREATE_RECEIPT_RECOVERY_HEAD_SHA", base)
+    git("commit", "--allow-empty", "-qm", "early change")
+    path = tmp_path / gateway.CREATE_RECEIPT_RECOVERY_PATH
+    path.parent.mkdir()
+    path.write_text("# recovery\n", encoding="utf-8")
+    git("add", ".")
+    git("commit", "-qm", "reviewed recovery")
+    candidate = git("rev-parse", "HEAD")
+    gateway.validate_create_receipt_recovery_push(tmp_path, base, candidate, validating_candidate=True)
+    with pytest.raises(ValueError, match="push_not_authorised"):
+        gateway.validate_create_receipt_recovery_push(tmp_path, base, candidate)
+    git("switch", "--detach", base)
+    git("merge", "--no-ff", "-qm", "reviewed merge", candidate)
+    gateway.validate_create_receipt_recovery_push(tmp_path, base, git("rev-parse", "HEAD"))
+
+
 def test_parser_rejects_other_issues_using_recovery_push():
     authority = _authority()
     issue = _issue(authority)
@@ -187,7 +217,8 @@ def test_recover_appends_once_and_valid_receipt_is_noop(tmp_path, monkeypatch, l
                 "head_sha": recovery.ORIGINAL_HEAD, "status": "completed", "conclusion": "failure",
                 "run_attempt": 1, "repository": {"full_name": gateway.REPO}}
 
-    def verify_push(_root, parent, head):
+    def verify_push(_root, parent, head, *, validating_candidate=False):
+        assert not validating_candidate
         assert parent == recovery.ORIGINAL_HEAD and head == activation
 
     def verify_readback(_root, records, remote):
