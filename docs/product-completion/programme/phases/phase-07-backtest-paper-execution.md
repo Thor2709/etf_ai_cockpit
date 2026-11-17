@@ -1,6 +1,6 @@
 # Backtest, paper trading and staged execution
 
-Phase `phase-07-backtest-paper-execution` covers `ISSUE-0031–ISSUE-0032, ISSUE-0057, ISSUE-0066, ISSUE-0125–ISSUE-0135, ISSUE-0167`. The issue registry remains the canonical source for titles, priorities, state and acceptance criteria; this document records phase-specific implementation guidance.
+Phase `phase-07-backtest-paper-execution` covers `ISSUE-0031–ISSUE-0032, ISSUE-0057, ISSUE-0066, ISSUE-0125–ISSUE-0135, ISSUE-0167, ISSUE-0196–ISSUE-0197`. The issue registry remains the canonical source for titles, priorities, state and acceptance criteria; this document records phase-specific implementation guidance.
 
 ## Objective
 
@@ -40,7 +40,7 @@ Follow [`DELIVERY_WORKFLOW.md`](../../DELIVERY_WORKFLOW.md) for current E/O/H/C 
 
 ## Blockers, dependencies and related links
 
-- Resolve only `blocking_dependencies` as prerequisites; `required_inputs` are policy/evidence inputs and do not block readiness. `downstream_issues` are generated reverse links and `related_issues` are context only.
+- Resolve `blocking_dependencies` through issue evidence. A named `external:...` entry in `required_inputs` blocks implementation and activation while pending. Issue references in `required_inputs` are policy or evidence inputs. `downstream_issues` are generated reverse links and `related_issues` provide context.
 - The registry's blocking graph is acyclic; dependency conversions are recorded in `docs/product-completion/reconciliation/2026-07-21-2337f69/dependency-reconciliation.csv`.
 
 ## Issue coverage
@@ -63,3 +63,5 @@ Follow [`DELIVERY_WORKFLOW.md`](../../DELIVERY_WORKFLOW.md) for current E/O/H/C 
 | `ISSUE-0134` | `P1` | `integrated` | `trading-safety` | `ISSUE-0116`, `ISSUE-0131` | - | - | - |
 | `ISSUE-0135` | `P0` | `integrated` | `trading-safety` | `ISSUE-0131`, `ISSUE-0132` | - | - | - |
 | `ISSUE-0167` | `P0` | `integrated` | `trading-safety` | `ISSUE-0085`, `ISSUE-0114`, `ISSUE-0127`, `ISSUE-0130`, `ISSUE-0131` | - | `ISSUE-0169` | - |
+| `ISSUE-0196` | `P2` | `planned` | `backtest-and-paper` | `ISSUE-0184`, `ISSUE-0192` | - | `ISSUE-0197` | `ISSUE-0129`, `ISSUE-0130`, `ISSUE-0132` |
+| `ISSUE-0197` | `P2` | `planned` | `backtest-and-paper` | `ISSUE-0190`, `ISSUE-0196` | - | - | `ISSUE-0129`, `ISSUE-0130`, `ISSUE-0132` |

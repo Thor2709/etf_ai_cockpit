@@ -1,27 +1,47 @@
 {
   "allow_downgrades": false,
   "allow_other_status_changes": false,
-  "allowed_status_transitions": [
-    {
-      "from": "in_progress",
-      "issue_id": "ISSUE-0182",
-      "to": "integrated"
-    }
-  ],
-  "base_commit": "bbc9f29389d72f25698922b800e28376546eab6d",
-  "branch": "codex/issue-0182-completion",
-  "issue_ids": [
-    "ISSUE-0182"
-  ],
+  "allowed_status_transitions": [],
+  "base_commit": "db9e60ad1984718107be85ed9ee2cd266f1d6f40",
+  "branch": "codex/oss-integration-admission-batch",
+  "issue_ids": [],
   "registry_migration": {
-    "added_issue_ids": [],
-    "base_registry_sha256": "894a9fe78097e3df619573b377b2dee3349542c566adbcced0a4536a8bd85240",
+    "added_issue_ids": [
+      "ISSUE-0183",
+      "ISSUE-0184",
+      "ISSUE-0185",
+      "ISSUE-0186",
+      "ISSUE-0187",
+      "ISSUE-0188",
+      "ISSUE-0189",
+      "ISSUE-0190",
+      "ISSUE-0191",
+      "ISSUE-0192",
+      "ISSUE-0193",
+      "ISSUE-0194",
+      "ISSUE-0195",
+      "ISSUE-0196",
+      "ISSUE-0197",
+      "ISSUE-0198",
+      "ISSUE-0199",
+      "ISSUE-0200",
+      "ISSUE-0201",
+      "ISSUE-0202",
+      "ISSUE-0203",
+      "ISSUE-0204",
+      "ISSUE-0205",
+      "ISSUE-0206",
+      "ISSUE-0207",
+      "ISSUE-0208",
+      "ISSUE-0209"
+    ],
+    "base_registry_sha256": "c1df22d73c6b1560a74b1a9dcb3091a11fdf3fa23d35c46f119cf51b766b4663",
     "generator": "scripts/generate_issue_registry.py",
-    "mode": "generation_base_and_status_transitions",
-    "proposed_registry_sha256": "c1df22d73c6b1560a74b1a9dcb3091a11fdf3fa23d35c46f119cf51b766b4663",
-    "reason": "Replay the two protected completion hops for the merged research panel.",
+    "mode": "canonical_schema_and_intake",
+    "proposed_registry_sha256": "c4db5db7cedf59b8211ac0aa455aa9e6537232f7c831f04ad0bf006f24a7d57b",
+    "reason": "Draft one reviewed batch for the residual integration scopes in tracker #1020.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },
-  "schema_version": "1.2"
+  "schema_version": "1.1"
 }

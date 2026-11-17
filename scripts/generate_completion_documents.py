@@ -251,7 +251,7 @@ def phase_document(registry: dict[str, Any], phase: dict[str, Any], recon_relati
         "",
         "## Blockers, dependencies and related links",
         "",
-        "- Resolve only `blocking_dependencies` as prerequisites; `required_inputs` are policy/evidence inputs and do not block readiness. `downstream_issues` are generated reverse links and `related_issues` are context only.",
+        "- Resolve `blocking_dependencies` through issue evidence. A named `external:...` entry in `required_inputs` blocks implementation and activation while pending. Issue references in `required_inputs` are policy or evidence inputs. `downstream_issues` are generated reverse links and `related_issues` provide context.",
         f"- The registry's blocking graph is acyclic; dependency conversions are recorded in `{recon_relative}/dependency-reconciliation.csv`.",
         "",
         "## Issue coverage",
@@ -584,7 +584,7 @@ The supplied ZIP is immutable external evidence. It is archived as nine extracte
     order_lines = [
         "# Implementation order",
         "",
-        "Use `python scripts/programme_execution.py` for deterministic NOW/NEXT, following candidates and blockers. The phase precedence below remains canonical. Resolve blocking edge evidence and lifecycle eligibility before admission; `related_issues` and `required_inputs` are not silently blocking edges. Current delivery mechanics come from `docs/product-completion/DELIVERY_WORKFLOW.md`; ownership-safe concurrency additionally requires fresh local lane observations.",
+        "Use `python scripts/programme_execution.py` for deterministic NOW/NEXT, following candidates and blockers. The phase precedence below remains canonical. Implementation requires resolved blocking edges, available external inputs and lifecycle eligibility. Current delivery mechanics come from `docs/product-completion/DELIVERY_WORKFLOW.md`; ownership-safe concurrency additionally requires fresh local lane observations.",
         "",
     ]
     for index, row in enumerate(table, start=1):

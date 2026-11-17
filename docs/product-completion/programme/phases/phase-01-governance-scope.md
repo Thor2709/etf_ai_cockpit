@@ -1,6 +1,6 @@
 # Governance, scope and completion contract
 
-Phase `phase-01-governance-scope` covers `ISSUE-0001–ISSUE-0006, ISSUE-0009–ISSUE-0010, ISSUE-0012–ISSUE-0015, ISSUE-0018–ISSUE-0019, ISSUE-0021, ISSUE-0024, ISSUE-0026–ISSUE-0027, ISSUE-0033–ISSUE-0036, ISSUE-0039–ISSUE-0040, ISSUE-0044, ISSUE-0047, ISSUE-0049–ISSUE-0050, ISSUE-0053, ISSUE-0058, ISSUE-0061–ISSUE-0063, ISSUE-0067, ISSUE-0069–ISSUE-0079, ISSUE-0179, UPDATEV2-0010, UPDATEV2-0012–UPDATEV2-0014, UPDATEV2-0017, UPDATEV2-0019–UPDATEV2-0020, UPDATEV2-0022, UPDATEV2-0024–UPDATEV2-0025, UPDATEV2-0028–UPDATEV2-0029`. The issue registry remains the canonical source for titles, priorities, state and acceptance criteria; this document records phase-specific implementation guidance.
+Phase `phase-01-governance-scope` covers `ISSUE-0001–ISSUE-0006, ISSUE-0009–ISSUE-0010, ISSUE-0012–ISSUE-0015, ISSUE-0018–ISSUE-0019, ISSUE-0021, ISSUE-0024, ISSUE-0026–ISSUE-0027, ISSUE-0033–ISSUE-0036, ISSUE-0039–ISSUE-0040, ISSUE-0044, ISSUE-0047, ISSUE-0049–ISSUE-0050, ISSUE-0053, ISSUE-0058, ISSUE-0061–ISSUE-0063, ISSUE-0067, ISSUE-0069–ISSUE-0079, ISSUE-0179, ISSUE-0185, UPDATEV2-0010, UPDATEV2-0012–UPDATEV2-0014, UPDATEV2-0017, UPDATEV2-0019–UPDATEV2-0020, UPDATEV2-0022, UPDATEV2-0024–UPDATEV2-0025, UPDATEV2-0028–UPDATEV2-0029`. The issue registry remains the canonical source for titles, priorities, state and acceptance criteria; this document records phase-specific implementation guidance.
 
 ## Objective
 
@@ -40,7 +40,7 @@ Follow [`DELIVERY_WORKFLOW.md`](../../DELIVERY_WORKFLOW.md) for current E/O/H/C 
 
 ## Blockers, dependencies and related links
 
-- Resolve only `blocking_dependencies` as prerequisites; `required_inputs` are policy/evidence inputs and do not block readiness. `downstream_issues` are generated reverse links and `related_issues` are context only.
+- Resolve `blocking_dependencies` through issue evidence. A named `external:...` entry in `required_inputs` blocks implementation and activation while pending. Issue references in `required_inputs` are policy or evidence inputs. `downstream_issues` are generated reverse links and `related_issues` provide context.
 - The registry's blocking graph is acyclic; dependency conversions are recorded in `docs/product-completion/reconciliation/2026-07-21-2337f69/dependency-reconciliation.csv`.
 
 ## Issue coverage
@@ -93,6 +93,7 @@ Follow [`DELIVERY_WORKFLOW.md`](../../DELIVERY_WORKFLOW.md) for current E/O/H/C 
 | `ISSUE-0078` | `P0/P1` | `integrated` | `platform-and-operations` | `ISSUE-0077` | - | `ISSUE-0151`, `ISSUE-0175` | - |
 | `ISSUE-0079` | `P0` | `integrated` | `security-and-release` | `ISSUE-0145`, `ISSUE-0149` | - | `ISSUE-0085` | - |
 | `ISSUE-0179` | `P1` | `integrated` | `programme-control` | `ISSUE-0178` | - | - | `ISSUE-0152` |
+| `ISSUE-0185` | `P0` | `planned` | `programme-governance` | - | - | `ISSUE-0190`, `ISSUE-0192`, `ISSUE-0195`, `ISSUE-0199`, `ISSUE-0201`, `ISSUE-0206`, `ISSUE-0207`, `ISSUE-0209` | `ISSUE-0079`, `ISSUE-0145` |
 | `UPDATEV2-0010` | `P3` | `closed` | `data-and-evidence` | - | - | - | - |
 | `UPDATEV2-0012` | `P0` | `integrated` | `programme-governance` | - | - | `ISSUE-0087`, `ISSUE-0091` | `ISSUE-0073`, `ISSUE-0081`, `ISSUE-0091` |
 | `UPDATEV2-0013` | `P3` | `closed` | `data-and-evidence` | - | - | - | - |

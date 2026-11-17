@@ -15731,6 +15731,1707 @@
       "verified_commit": "1326f0cfec0e6c80a44cbee7948299a06e7add95",
       "verified_date": "2026-11-17"
     },
+    "ISSUE-0183": {
+      "acceptance_evidence": [],
+      "canonical_definition": {
+        "acceptance_criteria": [
+          {
+            "id": "AC1",
+            "text": "one US fixture and one ESEF (non-US) fixture yield every new field with status `observed`; a filer without the tag yields `unavailable`; a year-to-date cash-flow fact yields the correct discrete quarter; outputs for the existing fields are byte-identical."
+          }
+        ],
+        "activation_dependencies": [],
+        "blocking_dependencies": [],
+        "capability_lane": "CORE_ANALYSIS",
+        "contract_markdown": "Canonical successor to INT-03 from [intake issue #1023](https://github.com/Thor2709/etf_ai_cockpit/issues/1023). Retain the [frozen technical requirements](https://github.com/Thor2709/etf_ai_cockpit/blob/f92d888d1624f59ce84f2952cd8d7da9566d9d20/docs/integration-intake/2026-11-15/issue-proposals/INT-03.md) and the G1 gate. Source-file ordering: -. Intake readiness: READY.",
+        "exclusions": [
+          "No new data, package, model-weight or execution authority from registration."
+        ],
+        "objective": "Extend the existing US-GAAP and ESEF statement import with the specified 14 line items and point-in-time discrete-quarter conversion. Preserve the existing filing selection, provenance and output fields.",
+        "owner": "stock-research",
+        "phase": "phase-03-stock-research",
+        "priority": "P1",
+        "related_issues": [
+          "ISSUE-0087",
+          "ISSUE-0091"
+        ],
+        "release_blocking": false,
+        "required_inputs": [],
+        "rollback": "Revert the bounded integration and retain the existing local evidence and defaults.",
+        "scope": [
+          "Target the existing configs/stock_fundamentals_v1.yaml; analysis/stock_metrics.py; data/stock_fundamentals.py; data/stock_sources.py; parsers/sec_facts.py; parsers/esef_ixbrl.py surfaces identified in the technical requirements."
+        ],
+        "title": "Statement line-item expansion (from #1023)",
+        "validation": {
+          "required": [
+            "Focused tests for the intake acceptance criteria and the validation tier required by the product diff."
+          ]
+        }
+      },
+      "dependency_edge_evidence": {},
+      "phase": "phase-03-stock-research",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "Owner request for coordinated intake in tracker #1020. Draft pending review.",
+        "to": "planned"
+      },
+      "verified_commit": "78ef9d904288b3b3cf00ea3f995f36024655a4d6",
+      "verified_date": "2026-11-16"
+    },
+    "ISSUE-0184": {
+      "acceptance_evidence": [],
+      "canonical_definition": {
+        "acceptance_criteria": [
+          {
+            "id": "AC1",
+            "text": "`CANDIDATE_BUY` above the hurdle; `POSITIVE_BUT_INSUFFICIENT_MARGIN` below it; `RETURN_NOT_CALIBRATED` when `forecast_calibrated` is false; `ECONOMIC_RISK_VETO` when a gate reason exists; `HOLD_NO_TRADE` when `previous_decision.state` is `HOLD_NO_TRADE`, `position.held` is true and the net excess is inside the hysteresis band (`analysis/decision/opportunity.py:645-651`); a non-EUR forecast without `fx_conversion` gives `FX_CONVERSION_UNAVAILABLE`."
+          }
+        ],
+        "activation_dependencies": [],
+        "blocking_dependencies": [],
+        "capability_lane": "CORE_ANALYSIS",
+        "contract_markdown": "Canonical successor to INT-09 from [intake issue #1029](https://github.com/Thor2709/etf_ai_cockpit/issues/1029). Retain the [frozen technical requirements](https://github.com/Thor2709/etf_ai_cockpit/blob/f92d888d1624f59ce84f2952cd8d7da9566d9d20/docs/integration-intake/2026-11-15/issue-proposals/INT-09.md) and the G1 gate. Source-file ordering: -. Intake readiness: READY.",
+        "exclusions": [
+          "No new data, package, model-weight or execution authority from registration."
+        ],
+        "objective": "Build as-known calibrated forecast, VWCE, FX and cost evidence for the existing absolute-merit consumer through the normal decision shadow run. Reuse the existing economic veto and coverage gates.",
+        "owner": "returns-and-risk",
+        "phase": "phase-05-returns-risk-portfolio",
+        "priority": "P1",
+        "related_issues": [
+          "ISSUE-0108",
+          "ISSUE-0112",
+          "ISSUE-0123",
+          "ISSUE-0128",
+          "ISSUE-0130"
+        ],
+        "release_blocking": false,
+        "required_inputs": [],
+        "rollback": "Revert the bounded integration and retain the existing local evidence and defaults.",
+        "scope": [
+          "Target the existing application/absolute_merit.py; analysis/decision/shadow_run.py surfaces identified in the technical requirements."
+        ],
+        "title": "Forecast-to-opportunity bridge (from #1029)",
+        "validation": {
+          "required": [
+            "Focused tests for the intake acceptance criteria and the validation tier required by the product diff."
+          ]
+        }
+      },
+      "dependency_edge_evidence": {},
+      "phase": "phase-05-returns-risk-portfolio",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "Owner request for coordinated intake in tracker #1020. Draft pending review.",
+        "to": "planned"
+      },
+      "verified_commit": "78ef9d904288b3b3cf00ea3f995f36024655a4d6",
+      "verified_date": "2026-11-16"
+    },
+    "ISSUE-0185": {
+      "acceptance_evidence": [],
+      "canonical_definition": {
+        "acceptance_criteria": [
+          {
+            "id": "AC1",
+            "text": "`python scripts/check_supply_chain_intake.py` passes; a base install starts cleanly; each approved extra installs without a downgrade of a locked package; the socket-denial tests pass."
+          }
+        ],
+        "activation_dependencies": [],
+        "blocking_dependencies": [],
+        "capability_lane": "QUALITY_RELEASE",
+        "contract_markdown": "Canonical successor to INT-01 from [intake issue #1021](https://github.com/Thor2709/etf_ai_cockpit/issues/1021). Retain the [frozen technical requirements](https://github.com/Thor2709/etf_ai_cockpit/blob/f92d888d1624f59ce84f2952cd8d7da9566d9d20/docs/integration-intake/2026-11-15/issue-proposals/INT-01.md) and the G2 gate. Source-file ordering: -. Intake readiness: READY for quant and pypdf (U1 approved 2026-11-15); other extras on later approval.",
+        "exclusions": [
+          "No new data, package, model-weight or execution authority from registration."
+        ],
+        "objective": "Declare and lock the approved quant extra and the pypdf parser dependency. Reuse the existing supply-chain intake, licence inventory and offline boundary. Keep all other additions approval-gated.",
+        "owner": "programme-governance",
+        "phase": "phase-01-governance-scope",
+        "priority": "P0",
+        "related_issues": [
+          "ISSUE-0079",
+          "ISSUE-0145"
+        ],
+        "release_blocking": false,
+        "required_inputs": [],
+        "rollback": "Revert the bounded integration and retain the existing local evidence and defaults.",
+        "scope": [
+          "Target the existing pyproject.toml; configs/supply_chain_intake.yaml; packaging/THIRD_PARTY_NOTICES.md; plugins/builtins.py surfaces identified in the technical requirements."
+        ],
+        "title": "Optional extras, lock files, intake records, offline boundary (from #1021)",
+        "validation": {
+          "required": [
+            "Focused tests for the intake acceptance criteria and the validation tier required by the product diff."
+          ]
+        }
+      },
+      "dependency_edge_evidence": {},
+      "phase": "phase-01-governance-scope",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "Owner request for coordinated intake in tracker #1020. Draft pending review.",
+        "to": "planned"
+      },
+      "verified_commit": "78ef9d904288b3b3cf00ea3f995f36024655a4d6",
+      "verified_date": "2026-11-16"
+    },
+    "ISSUE-0186": {
+      "acceptance_evidence": [],
+      "canonical_definition": {
+        "acceptance_criteria": [
+          {
+            "id": "AC1",
+            "text": "A decision at the close of `t` or `t+1` does not see `filing_reaction_3s`; a decision at the open after `t+1` does."
+          },
+          {
+            "id": "AC2",
+            "text": "A quarter filed after the decision time is absent."
+          },
+          {
+            "id": "AC3",
+            "text": "Fewer than 6 seasonal differences gives `unavailable`."
+          },
+          {
+            "id": "AC4",
+            "text": "Non-US issuers give `unavailable`."
+          }
+        ],
+        "activation_dependencies": [],
+        "blocking_dependencies": [
+          "ISSUE-0182"
+        ],
+        "capability_lane": "CORE_ANALYSIS",
+        "contract_markdown": "Canonical successor to INT-06 from [intake issue #1026](https://github.com/Thor2709/etf_ai_cockpit/issues/1026). Retain the [frozen technical requirements](https://github.com/Thor2709/etf_ai_cockpit/blob/f92d888d1624f59ce84f2952cd8d7da9566d9d20/docs/integration-intake/2026-11-15/issue-proposals/INT-06.md) and the G1 gate. Source-file ordering: INT-03 (data/stock_sources.py). Intake readiness: READY.",
+        "exclusions": [
+          "No new data, package, model-weight or execution authority from registration."
+        ],
+        "objective": "Use filing-acceptance knowledge time in the runtime SEC facts path. Add analyst-free surprise and filing-reaction signals to the dated panel at zero weight, with receipt and announcement times separate.",
+        "owner": "stock-research",
+        "phase": "phase-03-stock-research",
+        "priority": "P1",
+        "related_issues": [
+          "ISSUE-0024",
+          "ISSUE-0087",
+          "ISSUE-0095",
+          "ISSUE-0126"
+        ],
+        "release_blocking": false,
+        "required_inputs": [],
+        "rollback": "Revert the bounded integration and retain the existing local evidence and defaults.",
+        "scope": [
+          "Target the existing data/earnings_surprise.py; data/stock_sources.py; data/sec_pit_facts.py surfaces identified in the technical requirements."
+        ],
+        "title": "Earnings surprise and filing reaction (analyst-free) (from #1026)",
+        "validation": {
+          "required": [
+            "Focused tests for the intake acceptance criteria and the validation tier required by the product diff."
+          ]
+        }
+      },
+      "dependency_edge_evidence": {
+        "ISSUE-0182": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-03-stock-research",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "Owner request for coordinated intake in tracker #1020. Draft pending review.",
+        "to": "planned"
+      },
+      "verified_commit": "78ef9d904288b3b3cf00ea3f995f36024655a4d6",
+      "verified_date": "2026-11-16"
+    },
+    "ISSUE-0187": {
+      "acceptance_evidence": [],
+      "canonical_definition": {
+        "acceptance_criteria": [
+          {
+            "id": "AC1",
+            "text": "one fixture per score computed by hand from the published definition; a missing input gives `unavailable`; a bank gives `not_meaningful`; a negative-equity case gives the documented state."
+          }
+        ],
+        "activation_dependencies": [],
+        "blocking_dependencies": [
+          "ISSUE-0183"
+        ],
+        "capability_lane": "CORE_ANALYSIS",
+        "contract_markdown": "Canonical successor to INT-04 from [intake issue #1024](https://github.com/Thor2709/etf_ai_cockpit/issues/1024). Retain the [frozen technical requirements](https://github.com/Thor2709/etf_ai_cockpit/blob/f92d888d1624f59ce84f2952cd8d7da9566d9d20/docs/integration-intake/2026-11-15/issue-proposals/INT-04.md) and the G3 gate. Source-file ordering: -. Intake readiness: READY.",
+        "exclusions": [
+          "No new data, package, model-weight or execution authority from registration."
+        ],
+        "objective": "Add the specified native formula variants and their evidence to the existing stock research pipeline. Reuse the current metrics and keep the original Altman Z distinct from the existing Altman-like proxy.",
+        "owner": "stock-research",
+        "phase": "phase-03-stock-research",
+        "priority": "P1",
+        "related_issues": [
+          "ISSUE-0092",
+          "ISSUE-0093",
+          "ISSUE-0094"
+        ],
+        "release_blocking": false,
+        "required_inputs": [],
+        "rollback": "Revert the bounded integration and retain the existing local evidence and defaults.",
+        "scope": [
+          "Target the existing analysis/stock_metrics.py; analysis/formula_registry.py; data/stock_research.py; analysis/stock_evidence.py surfaces identified in the technical requirements."
+        ],
+        "title": "Quality, earnings-quality and distress scores (native formulas) (from #1024)",
+        "validation": {
+          "required": [
+            "Focused tests for the intake acceptance criteria and the validation tier required by the product diff."
+          ]
+        }
+      },
+      "dependency_edge_evidence": {
+        "ISSUE-0183": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-03-stock-research",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "Owner request for coordinated intake in tracker #1020. Draft pending review.",
+        "to": "planned"
+      },
+      "verified_commit": "78ef9d904288b3b3cf00ea3f995f36024655a4d6",
+      "verified_date": "2026-11-16"
+    },
+    "ISSUE-0188": {
+      "acceptance_evidence": [],
+      "canonical_definition": {
+        "acceptance_criteria": [
+          {
+            "id": "AC1",
+            "text": "each challenger appears with rank-IC and top-minus-bottom on out-of-sample dates only; canonical v3.3.0 scores are byte-identical."
+          }
+        ],
+        "activation_dependencies": [],
+        "blocking_dependencies": [
+          "ISSUE-0182",
+          "ISSUE-0187"
+        ],
+        "capability_lane": "CORE_ANALYSIS",
+        "contract_markdown": "Canonical successor to INT-05 from [intake issue #1025](https://github.com/Thor2709/etf_ai_cockpit/issues/1025). Retain the [frozen technical requirements](https://github.com/Thor2709/etf_ai_cockpit/blob/f92d888d1624f59ce84f2952cd8d7da9566d9d20/docs/integration-intake/2026-11-15/issue-proposals/INT-05.md) and the G3 gate. Source-file ordering: -. Intake readiness: READY.",
+        "exclusions": [
+          "No new data, package, model-weight or execution authority from registration."
+        ],
+        "objective": "Evaluate the specified shadow quality and value variants on ISSUE-0182's dated panel using the existing cutover reports. Preserve the production v3.3.0 scores.",
+        "owner": "stock-research",
+        "phase": "phase-03-stock-research",
+        "priority": "P1",
+        "related_issues": [
+          "ISSUE-0075",
+          "ISSUE-0092",
+          "ISSUE-0096",
+          "ISSUE-0120"
+        ],
+        "release_blocking": false,
+        "required_inputs": [],
+        "rollback": "Revert the bounded integration and retain the existing local evidence and defaults.",
+        "scope": [
+          "Target the existing configs/decision_cutover_v1.yaml; analysis/stock_evidence.py surfaces identified in the technical requirements."
+        ],
+        "title": "Shadow quality and value sub-scores (from #1025)",
+        "validation": {
+          "required": [
+            "Focused tests for the intake acceptance criteria and the validation tier required by the product diff."
+          ]
+        }
+      },
+      "dependency_edge_evidence": {
+        "ISSUE-0182": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0187": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-03-stock-research",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "Owner request for coordinated intake in tracker #1020. Draft pending review.",
+        "to": "planned"
+      },
+      "verified_commit": "78ef9d904288b3b3cf00ea3f995f36024655a4d6",
+      "verified_date": "2026-11-16"
+    },
+    "ISSUE-0189": {
+      "acceptance_evidence": [],
+      "canonical_definition": {
+        "acceptance_criteria": [
+          {
+            "id": "AC1",
+            "text": "a snapshot captured after the decision time is not used; `approximated` rows produce no feature; with no data every feature is `unavailable` and the weight stays 0."
+          }
+        ],
+        "activation_dependencies": [],
+        "blocking_dependencies": [
+          "ISSUE-0186"
+        ],
+        "capability_lane": "CORE_ANALYSIS",
+        "contract_markdown": "Canonical successor to INT-07 from [intake issue #1027](https://github.com/Thor2709/etf_ai_cockpit/issues/1027). Retain the [frozen technical requirements](https://github.com/Thor2709/etf_ai_cockpit/blob/f92d888d1624f59ce84f2952cd8d7da9566d9d20/docs/integration-intake/2026-11-15/issue-proposals/INT-07.md) and the G3 gate. Source-file ordering: -. Intake readiness: BLOCKED_BY_DATA (no entitled estimates source).",
+        "data_and_dependencies": "BLOCKED_BY_DATA (no entitled estimates source). Keep implementation and activation blocked until the input or authority is recorded.",
+        "exclusions": [
+          "No new data, package, model-weight or execution authority from registration."
+        ],
+        "objective": "Extend the existing consensus import with entitled, observed PIT estimate snapshots and the specified revision, breadth and surprise calculations. Keep unavailable features at zero weight.",
+        "owner": "stock-research",
+        "phase": "phase-03-stock-research",
+        "priority": "P1",
+        "related_issues": [
+          "ISSUE-0080",
+          "ISSUE-0095"
+        ],
+        "release_blocking": false,
+        "required_inputs": [
+          "external:entitled-estimates-source"
+        ],
+        "rollback": "Revert the bounded integration and retain the existing local evidence and defaults.",
+        "scope": [
+          "Target the existing data/estimates_store.py; data/fmp_provider.py; data/finnhub_provider.py surfaces identified in the technical requirements."
+        ],
+        "title": "Estimates store and revision features (from #1027)",
+        "validation": {
+          "required": [
+            "Focused tests for the intake acceptance criteria and the validation tier required by the product diff."
+          ]
+        }
+      },
+      "dependency_edge_evidence": {
+        "ISSUE-0186": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-03-stock-research",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "Owner request for coordinated intake in tracker #1020. Draft pending review.",
+        "to": "planned"
+      },
+      "verified_commit": "78ef9d904288b3b3cf00ea3f995f36024655a4d6",
+      "verified_date": "2026-11-16"
+    },
+    "ISSUE-0190": {
+      "acceptance_evidence": [],
+      "canonical_definition": {
+        "acceptance_criteria": [
+          {
+            "id": "AC1",
+            "text": "the same input gives the same model text twice; shuffled input rows give the same model; no date is in both training and validation; no training row has `label_available_at` after the validation start; a failed preflight gives `insufficient_evidence`; without `lightgbm` the card is `unavailable`."
+          }
+        ],
+        "activation_dependencies": [],
+        "blocking_dependencies": [
+          "ISSUE-0182",
+          "ISSUE-0185"
+        ],
+        "capability_lane": "CORE_ANALYSIS",
+        "contract_markdown": "Canonical successor to INT-08 from [intake issue #1028](https://github.com/Thor2709/etf_ai_cockpit/issues/1028). Retain the [frozen technical requirements](https://github.com/Thor2709/etf_ai_cockpit/blob/f92d888d1624f59ce84f2952cd8d7da9566d9d20/docs/integration-intake/2026-11-15/issue-proposals/INT-08.md) and the G3 gate. Source-file ordering: INT-05 (configs/decision_cutover_v1.yaml). Intake readiness: READY (U1 approved 2026-11-15).",
+        "exclusions": [
+          "No new data, package, model-weight or execution authority from registration."
+        ],
+        "objective": "Add a disabled-safe LightGBM ranking and quantile challenger to the model zoo, using the dated panel, evidence preflight and existing optimisation limits. Keep it in shadow.",
+        "owner": "model-governance",
+        "phase": "phase-06-model-research",
+        "priority": "P1",
+        "related_issues": [
+          "ISSUE-0117",
+          "ISSUE-0119",
+          "ISSUE-0120",
+          "ISSUE-0121",
+          "ISSUE-0122"
+        ],
+        "release_blocking": false,
+        "required_inputs": [],
+        "rollback": "Revert the bounded integration and retain the existing local evidence and defaults.",
+        "scope": [
+          "Target the existing models/cross_sectional_ranker.py; models/model_zoo.py; configs/model_settings.yaml surfaces identified in the technical requirements."
+        ],
+        "title": "Cross-sectional LightGBM ranker (from #1028)",
+        "validation": {
+          "required": [
+            "Focused tests for the intake acceptance criteria and the validation tier required by the product diff."
+          ]
+        }
+      },
+      "dependency_edge_evidence": {
+        "ISSUE-0182": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0185": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-06-model-research",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "Owner request for coordinated intake in tracker #1020. Draft pending review.",
+        "to": "planned"
+      },
+      "verified_commit": "78ef9d904288b3b3cf00ea3f995f36024655a4d6",
+      "verified_date": "2026-11-16"
+    },
+    "ISSUE-0191": {
+      "acceptance_evidence": [],
+      "canonical_definition": {
+        "acceptance_criteria": [
+          {
+            "id": "AC1",
+            "text": "WACC equals a hand fixture; with all dispersions at zero the Monte Carlo result equals the deterministic DCF exactly; a one-driver toy case with a linear value function matches its analytic mean and variance within sampling tolerance; the same seed gives the same output; a bank gives `not_applicable`. (No requirement that the median equals the central DCF: the DCF is non-linear.)"
+          }
+        ],
+        "activation_dependencies": [],
+        "blocking_dependencies": [
+          "ISSUE-0183"
+        ],
+        "capability_lane": "CORE_ANALYSIS",
+        "contract_markdown": "Canonical successor to INT-10 from [intake issue #1030](https://github.com/Thor2709/etf_ai_cockpit/issues/1030). Retain the [frozen technical requirements](https://github.com/Thor2709/etf_ai_cockpit/blob/f92d888d1624f59ce84f2952cd8d7da9566d9d20/docs/integration-intake/2026-11-15/issue-proposals/INT-10.md) and the G3 gate. Source-file ordering: INT-04 (data/stock_research.py). Intake readiness: READY.",
+        "exclusions": [
+          "No new data, package, model-weight or execution authority from registration."
+        ],
+        "objective": "Extend the existing DCF with the specified currency-consistent WACC and deterministic uncertainty scenarios. Reuse the native DCF and capital-efficiency ledger.",
+        "owner": "stock-research",
+        "phase": "phase-03-stock-research",
+        "priority": "P2",
+        "related_issues": [
+          "ISSUE-0096",
+          "ISSUE-0097"
+        ],
+        "release_blocking": false,
+        "required_inputs": [],
+        "rollback": "Revert the bounded integration and retain the existing local evidence and defaults.",
+        "scope": [
+          "Target the existing data/capital_efficiency.py; data/stock_research.py surfaces identified in the technical requirements."
+        ],
+        "title": "Valuation completion (from #1030)",
+        "validation": {
+          "required": [
+            "Focused tests for the intake acceptance criteria and the validation tier required by the product diff."
+          ]
+        }
+      },
+      "dependency_edge_evidence": {
+        "ISSUE-0183": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-03-stock-research",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "Owner request for coordinated intake in tracker #1020. Draft pending review.",
+        "to": "planned"
+      },
+      "verified_commit": "78ef9d904288b3b3cf00ea3f995f36024655a4d6",
+      "verified_date": "2026-11-16"
+    },
+    "ISSUE-0192": {
+      "acceptance_evidence": [],
+      "canonical_definition": {
+        "acceptance_criteria": [
+          {
+            "id": "AC1",
+            "text": "a 2-asset minimum-variance case equals the closed form; every supported constraint is met on a fixture; each unsupported combination returns `constraint_unsupported`; an infeasible problem and a missing package return `unavailable` without an exception. Out-of-sample value is measured in INT-15A, not here."
+          }
+        ],
+        "activation_dependencies": [],
+        "blocking_dependencies": [
+          "ISSUE-0185"
+        ],
+        "capability_lane": "PORTFOLIO_READ_ONLY",
+        "contract_markdown": "Canonical successor to INT-11 from [intake issue #1031](https://github.com/Thor2709/etf_ai_cockpit/issues/1031). Retain the [frozen technical requirements](https://github.com/Thor2709/etf_ai_cockpit/blob/f92d888d1624f59ce84f2952cd8d7da9566d9d20/docs/integration-intake/2026-11-15/issue-proposals/INT-11.md) and the G2 gate. Source-file ordering: -. Intake readiness: READY (U1 approved 2026-11-15).",
+        "exclusions": [
+          "No new data, package, model-weight or execution authority from registration."
+        ],
+        "objective": "Add the optional skfolio backend to the existing optimiser under its current constraint and result contract. Preserve the deterministic default backend.",
+        "owner": "portfolio-construction",
+        "phase": "phase-05-returns-risk-portfolio",
+        "priority": "P2",
+        "related_issues": [
+          "ISSUE-0113"
+        ],
+        "release_blocking": false,
+        "required_inputs": [],
+        "rollback": "Revert the bounded integration and retain the existing local evidence and defaults.",
+        "scope": [
+          "Target the existing portfolio/optimiser_skfolio.py; portfolio/optimiser.py surfaces identified in the technical requirements."
+        ],
+        "title": "skfolio optimiser backend (from #1031)",
+        "validation": {
+          "required": [
+            "Focused tests for the intake acceptance criteria and the validation tier required by the product diff."
+          ]
+        }
+      },
+      "dependency_edge_evidence": {
+        "ISSUE-0185": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-05-returns-risk-portfolio",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "Owner request for coordinated intake in tracker #1020. Draft pending review.",
+        "to": "planned"
+      },
+      "verified_commit": "78ef9d904288b3b3cf00ea3f995f36024655a4d6",
+      "verified_date": "2026-11-16"
+    },
+    "ISSUE-0193": {
+      "acceptance_evidence": [],
+      "canonical_definition": {
+        "acceptance_criteria": [
+          {
+            "id": "AC1",
+            "text": "the diagnostics name the estimator that `_out_of_sample_selection` chose; with no admissible view the posterior equals the equilibrium prior; inputs use only returns before the decision date."
+          }
+        ],
+        "activation_dependencies": [],
+        "blocking_dependencies": [
+          "ISSUE-0192"
+        ],
+        "capability_lane": "PORTFOLIO_READ_ONLY",
+        "contract_markdown": "Canonical successor to INT-12 from [intake issue #1032](https://github.com/Thor2709/etf_ai_cockpit/issues/1032). Retain the [frozen technical requirements](https://github.com/Thor2709/etf_ai_cockpit/blob/f92d888d1624f59ce84f2952cd8d7da9566d9d20/docs/integration-intake/2026-11-15/issue-proposals/INT-12.md) and the G3 gate. Source-file ordering: -. Intake readiness: READY (U1 approved 2026-11-15).",
+        "exclusions": [
+          "No new data, package, model-weight or execution authority from registration."
+        ],
+        "objective": "Extend the existing chronological estimator selection with the specified skfolio covariance and expected-return estimators and Black-Litterman prior behavior.",
+        "owner": "portfolio-construction",
+        "phase": "phase-05-returns-risk-portfolio",
+        "priority": "P2",
+        "related_issues": [
+          "ISSUE-0111",
+          "ISSUE-0113"
+        ],
+        "release_blocking": false,
+        "required_inputs": [],
+        "rollback": "Revert the bounded integration and retain the existing local evidence and defaults.",
+        "scope": [
+          "Target the existing portfolio/robust_risk.py; portfolio/optimiser.py surfaces identified in the technical requirements."
+        ],
+        "title": "Covariance and expected-return estimators (from #1032)",
+        "validation": {
+          "required": [
+            "Focused tests for the intake acceptance criteria and the validation tier required by the product diff."
+          ]
+        }
+      },
+      "dependency_edge_evidence": {
+        "ISSUE-0192": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-05-returns-risk-portfolio",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "Owner request for coordinated intake in tracker #1020. Draft pending review.",
+        "to": "planned"
+      },
+      "verified_commit": "78ef9d904288b3b3cf00ea3f995f36024655a4d6",
+      "verified_date": "2026-11-16"
+    },
+    "ISSUE-0194": {
+      "acceptance_evidence": [],
+      "canonical_definition": {
+        "acceptance_criteria": [
+          {
+            "id": "AC1",
+            "text": "a candidate highly correlated with current holdings ranks below an equal-merit diversifier; no size exceeds an existing cap; without a calibrated distribution the Kelly path is not taken and the state says so."
+          }
+        ],
+        "activation_dependencies": [],
+        "blocking_dependencies": [
+          "ISSUE-0192",
+          "ISSUE-0193"
+        ],
+        "capability_lane": "PORTFOLIO_READ_ONLY",
+        "contract_markdown": "Canonical successor to INT-13 from [intake issue #1033](https://github.com/Thor2709/etf_ai_cockpit/issues/1033). Retain the [frozen technical requirements](https://github.com/Thor2709/etf_ai_cockpit/blob/f92d888d1624f59ce84f2952cd8d7da9566d9d20/docs/integration-intake/2026-11-15/issue-proposals/INT-13.md) and the G3 gate. Source-file ordering: -. Intake readiness: READY (U1 approved 2026-11-15).",
+        "exclusions": [
+          "No new data, package, model-weight or execution authority from registration."
+        ],
+        "objective": "Feed marginal VWCE-relative portfolio risk into the current Top-N utility. Apply portfolio volatility targeting and fractional Kelly only with admissible calibrated return evidence, within existing caps.",
+        "owner": "portfolio-construction",
+        "phase": "phase-05-returns-risk-portfolio",
+        "priority": "P2",
+        "related_issues": [
+          "ISSUE-0111",
+          "ISSUE-0113",
+          "ISSUE-0114",
+          "ISSUE-0166"
+        ],
+        "release_blocking": false,
+        "required_inputs": [],
+        "rollback": "Revert the bounded integration and retain the existing local evidence and defaults.",
+        "scope": [
+          "Target the existing portfolio/top_n_selection.py; portfolio/sizing.py; portfolio/risk_profiles.py surfaces identified in the technical requirements."
+        ],
+        "title": "Portfolio-aware Top-N and sizing (from #1033)",
+        "validation": {
+          "required": [
+            "Focused tests for the intake acceptance criteria and the validation tier required by the product diff."
+          ]
+        }
+      },
+      "dependency_edge_evidence": {
+        "ISSUE-0192": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0193": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-05-returns-risk-portfolio",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "Owner request for coordinated intake in tracker #1020. Draft pending review.",
+        "to": "planned"
+      },
+      "verified_commit": "78ef9d904288b3b3cf00ea3f995f36024655a4d6",
+      "verified_date": "2026-11-16"
+    },
+    "ISSUE-0195": {
+      "acceptance_evidence": [],
+      "canonical_definition": {
+        "acceptance_criteria": [
+          {
+            "id": "AC1",
+            "text": "non-convergence returns the EWMA value with a warning status; the report shows QLIKE per model with the horizon and the number of out-of-sample points."
+          }
+        ],
+        "activation_dependencies": [],
+        "blocking_dependencies": [
+          "ISSUE-0185"
+        ],
+        "capability_lane": "CORE_ANALYSIS",
+        "contract_markdown": "Canonical successor to INT-14 from [intake issue #1034](https://github.com/Thor2709/etf_ai_cockpit/issues/1034). Retain the [frozen technical requirements](https://github.com/Thor2709/etf_ai_cockpit/blob/f92d888d1624f59ce84f2952cd8d7da9566d9d20/docs/integration-intake/2026-11-15/issue-proposals/INT-14.md) and the G3 gate. Source-file ordering: INT-12 (portfolio/robust_risk.py). Intake readiness: READY (U1 approved 2026-11-15).",
+        "exclusions": [
+          "No new data, package, model-weight or execution authority from registration."
+        ],
+        "objective": "Add the specified optional volatility and stationary-bootstrap challengers to existing risk evaluation, retaining an explicit EWMA fallback and out-of-sample diagnostics.",
+        "owner": "returns-and-risk",
+        "phase": "phase-05-returns-risk-portfolio",
+        "priority": "P2",
+        "related_issues": [
+          "ISSUE-0111",
+          "ISSUE-0115",
+          "ISSUE-0120",
+          "ISSUE-0121"
+        ],
+        "release_blocking": false,
+        "required_inputs": [],
+        "rollback": "Revert the bounded integration and retain the existing local evidence and defaults.",
+        "scope": [
+          "Target the existing models/volatility_models.py; portfolio/robust_risk.py; validation/protocol.py surfaces identified in the technical requirements."
+        ],
+        "title": "Volatility, tail and bootstrap models (from #1034)",
+        "validation": {
+          "required": [
+            "Focused tests for the intake acceptance criteria and the validation tier required by the product diff."
+          ]
+        }
+      },
+      "dependency_edge_evidence": {
+        "ISSUE-0185": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-05-returns-risk-portfolio",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "Owner request for coordinated intake in tracker #1020. Draft pending review.",
+        "to": "planned"
+      },
+      "verified_commit": "78ef9d904288b3b3cf00ea3f995f36024655a4d6",
+      "verified_date": "2026-11-16"
+    },
+    "ISSUE-0196": {
+      "acceptance_evidence": [],
+      "canonical_definition": {
+        "acceptance_criteria": [
+          {
+            "id": "AC1",
+            "text": "B0-B3 decision files are byte-identical before and after; challenger records are separate; a missing engine gives `NO_NEW_TRADE`; all paper-only guards hold (`portfolio/paper_bots.py:42`, `portfolio/paper_trading.py:2639`)."
+          }
+        ],
+        "activation_dependencies": [],
+        "blocking_dependencies": [
+          "ISSUE-0184",
+          "ISSUE-0192"
+        ],
+        "capability_lane": "PAPER_BROKER_OPERATIONS",
+        "contract_markdown": "Canonical successor to INT-15A from [intake issue #1035](https://github.com/Thor2709/etf_ai_cockpit/issues/1035). Retain the [frozen technical requirements](https://github.com/Thor2709/etf_ai_cockpit/blob/f92d888d1624f59ce84f2952cd8d7da9566d9d20/docs/integration-intake/2026-11-15/issue-proposals/INT-15A.md) and the G3 gate. Source-file ordering: -. Intake readiness: READY (U1 approved 2026-11-15).",
+        "exclusions": [
+          "No new data, package, model-weight or execution authority from registration."
+        ],
+        "objective": "Add the separate B2-o paper-optimiser challenger and compare its outcomes without changing B0-B3 files. Enforce the existing paper-only execution boundary.",
+        "owner": "backtest-and-paper",
+        "phase": "phase-07-backtest-paper-execution",
+        "priority": "P2",
+        "related_issues": [
+          "ISSUE-0129",
+          "ISSUE-0130",
+          "ISSUE-0132"
+        ],
+        "release_blocking": false,
+        "required_inputs": [],
+        "rollback": "Revert the bounded integration and retain the existing local evidence and defaults.",
+        "scope": [
+          "Target the existing portfolio/paper_bots.py; configs/paper_bots_v1.yaml surfaces identified in the technical requirements."
+        ],
+        "title": "Paper-bot optimiser challenger (B2-o) (from #1035)",
+        "validation": {
+          "required": [
+            "Focused tests for the intake acceptance criteria and the validation tier required by the product diff."
+          ]
+        }
+      },
+      "dependency_edge_evidence": {
+        "ISSUE-0184": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0192": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-07-backtest-paper-execution",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "Owner request for coordinated intake in tracker #1020. Draft pending review.",
+        "to": "planned"
+      },
+      "verified_commit": "78ef9d904288b3b3cf00ea3f995f36024655a4d6",
+      "verified_date": "2026-11-16"
+    },
+    "ISSUE-0197": {
+      "acceptance_evidence": [],
+      "canonical_definition": {
+        "acceptance_criteria": [
+          {
+            "id": "AC1",
+            "text": "B0-B3 decision files are byte-identical before and after; challenger records are separate; a missing engine gives `NO_NEW_TRADE`; all paper-only guards hold (`portfolio/paper_bots.py:42`, `portfolio/paper_trading.py:2639`)."
+          },
+          {
+            "id": "AC2",
+            "text": "as INT-15A; with the ranker `unavailable` or `insufficient_evidence` the record is `NO_NEW_TRADE`."
+          }
+        ],
+        "activation_dependencies": [],
+        "blocking_dependencies": [
+          "ISSUE-0190",
+          "ISSUE-0196"
+        ],
+        "capability_lane": "PAPER_BROKER_OPERATIONS",
+        "contract_markdown": "Canonical successor to INT-15B from [intake issue #1036](https://github.com/Thor2709/etf_ai_cockpit/issues/1036). Retain the [frozen technical requirements](https://github.com/Thor2709/etf_ai_cockpit/blob/f92d888d1624f59ce84f2952cd8d7da9566d9d20/docs/integration-intake/2026-11-15/issue-proposals/INT-15B.md) and the G3 gate. Source-file ordering: -. Intake readiness: READY (U1 approved 2026-11-15).",
+        "exclusions": [
+          "No new data, package, model-weight or execution authority from registration."
+        ],
+        "objective": "Add the separate B1-r paper-ranker challenger with the same paper-only isolation, shadow evidence and no-new-trade handling.",
+        "owner": "backtest-and-paper",
+        "phase": "phase-07-backtest-paper-execution",
+        "priority": "P2",
+        "related_issues": [
+          "ISSUE-0129",
+          "ISSUE-0130",
+          "ISSUE-0132"
+        ],
+        "release_blocking": false,
+        "required_inputs": [],
+        "rollback": "Revert the bounded integration and retain the existing local evidence and defaults.",
+        "scope": [
+          "Target the existing portfolio/paper_bots.py; configs/paper_bots_v1.yaml surfaces identified in the technical requirements."
+        ],
+        "title": "Paper-bot ranker challenger (B1-r) (from #1036)",
+        "validation": {
+          "required": [
+            "Focused tests for the intake acceptance criteria and the validation tier required by the product diff."
+          ]
+        }
+      },
+      "dependency_edge_evidence": {
+        "ISSUE-0190": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0196": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-07-backtest-paper-execution",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "Owner request for coordinated intake in tracker #1020. Draft pending review.",
+        "to": "planned"
+      },
+      "verified_commit": "78ef9d904288b3b3cf00ea3f995f36024655a4d6",
+      "verified_date": "2026-11-16"
+    },
+    "ISSUE-0198": {
+      "acceptance_evidence": [],
+      "canonical_definition": {
+        "acceptance_criteria": [
+          {
+            "id": "AC1",
+            "text": "a descriptor or membership change after date `t` does not change the factor return at `t`."
+          }
+        ],
+        "activation_dependencies": [],
+        "blocking_dependencies": [
+          "ISSUE-0182"
+        ],
+        "capability_lane": "CORE_ANALYSIS",
+        "contract_markdown": "Canonical successor to INT-16 from [intake issue #1037](https://github.com/Thor2709/etf_ai_cockpit/issues/1037). Retain the [frozen technical requirements](https://github.com/Thor2709/etf_ai_cockpit/blob/f92d888d1624f59ce84f2952cd8d7da9566d9d20/docs/integration-intake/2026-11-15/issue-proposals/INT-16.md) and the G3 gate. Source-file ordering: -. Intake readiness: READY.",
+        "exclusions": [
+          "No new data, package, model-weight or execution authority from registration."
+        ],
+        "objective": "Fit the existing Huber factor model with membership and descriptors as known on each historical decision date. Retain the current factor model and identify estimates as conditional.",
+        "owner": "returns-and-risk",
+        "phase": "phase-05-returns-risk-portfolio",
+        "priority": "P2",
+        "related_issues": [
+          "ISSUE-0088",
+          "ISSUE-0110",
+          "ISSUE-0116"
+        ],
+        "release_blocking": false,
+        "required_inputs": [],
+        "rollback": "Revert the bounded integration and retain the existing local evidence and defaults.",
+        "scope": [
+          "Target the existing portfolio/factor_risk.py surfaces identified in the technical requirements."
+        ],
+        "title": "Point-in-time factor exposures (from #1037)",
+        "validation": {
+          "required": [
+            "Focused tests for the intake acceptance criteria and the validation tier required by the product diff."
+          ]
+        }
+      },
+      "dependency_edge_evidence": {
+        "ISSUE-0182": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-05-returns-risk-portfolio",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "Owner request for coordinated intake in tracker #1020. Draft pending review.",
+        "to": "planned"
+      },
+      "verified_commit": "78ef9d904288b3b3cf00ea3f995f36024655a4d6",
+      "verified_date": "2026-11-16"
+    },
+    "ISSUE-0199": {
+      "acceptance_evidence": [],
+      "canonical_definition": {
+        "acceptance_criteria": [
+          {
+            "id": "AC1",
+            "text": "fixture XML parses without network; a grant is not counted as a purchase; a filing accepted after the decision time is not used; an amendment replaces the original from its own acceptance time only."
+          }
+        ],
+        "activation_dependencies": [],
+        "blocking_dependencies": [
+          "ISSUE-0185"
+        ],
+        "capability_lane": "DATA_PLATFORM",
+        "contract_markdown": "Canonical successor to INT-17 from [intake issue #1038](https://github.com/Thor2709/etf_ai_cockpit/issues/1038). Retain the [frozen technical requirements](https://github.com/Thor2709/etf_ai_cockpit/blob/f92d888d1624f59ce84f2952cd8d7da9566d9d20/docs/integration-intake/2026-11-15/issue-proposals/INT-17.md) and the G3 gate. Source-file ordering: -. Intake readiness: NEEDS_AUTHORITY (U1: extra not yet approved).",
+        "data_and_dependencies": "NEEDS_AUTHORITY (U1: extra not yet approved). Keep implementation and activation blocked until the input or authority is recorded.",
+        "exclusions": [
+          "No new data, package, model-weight or execution authority from registration."
+        ],
+        "objective": "Import local Form 3, 4, 5 and 13F evidence with acceptance-time revisions and transaction classifications. Exclude grants from purchase signals.",
+        "owner": "data-platform",
+        "phase": "phase-02-data-policy-identity",
+        "priority": "P2",
+        "related_issues": [
+          "ISSUE-0080",
+          "ISSUE-0082",
+          "ISSUE-0087"
+        ],
+        "release_blocking": false,
+        "required_inputs": [
+          "external:sec-extra-approval"
+        ],
+        "rollback": "Revert the bounded integration and retain the existing local evidence and defaults.",
+        "scope": [
+          "Target the existing data/sec_ownership.py; data/sec_edgar_provider.py surfaces identified in the technical requirements."
+        ],
+        "title": "SEC insider and 13F evidence (from #1038)",
+        "validation": {
+          "required": [
+            "Focused tests for the intake acceptance criteria and the validation tier required by the product diff."
+          ]
+        }
+      },
+      "dependency_edge_evidence": {
+        "ISSUE-0185": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-02-data-policy-identity",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "Owner request for coordinated intake in tracker #1020. Draft pending review.",
+        "to": "planned"
+      },
+      "verified_commit": "78ef9d904288b3b3cf00ea3f995f36024655a4d6",
+      "verified_date": "2026-11-16"
+    },
+    "ISSUE-0200": {
+      "acceptance_evidence": [],
+      "canonical_definition": {
+        "acceptance_criteria": [
+          {
+            "id": "AC1",
+            "text": "with the network blocked a stored 8-K yields its items and one table; filing time and announcement time are separate fields."
+          }
+        ],
+        "activation_dependencies": [],
+        "blocking_dependencies": [
+          "ISSUE-0186",
+          "ISSUE-0199"
+        ],
+        "capability_lane": "DATA_PLATFORM",
+        "contract_markdown": "Canonical successor to INT-18 from [intake issue #1039](https://github.com/Thor2709/etf_ai_cockpit/issues/1039). Retain the [frozen technical requirements](https://github.com/Thor2709/etf_ai_cockpit/blob/f92d888d1624f59ce84f2952cd8d7da9566d9d20/docs/integration-intake/2026-11-15/issue-proposals/INT-18.md) and the G4 gate. Source-file ordering: -. Intake readiness: NEEDS_AUTHORITY (U1: extra not yet approved).",
+        "data_and_dependencies": "NEEDS_AUTHORITY (U1: extra not yet approved). Keep implementation and activation blocked until the input or authority is recorded.",
+        "exclusions": [
+          "No new data, package, model-weight or execution authority from registration."
+        ],
+        "objective": "Extract supported items, earnings tables and 10-K sections from locally stored SEC filings. Preserve independent filing, announcement and source evidence.",
+        "owner": "data-platform",
+        "phase": "phase-02-data-policy-identity",
+        "priority": "P3",
+        "related_issues": [
+          "ISSUE-0087",
+          "ISSUE-0095"
+        ],
+        "release_blocking": false,
+        "required_inputs": [
+          "external:sec-extra-approval"
+        ],
+        "rollback": "Revert the bounded integration and retain the existing local evidence and defaults.",
+        "scope": [
+          "Target the existing data/sec_filing_documents.py; data/earnings_surprise.py surfaces identified in the technical requirements."
+        ],
+        "title": "8-K earnings releases and 10-K sections (from #1039)",
+        "validation": {
+          "required": [
+            "Focused tests for the intake acceptance criteria and the validation tier required by the product diff."
+          ]
+        }
+      },
+      "dependency_edge_evidence": {
+        "ISSUE-0186": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0199": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-02-data-policy-identity",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "Owner request for coordinated intake in tracker #1020. Draft pending review.",
+        "to": "planned"
+      },
+      "verified_commit": "78ef9d904288b3b3cf00ea3f995f36024655a4d6",
+      "verified_date": "2026-11-16"
+    },
+    "ISSUE-0201": {
+      "acceptance_evidence": [],
+      "canonical_definition": {
+        "acceptance_criteria": [
+          {
+            "id": "AC1",
+            "text": "an as-of query before a revision returns the earlier vintage; a latest-only series cannot enter a historical feature; the regime probability at `t` is identical when later data are appended; with no API key every feature is `unavailable`."
+          }
+        ],
+        "activation_dependencies": [],
+        "blocking_dependencies": [
+          "ISSUE-0185"
+        ],
+        "capability_lane": "DATA_PLATFORM",
+        "contract_markdown": "Canonical successor to INT-19 from [intake issue #1040](https://github.com/Thor2709/etf_ai_cockpit/issues/1040). Retain the [frozen technical requirements](https://github.com/Thor2709/etf_ai_cockpit/blob/f92d888d1624f59ce84f2952cd8d7da9566d9d20/docs/integration-intake/2026-11-15/issue-proposals/INT-19.md) and the G3 gate. Source-file ordering: -. Intake readiness: READY (U1 approved 2026-11-15).",
+        "exclusions": [
+          "No new data, package, model-weight or execution authority from registration."
+        ],
+        "objective": "Extend the existing macro warehouse with vintage-aware FRED and ECB inputs, the specified indicators and a causal optional regime label. Keep disabled or missing inputs unavailable.",
+        "owner": "data-platform",
+        "phase": "phase-02-data-policy-identity",
+        "priority": "P2",
+        "related_issues": [
+          "ISSUE-0026",
+          "ISSUE-0055",
+          "ISSUE-0088"
+        ],
+        "release_blocking": false,
+        "required_inputs": [],
+        "rollback": "Revert the bounded integration and retain the existing local evidence and defaults.",
+        "scope": [
+          "Target the existing data/fred_provider.py; data/ecb_provider.py; data/macro_warehouse.py; features/macro.py; features/regime.py surfaces identified in the technical requirements."
+        ],
+        "title": "Macro fetchers, indicators and regime label (from #1040)",
+        "validation": {
+          "required": [
+            "Focused tests for the intake acceptance criteria and the validation tier required by the product diff."
+          ]
+        }
+      },
+      "dependency_edge_evidence": {
+        "ISSUE-0185": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-02-data-policy-identity",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "Owner request for coordinated intake in tracker #1020. Draft pending review.",
+        "to": "planned"
+      },
+      "verified_commit": "78ef9d904288b3b3cf00ea3f995f36024655a4d6",
+      "verified_date": "2026-11-16"
+    },
+    "ISSUE-0202": {
+      "acceptance_evidence": [],
+      "canonical_definition": {
+        "acceptance_criteria": [
+          {
+            "id": "AC1",
+            "text": "no import runs without steps 1-3 recorded; each row has provenance, `available_at` and `pit_grade`; a conflict with an official fact is recorded, not selected."
+          }
+        ],
+        "activation_dependencies": [],
+        "blocking_dependencies": [
+          "ISSUE-0183"
+        ],
+        "capability_lane": "DATA_PLATFORM",
+        "contract_markdown": "Canonical successor to INT-20 from [intake issue #1041](https://github.com/Thor2709/etf_ai_cockpit/issues/1041). Retain the [frozen technical requirements](https://github.com/Thor2709/etf_ai_cockpit/blob/f92d888d1624f59ce84f2952cd8d7da9566d9d20/docs/integration-intake/2026-11-15/issue-proposals/INT-20.md) and the G3 gate. Source-file ordering: -. Intake readiness: BLOCKED_BY_DATA (dump not delivered).",
+        "data_and_dependencies": "BLOCKED_BY_DATA (dump not delivered). Keep implementation and activation blocked until the input or authority is recorded.",
+        "exclusions": [
+          "No new data, package, model-weight or execution authority from registration."
+        ],
+        "objective": "Add the EODHD local dataset adapter after delivery and data approval. Preserve source precedence and PIT provenance, and report conflicts without replacing official facts.",
+        "owner": "data-platform",
+        "phase": "phase-02-data-policy-identity",
+        "priority": "P1",
+        "related_issues": [
+          "ISSUE-0080",
+          "ISSUE-0086",
+          "ISSUE-0089",
+          "ISSUE-0090",
+          "ISSUE-0091"
+        ],
+        "release_blocking": false,
+        "required_inputs": [
+          "external:eodhd-dataset"
+        ],
+        "rollback": "Revert the bounded integration and retain the existing local evidence and defaults.",
+        "scope": [
+          "Target the existing data/eodhd_import.py surfaces identified in the technical requirements."
+        ],
+        "title": "EODHD dataset adapter (from #1041)",
+        "validation": {
+          "required": [
+            "Focused tests for the intake acceptance criteria and the validation tier required by the product diff."
+          ]
+        }
+      },
+      "dependency_edge_evidence": {
+        "ISSUE-0183": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-02-data-policy-identity",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "Owner request for coordinated intake in tracker #1020. Draft pending review.",
+        "to": "planned"
+      },
+      "verified_commit": "78ef9d904288b3b3cf00ea3f995f36024655a4d6",
+      "verified_date": "2026-11-16"
+    },
+    "ISSUE-0203": {
+      "acceptance_evidence": [],
+      "canonical_definition": {
+        "acceptance_criteria": [
+          {
+            "id": "AC1",
+            "text": "below the 0.80 coverage floor the roll-up is `unavailable`; a stale snapshot is flagged; a fund-of-funds reports the uncovered weight."
+          }
+        ],
+        "activation_dependencies": [],
+        "blocking_dependencies": [
+          "ISSUE-0183",
+          "ISSUE-0187"
+        ],
+        "capability_lane": "CORE_ANALYSIS",
+        "contract_markdown": "Canonical successor to INT-21 from [intake issue #1042](https://github.com/Thor2709/etf_ai_cockpit/issues/1042). Retain the [frozen technical requirements](https://github.com/Thor2709/etf_ai_cockpit/blob/f92d888d1624f59ce84f2952cd8d7da9566d9d20/docs/integration-intake/2026-11-15/issue-proposals/INT-21.md) and the G3 gate. Source-file ordering: -. Intake readiness: READY.",
+        "exclusions": [
+          "No new data, package, model-weight or execution authority from registration."
+        ],
+        "objective": "Extend the existing ETF look-through with the proposed issuer-level fundamental metrics using the vintages known at the holdings knowledge time and the existing coverage boundary.",
+        "owner": "etf-research",
+        "phase": "phase-04-etf-research",
+        "priority": "P2",
+        "related_issues": [
+          "ISSUE-0022",
+          "ISSUE-0092",
+          "ISSUE-0105"
+        ],
+        "release_blocking": false,
+        "required_inputs": [],
+        "rollback": "Revert the bounded integration and retain the existing local evidence and defaults.",
+        "scope": [
+          "Target the existing analysis/look_through.py; data/holdings_registry.py surfaces identified in the technical requirements."
+        ],
+        "title": "ETF look-through fundamentals roll-up (from #1042)",
+        "validation": {
+          "required": [
+            "Focused tests for the intake acceptance criteria and the validation tier required by the product diff."
+          ]
+        }
+      },
+      "dependency_edge_evidence": {
+        "ISSUE-0183": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0187": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-04-etf-research",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "Owner request for coordinated intake in tracker #1020. Draft pending review.",
+        "to": "planned"
+      },
+      "verified_commit": "78ef9d904288b3b3cf00ea3f995f36024655a4d6",
+      "verified_date": "2026-11-16"
+    },
+    "ISSUE-0204": {
+      "acceptance_evidence": [],
+      "canonical_definition": {
+        "acceptance_criteria": [
+          {
+            "id": "AC1",
+            "text": "a hint never overrides an official identity; the import works offline."
+          }
+        ],
+        "activation_dependencies": [],
+        "blocking_dependencies": [],
+        "capability_lane": "DATA_PLATFORM",
+        "contract_markdown": "Canonical successor to INT-22 from [intake issue #1043](https://github.com/Thor2709/etf_ai_cockpit/issues/1043). Retain the [frozen technical requirements](https://github.com/Thor2709/etf_ai_cockpit/blob/f92d888d1624f59ce84f2952cd8d7da9566d9d20/docs/integration-intake/2026-11-15/issue-proposals/INT-22.md) and the G4 gate. Source-file ordering: -. Input hold: user-downloaded FinanceDatabase CSV with its hash required.",
+        "data_and_dependencies": "BLOCKED_BY_DATA (user-downloaded FinanceDatabase CSV with its hash is required).",
+        "exclusions": [
+          "No new data, package, model-weight or execution authority from registration."
+        ],
+        "objective": "Import pinned FinanceDatabase CSVs offline as reference hints without altering official identities.",
+        "owner": "data-platform",
+        "phase": "phase-02-data-policy-identity",
+        "priority": "P3",
+        "related_issues": [
+          "ISSUE-0082",
+          "ISSUE-0083",
+          "ISSUE-0089"
+        ],
+        "release_blocking": false,
+        "required_inputs": [
+          "external:user-downloaded-financedatabase-csv"
+        ],
+        "rollback": "Revert the bounded integration and retain the existing local evidence and defaults.",
+        "scope": [
+          "Target the existing scripts/import_financedatabase.py surfaces identified in the technical requirements."
+        ],
+        "title": "FinanceDatabase reference import (from #1043)",
+        "validation": {
+          "required": [
+            "Focused tests for the intake acceptance criteria and the validation tier required by the product diff."
+          ]
+        }
+      },
+      "dependency_edge_evidence": {},
+      "phase": "phase-02-data-policy-identity",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "Owner request for coordinated intake in tracker #1020. Draft pending review.",
+        "to": "planned"
+      },
+      "verified_commit": "78ef9d904288b3b3cf00ea3f995f36024655a4d6",
+      "verified_date": "2026-11-16"
+    },
+    "ISSUE-0205": {
+      "acceptance_evidence": [],
+      "canonical_definition": {
+        "acceptance_criteria": [
+          {
+            "id": "AC1",
+            "text": "a hit returns page and character span; a document with `known_at` after `as_of` is not returned; re-indexing keeps existing `chunk_id` values."
+          }
+        ],
+        "activation_dependencies": [],
+        "blocking_dependencies": [],
+        "capability_lane": "DATA_PLATFORM",
+        "contract_markdown": "Canonical successor to INT-23 from [intake issue #1044](https://github.com/Thor2709/etf_ai_cockpit/issues/1044). Retain the [frozen technical requirements](https://github.com/Thor2709/etf_ai_cockpit/blob/f92d888d1624f59ce84f2952cd8d7da9566d9d20/docs/integration-intake/2026-11-15/issue-proposals/INT-23.md) and the G4 gate. Source-file ordering: -. Intake readiness: READY. Original intake priority P4 follows other P3 work within the lowest canonical band.",
+        "exclusions": [
+          "No new data, package, model-weight or execution authority from registration."
+        ],
+        "objective": "Extend local research evidence with versioned document chunks, SQLite FTS5 retrieval, and stable page-level and character-span citations with historical visibility.",
+        "owner": "data-platform",
+        "phase": "phase-02-data-policy-identity",
+        "priority": "P3",
+        "related_issues": [
+          "ISSUE-0087",
+          "ISSUE-0090",
+          "ISSUE-0138",
+          "ISSUE-0140"
+        ],
+        "release_blocking": false,
+        "required_inputs": [],
+        "rollback": "Revert the bounded integration and retain the existing local evidence and defaults.",
+        "scope": [
+          "Target the existing data/document_chunks.py; application/research_evidence.py surfaces identified in the technical requirements."
+        ],
+        "title": "Chunk store and lexical search (from #1044)",
+        "validation": {
+          "required": [
+            "Focused tests for the intake acceptance criteria and the validation tier required by the product diff."
+          ]
+        }
+      },
+      "dependency_edge_evidence": {},
+      "phase": "phase-02-data-policy-identity",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "Owner request for coordinated intake in tracker #1020. Draft pending review.",
+        "to": "planned"
+      },
+      "verified_commit": "78ef9d904288b3b3cf00ea3f995f36024655a4d6",
+      "verified_date": "2026-11-16"
+    },
+    "ISSUE-0206": {
+      "acceptance_evidence": [],
+      "canonical_definition": {
+        "acceptance_criteria": [
+          {
+            "id": "AC1",
+            "text": "with docling absent the parsers behave as today; the worker passes the socket-denial test; a timeout gives a clean status; a fixture table reaches the review queue with page provenance."
+          }
+        ],
+        "activation_dependencies": [],
+        "blocking_dependencies": [
+          "ISSUE-0185",
+          "ISSUE-0205"
+        ],
+        "capability_lane": "DATA_PLATFORM",
+        "contract_markdown": "Canonical successor to INT-24 from [intake issue #1045](https://github.com/Thor2709/etf_ai_cockpit/issues/1045). Retain the [frozen technical requirements](https://github.com/Thor2709/etf_ai_cockpit/blob/f92d888d1624f59ce84f2952cd8d7da9566d9d20/docs/integration-intake/2026-11-15/issue-proposals/INT-24.md) and the G4 gate. Source-file ordering: -. Intake readiness: NEEDS_AUTHORITY (U1: extra not yet approved). Original intake priority P4 follows other P3 work within the lowest canonical band.",
+        "data_and_dependencies": "NEEDS_AUTHORITY (U1: extra not yet approved). Keep implementation and activation blocked until the input or authority is recorded.",
+        "exclusions": [
+          "No new data, package, model-weight or execution authority from registration."
+        ],
+        "objective": "Add the disabled-safe isolated Docling worker for approved local documents and route extracted tables to the existing evidence review queue.",
+        "owner": "data-platform",
+        "phase": "phase-02-data-policy-identity",
+        "priority": "P3",
+        "related_issues": [
+          "ISSUE-0087",
+          "ISSUE-0090",
+          "ISSUE-0144"
+        ],
+        "release_blocking": false,
+        "required_inputs": [
+          "external:documents-extra-approval"
+        ],
+        "rollback": "Revert the bounded integration and retain the existing local evidence and defaults.",
+        "scope": [
+          "Target the existing application/docling_worker.py; application/document_parsers.py surfaces identified in the technical requirements."
+        ],
+        "title": "Docling document worker (from #1045)",
+        "validation": {
+          "required": [
+            "Focused tests for the intake acceptance criteria and the validation tier required by the product diff."
+          ]
+        }
+      },
+      "dependency_edge_evidence": {
+        "ISSUE-0185": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0205": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-02-data-policy-identity",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "Owner request for coordinated intake in tracker #1020. Draft pending review.",
+        "to": "planned"
+      },
+      "verified_commit": "78ef9d904288b3b3cf00ea3f995f36024655a4d6",
+      "verified_date": "2026-11-16"
+    },
+    "ISSUE-0207": {
+      "acceptance_evidence": [],
+      "canonical_definition": {
+        "acceptance_criteria": [
+          {
+            "id": "AC1",
+            "text": "the evaluation report exists with all three modes; with fastembed absent search is lexical; the socket-denial test passes."
+          }
+        ],
+        "activation_dependencies": [],
+        "blocking_dependencies": [
+          "ISSUE-0185",
+          "ISSUE-0205"
+        ],
+        "capability_lane": "DATA_PLATFORM",
+        "contract_markdown": "Canonical successor to INT-25 from [intake issue #1046](https://github.com/Thor2709/etf_ai_cockpit/issues/1046). Retain the [frozen technical requirements](https://github.com/Thor2709/etf_ai_cockpit/blob/f92d888d1624f59ce84f2952cd8d7da9566d9d20/docs/integration-intake/2026-11-15/issue-proposals/INT-25.md) and the G4 gate. Source-file ordering: -. Intake readiness: NEEDS_AUTHORITY (U1: extra not yet approved). Original intake priority P4 follows other P3 work within the lowest canonical band.",
+        "data_and_dependencies": "NEEDS_AUTHORITY (U1: extra not yet approved). Keep implementation and activation blocked until the input or authority is recorded.",
+        "exclusions": [
+          "No new data, package, model-weight or execution authority from registration."
+        ],
+        "objective": "Add optional local hybrid embedding retrieval and reranking over the existing lexical store. Preserve lexical fallback and evaluate all three retrieval modes.",
+        "owner": "data-platform",
+        "phase": "phase-02-data-policy-identity",
+        "priority": "P3",
+        "related_issues": [
+          "ISSUE-0090",
+          "ISSUE-0138",
+          "ISSUE-0140",
+          "ISSUE-0144"
+        ],
+        "release_blocking": false,
+        "required_inputs": [
+          "external:retrieval-extra-approval"
+        ],
+        "rollback": "Revert the bounded integration and retain the existing local evidence and defaults.",
+        "scope": [
+          "Target the existing data/document_embeddings.py; application/research_evidence.py surfaces identified in the technical requirements."
+        ],
+        "title": "Embedding retrieval and reranking (from #1046)",
+        "validation": {
+          "required": [
+            "Focused tests for the intake acceptance criteria and the validation tier required by the product diff."
+          ]
+        }
+      },
+      "dependency_edge_evidence": {
+        "ISSUE-0185": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0205": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-02-data-policy-identity",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "Owner request for coordinated intake in tracker #1020. Draft pending review.",
+        "to": "planned"
+      },
+      "verified_commit": "78ef9d904288b3b3cf00ea3f995f36024655a4d6",
+      "verified_date": "2026-11-16"
+    },
+    "ISSUE-0208": {
+      "acceptance_evidence": [],
+      "canonical_definition": {
+        "acceptance_criteria": [
+          {
+            "id": "AC1",
+            "text": "a grounding check proves that every number in a generated report equals its metric and that every citation resolves; a non-conforming answer is rejected as today."
+          }
+        ],
+        "activation_dependencies": [],
+        "blocking_dependencies": [
+          "ISSUE-0205"
+        ],
+        "capability_lane": "DATA_PLATFORM",
+        "contract_markdown": "Canonical successor to INT-26 from [intake issue #1047](https://github.com/Thor2709/etf_ai_cockpit/issues/1047). Retain the [frozen technical requirements](https://github.com/Thor2709/etf_ai_cockpit/blob/f92d888d1624f59ce84f2952cd8d7da9566d9d20/docs/integration-intake/2026-11-15/issue-proposals/INT-26.md) and the G4 gate. Source-file ordering: INT-25 (application/research_evidence.py). Intake readiness: READY. Original intake priority P4 follows other P3 work within the lowest canonical band.",
+        "exclusions": [
+          "No new data, package, model-weight or execution authority from registration."
+        ],
+        "objective": "Extend the existing local LLM validation with backend schema support and grounded Markdown and HTML exports. Keep metrics and citations sourced outside model text.",
+        "owner": "data-platform",
+        "phase": "phase-02-data-policy-identity",
+        "priority": "P3",
+        "related_issues": [
+          "ISSUE-0010",
+          "ISSUE-0138",
+          "ISSUE-0147"
+        ],
+        "release_blocking": false,
+        "required_inputs": [],
+        "rollback": "Revert the bounded integration and retain the existing local evidence and defaults.",
+        "scope": [
+          "Target the existing audit/local_llm.py; application/research_report.py surfaces identified in the technical requirements."
+        ],
+        "title": "LLM structured output, presets and report export (from #1047)",
+        "validation": {
+          "required": [
+            "Focused tests for the intake acceptance criteria and the validation tier required by the product diff."
+          ]
+        }
+      },
+      "dependency_edge_evidence": {
+        "ISSUE-0205": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-02-data-policy-identity",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "Owner request for coordinated intake in tracker #1020. Draft pending review.",
+        "to": "planned"
+      },
+      "verified_commit": "78ef9d904288b3b3cf00ea3f995f36024655a4d6",
+      "verified_date": "2026-11-16"
+    },
+    "ISSUE-0209": {
+      "acceptance_evidence": [],
+      "canonical_definition": {
+        "acceptance_criteria": [
+          {
+            "id": "AC1",
+            "text": "with weights absent `is_available()` is false and the run continues; output units match `ForecastResult`; the socket-denial test passes."
+          }
+        ],
+        "activation_dependencies": [],
+        "blocking_dependencies": [
+          "ISSUE-0184",
+          "ISSUE-0185"
+        ],
+        "capability_lane": "CORE_ANALYSIS",
+        "contract_markdown": "Canonical successor to INT-27 from [intake issue #1048](https://github.com/Thor2709/etf_ai_cockpit/issues/1048). Retain the [frozen technical requirements](https://github.com/Thor2709/etf_ai_cockpit/blob/f92d888d1624f59ce84f2952cd8d7da9566d9d20/docs/integration-intake/2026-11-15/issue-proposals/INT-27.md) and the G4 gate. Source-file ordering: -. Intake readiness: NEEDS_AUTHORITY (U1: extra not yet approved). Original intake priority P4 follows other P3 work within the lowest canonical band.",
+        "data_and_dependencies": "NEEDS_AUTHORITY (U1: extra not yet approved). Keep implementation and activation blocked until the input or authority is recorded.",
+        "exclusions": [
+          "No new data, package, model-weight or execution authority from registration."
+        ],
+        "objective": "Add an optional local Chronos-2 shadow adapter under the existing forecast result and model-weight contracts.",
+        "owner": "model-governance",
+        "phase": "phase-06-model-research",
+        "priority": "P3",
+        "related_issues": [
+          "ISSUE-0108",
+          "ISSUE-0121",
+          "ISSUE-0123",
+          "ISSUE-0124"
+        ],
+        "release_blocking": false,
+        "required_inputs": [
+          "external:approved-chronos-2-weights",
+          "external:chronos-forecasting-extra-approval"
+        ],
+        "rollback": "Revert the bounded integration and retain the existing local evidence and defaults.",
+        "scope": [
+          "Target the existing models/chronos2_adapter.py; application/forecast_service.py surfaces identified in the technical requirements."
+        ],
+        "title": "Chronos-2 forecast adapter (shadow) (from #1048)",
+        "validation": {
+          "required": [
+            "Focused tests for the intake acceptance criteria and the validation tier required by the product diff."
+          ]
+        }
+      },
+      "dependency_edge_evidence": {
+        "ISSUE-0184": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        },
+        "ISSUE-0185": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-06-model-research",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "Owner request for coordinated intake in tracker #1020. Draft pending review.",
+        "to": "planned"
+      },
+      "verified_commit": "78ef9d904288b3b3cf00ea3f995f36024655a4d6",
+      "verified_date": "2026-11-16"
+    },
     "UPDATEV2-0010": {
       "acceptance_evidence": [],
       "dependency_edge_evidence": {},

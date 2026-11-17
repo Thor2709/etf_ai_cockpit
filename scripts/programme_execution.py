@@ -194,7 +194,8 @@ def build_plan(registry: dict, work: dict[str, list[dict]] | None = None) -> dic
         elif not decision["ready"]:
             edges = [edge for edge in decision["edges"] if edge["resolved"] is not True]
             blocked.append({**entry, "reason_codes": decision["reason_codes"], "edges": edges,
-                            "evidence_only": bool(edges) and all(records[e["dependency_id"]]["programme_status"] in FINISHED for e in edges)})
+                            "evidence_only": "BLOCKED_EXTERNAL_INPUT" not in decision["reason_codes"]
+                            and bool(edges) and all(records[e["dependency_id"]]["programme_status"] in FINISHED for e in edges)})
         else:
             # Observed existing work reduces duplicate coding, never lowers any gate.
             stage = 0 if merged else 1 if locators else 2

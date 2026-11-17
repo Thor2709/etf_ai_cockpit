@@ -30,6 +30,7 @@ _PROGRAMME_STATUSES = frozenset(
 )
 _EDGE_EVIDENCE_STATES = frozenset({"unresolved", "complete", "partial_interface", "waived"})
 _ISSUE_ID_RE = re.compile(r"(?:ISSUE|UPDATEV2)-\d{4}")
+_EXTERNAL_INPUT_RE = re.compile(r"external:[a-z0-9]+(?:-[a-z0-9]+)*")
 _PRIORITIES = frozenset({"P0", "P0/P1", "P1", "P1/P2", "P2", "P3"})
 _CLASSIFICATIONS = frozenset(
     {
@@ -320,6 +321,10 @@ def _validate_decision(
     else:
         expected_ready = True
         expected_reasons = ["READY_BLOCKING_EDGES_RESOLVED" if expected_edges else "READY_NO_BLOCKING_DEPENDENCIES"]
+    missing_input = any(_EXTERNAL_INPUT_RE.fullmatch(value) for value in record_inputs)
+    if missing_input and ledger_state != "closed":
+        expected_reasons = ([] if expected_ready else expected_reasons) + ["BLOCKED_EXTERNAL_INPUT"]
+        expected_ready = False
 
     expected_activation_edges = [
         {
@@ -343,6 +348,11 @@ def _validate_decision(
         if expected_activation_ready
         else "ACTIVATION_BLOCKED_UNRESOLVED_DEPENDENCY"
     ]
+    if missing_input:
+        expected_activation_reasons = ([] if expected_activation_ready else expected_activation_reasons) + [
+            "ACTIVATION_BLOCKED_EXTERNAL_INPUT"
+        ]
+        expected_activation_ready = False
     if (
         ready is not expected_ready
         or list(decision["reason_codes"]) != expected_reasons
@@ -463,6 +473,8 @@ def build_programme_map(registry: Mapping[str, Any], *, registry_sha256: str = "
             if field not in record:
                 raise ValueError(f"canonical registry field {field} is required")
             for dependency in _strict_string_tuple(record[field], field):
+                if field == "required_inputs" and _EXTERNAL_INPUT_RE.fullmatch(dependency):
+                    continue
                 _strict_issue_id(dependency, field)
     if len(set(record_ids)) != len(record_ids):
         raise ValueError("canonical issue registry contains duplicate canonical_id values")
@@ -477,6 +489,8 @@ def build_programme_map(registry: Mapping[str, Any], *, registry_sha256: str = "
     for canonical_id, record in records_by_id.items():
         for field in relationship_fields:
             references = set(_strict_string_tuple(record[field], field))
+            if field == "required_inputs":
+                references = {value for value in references if not _EXTERNAL_INPUT_RE.fullmatch(value)}
             if canonical_id in references:
                 raise ValueError(f"canonical record {canonical_id} contains a self-reference")
             unknown = references - known_ids
@@ -487,7 +501,8 @@ def build_programme_map(registry: Mapping[str, Any], *, registry_sha256: str = "
     for source_id, record in records_by_id.items():
         for field in ("blocking_dependencies", "required_inputs", "activation_dependencies"):
             for dependency in _strict_string_tuple(record[field], field):
-                expected_downstream[dependency].add(source_id)
+                if dependency in expected_downstream:
+                    expected_downstream[dependency].add(source_id)
     for issue_id, record in records_by_id.items():
         if set(_strict_string_tuple(record["downstream_issues"], "downstream_issues")) != expected_downstream[issue_id]:
             raise ValueError(f"canonical downstream links are inconsistent for {issue_id}")

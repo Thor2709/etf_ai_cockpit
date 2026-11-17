@@ -229,6 +229,14 @@ def plan_actions(
             }
             payload["plan_sha256"] = plan_sha256(payload)
             return payload
+        verified = {
+            row["issue_number"]: row["verified_status_projection"]
+            for row in authority_reconciliation["projections"]
+            if "verified_status_projection" in row
+        }
+        for issue in remote:
+            if issue["number"] in verified:
+                issue["status_projection"] = verified[issue["number"]]
     by_marker = marker_ids(remote)
     reopen_ids = set(reviewed_reopen_ids)
     actions: list[dict[str, Any]] = []

@@ -1,6 +1,6 @@
 # Expected return, risk and portfolio construction
 
-Phase `phase-05-returns-risk-portfolio` covers `ISSUE-0008, ISSUE-0028–ISSUE-0029, ISSUE-0046, ISSUE-0051–ISSUE-0052, ISSUE-0059–ISSUE-0060, ISSUE-0064–ISSUE-0065, ISSUE-0108–ISSUE-0116, ISSUE-0154, ISSUE-0156–ISSUE-0157, ISSUE-0159, ISSUE-0162, ISSUE-0164, ISSUE-0166, ISSUE-0168, ISSUE-0173–ISSUE-0174, UPDATEV2-0026`. The issue registry remains the canonical source for titles, priorities, state and acceptance criteria; this document records phase-specific implementation guidance.
+Phase `phase-05-returns-risk-portfolio` covers `ISSUE-0008, ISSUE-0028–ISSUE-0029, ISSUE-0046, ISSUE-0051–ISSUE-0052, ISSUE-0059–ISSUE-0060, ISSUE-0064–ISSUE-0065, ISSUE-0108–ISSUE-0116, ISSUE-0154, ISSUE-0156–ISSUE-0157, ISSUE-0159, ISSUE-0162, ISSUE-0164, ISSUE-0166, ISSUE-0168, ISSUE-0173–ISSUE-0174, ISSUE-0184, ISSUE-0192–ISSUE-0195, ISSUE-0198, UPDATEV2-0026`. The issue registry remains the canonical source for titles, priorities, state and acceptance criteria; this document records phase-specific implementation guidance.
 
 ## Objective
 
@@ -40,7 +40,7 @@ Follow [`DELIVERY_WORKFLOW.md`](../../DELIVERY_WORKFLOW.md) for current E/O/H/C 
 
 ## Blockers, dependencies and related links
 
-- Resolve only `blocking_dependencies` as prerequisites; `required_inputs` are policy/evidence inputs and do not block readiness. `downstream_issues` are generated reverse links and `related_issues` are context only.
+- Resolve `blocking_dependencies` through issue evidence. A named `external:...` entry in `required_inputs` blocks implementation and activation while pending. Issue references in `required_inputs` are policy or evidence inputs. `downstream_issues` are generated reverse links and `related_issues` provide context.
 - The registry's blocking graph is acyclic; dependency conversions are recorded in `docs/product-completion/reconciliation/2026-07-21-2337f69/dependency-reconciliation.csv`.
 
 ## Issue coverage
@@ -76,4 +76,10 @@ Follow [`DELIVERY_WORKFLOW.md`](../../DELIVERY_WORKFLOW.md) for current E/O/H/C 
 | `ISSUE-0168` | `P1` | `integrated` | `returns-and-risk` | `ISSUE-0108`, `ISSUE-0109`, `ISSUE-0110`, `ISSUE-0111`, `ISSUE-0115`, `ISSUE-0127`, `ISSUE-0161` | - | - | - |
 | `ISSUE-0173` | `P0` | `integrated` | `returns-and-risk` | `ISSUE-0076`, `ISSUE-0084`, `ISSUE-0088`, `ISSUE-0089`, `ISSUE-0149`, `ISSUE-0176` | - | `ISSUE-0172`, `ISSUE-0174` | - |
 | `ISSUE-0174` | `P0` | `integrated` | `programme-governance` | `ISSUE-0074`, `ISSUE-0108`, `ISSUE-0109`, `ISSUE-0110`, `ISSUE-0111`, `ISSUE-0112`, `ISSUE-0123`, `ISSUE-0128`, `ISSUE-0173` | - | `ISSUE-0172` | - |
+| `ISSUE-0184` | `P1` | `planned` | `returns-and-risk` | - | - | `ISSUE-0196`, `ISSUE-0209` | `ISSUE-0108`, `ISSUE-0112`, `ISSUE-0123`, `ISSUE-0128`, `ISSUE-0130` |
+| `ISSUE-0192` | `P2` | `planned` | `portfolio-construction` | `ISSUE-0185` | - | `ISSUE-0193`, `ISSUE-0194`, `ISSUE-0196` | `ISSUE-0113` |
+| `ISSUE-0193` | `P2` | `planned` | `portfolio-construction` | `ISSUE-0192` | - | `ISSUE-0194` | `ISSUE-0111`, `ISSUE-0113` |
+| `ISSUE-0194` | `P2` | `planned` | `portfolio-construction` | `ISSUE-0192`, `ISSUE-0193` | - | - | `ISSUE-0111`, `ISSUE-0113`, `ISSUE-0114`, `ISSUE-0166` |
+| `ISSUE-0195` | `P2` | `planned` | `returns-and-risk` | `ISSUE-0185` | - | - | `ISSUE-0111`, `ISSUE-0115`, `ISSUE-0120`, `ISSUE-0121` |
+| `ISSUE-0198` | `P2` | `planned` | `returns-and-risk` | `ISSUE-0182` | - | - | `ISSUE-0088`, `ISSUE-0110`, `ISSUE-0116` |
 | `UPDATEV2-0026` | `P1` | `integrated` | `analysis-and-validation` | - | - | - | `ISSUE-0084`, `ISSUE-0125`, `ISSUE-0128` |

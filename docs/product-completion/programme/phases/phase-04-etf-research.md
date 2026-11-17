@@ -1,6 +1,6 @@
 # ETF economics, structure, exposure and context
 
-Phase `phase-04-etf-research` covers `ISSUE-0103–ISSUE-0107, ISSUE-0172`. The issue registry remains the canonical source for titles, priorities, state and acceptance criteria; this document records phase-specific implementation guidance.
+Phase `phase-04-etf-research` covers `ISSUE-0103–ISSUE-0107, ISSUE-0172, ISSUE-0203`. The issue registry remains the canonical source for titles, priorities, state and acceptance criteria; this document records phase-specific implementation guidance.
 
 ## Objective
 
@@ -40,7 +40,7 @@ Follow [`DELIVERY_WORKFLOW.md`](../../DELIVERY_WORKFLOW.md) for current E/O/H/C 
 
 ## Blockers, dependencies and related links
 
-- Resolve only `blocking_dependencies` as prerequisites; `required_inputs` are policy/evidence inputs and do not block readiness. `downstream_issues` are generated reverse links and `related_issues` are context only.
+- Resolve `blocking_dependencies` through issue evidence. A named `external:...` entry in `required_inputs` blocks implementation and activation while pending. Issue references in `required_inputs` are policy or evidence inputs. `downstream_issues` are generated reverse links and `related_issues` provide context.
 - The registry's blocking graph is acyclic; dependency conversions are recorded in `docs/product-completion/reconciliation/2026-07-21-2337f69/dependency-reconciliation.csv`.
 
 ## Issue coverage
@@ -53,3 +53,4 @@ Follow [`DELIVERY_WORKFLOW.md`](../../DELIVERY_WORKFLOW.md) for current E/O/H/C 
 | `ISSUE-0106` | `P0/P1` | `integrated` | `etf-research` | `ISSUE-0128` | - | - | - |
 | `ISSUE-0107` | `P1/P2` | `integrated` | `etf-research` | `ISSUE-0088`, `ISSUE-0104` | - | - | - |
 | `ISSUE-0172` | `P0` | `integrated` | `etf-and-fund-research` | `ISSUE-0074`, `ISSUE-0098`, `ISSUE-0105`, `ISSUE-0108`, `ISSUE-0109`, `ISSUE-0112`, `ISSUE-0120`, `ISSUE-0123`, `ISSUE-0128`, `ISSUE-0170`, `ISSUE-0171`, `ISSUE-0173`, `ISSUE-0174`, `ISSUE-0175` | - | - | - |
+| `ISSUE-0203` | `P2` | `planned` | `etf-research` | `ISSUE-0183`, `ISSUE-0187` | - | - | `ISSUE-0022`, `ISSUE-0092`, `ISSUE-0105` |

@@ -1403,7 +1403,9 @@ def build_replay_receipt(
     return receipt, REPLAY_RECEIPT_PREFIX + _json_bytes(receipt).decode()
 
 
-def project_status_events(issue: dict[str, Any]) -> dict[str, Any]:
+def project_status_events(
+    issue: dict[str, Any], *, original_body_before_refresh: tuple[int, str] | None = None,
+) -> dict[str, Any]:
     snapshot = normalise_issue_snapshot(issue)
     matches = STATUS_RE.findall(snapshot["body"])
     if len(matches) != 1:
@@ -1419,6 +1421,13 @@ def project_status_events(issue: dict[str, Any]) -> dict[str, Any]:
     predecessor_id, predecessor_hash = _legacy_anchor(stable_id, status)
     event_count = 0
     authority_events: list[dict[str, Any]] = []
+
+    def proposal_snapshot_sha256(sequence: int, comments: list[dict[str, Any]]) -> str:
+        if original_body_before_refresh is not None:
+            refresh_sequence, original_body = original_body_before_refresh
+            if sequence < refresh_sequence:
+                return _acceptance_snapshot_sha256({**snapshot, "body": original_body}, comments)
+        return _acceptance_snapshot_sha256(snapshot, comments)
 
     def require_bot(comment: dict[str, Any], *, receipt: bool = False) -> None:
         label = "status_event_receipt" if receipt else "status_event"
@@ -1491,7 +1500,7 @@ def project_status_events(issue: dict[str, Any]) -> dict[str, Any]:
                     or receipt["hops_sha256"]
                     != _sha256(_json_bytes(replay_event["hops"]))
                     or receipt["verified_postwrite_snapshot_sha256"]
-                    != _acceptance_snapshot_sha256(snapshot, comments[: index + 1])
+                    != proposal_snapshot_sha256(replay_event["authority_sequence"], comments[: index + 1])
                 ):
                     raise ValueError("invalid_status_replay_acceptance_pair")
                 hops = _validate_replay_hops(
@@ -1571,7 +1580,7 @@ def project_status_events(issue: dict[str, Any]) -> dict[str, Any]:
                 or receipt["ledger_blob_sha256"] != event["ledger_blob_sha256"]
                 or receipt["candidate_blob_oid"] != event["candidate_blob_oid"]
                 or receipt["verified_postwrite_snapshot_sha256"]
-                != _acceptance_snapshot_sha256(snapshot, comments[: index + 1])
+                != proposal_snapshot_sha256(event["authority_sequence"], comments[: index + 1])
             ):
                 raise ValueError("invalid_status_event_acceptance_pair")
             status = str(event["to_status"])
@@ -2101,6 +2110,7 @@ def reconcile_authority_ledger(
         canonical: dict[str, dict[str, Any]] = {}
         initial_statuses: dict[str, str] = {}
         create_acceptances: dict[str, dict[str, Any]] = {}
+        original_bodies: dict[str, tuple[int, str]] = {}
         for row in _bootstrap_rows(records):
             issue = by_number.get(int(row["issue_number"]))
             if issue is None:
@@ -2149,9 +2159,24 @@ def reconcile_authority_ledger(
             canonical[stable_id] = matches[0]
             initial_statuses[stable_id] = statuses[0]
             create_acceptances[stable_id] = acceptance
+            refresh = refresh_heads.get(matches[0]["number"])
+            if refresh is not None:
+                refresh_authority, update = refresh
+                original_body = f"{marker}\n{record['payload']['managed_body']}"
+                if (
+                    record["sequence"] < refresh_authority["sequence"]
+                    and _sha256(original_body) == update["preimage_body_sha256"]
+                    and _sha256(matches[0]["body"]) == update["postimage_body_sha256"]
+                ):
+                    original_bodies[stable_id] = (refresh_authority["sequence"], original_body)
 
         for stable_id, issue in sorted(canonical.items()):
             projection = project_status_events(issue)
+            preserved_status = not projection.get("accepted") and stable_id in original_bodies
+            if preserved_status:
+                projection = project_status_events(
+                    issue, original_body_before_refresh=original_bodies[stable_id],
+                )
             if not projection.get("accepted"):
                 raise ValueError(str(projection.get("error")))
             expected = _status_authorities(records, stable_id)
@@ -2214,6 +2239,7 @@ def reconcile_authority_ledger(
                     ),
                     "authority_events": actual,
                     "create_acceptance": create_acceptances.get(stable_id),
+                    **({"verified_status_projection": projection} if preserved_status else {}),
                 }
             )
     except (IndexError, StopIteration, ValueError) as exc:
@@ -2506,6 +2532,15 @@ def validate_reviewed_managed_refresh(
     if "remainder_of_authority_id" in payload:
         if refresh_remainder_updates(before[-1], remote) != payload["updates"]:
             raise ValueError("managed_refresh_remainder_scope_mismatch")
+    # Prove the postimage preserves existing acceptance before the transport can write it.
+    bodies = {action["remote_number"]: action["body"] for action in plan["actions"]}
+    projected = [
+        {**issue, "body": bodies[int(issue["number"])]}
+        if int(issue["number"]) in bodies else issue
+        for issue in remote
+    ]
+    if not reconcile_authority_ledger(records, projected).get("accepted"):
+        raise ValueError("managed_refresh_would_invalidate_existing_acceptance")
     return registry
 
 

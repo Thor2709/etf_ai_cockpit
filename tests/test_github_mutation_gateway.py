@@ -408,6 +408,25 @@ def test_replay_ambiguous_receipt_is_immediately_indeterminate() -> None:
     assert "receipt_ambiguous_reconciliation_count" not in captured.value.evidence
 
 
+def test_previous_status_receipt_uses_the_proved_original_body_only() -> None:
+    original = issue("in_progress")
+    transport = MemoryTransport(original)
+    append_replay(original, transport)
+    refreshed = copy.deepcopy(transport.value)
+    refreshed["body"] = original["body"].replace("- Downstream issues: None", "- Downstream issues: `ISSUE-0180`")
+    assert refreshed["body"] != original["body"]
+    assert not gateway.project_status_events(refreshed)["accepted"]
+
+    prior = (2, original["body"])
+    restored = gateway.project_status_events(refreshed, original_body_before_refresh=prior)
+    assert restored["accepted"] and restored["status"] == "integrated"
+    assert not gateway.project_status_events(
+        refreshed, original_body_before_refresh=(1, original["body"]),
+    )["accepted"]
+    refreshed["labels"] = ["tampered"]
+    assert not gateway.project_status_events(refreshed, original_body_before_refresh=prior)["accepted"]
+
+
 def test_two_hop_replay_reconciles_one_authority_event_and_one_target() -> None:
     reviewed = issue("in_progress")
     transport = MemoryTransport(reviewed)
