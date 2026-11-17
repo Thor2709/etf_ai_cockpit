@@ -892,6 +892,7 @@ def test_pending_external_input_blocks_implementation_and_activation() -> None:
 
     registry = _registry()
     issue = _record(registry, "ISSUE-0182")
+    issue["programme_status"] = "planned"
     issue["required_inputs"] = ["external:owner-dataset"]
     registry["readiness"] = readiness_projection(registry)
 
