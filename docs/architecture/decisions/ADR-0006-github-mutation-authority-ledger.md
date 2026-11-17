@@ -117,6 +117,10 @@ covers the other reviewed creates, and readback requires that exact remainder.
 The existing managed refresh can separately project downstream metadata while
 preserving the accepted status anchor. Every create still needs its own fresh
 authority and receipt. Preparing an already accepted create produces no append.
+Before writing a managed refresh, verify the proposed body against all existing
+acceptance receipts. If a committed creation proves the exact refresh preimage,
+earlier status receipts retain the original body in their snapshot verification.
+The live body must match the authorised refresh postimage.
 
 For ISSUE-0182, the first authenticated main push introducing the reviewed
 receipt recovery can append one receipt to existing issue #1051. The writer
