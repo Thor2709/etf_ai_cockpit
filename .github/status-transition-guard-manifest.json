@@ -38,7 +38,7 @@
     "base_registry_sha256": "894a9fe78097e3df619573b377b2dee3349542c566adbcced0a4536a8bd85240",
     "generator": "scripts/generate_issue_registry.py",
     "mode": "canonical_schema_and_intake",
-    "proposed_registry_sha256": "b510eedfd2b848ad10c09c1f9c73829a633e7a130e2f205fea3ec7c7da6c103b",
+    "proposed_registry_sha256": "5fe65eede330dd737ffda5b2aedcba3b07f354132b387a7ef56e82e3ba8ee41c",
     "reason": "Draft one reviewed batch for the residual integration scopes in tracker #1020.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"

@@ -40,7 +40,7 @@ Follow [`DELIVERY_WORKFLOW.md`](../../DELIVERY_WORKFLOW.md) for current E/O/H/C 
 
 ## Blockers, dependencies and related links
 
-- Resolve only `blocking_dependencies` as prerequisites; `required_inputs` are policy/evidence inputs and do not block readiness. `downstream_issues` are generated reverse links and `related_issues` are context only.
+- Resolve `blocking_dependencies` through issue evidence. A named `external:...` entry in `required_inputs` blocks implementation and activation while pending. Issue references in `required_inputs` are policy or evidence inputs. `downstream_issues` are generated reverse links and `related_issues` provide context.
 - The registry's blocking graph is acyclic; dependency conversions are recorded in `docs/product-completion/reconciliation/2026-07-21-2337f69/dependency-reconciliation.csv`.
 
 ## Issue coverage
@@ -63,5 +63,5 @@ Follow [`DELIVERY_WORKFLOW.md`](../../DELIVERY_WORKFLOW.md) for current E/O/H/C 
 | `ISSUE-0186` | `P1` | `planned` | `stock-research` | `ISSUE-0182` | - | `ISSUE-0189`, `ISSUE-0200` | `ISSUE-0024`, `ISSUE-0087`, `ISSUE-0095`, `ISSUE-0126` |
 | `ISSUE-0187` | `P1` | `planned` | `stock-research` | `ISSUE-0183` | - | `ISSUE-0188`, `ISSUE-0203` | `ISSUE-0092`, `ISSUE-0093`, `ISSUE-0094` |
 | `ISSUE-0188` | `P1` | `planned` | `stock-research` | `ISSUE-0182`, `ISSUE-0187` | - | - | `ISSUE-0075`, `ISSUE-0092`, `ISSUE-0096`, `ISSUE-0120` |
-| `ISSUE-0189` | `P1` | `planned` | `stock-research` | `ISSUE-0186` | - | - | `ISSUE-0080`, `ISSUE-0095` |
+| `ISSUE-0189` | `P1` | `planned` | `stock-research` | `ISSUE-0186` | `external:entitled-estimates-source` | - | `ISSUE-0080`, `ISSUE-0095` |
 | `ISSUE-0191` | `P2` | `planned` | `stock-research` | `ISSUE-0183` | - | - | `ISSUE-0096`, `ISSUE-0097` |

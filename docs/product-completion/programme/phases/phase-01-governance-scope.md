@@ -40,7 +40,7 @@ Follow [`DELIVERY_WORKFLOW.md`](../../DELIVERY_WORKFLOW.md) for current E/O/H/C 
 
 ## Blockers, dependencies and related links
 
-- Resolve only `blocking_dependencies` as prerequisites; `required_inputs` are policy/evidence inputs and do not block readiness. `downstream_issues` are generated reverse links and `related_issues` are context only.
+- Resolve `blocking_dependencies` through issue evidence. A named `external:...` entry in `required_inputs` blocks implementation and activation while pending. Issue references in `required_inputs` are policy or evidence inputs. `downstream_issues` are generated reverse links and `related_issues` provide context.
 - The registry's blocking graph is acyclic; dependency conversions are recorded in `docs/product-completion/reconciliation/2026-07-21-2337f69/dependency-reconciliation.csv`.
 
 ## Issue coverage

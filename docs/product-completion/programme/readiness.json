@@ -4749,9 +4749,9 @@
     },
     {
       "activation_edges": [],
-      "activation_ready": true,
+      "activation_ready": false,
       "activation_reason_codes": [
-        "ACTIVATION_READY_NO_DEPENDENCIES"
+        "ACTIVATION_BLOCKED_EXTERNAL_INPUT"
       ],
       "edges": [
         {
@@ -4765,9 +4765,12 @@
       "issue_id": "ISSUE-0189",
       "ready": false,
       "reason_codes": [
-        "BLOCKED_UNRESOLVED_DEPENDENCY"
+        "BLOCKED_UNRESOLVED_DEPENDENCY",
+        "BLOCKED_EXTERNAL_INPUT"
       ],
-      "required_inputs": []
+      "required_inputs": [
+        "external:entitled-estimates-source"
+      ]
     },
     {
       "activation_edges": [],
@@ -4993,9 +4996,9 @@
     },
     {
       "activation_edges": [],
-      "activation_ready": true,
+      "activation_ready": false,
       "activation_reason_codes": [
-        "ACTIVATION_READY_NO_DEPENDENCIES"
+        "ACTIVATION_BLOCKED_EXTERNAL_INPUT"
       ],
       "edges": [
         {
@@ -5009,15 +5012,18 @@
       "issue_id": "ISSUE-0199",
       "ready": false,
       "reason_codes": [
-        "BLOCKED_UNRESOLVED_DEPENDENCY"
+        "BLOCKED_UNRESOLVED_DEPENDENCY",
+        "BLOCKED_EXTERNAL_INPUT"
       ],
-      "required_inputs": []
+      "required_inputs": [
+        "external:sec-extra-approval"
+      ]
     },
     {
       "activation_edges": [],
-      "activation_ready": true,
+      "activation_ready": false,
       "activation_reason_codes": [
-        "ACTIVATION_READY_NO_DEPENDENCIES"
+        "ACTIVATION_BLOCKED_EXTERNAL_INPUT"
       ],
       "edges": [
         {
@@ -5037,9 +5043,12 @@
       "issue_id": "ISSUE-0200",
       "ready": false,
       "reason_codes": [
-        "BLOCKED_UNRESOLVED_DEPENDENCY"
+        "BLOCKED_UNRESOLVED_DEPENDENCY",
+        "BLOCKED_EXTERNAL_INPUT"
       ],
-      "required_inputs": []
+      "required_inputs": [
+        "external:sec-extra-approval"
+      ]
     },
     {
       "activation_edges": [],
@@ -5065,9 +5074,9 @@
     },
     {
       "activation_edges": [],
-      "activation_ready": true,
+      "activation_ready": false,
       "activation_reason_codes": [
-        "ACTIVATION_READY_NO_DEPENDENCIES"
+        "ACTIVATION_BLOCKED_EXTERNAL_INPUT"
       ],
       "edges": [
         {
@@ -5081,9 +5090,12 @@
       "issue_id": "ISSUE-0202",
       "ready": false,
       "reason_codes": [
-        "BLOCKED_UNRESOLVED_DEPENDENCY"
+        "BLOCKED_UNRESOLVED_DEPENDENCY",
+        "BLOCKED_EXTERNAL_INPUT"
       ],
-      "required_inputs": []
+      "required_inputs": [
+        "external:eodhd-dataset"
+      ]
     },
     {
       "activation_edges": [],
@@ -5115,18 +5127,20 @@
     },
     {
       "activation_edges": [],
-      "activation_ready": true,
+      "activation_ready": false,
       "activation_reason_codes": [
-        "ACTIVATION_READY_NO_DEPENDENCIES"
+        "ACTIVATION_BLOCKED_EXTERNAL_INPUT"
       ],
       "edges": [],
       "execution_allowed": false,
       "issue_id": "ISSUE-0204",
-      "ready": true,
+      "ready": false,
       "reason_codes": [
-        "READY_NO_BLOCKING_DEPENDENCIES"
+        "BLOCKED_EXTERNAL_INPUT"
       ],
-      "required_inputs": []
+      "required_inputs": [
+        "external:user-downloaded-financedatabase-csv"
+      ]
     },
     {
       "activation_edges": [],
@@ -5145,9 +5159,9 @@
     },
     {
       "activation_edges": [],
-      "activation_ready": true,
+      "activation_ready": false,
       "activation_reason_codes": [
-        "ACTIVATION_READY_NO_DEPENDENCIES"
+        "ACTIVATION_BLOCKED_EXTERNAL_INPUT"
       ],
       "edges": [
         {
@@ -5167,15 +5181,18 @@
       "issue_id": "ISSUE-0206",
       "ready": false,
       "reason_codes": [
-        "BLOCKED_UNRESOLVED_DEPENDENCY"
+        "BLOCKED_UNRESOLVED_DEPENDENCY",
+        "BLOCKED_EXTERNAL_INPUT"
       ],
-      "required_inputs": []
+      "required_inputs": [
+        "external:documents-extra-approval"
+      ]
     },
     {
       "activation_edges": [],
-      "activation_ready": true,
+      "activation_ready": false,
       "activation_reason_codes": [
-        "ACTIVATION_READY_NO_DEPENDENCIES"
+        "ACTIVATION_BLOCKED_EXTERNAL_INPUT"
       ],
       "edges": [
         {
@@ -5195,9 +5212,12 @@
       "issue_id": "ISSUE-0207",
       "ready": false,
       "reason_codes": [
-        "BLOCKED_UNRESOLVED_DEPENDENCY"
+        "BLOCKED_UNRESOLVED_DEPENDENCY",
+        "BLOCKED_EXTERNAL_INPUT"
       ],
-      "required_inputs": []
+      "required_inputs": [
+        "external:retrieval-extra-approval"
+      ]
     },
     {
       "activation_edges": [],
@@ -5223,9 +5243,9 @@
     },
     {
       "activation_edges": [],
-      "activation_ready": true,
+      "activation_ready": false,
       "activation_reason_codes": [
-        "ACTIVATION_READY_NO_DEPENDENCIES"
+        "ACTIVATION_BLOCKED_EXTERNAL_INPUT"
       ],
       "edges": [
         {
@@ -5245,9 +5265,13 @@
       "issue_id": "ISSUE-0209",
       "ready": false,
       "reason_codes": [
-        "BLOCKED_UNRESOLVED_DEPENDENCY"
+        "BLOCKED_UNRESOLVED_DEPENDENCY",
+        "BLOCKED_EXTERNAL_INPUT"
       ],
-      "required_inputs": []
+      "required_inputs": [
+        "external:approved-chronos-2-weights",
+        "external:chronos-forecasting-extra-approval"
+      ]
     },
     {
       "activation_edges": [],
@@ -5567,5 +5591,5 @@
   ],
   "execution_allowed": false,
   "schema_version": "1.0",
-  "source_registry_sha256": "b510eedfd2b848ad10c09c1f9c73829a633e7a130e2f205fea3ec7c7da6c103b"
+  "source_registry_sha256": "5fe65eede330dd737ffda5b2aedcba3b07f354132b387a7ef56e82e3ba8ee41c"
 }

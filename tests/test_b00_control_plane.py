@@ -886,6 +886,25 @@ def test_required_inputs_do_not_block_and_activation_is_reported_separately() ->
     assert registry["policy"]["execution_allowed"] is False  # type: ignore[index]
 
 
+def test_pending_external_input_blocks_implementation_and_activation() -> None:
+    from etf_cockpit.application.programme_map import build_programme_map
+    from scripts.programme_execution import build_plan
+
+    registry = _registry()
+    issue = _record(registry, "ISSUE-0182")
+    issue["required_inputs"] = ["external:owner-dataset"]
+    registry["readiness"] = readiness_projection(registry)
+
+    entry = next(row for row in build_programme_map(registry).entries if row.canonical_id == "ISSUE-0182")
+    assert entry.ready is False
+    assert entry.activation_ready is False
+    assert entry.blocking_dependencies == ()
+    assert entry.required_inputs == ("external:owner-dataset",)
+    blocked = next(row for row in build_plan(registry)["blocked"] if row["issue"] == "ISSUE-0182")
+    assert blocked["reason_codes"] == ["BLOCKED_EXTERNAL_INPUT"]
+    assert blocked["evidence_only"] is False
+
+
 def test_checked_in_registry_remains_deterministic_json() -> None:
     checked_in = json.loads((ROOT / "issues" / "issue_registry.json").read_text(encoding="utf-8"))
     assert checked_in["policy"]["execution_allowed"] is False

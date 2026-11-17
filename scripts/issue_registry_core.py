@@ -21,6 +21,7 @@ CLOSED_INDEX_RE = re.compile(
     r"(?m)^\|\s+`((?:ISSUE|UPDATEV2)-\d{4})`\s+\|\s+(.+?)\s+\|\s+(.+?)\s+\|\s+\[record\]\((#[^)]+)\)\s*\|$"
 )
 PRIORITIES = frozenset({"P0", "P0/P1", "P1", "P1/P2", "P2", "P3"})
+EXTERNAL_INPUT_RE = re.compile(r"external:[a-z0-9]+(?:-[a-z0-9]+)*")
 CLASSIFICATIONS = frozenset(
     {
         "current_open_retained",
@@ -1269,7 +1270,11 @@ def build_registry(
                     or len(values) != len(set(values))
                 ):
                     raise ValueError(f"{issue_id}: canonical_definition {field} must be a unique list")
-                if issue_id in values or any(value not in known_ids for value in values):
+                if issue_id in values or any(
+                    value not in known_ids
+                    and not (field == "required_inputs" and EXTERNAL_INPUT_RE.fullmatch(value))
+                    for value in values
+                ):
                     raise ValueError(f"{issue_id}: canonical_definition {field} has unknown or self dependency")
             acceptance = definition["acceptance_criteria"]
             if not isinstance(acceptance, list) or not all(isinstance(value, dict) for value in acceptance):
@@ -2066,7 +2071,11 @@ def validate_registry(registry: dict[str, Any], *, open_ids: set[str], closed_id
             or issue_id in downstream
         ):
             errors.append(f"{issue_id}: self-reference")
-        for dependency in [*blocking, *required_inputs, *activation, *related, *downstream]:
+        issue_inputs = [
+            value for value in required_inputs
+            if not (isinstance(value, str) and EXTERNAL_INPUT_RE.fullmatch(value))
+        ]
+        for dependency in [*blocking, *issue_inputs, *activation, *related, *downstream]:
             if dependency not in set(ids) | closed_ids:
                 errors.append(f"{issue_id}: unresolved dependency {dependency}")
         evidence = record.get("dependency_edge_evidence")
@@ -2199,6 +2208,8 @@ def readiness_projection(registry: dict[str, Any]) -> list[dict[str, Any]]:
                 }
             )
 
+        required_inputs = sorted(record.get("required_inputs", []))
+        missing_input = any(EXTERNAL_INPUT_RE.fullmatch(value) for value in required_inputs)
         if record.get("ledger_state") == "closed":
             ready = False
             reason_codes = ["CLOSED_LEDGER_NOT_IMPLEMENTATION_CANDIDATE"]
@@ -2215,6 +2226,9 @@ def readiness_projection(registry: dict[str, Any]) -> list[dict[str, Any]]:
             reason_codes = [
                 "READY_BLOCKING_EDGES_RESOLVED" if edges else "READY_NO_BLOCKING_DEPENDENCIES"
             ]
+        if missing_input and record.get("ledger_state") != "closed":
+            reason_codes = ([] if ready else reason_codes) + ["BLOCKED_EXTERNAL_INPUT"]
+            ready = False
 
         activation_edges: list[dict[str, object]] = []
         for dependency in sorted(record.get("activation_dependencies", [])):
@@ -2240,13 +2254,18 @@ def readiness_projection(registry: dict[str, Any]) -> list[dict[str, Any]]:
             if activation_ready
             else "ACTIVATION_BLOCKED_UNRESOLVED_DEPENDENCY"
         ]
+        if missing_input:
+            activation_reason_codes = ([] if activation_ready else activation_reason_codes) + [
+                "ACTIVATION_BLOCKED_EXTERNAL_INPUT"
+            ]
+            activation_ready = False
         decisions.append(
             {
                 "issue_id": issue_id,
                 "ready": ready,
                 "reason_codes": reason_codes,
                 "edges": edges,
-                "required_inputs": sorted(record.get("required_inputs", [])),
+                "required_inputs": required_inputs,
                 "activation_ready": activation_ready,
                 "activation_reason_codes": activation_reason_codes,
                 "activation_edges": activation_edges,

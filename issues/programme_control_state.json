@@ -16063,7 +16063,9 @@
           "ISSUE-0095"
         ],
         "release_blocking": false,
-        "required_inputs": [],
+        "required_inputs": [
+          "external:entitled-estimates-source"
+        ],
         "rollback": "Revert the bounded integration and retain the existing local evidence and defaults.",
         "scope": [
           "Target the existing data/estimates_store.py; data/fmp_provider.py; data/finnhub_provider.py surfaces identified in the technical requirements."
@@ -16704,7 +16706,9 @@
           "ISSUE-0087"
         ],
         "release_blocking": false,
-        "required_inputs": [],
+        "required_inputs": [
+          "external:sec-extra-approval"
+        ],
         "rollback": "Revert the bounded integration and retain the existing local evidence and defaults.",
         "scope": [
           "Target the existing data/sec_ownership.py; data/sec_edgar_provider.py surfaces identified in the technical requirements."
@@ -16765,7 +16769,9 @@
           "ISSUE-0095"
         ],
         "release_blocking": false,
-        "required_inputs": [],
+        "required_inputs": [
+          "external:sec-extra-approval"
+        ],
         "rollback": "Revert the bounded integration and retain the existing local evidence and defaults.",
         "scope": [
           "Target the existing data/sec_filing_documents.py; data/earnings_surprise.py surfaces identified in the technical requirements."
@@ -16896,7 +16902,9 @@
           "ISSUE-0091"
         ],
         "release_blocking": false,
-        "required_inputs": [],
+        "required_inputs": [
+          "external:eodhd-dataset"
+        ],
         "rollback": "Revert the bounded integration and retain the existing local evidence and defaults.",
         "scope": [
           "Target the existing data/eodhd_import.py surfaces identified in the technical requirements."
@@ -17009,7 +17017,8 @@
         "activation_dependencies": [],
         "blocking_dependencies": [],
         "capability_lane": "DATA_PLATFORM",
-        "contract_markdown": "Canonical successor to INT-22 from [intake issue #1043](https://github.com/Thor2709/etf_ai_cockpit/issues/1043). Retain the [frozen technical requirements](https://github.com/Thor2709/etf_ai_cockpit/blob/f92d888d1624f59ce84f2952cd8d7da9566d9d20/docs/integration-intake/2026-11-15/issue-proposals/INT-22.md) and the G4 gate. Source-file ordering: -. Intake readiness: READY.",
+        "contract_markdown": "Canonical successor to INT-22 from [intake issue #1043](https://github.com/Thor2709/etf_ai_cockpit/issues/1043). Retain the [frozen technical requirements](https://github.com/Thor2709/etf_ai_cockpit/blob/f92d888d1624f59ce84f2952cd8d7da9566d9d20/docs/integration-intake/2026-11-15/issue-proposals/INT-22.md) and the G4 gate. Source-file ordering: -. Input hold: user-downloaded FinanceDatabase CSV with its hash required.",
+        "data_and_dependencies": "BLOCKED_BY_DATA (user-downloaded FinanceDatabase CSV with its hash is required).",
         "exclusions": [
           "No new data, package, model-weight or execution authority from registration."
         ],
@@ -17023,7 +17032,9 @@
           "ISSUE-0089"
         ],
         "release_blocking": false,
-        "required_inputs": [],
+        "required_inputs": [
+          "external:user-downloaded-financedatabase-csv"
+        ],
         "rollback": "Revert the bounded integration and retain the existing local evidence and defaults.",
         "scope": [
           "Target the existing scripts/import_financedatabase.py surfaces identified in the technical requirements."
@@ -17126,7 +17137,9 @@
           "ISSUE-0144"
         ],
         "release_blocking": false,
-        "required_inputs": [],
+        "required_inputs": [
+          "external:documents-extra-approval"
+        ],
         "rollback": "Revert the bounded integration and retain the existing local evidence and defaults.",
         "scope": [
           "Target the existing application/docling_worker.py; application/document_parsers.py surfaces identified in the technical requirements."
@@ -17197,7 +17210,9 @@
           "ISSUE-0144"
         ],
         "release_blocking": false,
-        "required_inputs": [],
+        "required_inputs": [
+          "external:retrieval-extra-approval"
+        ],
         "rollback": "Revert the bounded integration and retain the existing local evidence and defaults.",
         "scope": [
           "Target the existing data/document_embeddings.py; application/research_evidence.py surfaces identified in the technical requirements."
@@ -17328,7 +17343,10 @@
           "ISSUE-0124"
         ],
         "release_blocking": false,
-        "required_inputs": [],
+        "required_inputs": [
+          "external:approved-chronos-2-weights",
+          "external:chronos-forecasting-extra-approval"
+        ],
         "rollback": "Revert the bounded integration and retain the existing local evidence and defaults.",
         "scope": [
           "Target the existing models/chronos2_adapter.py; application/forecast_service.py surfaces identified in the technical requirements."

@@ -40,7 +40,7 @@ Follow [`DELIVERY_WORKFLOW.md`](../../DELIVERY_WORKFLOW.md) for current E/O/H/C 
 
 ## Blockers, dependencies and related links
 
-- Resolve only `blocking_dependencies` as prerequisites; `required_inputs` are policy/evidence inputs and do not block readiness. `downstream_issues` are generated reverse links and `related_issues` are context only.
+- Resolve `blocking_dependencies` through issue evidence. A named `external:...` entry in `required_inputs` blocks implementation and activation while pending. Issue references in `required_inputs` are policy or evidence inputs. `downstream_issues` are generated reverse links and `related_issues` provide context.
 - The registry's blocking graph is acyclic; dependency conversions are recorded in `docs/product-completion/reconciliation/2026-07-21-2337f69/dependency-reconciliation.csv`.
 
 ## Issue coverage
@@ -73,14 +73,14 @@ Follow [`DELIVERY_WORKFLOW.md`](../../DELIVERY_WORKFLOW.md) for current E/O/H/C 
 | `ISSUE-0170` | `P0` | `integrated` | `data-platform` | `ISSUE-0076`, `ISSUE-0082`, `ISSUE-0083`, `ISSUE-0085`, `ISSUE-0149` | - | `ISSUE-0171`, `ISSUE-0172` | - |
 | `ISSUE-0171` | `P0` | `integrated` | `data-platform` | `ISSUE-0076`, `ISSUE-0080`, `ISSUE-0081`, `ISSUE-0149`, `ISSUE-0170`, `ISSUE-0176` | - | `ISSUE-0172` | - |
 | `ISSUE-0181` | `P1` | `integrated` | `data-platform` | `ISSUE-0080`, `ISSUE-0081` | `ISSUE-0149` | - | `ISSUE-0055` |
-| `ISSUE-0199` | `P2` | `planned` | `data-platform` | `ISSUE-0185` | - | `ISSUE-0200` | `ISSUE-0080`, `ISSUE-0082`, `ISSUE-0087` |
-| `ISSUE-0200` | `P3` | `planned` | `data-platform` | `ISSUE-0186`, `ISSUE-0199` | - | - | `ISSUE-0087`, `ISSUE-0095` |
+| `ISSUE-0199` | `P2` | `planned` | `data-platform` | `ISSUE-0185` | `external:sec-extra-approval` | `ISSUE-0200` | `ISSUE-0080`, `ISSUE-0082`, `ISSUE-0087` |
+| `ISSUE-0200` | `P3` | `planned` | `data-platform` | `ISSUE-0186`, `ISSUE-0199` | `external:sec-extra-approval` | - | `ISSUE-0087`, `ISSUE-0095` |
 | `ISSUE-0201` | `P2` | `planned` | `data-platform` | `ISSUE-0185` | - | - | `ISSUE-0026`, `ISSUE-0055`, `ISSUE-0088` |
-| `ISSUE-0202` | `P1` | `planned` | `data-platform` | `ISSUE-0183` | - | - | `ISSUE-0080`, `ISSUE-0086`, `ISSUE-0089`, `ISSUE-0090`, `ISSUE-0091` |
-| `ISSUE-0204` | `P3` | `planned` | `data-platform` | - | - | - | `ISSUE-0082`, `ISSUE-0083`, `ISSUE-0089` |
+| `ISSUE-0202` | `P1` | `planned` | `data-platform` | `ISSUE-0183` | `external:eodhd-dataset` | - | `ISSUE-0080`, `ISSUE-0086`, `ISSUE-0089`, `ISSUE-0090`, `ISSUE-0091` |
+| `ISSUE-0204` | `P3` | `planned` | `data-platform` | - | `external:user-downloaded-financedatabase-csv` | - | `ISSUE-0082`, `ISSUE-0083`, `ISSUE-0089` |
 | `ISSUE-0205` | `P3` | `planned` | `data-platform` | - | - | `ISSUE-0206`, `ISSUE-0207`, `ISSUE-0208` | `ISSUE-0087`, `ISSUE-0090`, `ISSUE-0138`, `ISSUE-0140` |
-| `ISSUE-0206` | `P3` | `planned` | `data-platform` | `ISSUE-0185`, `ISSUE-0205` | - | - | `ISSUE-0087`, `ISSUE-0090`, `ISSUE-0144` |
-| `ISSUE-0207` | `P3` | `planned` | `data-platform` | `ISSUE-0185`, `ISSUE-0205` | - | - | `ISSUE-0090`, `ISSUE-0138`, `ISSUE-0140`, `ISSUE-0144` |
+| `ISSUE-0206` | `P3` | `planned` | `data-platform` | `ISSUE-0185`, `ISSUE-0205` | `external:documents-extra-approval` | - | `ISSUE-0087`, `ISSUE-0090`, `ISSUE-0144` |
+| `ISSUE-0207` | `P3` | `planned` | `data-platform` | `ISSUE-0185`, `ISSUE-0205` | `external:retrieval-extra-approval` | - | `ISSUE-0090`, `ISSUE-0138`, `ISSUE-0140`, `ISSUE-0144` |
 | `ISSUE-0208` | `P3` | `planned` | `data-platform` | `ISSUE-0205` | - | - | `ISSUE-0010`, `ISSUE-0138`, `ISSUE-0147` |
 | `UPDATEV2-0011` | `P0` | `integrated` | `data-and-evidence` | - | - | `ISSUE-0082` | `ISSUE-0082`, `ISSUE-0083` |
 | `UPDATEV2-0015` | `P0` | `closed` | `data-and-evidence` | - | - | `ISSUE-0103`, `ISSUE-0104` | `ISSUE-0090`, `ISSUE-0103`, `ISSUE-0104` |
