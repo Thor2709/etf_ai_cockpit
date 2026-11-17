@@ -15602,6 +15602,26 @@
           "reviewed_date": "2026-11-17",
           "reviewer": "Codex root",
           "status": "in_progress"
+        },
+        {
+          "evidence_references": [
+            "https://github.com/Thor2709/etf_ai_cockpit/pull/1053",
+            "https://github.com/Thor2709/etf_ai_cockpit/actions/runs/43973992554"
+          ],
+          "review_reference": "Owner-authorized panel acceptance after #1053 at 21befd15",
+          "reviewed_date": "2026-11-17",
+          "reviewer": "Codex root",
+          "status": "implemented_initially"
+        },
+        {
+          "evidence_references": [
+            "https://github.com/Thor2709/etf_ai_cockpit/pull/1053",
+            "https://github.com/Thor2709/etf_ai_cockpit/actions/runs/43973992554"
+          ],
+          "review_reference": "Owner-authorized panel acceptance after #1053 at 21befd15",
+          "reviewed_date": "2026-11-17",
+          "reviewer": "Codex root",
+          "status": "integrated"
         }
       ],
       "canonical_definition": {
@@ -15661,11 +15681,11 @@
       },
       "dependency_edge_evidence": {},
       "phase": "phase-06-model-research",
-      "programme_status": "in_progress",
+      "programme_status": "integrated",
       "status_transition": {
-        "from": "planned",
-        "review_reference": "Owner-authorized root review for PR #1053 at 21befd15",
-        "to": "in_progress"
+        "from": "implemented_initially",
+        "review_reference": "Owner-authorized panel acceptance after #1053 at 21befd15",
+        "to": "integrated"
       },
       "transition_history": [
         {
@@ -15680,9 +15700,35 @@
           "reviewer": "Codex root",
           "to": "in_progress",
           "verified_commit": "21befd158be198cb26b070b3a9ded6b207bd541e"
+        },
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "https://github.com/Thor2709/etf_ai_cockpit/pull/1053",
+            "https://github.com/Thor2709/etf_ai_cockpit/actions/runs/43973992554"
+          ],
+          "from": "in_progress",
+          "review_reference": "Owner-authorized panel acceptance after #1053 at 21befd15",
+          "reviewed_date": "2026-11-17",
+          "reviewer": "Codex root",
+          "to": "implemented_initially",
+          "verified_commit": "1326f0cfec0e6c80a44cbee7948299a06e7add95"
+        },
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "https://github.com/Thor2709/etf_ai_cockpit/pull/1053",
+            "https://github.com/Thor2709/etf_ai_cockpit/actions/runs/43973992554"
+          ],
+          "from": "implemented_initially",
+          "review_reference": "Owner-authorized panel acceptance after #1053 at 21befd15",
+          "reviewed_date": "2026-11-17",
+          "reviewer": "Codex root",
+          "to": "integrated",
+          "verified_commit": "1326f0cfec0e6c80a44cbee7948299a06e7add95"
         }
       ],
-      "verified_commit": "21befd158be198cb26b070b3a9ded6b207bd541e",
+      "verified_commit": "1326f0cfec0e6c80a44cbee7948299a06e7add95",
       "verified_date": "2026-11-17"
     },
     "UPDATEV2-0010": {
