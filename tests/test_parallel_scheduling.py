@@ -158,8 +158,12 @@ def test_shards_partition_every_scope_exactly_once_and_balance_recorded_time() -
         assignment = conftest._shard_assignment(total)
         owners = {scope: conftest._shard_of(scope, total, assignment) for scope in scopes}
         assert set(owners.values()) == set(range(1, total + 1))
-        loads = [sum(weights.get(scope, 0.0) for scope in scopes if owners[scope] == shard) for shard in range(1, total + 1)]
-        assert max(loads) - min(loads) <= max(weights.values())  # LPT bound: within one file of balance
+        scope_weights: dict[str, float] = {}
+        for path, seconds in weights.items():
+            scope = conftest._scheduling_scope(f"{path}::x")
+            scope_weights[scope] = scope_weights.get(scope, 0.0) + seconds
+        loads = [sum(seconds for scope, seconds in scope_weights.items() if owners[scope] == shard) for shard in range(1, total + 1)]
+        assert max(loads) - min(loads) <= max(scope_weights.values())  # LPT bound: within one scope of balance
 
 
 def _use_durations(monkeypatch, tmp_path: Path, payload: dict, workers: str | None) -> None:

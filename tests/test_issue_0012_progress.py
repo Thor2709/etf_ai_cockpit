@@ -1408,6 +1408,8 @@ def test_yfinance_reference_failure_redacts_secret_and_cancellation_is_not_swall
     monkeypatch.setattr(data_service, "commit_price_import", lambda _result: SimpleNamespace(rows=1, clean_path="prices", previous_snapshot_path=None))
     monkeypatch.setattr(DataService, "_reference_context", lambda _self: {"known_etfs": [], "isin_to_etf_id": {}, "ticker_to_etf_id": {}})
     monkeypatch.setattr(data_service, "commit_reference_import", lambda *_args, **_kwargs: (_ for _ in ()).throw(ValueError("token=raw-provider-secret")))
+    # The fundamentals ride-along fetches through libcurl; it is outside what this test checks.
+    monkeypatch.setattr(data_service, "_refresh_stock_fundamentals", lambda *_args: "Stock fundamentals skipped.")
 
     message = DataService(snapshot.config).refresh_yfinance_data()
     assert "raw-provider-secret" not in message
