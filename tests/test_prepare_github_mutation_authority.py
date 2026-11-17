@@ -273,6 +273,120 @@ def test_create_preparation_emits_one_safe_append_without_candidate(
     assert manifest["execution_allowed"] is False
 
 
+def test_committed_intake_prepares_and_preflights_one_create(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root, _, bootstrap = _repo(tmp_path)
+    remote = _remote()
+    first, second = "ISSUE-0180", "ISSUE-0181"
+    pending = [
+        {**_record("planned", stable_id=issue), "title": issue, "source_kind": "control_extension"}
+        for issue in (first, second)
+    ]
+    registry = {"records": [_record("implemented_initially"), *pending]}
+    (root / sync.REGISTRY_PATH).parent.mkdir()
+    (root / sync.REGISTRY_PATH).write_bytes(sync.deterministic_json(registry))
+    (root / sync.STATUS_GUARD_MANIFEST).write_text(json.dumps({
+        "schema_version": "1.1",
+        "registry_migration": {
+            "mode": "canonical_schema_and_intake",
+            "added_issue_ids": [first, second],
+            "removed_issue_ids": [],
+            "proposed_registry_sha256": hashlib.sha256(sync.deterministic_json(registry)).hexdigest(),
+        },
+    }), encoding="utf-8")
+    subprocess.run(["git", "add", "."], cwd=root, check=True)
+    subprocess.run(["git", "commit", "-qm", "admitted two issues"], cwd=root, check=True)
+    source = prepare._git(root, "rev-parse", "HEAD")
+    plan = sync.plan_actions(registry, remote, authority_records=[bootstrap], authority_root=root)
+
+    with pytest.raises(ValueError, match="exactly one reviewed action"):
+        prepare.prepare(root, plan, remote, source_sha=source, mode="create")
+    candidate, ledger, manifest = prepare.prepare(
+        root, plan, remote, source_sha=source, mode="create", intake_issue=first,
+    )
+    assert candidate is None
+    assert manifest["deferred_intake_ids"] == [second]
+    authorities = gateway.parse_authority_ledger(ledger)
+    assert len(authorities) == 2
+    assert authorities[-1]["payload"]["stable_id"] == first
+
+    amended = copy.deepcopy(plan)
+    amended["actions"][1]["stable_id"] = "ISSUE-0999"
+    amended["plan_sha256"] = sync.plan_sha256(amended)
+    with pytest.raises(ValueError, match="committed_registry_admission"):
+        prepare.prepare(root, amended, remote, source_sha=source, mode="create", intake_issue=first)
+
+    (root / gateway.AUTHORITY_PATH).write_bytes(ledger)
+    subprocess.run(["git", "add", "."], cwd=root, check=True)
+    subprocess.run(["git", "commit", "-qm", "one create authority"], cwd=root, check=True)
+    head = prepare._git(root, "rev-parse", "HEAD")
+    evidence = tmp_path / "create-preflight.json"
+    completion.run(
+        root, root / completion.DEFAULT_CANDIDATE, expected_parent=source, expected_head=head,
+        main_ref=None, apply=False, evidence_out=evidence, remote_reader=lambda: remote,
+    )
+    validation = json.loads(evidence.read_text(encoding="utf-8"))
+    assert validation["terminal_status"] == "validated"
+    assert [row["stable_id"] for row in validation["action_scope"]] == [first]
+    assert validation["deferred_intake_ids"] == [second]
+
+    authority = authorities[-1]
+    _, _, binding = gateway.validate_authority_git_transition(
+        root, event_before=source, event_after=head, main_ref=None,
+    )
+    mutation_id = authority["authority_id"]
+    receipt_issue = {
+        "number": 180, "id": "4180", "node_id": "ISSUE_NODE_180", "title": first,
+        "body": gateway.CREATE_MARKER_TEMPLATE.format(mutation_id) + "\n" + authority["payload"]["managed_body"],
+        "state": "open", "url": "https://example.invalid/issues/180", "comments": [],
+    }
+    _, receipt = gateway.build_create_receipt(
+        receipt_issue, mutation_id=mutation_id, stable_id=first, authority_id=mutation_id,
+        authority_sequence=authority["sequence"], source_sha=source, head_sha=head,
+        ledger_blob_oid=binding["ledger_blob_oid"], ledger_blob_sha256=binding["ledger_blob_sha256"],
+        plan_sha256=authority["payload"]["plan_sha256"], event_before=source, event_after=head,
+    )
+    receipt_issue["comments"] = [{
+        "id": "123", "node_id": "COMMENT_NODE_123", "body": receipt,
+        "author": {
+            "login": "github-actions[bot]", "id": int(gateway.GITHUB_ACTIONS_BOT_USER_ID), "type": "Bot",
+        },
+        "performed_via_github_app": {"slug": "github-actions", "id": int(gateway.GITHUB_ACTIONS_APP_ID)},
+        "createdAt": "2026-11-16T12:00:00Z", "updatedAt": "2026-11-16T12:00:00Z",
+        "url": "https://example.invalid/issues/180#issuecomment-123",
+    }]
+
+    def create_once(scoped, **_kwargs):
+        assert [row["stable_id"] for row in scoped["actions"]] == [first]
+        remote.append(receipt_issue)
+        return {"accepted": True, "terminal_status": "applied"}
+
+    monkeypatch.setattr(sync, "apply_actions", create_once)
+    completion.run(
+        root, root / completion.DEFAULT_CANDIDATE, expected_parent=source, expected_head=head,
+        main_ref=None, apply=True, evidence_out=evidence, remote_reader=lambda: copy.deepcopy(remote),
+        event_before=source, event_after=head, event_name="push", event_ref="refs/heads/main",
+        run_attempt="1", actor="test", pusher="test", run_id="1", run_number="1",
+        workflow_ref=f"{gateway.REPO}/.github/workflows/programme-status-completion.yml@refs/heads/main",
+        repository=gateway.REPO, event_payload_sha256="0" * 64, caller_proof_verifier=lambda: None,
+    )
+    result = json.loads(evidence.read_text(encoding="utf-8"))
+    assert result["only_reviewed_pending_creates_remain"]
+    assert result["zero_action_readback"] is False
+    current = sync.plan_actions(registry, remote, authority_records=authorities, authority_root=root)
+    _, unchanged_ledger, manifest = prepare.prepare(
+        root, current, remote, source_sha=head, mode="create", intake_issue=first,
+    )
+    assert unchanged_ledger == ledger
+    assert manifest == {"accepted_intake_noop": first}
+
+    receipt_issue["comments"].clear()
+    incomplete = sync.plan_actions(registry, remote, authority_records=authorities, authority_root=root)
+    with pytest.raises(ValueError, match="authority ledger is not reconciled"):
+        prepare.prepare(root, incomplete, remote, source_sha=head, mode="create", intake_issue=second)
+
+
 def test_status_replay_preparation_is_deterministic_and_exactly_two_hops(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

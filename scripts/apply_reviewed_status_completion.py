@@ -1582,6 +1582,18 @@ def run(
             refresh_remainder_of=refresh_remainder_of,
         )
         payload = authority["payload"]
+        if (
+            authority["authority_type"] in {"create", "managed_refresh"}
+            and refresh_remainder_of is None
+            and plan["summary"]["create"]
+            and plan["plan_sha256"] != payload["plan_sha256"]
+        ):
+            plan = sync.scope_admitted_intake_plan(
+                root, expected_parent, plan, create_id=payload.get("stable_id")
+            )
+        deferred = plan.get("deferred_intake_creates", [])
+        if deferred:
+            evidence["deferred_intake_ids"] = [action["stable_id"] for action in deferred]
         appended = records[len(prior_records) :]
         if len(appended) > 1:
             if recovery:
@@ -2076,13 +2088,15 @@ def run(
         )
         if (
             not reconciliation.get("accepted")
-            or readback.get("summary") != ZERO_SUMMARY
-            or readback.get("actions") != []
+            or readback.get("summary") != {**ZERO_SUMMARY, "create": len(deferred)}
+            or readback.get("actions") != deferred
         ):
             evidence["zero_action_readback"] = False
             raise RuntimeError("GitHub authority read-back is not fully reconciled")
         evidence["terminal_status"] = "applied_and_verified"
-        evidence["zero_action_readback"] = True
+        evidence["zero_action_readback"] = not deferred
+        if deferred:
+            evidence["only_reviewed_pending_creates_remain"] = True
         print("APPLIED_AND_VERIFIED_GITHUB_MUTATION_AUTHORITY")
         return
     except Exception as exc:

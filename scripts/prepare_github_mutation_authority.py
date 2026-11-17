@@ -382,6 +382,7 @@ def prepare(
     source_sha: str,
     mode: str,
     remainder_of_authority_id: str | None = None,
+    intake_issue: str | None = None,
 ) -> tuple[bytes | None, bytes, dict[str, Any]]:
     """Return candidate bytes, the next full ledger, and a safe manifest."""
 
@@ -389,6 +390,24 @@ def prepare(
         raise ValueError("source SHA must be one full commit identity")
     if remainder_of_authority_id is not None and mode != "managed_refresh":
         raise ValueError("remainder authority is only supported for managed_refresh")
+    if intake_issue is not None and mode != "create":
+        raise ValueError("select an intake issue only in create mode")
+    if "deferred_intake_creates" in plan:
+        raise ValueError("preparation requires the complete unscoped plan")
+    if intake_issue is not None and not any(
+        row.get("stable_id") == intake_issue for row in plan["actions"]
+    ):
+        # Reconciliation also validates the receipt and its original Git binding.
+        records, _ = _validate_reviewed_inputs(root, plan, remote, managed_refresh=True)
+        if any(
+            record["authority_type"] == "create" and record["payload"]["stable_id"] == intake_issue
+            for record in records
+        ):
+            return None, gateway.authority_ledger_bytes(records), {"accepted_intake_noop": intake_issue}
+    if intake_issue is not None or (
+        mode == "managed_refresh" and remainder_of_authority_id is None and plan["summary"]["create"]
+    ):
+        plan = sync.scope_admitted_intake_plan(root, source_sha, plan, create_id=intake_issue)
     records, action = _validate_reviewed_inputs(
         root, plan, remote, managed_refresh=mode == "managed_refresh",
         batch=mode == "status_batch",
@@ -475,6 +494,11 @@ def prepare(
         "authority_id": record["authority_id"],
         "authority_sequence": record["sequence"],
         **(
+            {"deferred_intake_ids": [row["stable_id"] for row in plan["deferred_intake_creates"]]}
+            if "deferred_intake_creates" in plan
+            else {}
+        ),
+        **(
             {"authority_ids": [row["authority_id"] for row in appended]}
             if mode == "status_batch"
             else {}
@@ -498,6 +522,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--main-ref", default="origin/main")
     parser.add_argument("--mode", choices=("status", "status_replay", "status_batch", "create", "managed_refresh"), required=True)
     parser.add_argument("--remainder-of-authority-id")
+    parser.add_argument("--intake-issue", help="select one committed intake issue in create mode")
     parser.add_argument("--output-dir", type=Path, required=True)
     args = parser.parse_args(argv)
 
@@ -513,7 +538,11 @@ def main(argv: list[str] | None = None) -> int:
         source_sha=args.source_sha,
         mode=args.mode,
         remainder_of_authority_id=args.remainder_of_authority_id,
+        intake_issue=args.intake_issue,
     )
+    if manifest.get("accepted_intake_noop"):
+        print(f"ALREADY_ACCEPTED: {manifest['accepted_intake_noop']}")
+        return 0
     authority_path = output / gateway.AUTHORITY_PATH
     authority_path.parent.mkdir(parents=True, exist_ok=True)
     authority_path.write_bytes(ledger)

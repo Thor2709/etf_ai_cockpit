@@ -19,10 +19,10 @@ from typing import Any, Callable, Iterable
 
 try:
     from scripts import github_mutation_gateway as mutation_gateway
-    from scripts.issue_registry_core import REGISTRY_PATH, deterministic_json
+    from scripts.issue_registry_core import REGISTRY_PATH, STATUS_GUARD_MANIFEST, deterministic_json
 except ImportError:
     import github_mutation_gateway as mutation_gateway
-    from issue_registry_core import REGISTRY_PATH, deterministic_json
+    from issue_registry_core import REGISTRY_PATH, STATUS_GUARD_MANIFEST, deterministic_json
 
 
 REPO = "Thor2709/etf_ai_cockpit"
@@ -558,6 +558,58 @@ def plan_sha256(plan: dict[str, Any]) -> str:
     value = dict(plan)
     value.pop("plan_sha256", None)
     return hashlib.sha256(deterministic_json(value)).hexdigest()
+
+
+def scope_admitted_intake_plan(
+    root: Path, source_sha: str, plan: dict[str, Any], *, create_id: str | None,
+) -> dict[str, Any]:
+    """Keep deferred creates in the checksum for one authorised intake step."""
+    actions = mutation_gateway._validate_plan_authority(plan, str(plan.get("plan_sha256", "")))
+    deferred = [
+        action for action in actions
+        if action.get("kind") == "create" and action.get("stable_id") != create_id
+    ]
+    selected = [action for action in actions if action not in deferred]
+    if create_id is not None:
+        if len(selected) != 1 or selected[0].get("kind") != "create" or selected[0].get("stable_id") != create_id:
+            raise ValueError("intake_create_requires_exactly_one_selected_create")
+    elif not selected or any(action.get("kind") != "update" for action in selected):
+        raise ValueError("intake_refresh_requires_only_selected_updates")
+    if not deferred:
+        return plan
+
+    manifest_bytes = mutation_gateway._git_blob_bytes(root, source_sha, STATUS_GUARD_MANIFEST)
+    registry, _ = mutation_gateway.managed_refresh_registry(root, source_sha)
+    manifest = json.loads(manifest_bytes) if manifest_bytes else {}
+    migration = manifest.get("registry_migration", {})
+    admitted = migration.get("added_issue_ids", [])
+    canonical = {record["canonical_id"]: record for record in registry_sync_records(registry)}
+    creates = [action for action in actions if action.get("kind") == "create"]
+    pending = [action["stable_id"] for action in creates]
+    if (
+        manifest.get("schema_version") != "1.1"
+        or migration.get("mode") != "canonical_schema_and_intake"
+        or migration.get("removed_issue_ids") != []
+        or migration.get("proposed_registry_sha256") != hashlib.sha256(deterministic_json(registry)).hexdigest()
+        or not isinstance(admitted, list)
+        or len(set(pending)) != len(pending)
+        or any(
+            stable_id not in admitted
+            or canonical.get(stable_id, {}).get("source_kind") != "control_extension"
+            or canonical[stable_id].get("programme_status") != "planned"
+            for stable_id in pending
+        )
+        or any(action != _action("create", canonical[action["stable_id"]]) for action in creates)
+    ):
+        raise ValueError("intake_creates_not_authorised_by_committed_registry_admission")
+    scoped = {
+        **plan,
+        "actions": selected,
+        "summary": {**plan["summary"], "create": int(create_id is not None)},
+        "deferred_intake_creates": deferred,
+    }
+    scoped["plan_sha256"] = plan_sha256(scoped)
+    return scoped
 
 
 def sync_review_markdown(plan: dict[str, Any], *, safe_evidence_sha256: str) -> str:
