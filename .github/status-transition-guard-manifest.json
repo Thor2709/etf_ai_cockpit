@@ -2,7 +2,7 @@
   "allow_downgrades": false,
   "allow_other_status_changes": false,
   "allowed_status_transitions": [],
-  "base_commit": "bbc9f29389d72f25698922b800e28376546eab6d",
+  "base_commit": "db9e60ad1984718107be85ed9ee2cd266f1d6f40",
   "branch": "codex/oss-integration-admission-batch",
   "issue_ids": [],
   "registry_migration": {
@@ -35,10 +35,10 @@
       "ISSUE-0208",
       "ISSUE-0209"
     ],
-    "base_registry_sha256": "894a9fe78097e3df619573b377b2dee3349542c566adbcced0a4536a8bd85240",
+    "base_registry_sha256": "c1df22d73c6b1560a74b1a9dcb3091a11fdf3fa23d35c46f119cf51b766b4663",
     "generator": "scripts/generate_issue_registry.py",
     "mode": "canonical_schema_and_intake",
-    "proposed_registry_sha256": "5fe65eede330dd737ffda5b2aedcba3b07f354132b387a7ef56e82e3ba8ee41c",
+    "proposed_registry_sha256": "c4db5db7cedf59b8211ac0aa455aa9e6537232f7c831f04ad0bf006f24a7d57b",
     "reason": "Draft one reviewed batch for the residual integration scopes in tracker #1020.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"

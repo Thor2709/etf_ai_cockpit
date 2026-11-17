@@ -29363,6 +29363,26 @@
           "reviewed_date": "2026-11-17",
           "reviewer": "Codex root",
           "status": "in_progress"
+        },
+        {
+          "evidence_references": [
+            "https://github.com/Thor2709/etf_ai_cockpit/pull/1053",
+            "https://github.com/Thor2709/etf_ai_cockpit/actions/runs/43973992554"
+          ],
+          "review_reference": "Owner-authorized panel acceptance after #1053 at 21befd15",
+          "reviewed_date": "2026-11-17",
+          "reviewer": "Codex root",
+          "status": "implemented_initially"
+        },
+        {
+          "evidence_references": [
+            "https://github.com/Thor2709/etf_ai_cockpit/pull/1053",
+            "https://github.com/Thor2709/etf_ai_cockpit/actions/runs/43973992554"
+          ],
+          "review_reference": "Owner-authorized panel acceptance after #1053 at 21befd15",
+          "reviewed_date": "2026-11-17",
+          "reviewer": "Codex root",
+          "status": "integrated"
         }
       ],
       "activation_dependencies": [],
@@ -29393,7 +29413,7 @@
       "package_status": "",
       "phase": "phase-06-model-research",
       "priority": "P0",
-      "programme_status": "in_progress",
+      "programme_status": "integrated",
       "provenance": {
         "amendment_references": [],
         "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
@@ -29432,7 +29452,7 @@
         ],
         "tier": "H"
       },
-      "verified_commit": "21befd158be198cb26b070b3a9ded6b207bd541e",
+      "verified_commit": "1326f0cfec0e6c80a44cbee7948299a06e7add95",
       "verified_date": "2026-11-17",
       "write_conflict_group": "model-governance"
     },
@@ -33779,7 +33799,7 @@
     "package_registry_sha256": "42f401c32d2fddb17af97333303f4aeea0f2d2f8384e2b8da382529c0c7d107c",
     "package_reviewed_commit": "e149db50945401fb014955f0f79794a909796a75",
     "package_sha256": "39e30adc22c34a2f80640fa895caa21473457cea5bd0de872927051f8f99839b",
-    "programme_control_state_sha256": "f4d402eaca780e4af5af9eea42a0790619f97f4188cf90492755159a9e5ced32",
+    "programme_control_state_sha256": "a37357bf1bd2e30e048da32a60680ccfc6cf8259e957cf6046b8729be63836e4",
     "repository": "Thor2709/etf_ai_cockpit",
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   }
