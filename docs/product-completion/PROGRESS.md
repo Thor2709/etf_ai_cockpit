@@ -7,8 +7,7 @@ This file is generated from `issues/issue_registry.json`; it contains no wall-cl
 | Programme status | Records |
 |---|---:|
 | `closed` | 17 |
-| `in_progress` | 1 |
-| `integrated` | 182 |
+| `integrated` | 183 |
 | `ready` | 1 |
 | `research_only` | 2 |
 

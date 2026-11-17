@@ -3,23 +3,23 @@
   "allow_other_status_changes": false,
   "allowed_status_transitions": [
     {
-      "from": "planned",
+      "from": "in_progress",
       "issue_id": "ISSUE-0182",
-      "to": "in_progress"
+      "to": "integrated"
     }
   ],
-  "base_commit": "1326f0cfec0e6c80a44cbee7948299a06e7add95",
-  "branch": "codex/issue-0182-status",
+  "base_commit": "bbc9f29389d72f25698922b800e28376546eab6d",
+  "branch": "codex/issue-0182-completion",
   "issue_ids": [
     "ISSUE-0182"
   ],
   "registry_migration": {
     "added_issue_ids": [],
-    "base_registry_sha256": "88617ab43bd447762fb87c5813d72be81af8e25326fcb2d0f5c6cfbe15127252",
+    "base_registry_sha256": "894a9fe78097e3df619573b377b2dee3349542c566adbcced0a4536a8bd85240",
     "generator": "scripts/generate_issue_registry.py",
     "mode": "generation_base_and_status_transitions",
-    "proposed_registry_sha256": "894a9fe78097e3df619573b377b2dee3349542c566adbcced0a4536a8bd85240",
-    "reason": "Project the recorded start of ISSUE-0182 before the protected completion replay.",
+    "proposed_registry_sha256": "c1df22d73c6b1560a74b1a9dcb3091a11fdf3fa23d35c46f119cf51b766b4663",
+    "reason": "Replay the two protected completion hops for the merged research panel.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },
