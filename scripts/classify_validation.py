@@ -87,6 +87,7 @@ HIGH_RISK_NAMES = {
     "requirements-release-parsers.txt",
     "requirements-quant.txt",
     "requirements-sec.txt",
+    "requirements-documents.txt",
 }
 CERTIFICATION_PREFIXES = (
     "docs/product-completion/certification/",
