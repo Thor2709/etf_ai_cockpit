@@ -127,6 +127,12 @@ def test_unmapped_standard_ifrs_fact_is_not_misclassified_as_custom() -> None:
     assert result[0].taxonomy == "ifrs-full"
     assert result[0].mapping_status == "unmapped"
     assert result[0].is_custom is False
+    # A diluted per-share fact is marked verified only when its number was decoded and its unit definition resolved.
+    per_share = ("DilutedEarningsLossPerShare", "0.5", "EUR/shares", "0", "ctx", "2025-01-01", "2025-12-31", "report.xhtml")
+    ifrs = "https://xbrl.ifrs.org/taxonomy/ifrs-full"
+    marks = [statement_facts_from_esef((XbrlFact("L", *per_share, status, (), ifrs, None, True, resolved),), instrument_id="X", source_sha256="a" * 64)[0].mapping_confidence
+             for status, resolved in (("unmapped", True), ("unmapped", False), ("unsupported_numeric", True))]
+    assert marks == ["numeric_decoded_unit_resolved", "manual_review", "manual_review"]
 
 
 def test_statement_fact_and_inventory_writes_merge_prior_ciks_without_duplicates(tmp_path: Path) -> None:
