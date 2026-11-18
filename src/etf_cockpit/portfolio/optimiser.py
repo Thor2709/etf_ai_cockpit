@@ -541,7 +541,6 @@ def _covariance(returns: pd.DataFrame, shrinkage: str = "ledoit_wolf") -> tuple[
     diagnostics = {
         "status": "available",
         "estimator": estimator,
-        "covariance_mode": shrinkage,
         "shrinkage_intensity": intensity,
         "observations": int(len(returns)),
         "annualisation": ANNUALISATION,
@@ -550,6 +549,8 @@ def _covariance(returns: pd.DataFrame, shrinkage: str = "ledoit_wolf") -> tuple[
         "minimum_eigenvalue": float(repaired_values.min()),
         "psd_repaired": bool(np.any(eigenvalues < floor)),
     }
+    if shrinkage == "oos_selected":
+        diagnostics["covariance_mode"] = shrinkage
     return pd.DataFrame(repaired, index=matrix.index, columns=matrix.columns), diagnostics
 
 
