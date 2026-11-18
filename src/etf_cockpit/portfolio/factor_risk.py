@@ -21,6 +21,10 @@ ANNUALISATION_FACTOR = 252.0
 NUMERIC_FACTORS = ("size", "value", "momentum", "quality", "investment", "low_volatility")
 LOOKTHROUGH_DIMENSIONS = ("industry", "country", "currency")
 EXPOSURE_BASIS = "current_exposure_replay"
+PIT_EXPOSURE_BASIS = "point_in_time_panel_exposure"
+# Not point-in-time even with a panel: size comes from the current market value and the category
+# one-hots from the current allocation and look-through.
+_NON_PIT_DESCRIPTORS = ("size", *LOOKTHROUGH_DIMENSIONS)
 _EXPOSURE_COLUMNS = (
     "instrument_id",
     "factor",
@@ -109,8 +113,13 @@ def build_factor_risk_report(
     public_factors: pd.DataFrame | None = None,
     window: int = 252,
     as_of: object | None = None,
+    exposure_panel: pd.DataFrame | None = None,
 ) -> dict[str, object]:
-    """Estimate factor, specific and portfolio risk with visible limitations."""
+    """Estimate factor, specific and portfolio risk with visible limitations.
+
+    ``exposure_panel`` (rows of ``etf_id``, ``date`` and descriptor columns) makes each cross-sectional fit use the
+    latest descriptor matrix dated strictly before that date; ``None`` replays the current exposures.
+    """
 
     exposures = build_factor_exposures(allocation, latest_features, holdings, as_of=as_of)
     returns = _return_matrix(prices, window=window)
@@ -157,7 +166,8 @@ def build_factor_risk_report(
         )
         report["diagnostics"].update({"excluded_factors": excluded})
         return report
-    factor_returns, residuals, fit_diagnostics = _fit_cross_sectional(returns, matrix[selected])
+    panels = None if exposure_panel is None else _panel_matrices(allocation, exposure_panel, holdings, selected)
+    factor_returns, residuals, fit_diagnostics = _fit_cross_sectional(returns, matrix[selected], panels)
     if factor_returns.empty:
         report = _unavailable_report(exposures, coverage, factor_returns, empty_contributions, empty_specific, "Cross-sectional factor returns are unavailable for the selected sample.")
         report["diagnostics"].update({"excluded_factors": excluded, "fit": fit_diagnostics})
@@ -207,9 +217,10 @@ def build_factor_risk_report(
     public_validation = validate_public_factor_series(factor_returns, public_factors)
     warnings = _warnings(coverage, excluded, specific, public_validation, covariance_diagnostics)
     status = "available" if not warnings else "partial"
-    # Cross-sectional fits apply the CURRENT descriptor matrix to every historical date, so the
+    # Without a panel, cross-sectional fits apply the CURRENT descriptor matrix to every historical date, so the
     # factor returns are a replay of today's exposures, not point-in-time exposures.  Label it.
-    warnings = [*warnings, EXPOSURE_BASIS]
+    basis = EXPOSURE_BASIS if exposure_panel is None else PIT_EXPOSURE_BASIS
+    warnings = [*warnings, basis]
     diagnostics = {
         "model_version": FACTOR_MODEL_VERSION,
         "method": "iteratively reweighted cross-sectional least squares",
@@ -223,8 +234,15 @@ def build_factor_risk_report(
         "public_factor_validation": public_validation,
         "baseline_beta": baseline_beta,
         "warnings": warnings,
-        "exposure_basis": EXPOSURE_BASIS,
+        "exposure_basis": basis,
     }
+    if exposure_panel is not None:
+        diagnostics["non_point_in_time_descriptors"] = list(_NON_PIT_DESCRIPTORS)
+        diagnostics["exposure_note"] = (
+            "Factor returns are estimates conditional on the descriptor set; each date uses the latest panel matrix dated "
+            "strictly before it. size and industry/country/currency exposures are current, not point-in-time, and the "
+            "portfolio decomposition applies current exposures."
+        )
     return {
         "status": status,
         "message": "Transparent factor and specific-risk evidence; execution_allowed=false.",
@@ -241,7 +259,7 @@ def build_factor_risk_report(
         "coverage": coverage,
         "diagnostics": diagnostics,
         "warnings": warnings,
-        "exposure_basis": EXPOSURE_BASIS,
+        "exposure_basis": basis,
     }
 
 
@@ -444,14 +462,39 @@ def _select_factors(matrix: pd.DataFrame, returns: pd.DataFrame) -> tuple[list[s
     return selected, excluded
 
 
-def _fit_cross_sectional(returns: pd.DataFrame, exposures: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, object]]:
+def _panel_matrices(allocation: pd.DataFrame, panel: pd.DataFrame, holdings: pd.DataFrame | None, factors: list[str]) -> list[tuple[pd.Timestamp, pd.DataFrame]]:
+    """One exposure matrix per panel date, built only from panel rows known on or before that date."""
+
+    if panel.empty or not {"etf_id", "date"}.issubset(panel.columns):
+        return []
+    panel = panel.assign(date=pd.to_datetime(panel["date"], errors="coerce", utc=True).dt.tz_localize(None))
+    # Descriptors come from the dated panel only; an allocation column of the same name would win the merge.
+    descriptors = ("value_score_10", "value_score", "stock_value_score", "momentum_120d", "momentum_60d", "return_60d_log", "quality_score_10", "quality_score", "stock_quality_score", "investment_score_10", "investment_score", "vol_60d_ann", "vol_120d_ann", "ewma_vol_ann")
+    allocation = allocation.drop(columns=list(descriptors), errors="ignore")
+    matrices: list[tuple[pd.Timestamp, pd.DataFrame]] = []
+    for day in sorted(panel["date"].dropna().dt.normalize().unique()):
+        exposures = build_factor_exposures(allocation, panel, holdings, as_of=day)
+        if exposures.empty:
+            continue
+        matrix = exposures.pivot_table(index="instrument_id", columns="factor", values="exposure", aggfunc="sum", sort=True)
+        matrices.append((pd.Timestamp(day), _fill_absent_categories(exposures, matrix).reindex(columns=factors)))
+    return matrices
+
+
+def _fit_cross_sectional(returns: pd.DataFrame, exposures: pd.DataFrame, panels: list[tuple[pd.Timestamp, pd.DataFrame]] | None = None) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, object]]:
     factor_names = list(exposures.columns)
     factor_rows: list[dict[str, object]] = []
     residual_rows: list[dict[str, object]] = []
     dates = sorted(returns.index)
     usable_dates = 0
     for dt in dates:
-        joined = pd.concat([returns.loc[[dt]].T.rename(columns={dt: "observed_return"}), exposures], axis=1, join="inner")
+        matrix = exposures
+        if panels is not None:
+            known = [item for day, item in panels if day < pd.Timestamp(dt).normalize()]
+            if not known:
+                continue
+            matrix = known[-1]
+        joined = pd.concat([returns.loc[[dt]].T.rename(columns={dt: "observed_return"}), matrix], axis=1, join="inner")
         joined = joined.dropna(subset=["observed_return", *factor_names])
         minimum = max(5, 2 * len(factor_names))
         if len(joined) < minimum:
@@ -788,6 +831,7 @@ __all__ = [
     "FACTOR_MODEL_VERSION",
     "LOOKTHROUGH_DIMENSIONS",
     "NUMERIC_FACTORS",
+    "PIT_EXPOSURE_BASIS",
     "build_factor_exposures",
     "build_factor_risk_report",
     "validate_public_factor_series",
