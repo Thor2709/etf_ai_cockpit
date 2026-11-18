@@ -62,13 +62,12 @@ def test_weights_are_hash_verified_per_file(tmp_path: Path) -> None:
 
 
 def test_weight_inventory_row_per_file_matches_source_records() -> None:
-    pytest.importorskip("docling")
     rows = yaml.safe_load(dw.WEIGHTS_CONFIG.read_text(encoding="utf-8"))["weights"]
 
     assert len(rows) == 9 and all(len(row["sha256"]) == 64 and row["revision"] and row["licence"] and row["repository"] for row in rows)
     for source in (WEIGHTS / "docling-layout-heron" / "SOURCE.json", WEIGHTS / "docling-models" / "SOURCE.json"):
         if not source.is_file():
-            pytest.skip("weights are not available")
+            continue
         import json
 
         recorded = {Path(item["file"]).relative_to("models/docling").as_posix(): item["sha256"] for item in json.loads(source.read_text(encoding="utf-8"))["files"]}
