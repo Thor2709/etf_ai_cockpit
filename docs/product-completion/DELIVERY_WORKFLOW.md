@@ -81,7 +81,7 @@ source field, malformed value or inconsistent prefix fails closed.
 The active entry points are durable operational policy, not E-exempt chronology.
 Their former bytes remain archived; new session observations stay local/untracked
 and cannot invalidate a frozen head merely by recording progress. Policy/harness
-changes remain H-tier with complete serial Linux/Windows packaged gates.
+changes remain H-tier with the complete sharded Linux/Windows packaged gates.
 Where the contract permits, product lifecycle completion is atomic/automatic
 rather than a serial chain of administrative PRs.
 Generic live convergence executes the synchroniser as a module from the
@@ -172,38 +172,47 @@ a general replay or event-sourcing framework.
 ## Validation tiers
 
 The additive `validation-classifier.v1` selects one tier from E/O/H/C and fails
-upward when history, classification or cadence is unknown.
+upward when classification is unknown.
 
 - E: allowlisted evidence/status/dependency/generated projections only. Run
   exact guards, atomic generation/check mode, registry/status, diff hygiene
   and source/supply policy. Package gates may be skipped only with exact-tree
   evidence reuse.
 - O: ordinary product work. Run focused and affected tests, UI/architecture
-  and static checks, source smoke and the central cadence policy. Every pull
+  and static checks and source smoke. Prose (`.md`, `.rst`, `.txt`) outside the
+  policy identity paths, `artifacts/`, `docs/architecture/decisions/`,
+  `docs/codex-config/`, `docs/product-completion/` and `ADR-*` files is O. Risk words in a path
+  make product code H, but not tests or UI pages under `src/etf_cockpit/app/`;
+  `*_store.py` under `src/` stays H. Every pull
   request with `package_gate_required=false` (tiers E and O) also runs the
   GitHub-hosted `focused-tests` job (ubuntu-24.04, pinned release
   environment, `pytest -n auto`): `scripts/select_focused_tests.py --base
   <sha> --head <sha>` selects the changed test files, the tests that import a
   changed `src/etf_cockpit` module and, for changes under `src/etf_cockpit/app/`,
   the UI contract sweep. An empty selection passes with a note; a non-empty
-  selection is never truncated. JUnit is uploaded as
+  selection is never truncated. A selection of more than 150 files is the
+  whole suite: the classifier then requires the sharded package gate instead
+  (`whole-suite-focused-selection`). JUnit is uploaded as
   `junit-focused-<sha>`. `validation-summary` fails when `focused-tests` does
   not succeed and ignores it (skipped) when the package gate ran. GitHub CI is
   the only test evidence for these pull requests.
 - H: CI, generator, classifier, policy, persistence, concurrency, canonical
   finance, point-in-time, security, release, programme-control or authority
-  changes. Run the complete serial Linux and Windows packaged gates immediately.
+  changes. Run the complete Linux and Windows packaged gates (8 file-level
+  shards per platform) immediately.
 - C: final certification. Run the complete cross-platform certification and
   all package, parity, performance, security, privacy, legal, SBOM and
   signature evidence.
 
-Unknown or malformed base/head, shallow or stale history, missing classifier
-inputs, malformed cadence, classifier errors and failed preflight require the
-full gate. `main` remains green. The terminal `validation-summary` is the
+Unknown or malformed base/head, missing classifier inputs, classifier errors
+and failed preflight require the full gate. A scheduled run on `main` every
+day has no changed paths and therefore runs the full gate; it bounds how long
+an O-tier regression outside the focused selection can stay undetected.
+`main` remains green. The terminal `validation-summary` is the
 normal CI interface; inspect raw artefacts only for failure, inconsistency,
 sampled audit or final certification.
 
-## Evidence reuse and cadence
+## Evidence reuse
 
 Reuse is authorised only when base/head, source, dependency, product-tree,
 policy, environment, artifact-manifest and `execution_allowed=false`
@@ -211,34 +220,17 @@ identities match exactly. `scripts/validation_identity.py` supplies the same
 protected groups to the classifier and terminal summary, including tests and
 durable harness policy. The on-demand planner explains invalidation using the
 existing validator, never a competing evidence authority. Expanding a binding
-invalidates historical sidecars; it does not rewrite or manufacture evidence. The O cadence is derived from the exact PR base
-first-parent `origin/main` history using the current classifier. E commits are
-ignored; O commits are counted from the nearest H/C reset; the second O is due
-for a full gate. Unknown cadence is never treated as zero. No GitHub variable
-is a cadence authority.
+invalidates historical sidecars; it does not rewrite or manufacture evidence.
+The former O-tier cadence (every second O merge ran the full gate) is replaced
+by the daily scheduled full gate on `main`.
 
-## Parallel pilot policy
+## Branch protection
 
-The four-worker pytest pilot and cross-platform aggregate are report-only,
-`continue-on-error`, evidence-producing jobs outside terminal release
-authority. The serial packaged gates remain authoritative. The classifier
-emits `parallel_pilot_required`, `parallel_pilot_repetitions` and
-`parallel_pilot_reason`.
-
-The pilot is selected only for pilot mechanics or ISSUE-0180 pilot tests,
-pytest/conftest/collection or grouping changes, release/test dependency or
-Python-environment changes, concurrency/persistence/Windows-sharing/
-atomic-write/isolation changes, tier C, or an explicit manual/scheduled drift
-sample. It uses one repetition for an ordinary explicit drift sample and two
-for mechanics, environment/partition, tier C or explicit full sampling.
-Unrelated documentation, plans, roles and product H changes skip it. A pilot
-starts only after classifier, preflight and the single source supply-chain job
-succeed. Scheduled samples and explicit `repository_dispatch` samples execute
-the default-branch workflow and never receive release-signing material;
-arbitrary-ref `workflow_dispatch` is intentionally unavailable. Skipped pilot
-jobs do not create a pending check. The repository currently has no GitHub
-branch-protection rule or ruleset, so `validation-summary` is authoritative by
-reviewed process policy and workflow contract, not server-enforced protection.
+The report-only parallel pilot (ISSUE-0180) is removed: the authoritative gate
+itself runs under xdist in file-level shards. The repository currently has no
+GitHub branch-protection rule or ruleset, so `validation-summary` is
+authoritative by reviewed process policy and workflow contract, not
+server-enforced protection.
 
 ## Preflight and implementation safeguards
 

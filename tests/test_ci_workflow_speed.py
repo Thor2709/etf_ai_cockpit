@@ -83,25 +83,18 @@ def test_no_other_job_touches_defender_preferences() -> None:
             assert "MpPreference" not in str(job), name
 
 
-def test_preflight_skips_focused_pytest_only_when_pr_package_gate_covers_it() -> None:
+def test_preflight_never_repeats_the_ci_test_run() -> None:
     steps = {step["name"]: step for step in _jobs()["preflight"]["steps"]}
     step = steps["Product and protected preflight"]
     run = step["run"]
     flag = "--tests-covered-by-release-gate"
 
-    assert step["env"]["PACKAGE_GATE_REQUIRED"] == "${{ needs.classifier.outputs.package_gate_required }}"
-    assert step["env"]["EVENT_NAME"] == "${{ github.event_name }}"
-    guard = '[ "$PACKAGE_GATE_REQUIRED" = "true" ] && [ "$EVENT_NAME" = "pull_request" ]'
-    assert guard in run
-    assert run.count(flag) == 1
-    assert run.count("scripts/validate_app.py --root . --changed") == 2  # flagged branch and unchanged fallback
-    lines = [line.strip() for line in run.splitlines()]
-    if_line = next(i for i, line in enumerate(lines) if line == f"if {guard}; then")
-    else_line = lines.index("else", if_line)
-    fi_line = lines.index("fi", else_line)
-    then_branch, else_branch = lines[if_line + 1 : else_line], lines[else_line + 1 : fi_line]
-    assert [line for line in then_branch if flag in line] == [f"python scripts/validate_app.py --root . --changed {flag}"]
-    assert else_branch == ["python scripts/validate_app.py --root . --changed"]  # no flag: full focused run
+    # The release-gate shards or the focused-tests job always run the tests (validation-summary
+    # requires one of them), so preflight delegates its focused pytest run on every event.
+    assert "env" not in step
+    assert [line.strip() for line in run.splitlines() if "python scripts/validate_app.py" in line] == [
+        f"python scripts/validate_app.py --root . --changed {flag}"
+    ]
 
 
 def test_supply_chain_jobs_install_and_cache_every_policy_lock() -> None:

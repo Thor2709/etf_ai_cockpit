@@ -120,6 +120,22 @@ def test_selector_is_empty_for_docs_only_and_fails_closed_on_bad_input(
     assert code == 2
 
 
+def test_selector_picks_tests_that_name_or_scan_a_changed_document(
+    repo: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _commit_change(
+        repo,
+        {
+            "tests/test_names_note.py": "NOTE = 'docs/note.md'\n",
+            "tests/test_scans_docs.py": "PATTERN = '**/*.md'\n",
+            "tests/test_other_doc.py": "NOTE = 'other.md'\n",
+        },
+    )
+    base, head = _commit_change(repo, {"docs/note.md": "two\n"})
+
+    assert _select(repo, capsys, base, head) == (0, ["tests/test_names_note.py", "tests/test_scans_docs.py"])
+
+
 def test_selector_fails_closed_when_ui_sweep_file_is_missing(repo: Path, capsys: pytest.CaptureFixture[str]) -> None:
     (repo / select_focused_tests.UI_CONTRACT_SWEEP[0]).unlink()
     _git(repo, "add", "-A")

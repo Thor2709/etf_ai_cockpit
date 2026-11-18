@@ -716,24 +716,3 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
             _remove_isolated_root(ISOLATED_ROOT)
         except OSError as exc:
             print(f"warning: could not remove isolated project root {ISOLATED_ROOT}: {exc}", file=sys.stderr)
-
-
-# The parallel pilot opts into this exact selected-nodeid evidence.  Do not emit it for ordinary
-# test runs.  Manifest emission happens from pytest_collection_finish after marker deselection.
-
-
-def pytest_collection_finish(session: pytest.Session) -> None:
-    """Write the post-deselection pilot manifest when explicitly requested."""
-
-    manifest_value = os.getenv("ETF_COCKPIT_PILOT_NODEID_MANIFEST")
-    worker_input = getattr(session.config, "workerinput", None)
-    if not manifest_value or (
-        worker_input is not None and worker_input.get("workerid") != "gw0"
-    ):
-        return
-    nodeids = [item.nodeid.replace("\\", "/") for item in session.items]
-    if len(nodeids) != len(set(nodeids)):
-        raise RuntimeError("parallel pilot selected-nodeid manifest contains duplicates")
-    destination = Path(manifest_value)
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    destination.write_text(json.dumps(nodeids, sort_keys=False) + "\n", encoding="utf-8")

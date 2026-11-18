@@ -178,25 +178,24 @@ def test_full_tests_fails_when_either_xdist_phase_fails(
     assert "phase_duration_ms" in report
 
 
-def test_workflow_runs_xdist_auto_on_both_platforms_and_excludes_pull_request_pilot() -> None:
+def test_workflow_runs_xdist_auto_on_both_platforms() -> None:
     root = Path(__file__).resolve().parents[1]
     workflow = yaml.safe_load((root / ".github" / "workflows" / "release-gate.yml").read_text(encoding="utf-8"))
     jobs = workflow["jobs"]
-    pilot_condition = jobs["parallel-pilot"]["if"]
-    assert "github.event_name != 'pull_request'" in pilot_condition
+    assert not any("pilot" in name for name in jobs)
 
     gate_step = next(step for step in jobs["release-gate"]["steps"] if step["name"] == "Run protected release gate")
     assert re.search(r"arguments=\(--root \. --output \"\$output\" --allow-unsigned --xdist-workers auto\)", gate_step["run"])
     assert '== "linux"' not in gate_step["run"]
     assert gate_step["env"]["ETF_COCKPIT_XDIST_MAX"] == "4"
-    # Five file-level shards per platform run in parallel; the gate does not wait for preflight,
+    # Eight file-level shards per platform run in parallel; the gate does not wait for preflight,
     # but validation-summary still requires preflight and every shard.
     gate = jobs["release-gate"]
-    assert gate["strategy"]["matrix"]["shard"] == [1, 2, 3, 4, 5]
+    assert gate["strategy"]["matrix"]["shard"] == [1, 2, 3, 4, 5, 6, 7, 8]
     assert gate["strategy"]["matrix"]["shard"] == list(range(1, validation_summary.EXPECTED_SHARD_COUNT + 1))
-    assert gate["name"].endswith("shard ${{ matrix.shard }}/5)")
+    assert gate["name"].endswith("shard ${{ matrix.shard }}/8)")
     assert gate["strategy"]["matrix"]["platform"] == ["windows", "linux"]
-    assert gate_step["env"]["ETF_COCKPIT_TEST_SHARD"] == "${{ matrix.shard }}/5"
+    assert gate_step["env"]["ETF_COCKPIT_TEST_SHARD"] == "${{ matrix.shard }}/8"
     assert "preflight" not in gate["needs"]
     assert {"preflight", "release-gate"} <= set(jobs["validation-summary"]["needs"])
 
@@ -563,36 +562,6 @@ def test_environment_verification_emits_structured_failure_for_missing_lock(
     assert payload["environment"] is None
 
 
-def test_parallel_pilot_is_report_only_when_xdist_is_unavailable(monkeypatch) -> None:
-    def missing(_name: str) -> str:
-        raise release_gate.importlib.metadata.PackageNotFoundError
-
-    monkeypatch.setattr(release_gate.importlib.metadata, "version", missing)
-
-    evidence = release_gate.parallel_pilot_evidence()
-
-    assert evidence["status"] == "unavailable"
-    assert evidence["mode"] == "report_only"
-    assert evidence["authority"] == "serial"
-    assert evidence["workers"] == 4
-    assert evidence["collection_parity"] == {
-        "required": True,
-        "comparison": "ordered_nodeids",
-        "status": "not_run",
-    }
-    assert evidence["schema_version"] == "pytest-parallel-pilot.v2"
-    assert "--collect-only" in evidence["commands"]["candidate_safe_collection"]
-    assert "-n 4 --dist loadfile" in evidence["commands"]["candidate_safe_execution"]
-    assert evidence["serial_groups"] == [
-        "concurrency",
-        "environment",
-        "flet",
-        "package",
-        "ports",
-        "sqlite",
-    ]
-
-
 def test_git_snapshot_ignores_only_generated_release_evidence(monkeypatch) -> None:
     values = {
         ("status", "--porcelain", "--untracked-files=all"): "?? artifacts/release/latest/release-report.md\n M configs/release_policy.yaml\n",
@@ -645,12 +614,14 @@ def test_release_workflow_is_matrixed_isolated_and_read_only() -> None:
     assert "requirements-release-parsers.txt" in workflow
     assert "ETF_COCKPIT_RELEASE_BUILD: \"1\"" in workflow
     assert "secrets.RELEASE_SIGNING_KEY" not in workflow
-    assert "github.event_name == 'pull_request' && needs.classifier.outputs.package_gate_required == 'true'" in workflow
+    # Pull requests and the daily scheduled run on main both run the gate when the classifier requires it.
+    assert "    if: needs.classifier.outputs.package_gate_required == 'true'\n" in workflow
     assert "arguments=(--root . --output \"$output\" --allow-unsigned --xdist-workers auto)" in workflow
-    assert "repository_dispatch:" in trigger
+    assert "repository_dispatch:" not in trigger
     assert "workflow_dispatch:" not in trigger
-    assert "parallel-pilot-drift" in trigger
-    assert "parallel-pilot-full" in trigger
+    assert 'cron: "17 3 * * *"' in trigger
+    # A scheduled run classifies its exact head against itself, so a later main commit cannot skip the gate.
+    assert 'if [[ -z "$base" ]]; then base="$HEAD_SHA"; fi' in workflow
     assert "name: release-gate-${{ github.sha }}-${{ matrix.platform }}" in workflow
     assert "contents: read" in workflow
     assert "issues: write" not in workflow

@@ -307,43 +307,6 @@ _REQUIRED_RELEASE_TOOLS = (
 )
 
 
-def parallel_pilot_evidence() -> dict[str, object]:
-    """Describe the non-authoritative xdist pilot without executing it."""
-
-    try:
-        version = importlib.metadata.version("pytest-xdist")
-    except importlib.metadata.PackageNotFoundError:
-        version = None
-    return {
-        "schema_version": "pytest-parallel-pilot.v2",
-        "mode": "report_only",
-        "authority": "serial",
-        "strategy": "full_serial_vs_two_phase_xdist",
-        "phase_order": ["safe", "unsafe"],
-        "selectors": {
-            "full_serial": [],
-            "safe": ["-m", "not serial"],
-            "unsafe": ["-m", "serial"],
-        },
-        "available": version is not None,
-        "status": "available" if version is not None else "unavailable",
-        "version": version,
-        "workers": 4,
-        "commands": {
-            "serial_collection": "python -m pytest --collect-only -q",
-            "candidate_safe_collection": "python -m pytest -m \"not serial\" --collect-only -q",
-            "candidate_unsafe_collection": "python -m pytest -m serial --collect-only -q",
-            "candidate_safe_execution": "python -m pytest -m \"not serial\" -n 4 --dist loadfile -q",
-            "candidate_unsafe_execution": "python -m pytest -m serial -q",
-        },
-        "collection_parity": {
-            "required": True,
-            "comparison": "ordered_nodeids",
-            "status": "not_run",
-        },
-        "serial_groups": ["concurrency", "environment", "flet", "package", "ports", "sqlite"],
-    }
-
 
 def environment_check(root: Path, policy: dict[str, object], *, allow_dirty: bool) -> CheckResult:
     started = time.perf_counter()
@@ -408,7 +371,6 @@ def environment_evidence(root: Path, policy: dict[str, object]) -> dict[str, obj
             "run_attempt": int(os.getenv("GITHUB_RUN_ATTEMPT", "1")),
             "automatic_test_retries": 0,
         },
-        "parallel_pilot": parallel_pilot_evidence(),
     }
 
 

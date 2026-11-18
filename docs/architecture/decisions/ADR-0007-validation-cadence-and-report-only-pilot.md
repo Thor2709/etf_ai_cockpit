@@ -1,6 +1,6 @@
 # Derive validation cadence and keep the parallel pilot report-only
 
-**Status:** accepted
+**Status:** superseded in part (see Amendment 2026-11-18)
 
 **Date:** 2026-08-01
 
@@ -59,6 +59,15 @@ authoritative, and running the pilot on every H-tier change were rejected.
 
 `scripts/classify_validation.py`, `.github/workflows/release-gate.yml`,
 `tests/test_issue_0178_validation_classifier.py`,
-`tests/test_issue_0180_parallel_pilot.py`,
 `plans/ATOMIC_FAST_PATH_METRICS.md`, and
 `docs/product-completion/DELIVERY_WORKFLOW.md`.
+
+## Amendment 2026-11-18
+
+Measured on the last 200 merges, the cadence sent 7 of 23 O merges to the full
+gate and H merges reset it almost every time, and the pilot answered a question
+the sharded xdist gate already decides. Both are removed. Tier O never requires
+the package gate by count; a daily scheduled run on `main` (no changed paths,
+so tier H) runs the full gate instead. A tier-O change whose focused selection
+is the whole suite requires the sharded package gate. Prose outside the policy
+paths is tier O, and risk words no longer lift tests or UI pages to H.
