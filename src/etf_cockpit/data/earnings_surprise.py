@@ -10,7 +10,7 @@ Anything unprovable is ``unavailable`` with a reason; nothing is zero-filled.
 """
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 import hashlib
 import json
 import math
@@ -36,7 +36,7 @@ def _days(start: str, end: str) -> int:
 
 
 def _quarters(companyfacts: dict, acceptances: dict) -> list[dict]:
-    """Earliest-filed discrete quarters (Q4 = FY - 9M), oldest first."""
+    """Earliest-filed discrete quarters (Q4 = FY - 9M), oldest first; filing order is filed date, acceptance time, accession, tag rank."""
     earliest: dict[tuple[str, str], dict] = {}
     gaap = companyfacts.get("facts", {}).get("us-gaap", {})
     for rank, tag in enumerate(_REVENUE_TAGS):
@@ -48,8 +48,10 @@ def _quarters(companyfacts: dict, acceptances: dict) -> list[dict]:
                 continue
             known = datetime.fromisoformat(fact_known_at(row, acceptances))
             key = (row["start"], row["end"])
-            if key not in earliest or (known, rank) < (earliest[key]["known"], earliest[key]["rank"]):
-                earliest[key] = {"val": value, "known": known, "accn": row["accn"], "filed": row["filed"], "rank": rank}
+            stamp = (acceptances.get(row["accn"]) or {}).get("accepted")
+            order = (row["filed"], datetime.fromisoformat(stamp) if stamp else datetime.min.replace(tzinfo=timezone.utc), row["accn"], rank)
+            if key not in earliest or order < earliest[key]["order"]:
+                earliest[key] = {"val": value, "known": known, "accn": row["accn"], "filed": row["filed"], "order": order}
     quarters = {end: {"end": end, **row} for (start, end), row in earliest.items() if 70 <= _days(start, end) <= 110}
     for (start, end), annual in earliest.items():
         if end in quarters or not 330 <= _days(start, end) <= 380:
@@ -103,7 +105,9 @@ def _sue(quarters: list[dict], index: int, receipt: datetime) -> dict:
             "inputs": {"seasonal_difference": current, "std": dispersion, "n_differences": len(history)}}
 
 
-def _reaction(instrument_id: str, receipt: datetime, prices: pd.DataFrame, benchmark: pd.DataFrame) -> dict:
+def _reaction(instrument_id: str, receipt: datetime, exact_acceptance: bool, prices: pd.DataFrame, benchmark: pd.DataFrame) -> dict:
+    if not exact_acceptance:
+        return {"status": "unavailable", "reason": "sec_acceptance_time_unknown"}
     day = receipt.date()
     schedule = xcals.get_calendar("XETR", start=str(day - timedelta(days=10)), end=str(day + timedelta(days=20))).schedule
     after = (schedule["close"] > pd.Timestamp(receipt)).to_numpy().nonzero()[0]
@@ -115,7 +119,8 @@ def _reaction(instrument_id: str, receipt: datetime, prices: pd.DataFrame, bench
     benchmark = benchmark.assign(instrument_id="VWCE")
     returns = []
     for frame, name in ((prices, instrument_id), (benchmark, "VWCE")):
-        if not (frame["instrument_id"].astype(str).eq(name) & frame["date"].map(_date_value).eq(entry_day)).any():
+        closes = pd.to_numeric(frame.loc[frame["instrument_id"].astype(str).eq(name) & frame["date"].map(_date_value).eq(entry_day), "adjusted_close"], errors="coerce")
+        if not (closes.map(math.isfinite) & closes.gt(0)).any():
             return {"status": "unavailable", "reason": f"{name}:entry_close_missing"}
         value, status = _forward_return(frame, name, schedule["close"].iloc[first - 1], 2,
                                         target_session=target_day, outcome_known_by=available_at)
@@ -140,12 +145,13 @@ def compute_earnings_events(
     for index, quarter in enumerate(quarters):
         receipt, gate, source = _receipt(quarter, tables, acceptances)
         sue = _sue(quarters, index, receipt)
+        exact = source == "8-K item 2.02" or bool((acceptances.get(quarter["accn"]) or {}).get("accepted"))
         if sue["status"] == "available":
             sue["available_at"] = max(gate, quarter["known"]).isoformat()
         events.append({
             "quarter_end": quarter["end"], "sec_receipt_time": receipt.isoformat(), "receipt_source": source,
-            "exact_acceptance": source == "8-K item 2.02" or quarter["accn"] in acceptances,
-            "features": {"sue_revenue": sue, "filing_reaction_3s": _reaction(instrument_id, receipt, prices, benchmark_prices)},
+            "exact_acceptance": exact,
+            "features": {"sue_revenue": sue, "filing_reaction_3s": _reaction(instrument_id, receipt, exact, prices, benchmark_prices)},
         })
     return {"status": "available" if events else "unavailable", "reason": None if events else "no_quarterly_revenue", "events": events}
 
