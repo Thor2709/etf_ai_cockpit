@@ -9,7 +9,7 @@ record. ``public_announcement_time`` is the release time printed in the EX-99.1 
 when it names a full date, a clock time and a US time zone, sits in the dateline (before the first dash)
 or is labelled as the release time, resolves to exactly one real instant, is unique, is not a call or
 webcast time and is not later than the SEC receipt; otherwise it is ``"unavailable"`` with the reason.
-The passed receipt must equal the stored header's ACCEPTANCE-DATETIME or the parse is refused. Earnings
+The passed receipt must equal the stored header's ACCEPTANCE-DATETIME (US Eastern local time) or the parse is refused. Earnings
 tables are unreviewed candidates and feed nothing. 10-K risk-factor and MD&A text becomes chunks for
 the INT-23 store, known from the acceptance time.
 """
@@ -93,11 +93,18 @@ def _aware(value: object) -> datetime:
     return value
 
 
+def _header_instants(digits: str) -> set[datetime]:
+    """UTC instants a header stamp (US Eastern local time) can name: one, two in the fall-back hour, none in the gap."""
+    naive = datetime.strptime(digits, "%Y%m%d%H%M%S")
+    zone = ZoneInfo("America/New_York")
+    instants = {naive.replace(tzinfo=zone, fold=fold).astimezone(timezone.utc) for fold in (0, 1)}
+    return {i for i in instants if i.astimezone(zone).replace(tzinfo=None) == naive}
+
+
 def _filing(ed: SimpleNamespace, source: bytes, forms: tuple[str, ...], known_at: datetime):
     text = source.decode("utf-8")
     stamp = _ACCEPTED.search(text)
-    stored = datetime.strptime(stamp[1], "%Y%m%d%H%M%S").replace(tzinfo=timezone.utc) if stamp else None
-    if stored is None or known_at.astimezone(timezone.utc).replace(microsecond=0) != stored:
+    if stamp is None or known_at.astimezone(timezone.utc).replace(microsecond=0) not in _header_instants(stamp[1]):
         raise SecFilingDocumentUnavailable("known_at does not match the filing's stored acceptance time")
     filing = ed.Filing.from_sgml_text(text)
     if filing.form not in forms:

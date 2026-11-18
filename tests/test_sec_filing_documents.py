@@ -36,6 +36,10 @@ def test_stored_8k_yields_items_one_table_and_separate_times_with_the_network_bl
     assert labelled.public_announcement_time == "2026-07-30T20:05:00+00:00"  # explicitly named as the release time
     with pytest.raises(sfd.SecFilingDocumentUnavailable, match="acceptance"):  # receipt differs from the stored header
         sfd.parse_8k(_8k(), known_at=RECEIPT + timedelta(minutes=1))
+    real = _8k().replace(b"20260730161500", b"20261112185820")  # header is Eastern local time: 18:58:20 EST
+    assert sfd.parse_8k(real, known_at=datetime(2026, 11, 12, 23, 58, 20, tzinfo=timezone.utc)).sec_receipt_time.hour == 23
+    with pytest.raises(sfd.SecFilingDocumentUnavailable, match="acceptance"):  # the header read as UTC is refused
+        sfd.parse_8k(real, known_at=datetime(2026, 11, 12, 18, 58, 20, tzinfo=timezone.utc))
 
 
 @pytest.mark.parametrize("printed, reason", [
