@@ -17432,6 +17432,242 @@
       "verified_commit": "78ef9d904288b3b3cf00ea3f995f36024655a4d6",
       "verified_date": "2026-11-16"
     },
+    "ISSUE-0210": {
+      "acceptance_evidence": [],
+      "canonical_definition": {
+        "acceptance_criteria": [
+          {
+            "id": "AC1",
+            "text": "an as-of query before a revision returns the earlier FRED vintage; a series fetched without real-time vintages cannot enter a historical feature; a fixture ECB import stores a rate series and a reference FX series with their units, legal-terms row and point-in-time timestamps; each indicator is computed only from vintages known at the cut-off; with no API key or no network every indicator is `unavailable`, never zero-filled."
+          }
+        ],
+        "activation_dependencies": [],
+        "blocking_dependencies": [
+          "ISSUE-0201"
+        ],
+        "capability_lane": "DATA_PLATFORM",
+        "contract_markdown": "Follow-up to ISSUE-0201: INT-27 execution follow-up (owner GO 2026-11-18).",
+        "data_and_dependencies": "A FRED API key is user-provided at run time; without it every FRED-backed indicator stays unavailable.",
+        "exclusions": [
+          "No new data, package, model-weight or execution authority from registration."
+        ],
+        "objective": "Add the deferred INT-19 data part: a FRED fetch with ALFRED real-time vintages, an ECB data API provider for rates and reference FX with a legal-terms row, and the INT-19 indicators, all stored as point-in-time MacroObservation vintages.",
+        "owner": "data-platform",
+        "phase": "phase-02-data-policy-identity",
+        "priority": "P3",
+        "related_issues": [
+          "ISSUE-0201"
+        ],
+        "release_blocking": false,
+        "required_inputs": [],
+        "rollback": "Revert the bounded integration and retain the existing local evidence and defaults.",
+        "scope": [
+          "Target the existing data/fred_provider.py; data/macro_warehouse.py; features/macro.py surfaces and a new data/ecb_provider.py, as identified in the INT-19 technical requirements."
+        ],
+        "title": "Macro fetchers and indicators: FRED vintages and ECB (follow-up to ISSUE-0201)",
+        "validation": {
+          "required": [
+            "Focused tests for the intake acceptance criteria and the validation tier required by the product diff."
+          ]
+        }
+      },
+      "dependency_edge_evidence": {
+        "ISSUE-0201": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-02-data-policy-identity",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "Owner GO 2026-11-18 for the INT-27 execution plan follow-ups; Claude Code root intake.",
+        "to": "planned"
+      },
+      "verified_commit": "4ae82e9ea684908ff12d2af53cae45552a536b75",
+      "verified_date": "2026-11-19"
+    },
+    "ISSUE-0211": {
+      "acceptance_evidence": [],
+      "canonical_definition": {
+        "acceptance_criteria": [
+          {
+            "id": "AC1",
+            "text": "starting from an empty metrics store, running the statement import for a fixture ETF's constituents writes per-constituent metric vintages, and the roll-up reads only the vintages known at the cut-off; a constituent without metrics lowers coverage and is never zero-filled."
+          }
+        ],
+        "activation_dependencies": [],
+        "blocking_dependencies": [
+          "ISSUE-0203"
+        ],
+        "capability_lane": "CORE_ANALYSIS",
+        "contract_markdown": "Follow-up to ISSUE-0203: INT-27 execution follow-up (owner GO 2026-11-18).",
+        "data_and_dependencies": "Uses only the existing local statement import and fundamentals store; no new data source or entitlement is required.",
+        "exclusions": [
+          "No new data, package, model-weight or execution authority from registration."
+        ],
+        "objective": "Write the per-constituent fundamentals metrics that the ISSUE-0203 look-through roll-ups read, from the existing statement import, so the roll-ups compute on real holdings.",
+        "owner": "etf-research",
+        "phase": "phase-04-etf-research",
+        "priority": "P3",
+        "related_issues": [
+          "ISSUE-0203"
+        ],
+        "release_blocking": false,
+        "required_inputs": [],
+        "rollback": "Revert the bounded integration and retain the existing local evidence and defaults.",
+        "scope": [
+          "Target the existing statement import and fundamentals store surfaces that ISSUE-0203 reads; no new data source."
+        ],
+        "title": "Constituent fundamentals producer for look-through roll-ups (follow-up to ISSUE-0203)",
+        "validation": {
+          "required": [
+            "Focused tests for the intake acceptance criteria and the validation tier required by the product diff."
+          ]
+        }
+      },
+      "dependency_edge_evidence": {
+        "ISSUE-0203": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-04-etf-research",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "Owner GO 2026-11-18 for the INT-27 execution plan follow-ups; Claude Code root intake.",
+        "to": "planned"
+      },
+      "verified_commit": "4ae82e9ea684908ff12d2af53cae45552a536b75",
+      "verified_date": "2026-11-19"
+    },
+    "ISSUE-0212": {
+      "acceptance_evidence": [],
+      "canonical_definition": {
+        "acceptance_criteria": [
+          {
+            "id": "AC1",
+            "text": "a fixture submission yields known_at from its ACCEPTANCE-DATETIME header and the announcement time; requests carry the declared User-Agent and respect the rate limit; with the network denied an uncached filing is `unavailable` and a stored submission still parses."
+          }
+        ],
+        "activation_dependencies": [],
+        "blocking_dependencies": [
+          "ISSUE-0200"
+        ],
+        "capability_lane": "DATA_PLATFORM",
+        "contract_markdown": "Follow-up to ISSUE-0200: INT-27 execution follow-up (owner GO 2026-11-18).",
+        "data_and_dependencies": "Uses the existing SEC EDGAR access under the declared User-Agent and SEC fair-access limits; the network may be unavailable and then every filing document stays unavailable.",
+        "exclusions": [
+          "No new data, package, model-weight or execution authority from registration."
+        ],
+        "objective": "Add the caller that fetches the SEC full-submission text for 8-K and 10-K filings already listed by the existing EDGAR path, under the SEC fair-access rules, and passes it to the ISSUE-0200 header and announcement parsing.",
+        "owner": "data-platform",
+        "phase": "phase-02-data-policy-identity",
+        "priority": "P3",
+        "related_issues": [
+          "ISSUE-0200"
+        ],
+        "release_blocking": false,
+        "required_inputs": [],
+        "rollback": "Revert the bounded integration and retain the existing local evidence and defaults.",
+        "scope": [
+          "Target the existing EDGAR listing and data/sec_filing_documents.py surfaces."
+        ],
+        "title": "SEC full-submission text fetch for 8-K and 10-K (follow-up to ISSUE-0200)",
+        "validation": {
+          "required": [
+            "Focused tests for the intake acceptance criteria and the validation tier required by the product diff."
+          ]
+        }
+      },
+      "dependency_edge_evidence": {
+        "ISSUE-0200": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-02-data-policy-identity",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "Owner GO 2026-11-18 for the INT-27 execution plan follow-ups; Claude Code root intake.",
+        "to": "planned"
+      },
+      "verified_commit": "4ae82e9ea684908ff12d2af53cae45552a536b75",
+      "verified_date": "2026-11-19"
+    },
+    "ISSUE-0213": {
+      "acceptance_evidence": [],
+      "canonical_definition": {
+        "acceptance_criteria": [
+          {
+            "id": "AC1",
+            "text": "a fixture with an unsupported transformation, an undefined or foreign-namespace unit and an inconsistent duplicate fact yields `unavailable` for the affected facts; outputs for valid facts are unchanged; every stored fact carries its decode status."
+          }
+        ],
+        "activation_dependencies": [],
+        "blocking_dependencies": [
+          "ISSUE-0183"
+        ],
+        "capability_lane": "CORE_ANALYSIS",
+        "contract_markdown": "Follow-up to ISSUE-0183: INT-27 execution follow-up (owner GO 2026-11-18).",
+        "data_and_dependencies": "Uses only the existing local statement parsers and stored facts; no new data source is required.",
+        "exclusions": [
+          "No new data, package, model-weight or execution authority from registration."
+        ],
+        "objective": "Harden the ESEF parser for every stored statement fact: supported transformation namespaces and names only, unit measures checked by QName and namespace, inconsistent duplicate facts treated as conflicts, and the decode status stored with each fact.",
+        "owner": "stock-research",
+        "phase": "phase-03-stock-research",
+        "priority": "P3",
+        "related_issues": [
+          "ISSUE-0183"
+        ],
+        "release_blocking": false,
+        "required_inputs": [],
+        "rollback": "Revert the bounded integration and retain the existing local evidence and defaults.",
+        "scope": [
+          "Target the existing parsers/esef_ixbrl.py; parsers/sec_facts.py; data/stock_sources.py surfaces."
+        ],
+        "title": "ESEF inline-XBRL parser hardening (follow-up to ISSUE-0183)",
+        "validation": {
+          "required": [
+            "Focused tests for the intake acceptance criteria and the validation tier required by the product diff."
+          ]
+        }
+      },
+      "dependency_edge_evidence": {
+        "ISSUE-0183": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "phase": "phase-03-stock-research",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "Owner GO 2026-11-18 for the INT-27 execution plan follow-ups; Claude Code root intake.",
+        "to": "planned"
+      },
+      "verified_commit": "4ae82e9ea684908ff12d2af53cae45552a536b75",
+      "verified_date": "2026-11-19"
+    },
     "UPDATEV2-0010": {
       "acceptance_evidence": [],
       "dependency_edge_evidence": {},

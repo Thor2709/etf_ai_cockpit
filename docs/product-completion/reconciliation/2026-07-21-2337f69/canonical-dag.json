@@ -1308,6 +1308,22 @@
     {
       "from": "ISSUE-0209",
       "to": "ISSUE-0185"
+    },
+    {
+      "from": "ISSUE-0210",
+      "to": "ISSUE-0201"
+    },
+    {
+      "from": "ISSUE-0211",
+      "to": "ISSUE-0203"
+    },
+    {
+      "from": "ISSUE-0212",
+      "to": "ISSUE-0200"
+    },
+    {
+      "from": "ISSUE-0213",
+      "to": "ISSUE-0183"
     }
   ],
   "external_or_closed_dependencies": [],
@@ -1521,6 +1537,10 @@
     "ISSUE-0207",
     "ISSUE-0208",
     "ISSUE-0209",
+    "ISSUE-0210",
+    "ISSUE-0211",
+    "ISSUE-0212",
+    "ISSUE-0213",
     "UPDATEV2-0010",
     "UPDATEV2-0011",
     "UPDATEV2-0012",

@@ -8,7 +8,7 @@ This file is generated from `issues/issue_registry.json`; it contains no wall-cl
 |---|---:|
 | `closed` | 17 |
 | `integrated` | 183 |
-| `planned` | 27 |
+| `planned` | 31 |
 | `ready` | 1 |
 | `research_only` | 2 |
 
@@ -19,7 +19,7 @@ This file is generated from `issues/issue_registry.json`; it contains no wall-cl
 ## Readiness reason summary
 
 - `BLOCKED_EXTERNAL_INPUT`: 8
-- `BLOCKED_UNRESOLVED_DEPENDENCY`: 98
+- `BLOCKED_UNRESOLVED_DEPENDENCY`: 102
 - `CLOSED_LEDGER_NOT_IMPLEMENTATION_CANDIDATE`: 17
 - `READY_BLOCKING_EDGES_RESOLVED`: 32
 - `READY_NO_BLOCKING_DEPENDENCIES`: 82
@@ -31,9 +31,9 @@ Activation readiness is projected separately from implementation readiness. It n
 | Phase | Records |
 |---|---:|
 | `phase-01-governance-scope` | 59 |
-| `phase-02-data-policy-identity` | 42 |
-| `phase-03-stock-research` | 18 |
-| `phase-04-etf-research` | 7 |
+| `phase-02-data-policy-identity` | 44 |
+| `phase-03-stock-research` | 19 |
+| `phase-04-etf-research` | 8 |
 | `phase-05-returns-risk-portfolio` | 36 |
 | `phase-06-model-research` | 11 |
 | `phase-07-backtest-paper-execution` | 18 |
