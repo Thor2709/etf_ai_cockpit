@@ -10,7 +10,6 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime, timezone
 import html
 from pathlib import Path
 import re
@@ -47,16 +46,13 @@ def build_research_report(
     commentary: str = "",
     currency: str | None = None,
 ) -> ResearchReport:
-    parsed = datetime.fromisoformat(str(as_of).replace("Z", "+00:00"))
-    if parsed.tzinfo is None:
-        raise ValueError("as_of must carry a time zone")
+    as_of = document_chunks._utc(as_of)
     keys = [metric.key for metric in metrics]
     if len(set(keys)) != len(keys):
         raise ValueError("metric keys must be unique")
     if not all(claim.chunk_id and claim.document_sha256 for claim in claims):
         raise ValueError("every claim needs a chunk_id and document_sha256")
-    return ResearchReport(title, parsed.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ"), tuple(metrics),
-                          tuple(claims), commentary, currency)
+    return ResearchReport(title, as_of, tuple(metrics), tuple(claims), commentary, currency)
 
 
 def render_markdown(report: ResearchReport) -> str:
@@ -92,6 +88,11 @@ def check_grounding(report: ResearchReport, rendered: str, chunk_store: Path, *,
     """Every number must be the metric's own rendering and every citation must resolve; any failure fails closed."""
 
     reasons = []
+    try:
+        as_of = document_chunks._utc(report.as_of)
+    except ValueError as exc:
+        as_of = None
+        reasons.append(f"report as_of is not a time with a time zone: {exc}")
     tokens = [_metric_token(report, metric, html) for metric in report.metrics] + [_claim_token(claim, html) for claim in report.claims]
     for token, expected in Counter(tokens).items():
         if rendered.count(token) != expected:
@@ -100,7 +101,7 @@ def check_grounding(report: ResearchReport, rendered: str, chunk_store: Path, *,
         chunk = document_chunks.resolve(chunk_store, claim.chunk_id, claim.document_sha256)
         if chunk is None:
             reasons.append(f"citation {claim.chunk_id} does not resolve")
-        elif chunk.known_at > report.as_of:
+        elif as_of is not None and chunk.known_at > as_of:
             reasons.append(f"citation {claim.chunk_id} was known after the report date")
     return {"status": "failed" if reasons else "ok", "reasons": reasons}
 
@@ -127,7 +128,7 @@ def _metric_token(report: ResearchReport, metric: Metric, as_html: bool) -> str:
 def _claim_token(claim: Claim, as_html: bool) -> str:
     if as_html:
         return f"<cite data-chunk=\"{html.escape(claim.chunk_id)}\">{html.escape(claim.chunk_id)}</cite>"
-    return f"[cite:{claim.chunk_id}]"
+    return f"`cite:{claim.chunk_id}`"
 
 
 def _detail(metric: Metric) -> str:
