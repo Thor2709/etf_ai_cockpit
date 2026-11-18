@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import sys
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -200,3 +202,81 @@ def test_adjusted_price_returns_feed_the_shrunk_covariance() -> None:
     optimiser = PortfolioOptimiser(returns_from_adjusted_prices(pd.DataFrame(rows)))
     assert optimiser.covariance_diagnostics["status"] == "available"
     assert optimiser.solve("minimum_variance").status == "success"
+
+
+def test_skfolio_minimum_variance_matches_the_two_asset_closed_form() -> None:
+    # ISSUE-0192: sk_* ids stay out of METHODS; the backend solves a 2-asset minimum-variance case exactly.
+    pytest.importorskip("skfolio")
+    data = _returns(rows=250, assets=2, drift=0.0005, seed=7)
+    sigma = data.cov().to_numpy(float)
+    expected = (sigma[1, 1] - sigma[0, 1]) / (sigma[0, 0] + sigma[1, 1] - 2.0 * sigma[0, 1])
+    assert 0.0 < expected < 1.0
+    solution = PortfolioOptimiser(data, covariance_shrinkage="none").solve("sk_mean_variance")
+    assert solution.status == "success" and solution.feasible and solution.execution_allowed is False
+    assert solution.model_version == "skfolio-1.12.9"
+    assert float(solution.weights["E0"]) == pytest.approx(expected, abs=1e-3)  # interior-point solver tolerance
+    assert solution.weight_sum == pytest.approx(1.0, abs=1e-6)
+    assert not [name for name in METHODS if name.startswith("sk_")]
+
+
+@pytest.mark.parametrize("method", ["sk_mean_variance", "sk_min_cvar"])
+def test_skfolio_methods_meet_cash_bounds_group_cap_and_turnover(method: str) -> None:
+    pytest.importorskip("skfolio")
+    data = _returns(rows=300, assets=5, seed=21)
+    data["E0"] = data["E0"] * 0.2  # a dominant low-risk asset so the free solution breaks the constraints
+    current = {f"E{index}": 0.18 for index in range(5)}
+    constraints = OptimiserConstraints(
+        cash_weight=0.1,
+        min_weight=0.05,
+        max_weight=0.4,
+        turnover_limit=0.3,
+        group_labels={"E0": "g", "E1": "g"},
+        group_max_weights={"g": 0.3},
+    )
+    optimiser = PortfolioOptimiser(data)
+    free = optimiser.solve(method, constraints=OptimiserConstraints(cash_weight=0.1))
+    assert free.status == "success" and float(free.weights[["E0", "E1"]].sum()) > 0.3 + 1e-3
+    solution = optimiser.solve(method, constraints=constraints, current_weights=current)
+    assert solution.status == "success" and solution.feasible, solution.warnings
+    weights = solution.weights
+    assert float(weights.sum()) == pytest.approx(0.9, abs=1e-6)
+    assert float(weights.min()) >= 0.05 - 1e-7 and float(weights.max()) <= 0.4 + 1e-7
+    assert float(weights[["E0", "E1"]].sum()) <= 0.3 + 1e-7
+    assert float(np.abs(weights.to_numpy(float) - 0.18).sum()) <= 0.3 + 1e-7
+    assert solution.model_version == "skfolio-1.12.9" and solution.execution_allowed is False
+
+
+@pytest.mark.parametrize(
+    ("constraints", "name"),
+    [
+        (OptimiserConstraints(cash_weight=0.1), "cash_weight"),
+        (OptimiserConstraints(group_labels={"E0": "g"}, group_max_weights={"g": 0.5}), "group_max_weights"),
+        (OptimiserConstraints(turnover_limit=0.5), "turnover_limit"),
+        (OptimiserConstraints(cash_weight=0.1, turnover_limit=0.5), "cash_weight"),
+    ],
+)
+def test_skfolio_hrp_unsupported_constraints_fail_before_the_package_is_imported(
+    monkeypatch: pytest.MonkeyPatch, constraints: OptimiserConstraints, name: str
+) -> None:
+    # A blocked package proves the reason is decided before any import of skfolio.
+    monkeypatch.setitem(sys.modules, "skfolio", None)
+    solution = PortfolioOptimiser(_returns(rows=120, assets=3)).solve("sk_hrp", constraints=constraints)
+    assert solution.status == "unavailable" and solution.weights.empty and not solution.feasible
+    assert solution.diagnostics["reason_code"] == f"constraint_unsupported:{name}"
+    assert solution.execution_allowed is False
+
+
+def test_skfolio_missing_package_or_infeasible_problem_is_unavailable_without_exception(monkeypatch: pytest.MonkeyPatch) -> None:
+    data = _returns(rows=120, assets=2)
+    with monkeypatch.context() as blocked:
+        blocked.setitem(sys.modules, "skfolio", None)
+        for method in ("sk_mean_variance", "sk_min_cvar", "sk_hrp"):
+            missing = PortfolioOptimiser(data).solve(method)
+            assert missing.status == "unavailable" and missing.weights.empty and not missing.feasible
+            assert missing.diagnostics["reason_code"] == "skfolio_unavailable"
+    pytest.importorskip("skfolio")
+    # Two assets capped at 40% each cannot reach the 100% invested total.
+    for method in ("sk_mean_variance", "sk_min_cvar", "sk_hrp"):
+        infeasible = PortfolioOptimiser(data).solve(method, constraints=OptimiserConstraints(max_weight=0.4))
+        assert infeasible.status == "unavailable" and infeasible.weights.empty and not infeasible.feasible
+        assert infeasible.diagnostics["reason_code"] == "skfolio_solve_failed"
