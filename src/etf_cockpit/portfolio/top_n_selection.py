@@ -647,6 +647,8 @@ def marginal_active_risk(
         return None
     position = ids.index(candidate_id)
     variance = float(active @ matrix @ active)
+    if (np.diag(matrix) < 0).any() or variance < -1e-12:
+        return None
     if variance > 1e-12:
         return float((matrix @ active)[position] / math.sqrt(variance))
     stand_alone = float(matrix[position, position])

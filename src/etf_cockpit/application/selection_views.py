@@ -12,6 +12,7 @@ from datetime import (
 )
 import hashlib
 import json
+import math
 from pathlib import Path
 import sqlite3
 import pandas as pd
@@ -107,14 +108,30 @@ def _marginal_impacts_from_prices(
         covariance = report["covariances"][report["selected_estimator"]]
     except (KeyError, TypeError, ValueError):
         return {}
-    holdings = portfolio_snapshot.get("holdings") if isinstance(portfolio_snapshot, Mapping) else None
+    if not isinstance(portfolio_snapshot, Mapping):
+        return {}
+    try:
+        raw_as_of = str(portfolio_snapshot.get("as_of") or "").strip()
+        as_of = pd.Timestamp(raw_as_of)
+        as_of = as_of.tz_localize("UTC") if as_of.tzinfo is None else as_of.tz_convert("UTC")
+        if len(raw_as_of) == 10:
+            as_of += pd.Timedelta(days=1) - pd.Timedelta(nanoseconds=1)
+        if pd.isna(as_of) or as_of > cutoff:
+            return {}
+    except (TypeError, ValueError, OverflowError):
+        return {}
+    holdings = portfolio_snapshot.get("holdings")
+    if not isinstance(holdings, Sequence) or isinstance(holdings, (str, bytes)):
+        return {}
     weights: dict[str, float] = {}
-    for row in holdings if isinstance(holdings, Sequence) and not isinstance(holdings, (str, bytes)) else ():
-        if isinstance(row, Mapping):
-            name = str(row.get("etf_id") or row.get("instrument_id") or "").strip()
-            weight = row.get("current_weight")
-            if name and isinstance(weight, (int, float)) and weight == weight:
-                weights[name] = float(weight)
+    for row in holdings:
+        if not isinstance(row, Mapping):
+            return {}
+        name = str(row.get("etf_id") or row.get("instrument_id") or "").strip()
+        weight = row.get("current_weight")
+        if not name or isinstance(weight, bool) or not isinstance(weight, (int, float)) or not math.isfinite(weight):
+            return {}
+        weights[name] = float(weight)
     impacts: dict[str, float] = {}
     for name in covariance.columns:
         risk = marginal_active_risk(covariance, weights, str(name), benchmark_id)
