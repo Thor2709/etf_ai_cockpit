@@ -889,3 +889,53 @@ def test_optimiser_challenger_engine_sums_to_the_sleeve_within_caps_without_look
     after["known_at"] = _time(datetime(2026, 12, 1, tzinfo=timezone.utc))
     assert paper_bots.optimiser_challenger_engine(pd.concat([future, after]), sleeve_weight=0.2, max_weight=0.1)(ids, cutoff) == weights
     assert engine(["AAA", "NOPE"], cutoff) is None  # an instrument without history is unavailable, not substituted
+
+
+# ISSUE-0197: opt-in ranker challenger B1-r -------------------------------------------------------------------------------
+
+_NAN = float("nan")
+
+
+@pytest.mark.parametrize(
+    ("reason", "scores", "targets"),
+    [
+        ("scores", {"AAA": 0.2, "BBB": 0.9, "ZZZ": 5.0}, {"BBB": 1.0}),
+        ("nan_is_missing", {"AAA": _NAN, "BBB": 0.1}, {"BBB": 1.0}),
+        ("unavailable", None, None),
+        ("insufficient_evidence", {}, None),
+        ("all_nan", {"AAA": _NAN, "BBB": _NAN}, None),
+    ],
+)
+def test_ranker_challenger_selects_by_score_and_records_no_new_trade_without_scores(
+    monkeypatch, tmp_path: Path, reason: str, scores, targets
+) -> None:
+    config_path = tmp_path / "paper_bots.yaml"
+    config_path.write_text(
+        paper_bots.PAPER_BOTS_CONFIG_PATH.read_text(encoding="utf-8").replace("top_n: 10", "top_n: 1"), encoding="utf-8"
+    )
+    known_at = _NOW - timedelta(minutes=5)
+    rows = _rows(known_at)
+    board = _scoreboard(rows, known_at)
+
+    def run(name: str, **kwargs):
+        root = tmp_path / name
+        root.mkdir()
+        return _run_fixture(monkeypatch, root, rows, board, _NOW, config_path=config_path, **kwargs)
+
+    plain = run("plain")
+    assert not any(record["bot_family"] == "B1-r" for record in plain.records)
+    result = run("ranker", challenger_engines={"gbdt_rank_63": scores})
+    by_family = {record["bot_family"]: record for record in result.records}
+    challenger = by_family["B1-r"]
+    assert challenger["bot_id"].startswith("B1-r-") and challenger["bot_id"] != by_family["B1"]["bot_id"]
+    assert challenger["execution_allowed"] is False
+    assert by_family["B1"]["targets"] == {"AAA": 1.0}  # the canonical rank picks AAA; the score picks differently
+    if targets is not None:
+        assert challenger["status"] == "available" and challenger["targets"] == targets
+        assert challenger["score_lineage_hash"] == by_family["B1"]["score_lineage_hash"]  # pinned baseline lineage
+    else:
+        assert challenger["status"] == "unavailable" and str(challenger["reason"]).startswith("NO_NEW_TRADE")
+        assert challenger["targets"] == {}
+    # B0-B3 records are equal with and without the challenger (B2-o is the other opt-in record).
+    others = tuple(r for r in result.records if r["bot_family"] not in {"B1-r", "B2-o"})
+    assert others == tuple(r for r in plain.records)

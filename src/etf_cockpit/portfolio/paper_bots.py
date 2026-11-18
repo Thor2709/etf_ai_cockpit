@@ -58,6 +58,12 @@ _OPTIMISER_ENGINE_NAME = "sk_min_cvar"
 _ENGINE_SUM_TOLERANCE = 1e-6
 # The engine receives the chosen instrument IDs and the decision cut-off; None means unavailable.
 SleeveWeightEngine = Callable[[Sequence[str], datetime], Mapping[str, float] | None]
+# ISSUE-0197: the opt-in ranker challenger. It is B1's rule with the selection order from a caller-supplied
+# ``{instrument: score}`` mapping under this key of ``challenger_engines``; the ordinal score selects and never sizes.
+_RANKER_CHALLENGER_FAMILY = "B1-r"
+_RANKER_SELECTOR = "gbdt_rank_63"
+# A challenger input is a weight engine (B2-o) or a score mapping (B1-r); None means the input is unavailable.
+ChallengerInput = SleeveWeightEngine | Mapping[str, float] | None
 # DEFAULTS: a date-only as_of is rejected; no implicit time of day is assumed.
 _DATE_ONLY_MESSAGE = "as_of must be a timezone-aware date and time; a date-only value is not accepted"
 
@@ -96,14 +102,16 @@ def run_paper_bots(
     root: Path | None = None,
     config_path: Path | None = None,
     now: datetime | None = None,
-    challenger_engines: Mapping[str, SleeveWeightEngine] | None = None,
+    challenger_engines: Mapping[str, ChallengerInput] | None = None,
 ) -> PaperBotRunResult:
     """Record this month's first eligible published decision for each bot that is due this month.
 
     A bot decides only in the months its cadence allows (``rebalance_every_months`` counted in calendar months from its
     first available decision month; B0 only in its first month); in any other month it records no target and no order.
     ``now`` injects the recorder clock (default: the real UTC clock) for deterministic replay and tests.
-    ``challenger_engines`` opts in the B2-o optimiser challenger; without it the records are those of B0-B3 alone.
+    ``challenger_engines`` opts in the B2-o optimiser challenger, and the B1-r ranker challenger when it has the
+    ``gbdt_rank_63`` key (a ``{instrument: score}`` mapping, or None when the ranker is unavailable); without it the
+    records are those of B0-B3 alone.
     """
 
     project_root = Path(root or ROOT).resolve()
@@ -278,6 +286,11 @@ def run_paper_bots(
                 optimiser_spec = _optimiser_challenger_spec(source_spec)
                 optimiser_id = _bot_identity(optimiser_spec, config_hash, baseline_lineage_hash)
                 tasks.append((optimiser_spec, tuple(baseline_groups), baseline_lineage_hash, optimiser_id))
+            if challenger_engines is not None and _RANKER_SELECTOR in challenger_engines:
+                source_spec = next(item for item in config["bots"] if item["family_id"] == "B1")
+                ranker_spec = _ranker_challenger_spec(source_spec)
+                ranker_id = _bot_identity(ranker_spec, config_hash, baseline_lineage_hash)
+                tasks.append((ranker_spec, tuple(baseline_groups), baseline_lineage_hash, ranker_id))
 
             challenger_groups: dict[str, list[_PublishedGroup]] = {}
             for group in ordered_groups:
@@ -337,7 +350,7 @@ def run_paper_bots(
 
                 decision = None
                 group = None
-                failure = baseline_error if spec.get("family_id") in {*_CADENCE_FAMILIES, _OPTIMISER_CHALLENGER_FAMILY} else None
+                failure = baseline_error if spec.get("family_id") in {*_CADENCE_FAMILIES, _OPTIMISER_CHALLENGER_FAMILY, _RANKER_CHALLENGER_FAMILY} else None
                 last_group = candidates[-1] if candidates else None
                 if failure is None and not candidates:
                     failure = (
@@ -499,6 +512,16 @@ def _optimiser_challenger_spec(source_spec: Mapping[str, Any]) -> dict[str, Any]
     spec["family_id"] = _OPTIMISER_CHALLENGER_FAMILY
     spec["name"] = f"Optimiser challenger: {source_spec['name']}"
     spec["weight_engine"] = _OPTIMISER_ENGINE_NAME
+    return spec
+
+
+def _ranker_challenger_spec(source_spec: Mapping[str, Any]) -> dict[str, Any]:
+    """B1-r: the B1 spec with a selector name. The name is part of the spec, so it is part of the bot ID."""
+
+    spec = dict(source_spec)
+    spec["family_id"] = _RANKER_CHALLENGER_FAMILY
+    spec["name"] = f"Ranker challenger: {source_spec['name']}"
+    spec["selector"] = _RANKER_SELECTOR
     return spec
 
 
@@ -859,7 +882,7 @@ def _first_successful_candidate(
     cutoff: datetime, month: str, candidates: Sequence[_PublishedGroup], expected_lineage_hash: str | None,
     match_rows: Callable[[_PublishedGroup], dict[str, tuple[dict[str, Any], dict[str, Any]]] | None],
     *, historical: bool = False,
-    engines: Mapping[str, SleeveWeightEngine] | None = None,
+    engines: Mapping[str, ChallengerInput] | None = None,
 ) -> tuple[dict[str, Any] | None, _PublishedGroup | None, str | None]:
     """Shared chronological, first-successful selection for one cadence-due month."""
 
@@ -899,7 +922,7 @@ def _build_decision(
     month: str,
     group: _PublishedGroup,
     matched: Mapping[str, tuple[dict[str, Any], dict[str, Any]]],
-    engines: Mapping[str, SleeveWeightEngine] | None = None,
+    engines: Mapping[str, ChallengerInput] | None = None,
 ) -> tuple[dict[str, Any], str | None]:
     def unavailable(reason: str) -> tuple[dict[str, Any], str]:
         return _unavailable_record(
@@ -983,8 +1006,21 @@ def _build_decision(
         if len(ranks) != len(set(ranks)):
             return unavailable("Canonical rank contains duplicate positions.")
 
+        unscored_ids: set[str] = set()
         if strategy == "top_n":
-            chosen = eligible[: int(spec["top_n"])]
+            selector = _real_text(spec.get("selector"))
+            if selector is None:
+                chosen = eligible[: int(spec["top_n"])]
+            else:
+                # B1-r: the score orders the eligible instruments; one without a finite score is not ranked, and with
+                # no scored instrument the record is NO_NEW_TRADE (there is no fallback ranking).
+                scores = _finite_scores((engines or {}).get(selector))
+                scored = [item for item in eligible if item[1] in scores]
+                if not scored:
+                    return unavailable(f"NO_NEW_TRADE: ranker scores {selector} are not available")
+                unscored_ids = {item[1] for item in eligible if item[1] not in scores}
+                scored.sort(key=lambda item: (-scores[item[1]], item[0], item[1]))
+                chosen = scored[: int(spec["top_n"])]
         elif strategy == "core_sleeve":
             engine_name = _real_text(spec.get("weight_engine"))
             engine = (engines or {}).get(engine_name) if engine_name is not None else None
@@ -1041,8 +1077,11 @@ def _build_decision(
                 targets = {str(benchmark_spec["instrument_id"]): 1.0}
                 selected_ids = [str(benchmark_spec["instrument_id"])]
                 allocation_reason = "no_eligible_candidates: VWCE passive default"
-            for item in eligible[len(chosen):]:
-                skipped.append({"instrument_id": item[1], "reason": "rank_below_top_n"})
+            chosen_ids = {item[1] for item in chosen}
+            for item in eligible:
+                if item[1] not in chosen_ids:
+                    reason = "no_ranker_score" if item[1] in unscored_ids else "rank_below_top_n"
+                    skipped.append({"instrument_id": item[1], "reason": reason})
 
     prices_used: dict[str, dict[str, Any]] = {
         str(benchmark_spec["instrument_id"]): benchmark_price
@@ -1099,6 +1138,15 @@ def _build_decision(
         "execution_allowed": False,
     }
     return record, None
+
+
+def _finite_scores(raw: object) -> dict[str, float]:
+    """The finite scores of a ``{instrument: score}`` mapping; NaN, other non-finite values and non-mappings are missing."""
+
+    if not isinstance(raw, Mapping):
+        return {}
+    scores = {str(key): _finite_number(value) for key, value in raw.items()}
+    return {key: value for key, value in scores.items() if value is not None}
 
 
 def _engine_sleeve_weights(
