@@ -125,6 +125,34 @@ def proposed_new_weight(
     return max(0.0, current_weight + change)
 
 
+@dataclass(frozen=True)
+class SizingDecision:
+    weight: float | None
+    sizing_method: str
+    reason: str
+
+
+def size_new_weight(
+    current_weight: float,
+    target_weight: float,
+    action: str,
+    max_trade_fraction: float,
+    forecast_vol: float | None = None,
+    target_vol: float = 0.16,
+    *,
+    has_calibrated_distribution: bool = False,
+) -> SizingDecision:
+    """Size through the existing caps and say so; fractional Kelly is not enabled.
+
+    A calibrated return distribution is the only input a Kelly size could use, and never a
+    ranker score. Until that path exists the size is always the capped one.
+    """
+
+    weight = proposed_new_weight(current_weight, target_weight, action, max_trade_fraction, forecast_vol, target_vol)
+    reason = "kelly_sizing_not_enabled" if has_calibrated_distribution else "calibrated_return_distribution_unavailable"
+    return SizingDecision(weight=weight, sizing_method="caps_only", reason=reason)
+
+
 def suggested_trade_value(portfolio_value_eur: float, current_weight: float, new_weight: float | None) -> float | None:
     if new_weight is None:
         return None
@@ -766,9 +794,11 @@ __all__ = [
     "RebalanceConstraints",
     "RebalanceReport",
     "RebalanceTrade",
+    "SizingDecision",
     "build_rebalance_report",
     "proposed_new_weight",
     "rebalance_score",
+    "size_new_weight",
     "suggested_trade_value",
     "target_weight_drift",
     "target_weight_series",

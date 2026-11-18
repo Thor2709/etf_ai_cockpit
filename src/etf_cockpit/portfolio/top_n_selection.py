@@ -30,6 +30,7 @@ from types import MappingProxyType
 from typing import Literal
 
 import numpy as np
+import pandas as pd
 import yaml
 
 from etf_cockpit.analysis.decision.contracts import OpportunityResult
@@ -618,6 +619,42 @@ def _marginal_impact(candidate: SelectionCandidate) -> float | None:
     return _finite(comparison.get("q05_return_difference"))
 
 
+def marginal_active_risk(
+    covariance: pd.DataFrame,
+    weights: Mapping[str, float],
+    candidate_id: str,
+    benchmark_id: str,
+) -> float | None:
+    """Marginal contribution of one candidate to portfolio active risk against the benchmark.
+
+    The active vector is the portfolio weight minus a 100% benchmark position; weights below
+    100% leave the rest in cash, which has zero risk. The result is the derivative of active
+    volatility with respect to adding the candidate funded from cash, in the covariance's
+    own (annual) units. A portfolio equal to the benchmark has no active risk to differentiate,
+    so the candidate's stand-alone volatility is used. A missing candidate, benchmark or held
+    instrument leaves the risk unmeasurable: the result is None, never zero.
+    """
+
+    ids = list(covariance.columns) if covariance is not None else []
+    if candidate_id not in ids or benchmark_id not in ids:
+        return None
+    if any(held not in ids for held, weight in weights.items() if weight):
+        return None
+    matrix = covariance.to_numpy(float)
+    active = np.asarray([float(weights.get(name, 0.0)) for name in ids], dtype=float)
+    active[ids.index(benchmark_id)] -= 1.0
+    if not np.isfinite(matrix).all() or not np.isfinite(active).all():
+        return None
+    position = ids.index(candidate_id)
+    variance = float(active @ matrix @ active)
+    if (np.diag(matrix) < 0).any() or variance < -1e-12:
+        return None
+    if variance > 1e-12:
+        return float((matrix @ active)[position] / math.sqrt(variance))
+    stand_alone = float(matrix[position, position])
+    return math.sqrt(stand_alone) if stand_alone >= 0 else None
+
+
 def _constraint_reasons(
     candidate: SelectionCandidate,
     portfolio_policy: PortfolioPolicy | None,
@@ -910,5 +947,6 @@ __all__ = [
     "SelectionRun",
     "build_selection_run",
     "load_selection_policy",
+    "marginal_active_risk",
     "persist_selection_run",
 ]
