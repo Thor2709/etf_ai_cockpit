@@ -12,6 +12,7 @@ import pandas as pd
 from etf_cockpit.data import stock_sources as src
 from etf_cockpit.data import stock_fundamentals as store
 from etf_cockpit.data.stock_fundamentals import load_stock_config
+from etf_cockpit.parsers.esef_ixbrl import PER_SHARE_VERIFIED
 
 CONFIG = load_stock_config()
 NOW = datetime(2026, 10, 9, 12, 0, tzinfo=timezone.utc)
@@ -248,6 +249,10 @@ def test_edgar_new_tags_never_change_the_existing_fields() -> None:
     gaap = payload["facts"]["us-gaap"]
     del gaap["ShareBasedCompensation"], gaap["EarningsPerShareDiluted"]
     gaap["WeightedAverageNumberOfDilutedSharesOutstanding"]["units"]["shares"].append(_fact("2025-01-01", "2025-12-31", 99.0, "2026-02-10"))  # same filing, two values
+    gaap["EarningsPerShareDiluted"] = {"units": {"USD/shares": [_fact("2025-01-01", "2025-12-31", 6.0, "2026-02-10"), _fact("2025-01-01", "2025-03-31", 1.5, "2025-05-01"),
+                                                              _fact("2025-01-10", "2025-03-31", 1.4, "2025-05-01"),  # 80 days: not the Q1 row's interval
+                                                              _fact("2025-01-01", "bad", 9.0, "2025-05-01")],  # a malformed end is skipped
+                                         "EUR/shares": [_fact("2025-01-01", "2025-12-31", 5.0, "2026-02-10")]}}  # same filing, two units
     gaap["Goodwill"]["units"]["USD"][0]["filed"] = "2026-03-15"  # only in a later amendment: never delays the row
     gaap["InventoryNet"]["units"]["USD"].append(_fact(None, "2025-04-15", 9.0, "2025-05-01"))  # a later end in the Q1 filing
     gaap["SellingGeneralAndAdministrativeExpense"]["units"]["USD"].append(_fact("2024-01-01", "2024-12-31", 9.0, "2025-02-10"))  # no existing field
@@ -257,6 +262,8 @@ def test_edgar_new_tags_never_change_the_existing_fields() -> None:
     fy = store._row_period(next(row for row in rows if (row["period_end"], row["period_type"]) == ("2025-12-31", "FY")), {})
 
     assert {fy.status_of(name) for name in ("goodwill", "stock_based_compensation", "eps_diluted", "shares_diluted")} == {"unavailable"}
+    q1 = next(row for row in rows if (row["period_end"], row["period_type"]) == ("2025-03-31", "Q"))
+    assert q1["eps_diluted"] == 1.5  # the fact of the quarter's own interval, not the 80-day one, whatever the order
     assert _existing_fields(rows) == src.parse_edgar_companyfacts(payload, _before_line_items(CONFIG), source_ref="test")
     assert src.parse_edgar_companyfacts(_companyfacts(), CONFIG, source_ref="test") == src.parse_edgar_companyfacts(
         _companyfacts(), _before_line_items(CONFIG), source_ref="test")
@@ -265,7 +272,7 @@ def test_edgar_new_tags_never_change_the_existing_fields() -> None:
 def _esef(concept: str, value: float, known_at: str, *, flow: bool, unit: str = "EUR") -> dict:
     return {"instrument_id": "XX", "taxonomy": "ifrs-full", "concept": concept, "unit": unit, "value": value,
             "start": "2024-01-01" if flow else None, "end": "2024-12-31", "instant": None if flow else "2024-12-31",
-            "known_at": known_at, "dimensions": "", "consolidation_scope": "consolidated"}
+            "known_at": known_at, "dimensions": "", "consolidation_scope": "consolidated", "mapping_confidence": PER_SHARE_VERIFIED}
 
 
 def test_esef_line_items_are_observed_and_a_later_known_item_never_delays_the_row() -> None:
@@ -278,6 +285,9 @@ def test_esef_line_items_are_observed_and_a_later_known_item_never_delays_the_ro
 
     assert {name: period.status_of(name) for name in LINE_ITEMS} == dict.fromkeys(LINE_ITEMS, "observed")
     assert row["gross_buybacks"] == 8.0  # a payment is stored as the positive outflow
+    # A per-share fact the import did not verify (undecoded number or unresolved unit) is unavailable; the other items stay.
+    unverified = src.parse_esef_statement_facts(pd.DataFrame(base + [{**item, "mapping_confidence": "manual_review"} for item in items]), CONFIG, source_ref="esef:test")[0]
+    assert "eps_diluted" not in unverified and "shares_diluted" not in unverified and unverified["sga"] == 20.0
     late = [item if item["concept"] != "Goodwill" else {**item, "known_at": later} for item in items]
     late_row = src.parse_esef_statement_facts(pd.DataFrame(base + late), CONFIG, source_ref="esef:test")[0]
     assert "goodwill" not in late_row and late_row["known_at"] == first

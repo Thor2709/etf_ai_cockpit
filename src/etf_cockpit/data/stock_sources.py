@@ -16,7 +16,7 @@ import urllib.request
 from collections import defaultdict
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +27,7 @@ from etf_cockpit.analysis.stock_metrics import (
 )
 from etf_cockpit.core.paths import STATEMENT_FACTS_PATH
 from etf_cockpit.data.yfinance_provider import classify_provider_error
+from etf_cockpit.parsers.esef_ixbrl import PER_SHARE_VERIFIED
 
 # Accounting-identity legs (cash roll-forward, balance identity). They default here so a config that
 # predates them still ingests them; a configured entry of the same name wins.
@@ -469,6 +470,8 @@ def parse_edgar_companyfacts(payload: Mapping[str, Any], config: Mapping[str, An
     # (field, quarter end) -> every candidate value; resolved once below so that the outcome never
     # depends on the order in which the filing facts or the chains were visited.
     quarter_candidates: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+    # (period end, period type) -> the start dates of the intervals that existing facts use for that period
+    row_starts: dict[tuple[str, str], set[str]] = defaultdict(set)
 
     def row(end: str, ptype: str) -> dict[str, Any]:
         entry = rows.setdefault(
@@ -509,6 +512,7 @@ def parse_edgar_companyfacts(payload: Mapping[str, Any], config: Mapping[str, An
                 if 345 <= length <= 385:
                     entry = row(end, "FY")
                     entry.setdefault("period_days", length)
+                    row_starts[(end, "FY")].add(start)
                     if unit == "currency_mismatch":
                         entry[f"{name}_currency"] = unit
                     else:
@@ -527,6 +531,8 @@ def parse_edgar_companyfacts(payload: Mapping[str, Any], config: Mapping[str, An
                 if previous_end:
                     step = (date.fromisoformat(end) - date.fromisoformat(previous_end)).days
                     if 75 <= step <= 110:
+                        # a derived quarter starts the day after the earlier link ends, as a reported quarter's fact does
+                        row_starts[(end, "Q")].add((date.fromisoformat(previous_end) + timedelta(days=1)).isoformat())
                         if unit != previous_unit or unit == "currency_mismatch":
                             put_quarter(name, end, "inferred", None, "currency_mismatch", [filed, previous_filed], step, set())
                         else:
@@ -537,6 +543,7 @@ def parse_edgar_companyfacts(payload: Mapping[str, Any], config: Mapping[str, An
         # direct discrete quarters reported on their own (3-month facts), visited in a fixed order
         for (start, end), (value, filed, unit) in sorted(cumulative.items()):
             if 75 <= _days(start, end) <= 110:
+                row_starts[(end, "Q")].add(start)
                 put_quarter(name, end, "direct", None if unit == "currency_mismatch" else value, unit, [filed], _days(start, end), {concept_of(name, start, end)})
 
     for (name, end), candidates in sorted(quarter_candidates.items()):
@@ -578,8 +585,8 @@ def parse_edgar_companyfacts(payload: Mapping[str, Any], config: Mapping[str, An
     lease_parts = {name: collect_instant([name]) for name in concepts.get("lease_parts", [])}
     shares = collect_instant(concepts.get("shares_outstanding", []), shares=True)
     line_items = {name: collect_instant(concepts.get(name, [])) for name in LINE_ITEM_BALANCE_FIELDS}
-    # Per-share items take only a fact reported for the period itself (a quarter or a fiscal year), earliest filing first; a
-    # year-to-date fact is never differenced, so a quarter reported only year to date stays unavailable.
+    # Per-share items take only a fact whose own interval is the row's (the start date existing facts use for that period),
+    # earliest filing first; a year-to-date fact is never differenced, so a quarter reported only year to date stays unavailable.
     per_share: dict[tuple[str, str, str], tuple[float, str, str]] = {}
     per_share_ambiguous: set[tuple[str, str, str]] = set()
     for name in LINE_ITEM_PER_SHARE_FIELDS:
@@ -588,18 +595,17 @@ def parse_edgar_companyfacts(payload: Mapping[str, Any], config: Mapping[str, An
                 if not _PER_SHARE_UNIT[name].match(unit):
                     continue
                 for fact in facts:
-                    start, end, filed, value = _valid_filed(fact.get("start")), fact.get("end"), _valid_filed(fact.get("filed")), _number(fact.get("val"))
-                    if not (start and end and filed) or value is None or not original(end, filed, fact):
+                    start, end, filed = (_valid_filed(fact.get(key)) for key in ("start", "end", "filed"))
+                    value = _number(fact.get("val"))
+                    ptype = next((kind for kind in ("Q", "FY") if start in row_starts.get((end, kind), ())), "")
+                    if not (ptype and filed) or value is None or not original(end, filed, fact):
                         continue
-                    length = _days(start, end)
-                    key = (name, end, "Q" if 75 <= length <= 110 else "FY" if 345 <= length <= 385 else "")
-                    if not key[2]:
-                        continue
+                    key = (name, end, ptype)
                     if key not in per_share or filed < per_share[key][1]:
                         per_share[key] = (value, filed, unit)
                         per_share_ambiguous.discard(key)
-                    elif filed == per_share[key][1] and value != per_share[key][0]:
-                        per_share_ambiguous.add(key)  # one filing, two values for the period: nothing is guessed
+                    elif filed == per_share[key][1] and (value, unit) != per_share[key][::2]:
+                        per_share_ambiguous.add(key)  # one filing, two values or units for the period: nothing is guessed
 
     for (end, ptype), entry in list(rows.items()):
         def pick(series: Mapping[str, tuple[float, str, str]]) -> tuple[float, str, str] | None:
@@ -866,6 +872,8 @@ def parse_esef_statement_facts(facts: pd.DataFrame, config: Mapping[str, Any], *
         return []
 
     wanted = {_esef_spec(spec) for specs in concepts.values() for spec in specs}
+    # a per-share fact counts only when the import verified its decoded number and resolved unit definition
+    verified_only = {_esef_spec(spec) for name in LINE_ITEM_PER_SHARE_FIELDS for spec in concepts.get(name, [])}
     prepared: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
     for record in facts.to_dict("records"):
         concept = str(record.get("concept") or "")
@@ -873,6 +881,8 @@ def parse_esef_statement_facts(facts: pd.DataFrame, config: Mapping[str, Any], *
             continue
         member = _esef_member(record.get("dimensions"))
         if member is None or (concept, member) not in wanted:
+            continue
+        if (concept, member) in verified_only and record.get("mapping_confidence") != PER_SHARE_VERIFIED:
             continue
         value = _number(record.get("value"))
         known = _esef_timestamp(record.get("known_at"))
