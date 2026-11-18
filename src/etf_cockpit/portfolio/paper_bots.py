@@ -1022,7 +1022,11 @@ def _build_decision(
                 scored.sort(key=lambda item: (-scores[item[1]], item[0], item[1]))
                 chosen = scored[: int(spec["top_n"])]
         elif strategy == "core_sleeve":
-            engine_name = _real_text(spec.get("weight_engine"))
+            engine_name = (
+                _real_text(spec.get("weight_engine"))
+                if spec.get("family_id") == _OPTIMISER_CHALLENGER_FAMILY
+                else None
+            )
             engine = (engines or {}).get(engine_name) if engine_name is not None else None
             if engine_name is not None and engine is None:
                 return unavailable(f"NO_NEW_TRADE: weight engine {engine_name} is not available")
