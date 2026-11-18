@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import importlib.util
 import os
 from pathlib import Path
 import subprocess
@@ -63,6 +62,7 @@ def test_weights_are_hash_verified_per_file(tmp_path: Path) -> None:
 
 
 def test_weight_inventory_row_per_file_matches_source_records() -> None:
+    pytest.importorskip("docling")
     rows = yaml.safe_load(dw.WEIGHTS_CONFIG.read_text(encoding="utf-8"))["weights"]
 
     assert len(rows) == 9 and all(len(row["sha256"]) == 64 and row["revision"] and row["licence"] and row["repository"] for row in rows)
@@ -163,8 +163,10 @@ def test_a_failing_memory_probe_stops_the_child_and_reports_an_error(tmp_path: P
     assert (result.status, result.reason) == ("error", "memory_probe_failed")
 
 
-@pytest.mark.skipif(importlib.util.find_spec("docling") is None or not (WEIGHTS / "docling-models").is_dir(), reason="docling extra or weights not available")
 def test_fixture_table_reaches_the_review_queue_with_page_provenance_offline(tmp_path: Path) -> None:
+    pytest.importorskip("docling")
+    if not (WEIGHTS / "docling-models").is_dir():
+        pytest.skip("docling weights are not available")
     out = dw.queue_tables(tmp_path, "KID1", KID, source_url="https://example.com/kid.pdf", model_dir=WEIGHTS, memory_limit_mb=6144, timeout_seconds=600)
 
     assert out["status"] == "ok", out
