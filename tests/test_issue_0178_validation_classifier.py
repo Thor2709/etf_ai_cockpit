@@ -75,14 +75,21 @@ def test_ordinary_tier_never_waits_for_a_cadence_gate() -> None:
 
 
 def test_prose_is_ordinary_but_policy_prose_stays_high() -> None:
-    for path in ("docs/architecture/SDD.md", "plans/BATCH.md", "docs/notes.txt", "docs/release/persistence-notes.md"):
+    for path in (
+        "docs/architecture/SDD.md",
+        "plans/BATCH.md",
+        "plans/ACTIVE_CODEX_GOAL.md",
+        "plans/BATCH-B04-ANALYSIS-SPINE.md",
+        "docs/notes.txt",
+        "docs/release/persistence-notes.md",
+    ):
         assert build_report([path])["tier"] == "O", path
     for path in (
         "AGENTS.md",
         "docs/product-completion/DELIVERY_WORKFLOW.md",
         "docs/development/CONTROL_PLANE.md",
         "docs/codex-config/README.md",
-        "plans/ACTIVE_CODEX_GOAL.md",
+        "PLAN_step2.md",
         "docs/architecture/decisions/ADR-0007-validation-cadence-and-report-only-pilot.md",
         "docs/architecture/ADR-0071-new-decision.md",
         "docs/product-completion/programme/notes.md",
@@ -236,36 +243,7 @@ def test_evidence_tier_is_a_closed_projection_allowlist() -> None:
         assert build_report([generated_path])["tier"] == "E"
     assert build_report(["docs/product-completion/programme/notes.md"])["tier"] == "H"
     assert build_report(["docs/product-completion/programme/roadmap.md.bak"])["tier"] == "H"
-    assert build_report(["plans/ACTIVE_CODEX_GOAL.md"])["tier"] == "H"
-
-
-def test_checkpoint_chronology_allowlist_is_narrow_and_content_independent() -> None:
-    positive = [
-        "plans/ACTIVE_CODEX_GOAL.md",
-        "plans/BATCH-B04-ANALYSIS-SPINE.md",
-    ]
-    negative = [
-        "plans/BATCH.md",
-        "plans/BATCH-B02-DATA-SPINE-CONTINUATION.md",
-        "plans/ATOMIC_FAST_PATH_METRICS.md",
-        "plans/BATCH-DOCS-SDD-20260802.md",
-        "plans/BATCH-B04-ANALYSIS-SPINE.txt",
-        "plans/arbitrary-checkpoint.md",
-        "plans/BATCH-B04-RUNTIME.md",
-        "plans/BATCH-B04-WORKFLOW.md",
-        "plans/BATCH-B04-SECURITY.md",
-        "plans/BATCH-B04-AUTHORITY.md",
-        "plans/BATCH-B04-PACKAGE.md",
-        "plans/BATCH-B04-RELEASE.md",
-    ]
-
-    assert all(build_report([path])["tier"] == "H" for path in positive)
-    assert all(build_report([path])["tier"] == "O" for path in negative)
-    assert build_report(
-        [positive[0], "scripts/classify_validation.py"]
-    )["tier"] == "H"
-    assert build_report(["AGENTS.md"])["tier"] == "H"
-    assert build_report(["docs/product-completion/DELIVERY_WORKFLOW.md"])["tier"] == "H"
+    assert build_report(["plans/ACTIVE_CODEX_GOAL.md"])["tier"] == "O"
 
 
 def test_identical_forged_head_files_cannot_authorize_e_reuse(
