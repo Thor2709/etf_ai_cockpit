@@ -17,7 +17,7 @@ import numpy as np
 import pandas as pd
 
 from etf_cockpit.portfolio.optimiser_skfolio import SKFOLIO_METHODS, SkfolioUnavailable, solve_skfolio
-from etf_cockpit.portfolio.robust_risk import ledoit_wolf_covariance
+from etf_cockpit.portfolio.robust_risk import _covariance_estimators, _out_of_sample_selection, ledoit_wolf_covariance
 
 OPTIMISER_MODEL_VERSION = "portfolio-optimiser.v2"
 METHODS = (
@@ -40,7 +40,7 @@ RETURN_SHRINKAGE_PRIOR_OBSERVATIONS = 252  # mean shrunk toward zero by n / (n +
 CVAR_ALPHA = 0.05
 MIN_CVAR_TAIL_OBSERVATIONS = 5
 ROBUST_ESTIMATION_ERROR_Z = 0.5  # penalty = z x standard error of the annual mean (the mean is already shrunk toward zero)
-COVARIANCE_SHRINKAGE_MODES = ("ledoit_wolf", "none")
+COVARIANCE_SHRINKAGE_MODES = ("ledoit_wolf", "none", "oos_selected")
 DEFAULT_COST_BPS = 10.0
 
 
@@ -507,7 +507,8 @@ def _covariance(returns: pd.DataFrame, shrinkage: str = "ledoit_wolf") -> tuple[
     """Annual covariance of the supplied training window with PSD repair.
 
     ``ledoit_wolf`` shrinks toward a scaled identity; ``none`` is the plain
-    sample covariance.  Fewer than ``MIN_COVARIANCE_OBSERVATIONS`` rows is an
+    sample covariance; ``oos_selected`` is the matrix of the estimator that
+    ``_out_of_sample_selection`` picks on this window (already annual).  Fewer than ``MIN_COVARIANCE_OBSERVATIONS`` rows is an
     ``insufficient_sample`` status and no matrix.
     """
 
@@ -515,12 +516,19 @@ def _covariance(returns: pd.DataFrame, shrinkage: str = "ledoit_wolf") -> tuple[
         return pd.DataFrame(), {"status": "unavailable", "reason_code": "insufficient_shared_return_history", "observations": int(len(returns))}
     if len(returns) < MIN_COVARIANCE_OBSERVATIONS:
         return pd.DataFrame(), {"status": "insufficient_sample", "reason_code": "insufficient_sample", "observations": int(len(returns)), "minimum_observations": MIN_COVARIANCE_OBSERVATIONS}
-    if shrinkage == "ledoit_wolf":
-        daily, details = ledoit_wolf_covariance(returns)
-        intensity = float(details.get("shrinkage_intensity", 0.0)) if details.get("status") == "available" else None
+    estimator = shrinkage
+    if shrinkage == "oos_selected":
+        _, estimator, selection_warnings = _out_of_sample_selection(returns, None, ewma_lambda=0.97, shrinkage_alpha=0.10)
+        if selection_warnings:
+            return pd.DataFrame(), {"status": "unavailable", "reason_code": selection_warnings[0], "observations": int(len(returns))}
+        matrix, intensity = _covariance_estimators(returns, None, ewma_lambda=0.97, shrinkage_alpha=0.10)[0][estimator], None
     else:
-        daily, intensity = returns.cov(), 0.0
-    matrix = daily * ANNUALISATION if not daily.empty else daily
+        if shrinkage == "ledoit_wolf":
+            daily, details = ledoit_wolf_covariance(returns)
+            intensity = float(details.get("shrinkage_intensity", 0.0)) if details.get("status") == "available" else None
+        else:
+            daily, intensity = returns.cov(), 0.0
+        matrix = daily * ANNUALISATION if not daily.empty else daily
     if matrix.empty or matrix.isna().to_numpy().any() or not np.isfinite(matrix.to_numpy(float)).all():
         return pd.DataFrame(), {"status": "unavailable", "reason_code": "covariance_inputs_incomplete", "observations": int(len(returns))}
     values = matrix.to_numpy(float)
@@ -532,7 +540,8 @@ def _covariance(returns: pd.DataFrame, shrinkage: str = "ledoit_wolf") -> tuple[
     repaired = (repaired + repaired.T) / 2.0
     diagnostics = {
         "status": "available",
-        "estimator": shrinkage,
+        "estimator": estimator,
+        "covariance_mode": shrinkage,
         "shrinkage_intensity": intensity,
         "observations": int(len(returns)),
         "annualisation": ANNUALISATION,

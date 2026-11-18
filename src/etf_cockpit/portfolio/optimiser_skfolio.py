@@ -41,6 +41,9 @@ def solve_skfolio(
 
     if method not in SKFOLIO_METHODS:
         raise SkfolioUnavailable("unsupported_method", f"unsupported skfolio method: {method}")
+    if covariance_shrinkage not in ("ledoit_wolf", "none"):
+        # skfolio would silently use its empirical covariance: never report that as the chosen estimator.
+        raise SkfolioUnavailable(f"covariance_mode_unsupported:{covariance_shrinkage}", f"skfolio cannot use covariance mode {covariance_shrinkage}")
     if method == "sk_hrp":
         # Decided before the import: the package may be absent.
         unsupported = [

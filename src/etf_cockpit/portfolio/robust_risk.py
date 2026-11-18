@@ -15,7 +15,7 @@ ROBUST_RISK_MODEL_VERSION = "robust_risk.v1"
 ANNUALISATION_FACTOR = 252.0
 EQUAL_WEIGHT_FALLBACK_BASIS = "equal_weight_illustrative_fallback_no_allocation_evidence"
 FACTOR_MODEL_VALIDATION_NOTE = "factor_model_excluded_from_oos_selection_fit_window_not_training_only"
-ESTIMATOR_NAMES = ("sample", "ewma", "shrinkage", "robust", "diagonal", "factor_model")
+ESTIMATOR_NAMES = ("sample", "ewma", "shrinkage", "robust", "diagonal", "oas", "factor_model")
 
 
 def build_robust_risk_report(
@@ -324,12 +324,14 @@ def _covariance_estimators(
     shrinkage_daily = (1.0 - float(shrinkage_alpha)) * sample_daily + float(shrinkage_alpha) * target_daily
     clipped = _winsorise(complete)
     robust_daily = clipped.cov().reindex(index=ids, columns=ids)
+    oas_daily = _oas_covariance(complete)
     raw_matrices = {
         "sample": sample_daily * ANNUALISATION_FACTOR,
         "ewma": ewma_daily * ANNUALISATION_FACTOR,
         "shrinkage": shrinkage_daily * ANNUALISATION_FACTOR,
         "robust": robust_daily * ANNUALISATION_FACTOR,
         "diagonal": diagonal_daily * ANNUALISATION_FACTOR,
+        "oas": oas_daily * ANNUALISATION_FACTOR,
     }
     matrices: dict[str, pd.DataFrame] = {}
     repair_metadata: dict[str, dict[str, object]] = {}
@@ -353,6 +355,16 @@ def _covariance_estimators(
     if "ewma" in meta:
         meta["ewma"]["effective_sample"] = _ewma_effective_sample(len(complete), ewma_lambda)
     return matrices, meta
+
+
+def _oas_covariance(returns: pd.DataFrame) -> pd.DataFrame:
+    """Oracle approximating shrinkage (Chen et al. 2010), daily, unbiased-scaled like ``cov()``."""
+
+    from sklearn.covariance import oas
+
+    shrunk, _ = oas(returns.to_numpy(float))
+    scaled = shrunk * len(returns) / (len(returns) - 1.0)
+    return pd.DataFrame(scaled, index=returns.columns, columns=returns.columns)
 
 
 def _ewma_covariance(returns: pd.DataFrame, lambda_: float) -> pd.DataFrame:
