@@ -5,8 +5,11 @@ promotes a ranker or grants execution authority.  ``lightgbm`` is imported
 lazily; without it ``fit`` reports ``unavailable``.  A panel that misses the
 evidence minima reports ``insufficient_evidence`` and returns no artefact.
 Training rows are only the rows of one ``date_grouped_folds`` fold, indexed on
-``canonical_panel_rows``.  Rows with a non-finite feature are dropped from the
-panel, never imputed, and ``score`` never returns a number for them.
+``canonical_panel_rows``.  Folds are built on the full panel; rows with a
+non-finite feature (or, for training, a non-finite label) are dropped from each
+fold afterwards, never imputed, and ``score`` never returns a number for them.
+A training label must be available at the selected horizon's own
+``label_available_at_<h>`` by the fold's validation start.
 """
 
 from __future__ import annotations
@@ -19,6 +22,7 @@ import numpy as np
 import pandas as pd
 
 from etf_cockpit.analysis.decision.rank_validation import RankerSpec, RankValidationPolicy
+from etf_cockpit.features.feature_store import labels_available_by
 from etf_cockpit.features.panel import (
     DateGroupedFold,
     PanelContractError,
@@ -74,22 +78,56 @@ def _unusable(status: RankerStatus, reason: str) -> RankerOutcome:
     return RankerOutcome(status, reason, None)
 
 
-def _usable_panel(
-    panel: pd.DataFrame, horizon: int, feature_ids: Sequence[str],
-) -> pd.DataFrame:
-    """Panel limited to rows whose features are all finite; never imputed."""
+def _check_panel(panel: pd.DataFrame, horizon: int, feature_ids: Sequence[str]) -> None:
+    """Fail closed on missing columns and on label or forward-return feature ids."""
 
-    needed = {"decision_time", "instrument_id", "label_available_at", f"fwd_total_{horizon}", *feature_ids}
+    leaking = sorted(name for name in feature_ids if name.startswith(("fwd_", "label_")))
+    if leaking:
+        raise PanelContractError(f"feature ids may not be labels: {', '.join(leaking)}")
+    needed = {
+        "decision_time", "instrument_id", "label_available_at", f"label_available_at_{horizon}",
+        f"fwd_total_{horizon}", *feature_ids,
+    }
     missing = sorted(needed.difference(panel))
     if missing:
         raise PanelContractError(f"panel lacks columns: {', '.join(missing)}")
+
+
+def _finite_masks(panel: pd.DataFrame, horizon: int, feature_ids: Sequence[str]) -> tuple[np.ndarray, np.ndarray]:
+    """(finite features, finite features and finite numeric label): the one mask for preflight and training."""
+
     values = panel[list(feature_ids)].apply(pd.to_numeric, errors="coerce").to_numpy(dtype=float)
-    kept = panel.loc[np.isfinite(values).all(axis=1)].copy()
-    kept.attrs.update(panel.attrs)
-    return kept
+    finite = np.isfinite(values).all(axis=1)
+    label = pd.to_numeric(panel[f"fwd_total_{horizon}"], errors="coerce").to_numpy(dtype=float)
+    return finite, finite & np.isfinite(label)
 
 
-def _preflight(inventory: dict[str, object], folds: Sequence[DateGroupedFold], horizon: int) -> list[str]:
+def _fold_rows(
+    canonical: pd.DataFrame, fold: DateGroupedFold, horizon: int, feature_ids: Sequence[str],
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.Timestamp]:
+    """Training rows, validation rows and the validation start of one fold.
+
+    The start comes from every validation row; rows with a non-finite feature
+    (or label, for training) are dropped only afterwards.  A training label also
+    needs its own horizon's availability at or before that start.
+    """
+
+    finite, trainable = _finite_masks(canonical, horizon, feature_ids)
+    train = np.asarray(fold.train_rows, dtype=int)
+    valid = np.asarray(fold.validation_rows, dtype=int)
+    start = pd.to_datetime(
+        canonical["decision_time"].iloc[valid], format="mixed", errors="coerce", utc=True
+    ).min()
+    available = labels_available_by(canonical[f"label_available_at_{horizon}"].iloc[train], start).to_numpy(dtype=bool)
+    return (
+        canonical.iloc[train[trainable[train] & available]], canonical.iloc[valid[finite[valid]]], start,
+    )
+
+
+def _preflight(
+    inventory: dict[str, object], folds: Sequence[DateGroupedFold], horizon: int,
+    train_labels: dict[int, int],
+) -> list[str]:
     key = str(horizon)
     failures: list[str] = []
     if int(inventory["decision_dates"]) < MIN_DECISION_DATES:
@@ -99,7 +137,7 @@ def _preflight(inventory: dict[str, object], folds: Sequence[DateGroupedFold], h
         failures.append(f"instruments_per_date minimum < {MIN_INSTRUMENTS_PER_DATE}")
     for fold in folds:
         counts = inventory["matured_labels_by_fold"].get(fold.fold, {}).get(key, {})
-        if counts.get("train", 0) < MIN_TRAIN_LABELS_PER_FOLD:
+        if train_labels[fold.fold] < MIN_TRAIN_LABELS_PER_FOLD:
             failures.append(f"fold {fold.fold} train labels < {MIN_TRAIN_LABELS_PER_FOLD}")
         if counts.get("validation", 0) < MIN_VALIDATION_LABELS_PER_FOLD:
             failures.append(f"fold {fold.fold} validation labels < {MIN_VALIDATION_LABELS_PER_FOLD}")
@@ -113,17 +151,24 @@ def _preflight(inventory: dict[str, object], folds: Sequence[DateGroupedFold], h
 def _prepare(
     panel: pd.DataFrame, spec: ValidationSpec, horizon: int, feature_ids: Sequence[str],
 ) -> tuple[pd.DataFrame, tuple[DateGroupedFold, ...]] | str:
-    """Canonical usable rows and folds, or the preflight failure text."""
+    """Canonical panel and folds built on the full panel, or the preflight failure text."""
 
     try:
-        usable = _usable_panel(panel, horizon, feature_ids)
-        folds = date_grouped_folds(usable, spec)
-        failures = _preflight(panel_evidence_inventory(usable, folds=folds), folds, horizon)
+        _check_panel(panel, horizon, feature_ids)
+        folds = date_grouped_folds(panel, spec)
+        canonical = canonical_panel_rows(panel)
+        canonical.attrs.update(panel.attrs)
+        _, trainable = _finite_masks(canonical, horizon, feature_ids)
+        label = f"fwd_total_{horizon}"
+        counted = canonical.assign(**{label: canonical[label].where(trainable)})
+        counted.attrs.update(panel.attrs)
+        train_labels = {fold.fold: len(_fold_rows(canonical, fold, horizon, feature_ids)[0]) for fold in folds}
+        failures = _preflight(panel_evidence_inventory(counted, folds=folds), folds, horizon, train_labels)
     except (PanelContractError, ValueError) as error:
         return str(error)
     if failures:
         return "; ".join(failures)
-    return canonical_panel_rows(usable), folds
+    return canonical, folds
 
 
 def _quintile_target(rows: pd.DataFrame, horizon: int) -> pd.Series:
@@ -137,12 +182,11 @@ def _quintile_target(rows: pd.DataFrame, horizon: int) -> pd.Series:
 
 
 def _train(
-    canonical: pd.DataFrame, fold: DateGroupedFold, horizon: int, feature_ids: Sequence[str], seed: int,
+    rows: pd.DataFrame, validation_start: pd.Timestamp, fold: DateGroupedFold, horizon: int,
+    feature_ids: Sequence[str], seed: int,
 ) -> RankerArtefact:
     import lightgbm as lgb  # lazy: the base install has no lightgbm
 
-    rows = canonical.iloc[list(fold.train_rows)]
-    rows = rows.loc[pd.to_numeric(rows[f"fwd_total_{horizon}"], errors="coerce").notna()]
     target = _quintile_target(rows, horizon).astype(int)
     day = pd.to_datetime(rows["decision_time"], format="mixed", errors="coerce", utc=True).dt.date
     group = day.groupby(day, sort=False).size().tolist()  # rows are sorted by decision date
@@ -152,11 +196,7 @@ def _train(
         deterministic=True, force_row_wise=True, n_jobs=1, device_type="cpu", verbose=-1,
     )
     model.fit(rows[list(feature_ids)].to_numpy(dtype=float), target.to_numpy(), group=group)
-    validation = canonical.iloc[list(fold.validation_rows)]
-    validation_start = pd.to_datetime(
-        validation["decision_time"], format="mixed", errors="coerce", utc=True
-    ).min()
-    cutoff = pd.to_datetime(rows["label_available_at"], format="mixed", errors="coerce", utc=True).max()
+    cutoff = pd.to_datetime(rows[f"label_available_at_{horizon}"], format="mixed", errors="coerce", utc=True).max()
     return RankerArtefact(
         model_text=model.booster_.model_to_string(), horizon=horizon,
         feature_ids=tuple(feature_ids), seed=seed, fold=fold.fold,
@@ -178,19 +218,20 @@ def fit(
     if isinstance(prepared, str):
         return _unusable("insufficient_evidence", prepared)
     canonical, folds = prepared
-    artefact = _train(canonical, folds[-1], horizon, feature_ids, seed)
+    rows, _, start = _fold_rows(canonical, folds[-1], horizon, feature_ids)
+    artefact = _train(rows, start, folds[-1], horizon, feature_ids, seed)
     return RankerOutcome("fitted", f"trained on fold {artefact.fold}", artefact)
 
 
 def score(artefact: RankerArtefact, rows: pd.DataFrame) -> pd.Series:
     """Ordinal scores for rows; NaN, never a number, where a feature is not finite."""
 
-    import lightgbm as lgb
-
     features = rows[list(artefact.feature_ids)].apply(pd.to_numeric, errors="coerce")
     finite = np.isfinite(features.to_numpy(dtype=float)).all(axis=1)
     result = pd.Series(np.nan, index=rows.index, dtype=float)
-    if finite.any():
+    if finite.any() and is_available():
+        import lightgbm as lgb
+
         booster = lgb.Booster(model_str=artefact.model_text)
         result.loc[finite] = booster.predict(features.loc[finite].to_numpy(dtype=float), num_threads=1)
     return result
@@ -212,8 +253,8 @@ def walk_forward_scores(
     canonical, folds = prepared
     parts = []
     for fold in folds:
-        validation = canonical.iloc[list(fold.validation_rows)]
-        scores = score(_train(canonical, fold, horizon, feature_ids, seed), validation)
+        train, validation, start = _fold_rows(canonical, fold, horizon, feature_ids)
+        scores = score(_train(train, start, fold, horizon, feature_ids, seed), validation)
         parts.append(pd.DataFrame({
             "decision_time": validation["decision_time"], "instrument_id": validation["instrument_id"],
             "score": scores, "fold": fold.fold,

@@ -375,7 +375,7 @@ def test_ranker_score_is_nan_not_zero_for_rows_with_a_missing_feature():
     rows.loc[rows.index[1], "value_score"] = None
     scores = ranker.score(artefact, rows)
     assert scores.notna().tolist() == [True, False, True]
-    # Rows with a missing feature are dropped from the panel before folds, so no fold row is imputed.
+    # Rows with a missing feature are dropped from each fold after the folds are built, never imputed.
     holey = panel.copy()
     holey.loc[holey.index[::7], "value_score"] = None
     holey.attrs.update(panel.attrs)
