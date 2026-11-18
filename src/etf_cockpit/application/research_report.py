@@ -138,4 +138,4 @@ def _detail(metric: Metric) -> str:
 def _md(text: str) -> str:
     """One line with Markdown and marker characters escaped, so untrusted text cannot forge a number or citation."""
 
-    return re.sub(r"([\`*_\[\]<>#|])", r"\\1", " ".join(str(text).split()))
+    return re.sub(r"([\\`*_\[\]<>#|])", r"\\\1", " ".join(str(text).split()))
