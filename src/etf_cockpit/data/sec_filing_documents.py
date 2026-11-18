@@ -6,8 +6,10 @@ object is built from that text and every document is read from it). ``edgartools
 
 Two times are never merged. ``sec_receipt_time`` is the acceptance time passed in from the submissions
 record. ``public_announcement_time`` is the release time printed in the EX-99.1 dateline, accepted only
-when it names a full date, a clock time and a US time zone, is unique, is not a call or webcast time
-and is not later than the SEC receipt; otherwise it is ``"unavailable"`` with the reason. Earnings
+when it names a full date, a clock time and a US time zone, sits in the dateline (before the first dash)
+or is labelled as the release time, resolves to exactly one real instant, is unique, is not a call or
+webcast time and is not later than the SEC receipt; otherwise it is ``"unavailable"`` with the reason.
+The passed receipt must equal the stored header's ACCEPTANCE-DATETIME or the parse is refused. Earnings
 tables are unreviewed candidates and feed nothing. 10-K risk-factor and MD&A text becomes chunks for
 the INT-23 store, known from the acceptance time.
 """
@@ -32,6 +34,9 @@ _STAMP = re.compile(
     r"\s+(?P<day>\d{1,2}),\s+(?P<year>\d{4})[\s,]+(?i:at\s+)?"
     r"(?P<hour>\d{1,2})(?::(?P<minute>\d{2}))?\s*(?i:(?P<ampm>[ap])\.?m\.?)\s+(?P<zone>[ECMP])(?P<dst>[SD])?T\b"
 )
+_DASH = re.compile(r"\s[-\u2013\u2014]{1,2}\s|[\u2013\u2014]")
+_ACCEPTED = re.compile(r"<ACCEPTANCE-DATETIME>\s*(\d{14})")
+_RELEASE_LABEL = re.compile(r"(?:release[sd]?|announce[sd]?)(?:\s+(?:date|time)(?:\s+and\s+time)?)?\s*(?:[:\-]|on|at)?\s*$", re.IGNORECASE)
 _CALL_WORDS = re.compile(r"call|webcast|conference|dial|join", re.IGNORECASE)
 _MONTHS = "january february march april may june july august september october november december".split()
 
@@ -88,8 +93,13 @@ def _aware(value: object) -> datetime:
     return value
 
 
-def _filing(ed: SimpleNamespace, source: bytes, forms: tuple[str, ...]):
-    filing = ed.Filing.from_sgml_text(source.decode("utf-8"))
+def _filing(ed: SimpleNamespace, source: bytes, forms: tuple[str, ...], known_at: datetime):
+    text = source.decode("utf-8")
+    stamp = _ACCEPTED.search(text)
+    stored = datetime.strptime(stamp[1], "%Y%m%d%H%M%S").replace(tzinfo=timezone.utc) if stamp else None
+    if stored is None or known_at.astimezone(timezone.utc).replace(microsecond=0) != stored:
+        raise SecFilingDocumentUnavailable("known_at does not match the filing's stored acceptance time")
+    filing = ed.Filing.from_sgml_text(text)
     if filing.form not in forms:
         raise SecFilingDocumentUnavailable(f"filing form {filing.form} is not {' or '.join(forms)}")
     return filing
@@ -100,7 +110,7 @@ def parse_8k(source: bytes, *, known_at: datetime) -> EightKFiling:
     known_at = _aware(known_at)
     try:
         ed = _edgar()
-        filing = _filing(ed, source, ("8-K", "8-K/A"))
+        filing = _filing(ed, source, ("8-K", "8-K/A"), known_at)
         items = tuple(item.removeprefix("Item ") for item in ed.CurrentReport(filing).items)
         tables: tuple[EarningsTableCandidate, ...] = ()
         announced, reason = UNAVAILABLE, "not_an_earnings_release"
@@ -127,7 +137,7 @@ def parse_10k_section_chunks(source: bytes, *, known_at: datetime) -> list[Docum
     known_at = _aware(known_at)
     try:
         ed = _edgar()
-        filing = _filing(ed, source, ("10-K", "10-K/A"))
+        filing = _filing(ed, source, ("10-K", "10-K/A"), known_at)
         report = ed.TenK(filing)
         sections = (("risk_factors", report.risk_factors), ("mda", report.management_discussion))
         when = known_at.isoformat()
@@ -157,21 +167,34 @@ def _candidate(exhibit: str, table: object) -> EarningsTableCandidate:
 def _announcement(text: str, receipt: datetime) -> tuple[str, str]:
     """(ISO instant, reason) of the one explicit release time in the dateline, else (unavailable, reason)."""
     instants = set()
-    for match in _STAMP.finditer(text[:_DATELINE_CHARS]):
+    head = text[:_DATELINE_CHARS]
+    dash = _DASH.search(head)
+    dateline_end = dash.start() if dash else 0
+    for match in _STAMP.finditer(head):
+        if match.end() > dateline_end and not _RELEASE_LABEL.search(head[max(0, match.start() - 40):match.start()]):
+            continue  # neither in the dateline nor labelled as the release time
         if _CALL_WORDS.search(text[max(0, match.start() - 120):match.end() + 40]):
             continue
         hour = int(match["hour"])
         if not 1 <= hour <= 12 or int(match["minute"] or 0) > 59:
             continue
         try:
-            local = datetime(int(match["year"]), _MONTHS.index(match["month"].lower()) + 1, int(match["day"]),
-                             hour % 12 + (12 if match["ampm"].lower() == "p" else 0), int(match["minute"] or 0),
-                             tzinfo=ZoneInfo(_ZONES[match["zone"]]))
+            naive = datetime(int(match["year"]), _MONTHS.index(match["month"].lower()) + 1, int(match["day"]),
+                             hour % 12 + (12 if match["ampm"].lower() == "p" else 0), int(match["minute"] or 0))
         except ValueError:  # an impossible calendar date is not an explicit time
             continue
-        if match["dst"] and (local.dst() != timedelta(0)) != (match["dst"] == "D"):
-            continue  # EST printed in summer or EDT in winter: the zone label contradicts the date
-        instants.add(local.astimezone(timezone.utc))
+        zone = ZoneInfo(_ZONES[match["zone"]])
+        resolved = set()
+        for fold in (0, 1):
+            local = naive.replace(tzinfo=zone, fold=fold)
+            utc = local.astimezone(timezone.utc)
+            if utc.astimezone(zone).replace(tzinfo=None) != naive:
+                continue  # spring-forward gap: this local time never occurred
+            if match["dst"] and (local.dst() != timedelta(0)) != (match["dst"] == "D"):
+                continue  # EST printed in summer or EDT in winter: the zone label contradicts the date
+            resolved.add(utc)
+        if len(resolved) == 1:  # a fall-back hour printed without EDT/EST names two instants: not explicit
+            instants |= resolved
     if not instants:
         return UNAVAILABLE, "no_explicit_release_time"
     if len(instants) > 1:

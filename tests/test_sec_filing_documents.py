@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import builtins
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -32,6 +32,10 @@ def test_stored_8k_yields_items_one_table_and_separate_times_with_the_network_bl
     (table,) = filing.tables
     assert table.review_status == "unreviewed" and table.exhibit == "ex991.htm"
     assert dict(table.rows)["Revenue"] == (1200.0, 1000.0) and table.scale == "THOUSANDS"
+    labelled = sfd.parse_8k(_8k("July 30, 2026 - Release time: July 30, 2026 at 4:05 p.m. ET"), known_at=RECEIPT)
+    assert labelled.public_announcement_time == "2026-07-30T20:05:00+00:00"  # explicitly named as the release time
+    with pytest.raises(sfd.SecFilingDocumentUnavailable, match="acceptance"):  # receipt differs from the stored header
+        sfd.parse_8k(_8k(), known_at=RECEIPT + timedelta(minutes=1))
 
 
 @pytest.mark.parametrize("printed, reason", [
@@ -39,6 +43,9 @@ def test_stored_8k_yields_items_one_table_and_separate_times_with_the_network_bl
     ("July 30, 2026. Management will host a conference call at 4:30 p.m. ET", "no_explicit_release_time"),
     ("July 30, 2026 at 5:00 p.m. ET", "release_time_after_sec_receipt"),
     ("July 30, 2026 at 4:05 p.m. EST", "no_explicit_release_time"),  # EST in July contradicts the date
+    ("July 30, 2026 - trading was halted on July 30, 2026 at 3:00 p.m. ET", "no_explicit_release_time"),  # not the dateline
+    ("November 1, 2026 at 1:30 a.m. ET", "no_explicit_release_time"),  # fall-back hour occurs twice
+    ("March 8, 2026 at 2:30 a.m. ET", "no_explicit_release_time"),  # spring-forward hour does not exist
 ])
 def test_announcement_time_is_unavailable_unless_the_release_prints_it_explicitly(printed: str, reason: str) -> None:
     pytest.importorskip("edgar")
@@ -58,6 +65,8 @@ def test_10k_risk_factor_and_mda_sections_become_chunks_known_only_from_acceptan
     hit = search(store, "competition larger vendors", as_of="2026-03-01T00:00:00Z")["hits"][0]
     assert hit["page"] == 1 and hit["char_start"] == 0 and hit["source_id"].endswith(":risk_factors")
     assert search(store, "competition", as_of="2026-02-27T21:00:00Z")["hits"] == []  # before acceptance
+    with pytest.raises(sfd.SecFilingDocumentUnavailable, match="acceptance"):
+        sfd.parse_10k_section_chunks(source, known_at=accepted + timedelta(seconds=1))
 
 
 def test_missing_edgartools_and_naive_times_are_explicit_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:

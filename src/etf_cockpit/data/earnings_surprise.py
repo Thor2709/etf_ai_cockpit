@@ -70,8 +70,8 @@ def _quarters(companyfacts: dict, acceptances: dict) -> list[dict]:
     return [quarters[end] for end in sorted(quarters)]
 
 
-def _receipt(quarter: dict, tables: list[dict], acceptances: dict) -> tuple[datetime, datetime, str]:
-    """(sec_receipt_time, availability gate, source) of the first filing that carries the quarter."""
+def _receipt(quarter: dict, tables: list[dict], acceptances: dict) -> tuple[datetime, datetime, str, str | None]:
+    """(sec_receipt_time, availability gate, source, 8-K accession) of the first filing that carries the quarter."""
     candidates = []
     for table in tables:
         for accn, form, items in zip(table.get("accessionNumber", []), table.get("form", []), table.get("items", [])):
@@ -81,10 +81,10 @@ def _receipt(quarter: dict, tables: list[dict], acceptances: dict) -> tuple[date
                 candidates.append((datetime.fromisoformat(entry["accepted"]), accn, entry["filed"]))
     if candidates:
         accepted, accn, filed = min(candidates)
-        return accepted, datetime.fromisoformat(fact_known_at({"filed": filed, "accn": accn}, acceptances)), "8-K item 2.02"
+        return accepted, datetime.fromisoformat(fact_known_at({"filed": filed, "accn": accn}, acceptances)), "8-K item 2.02", accn
     entry = acceptances.get(quarter["accn"])
     accepted = datetime.fromisoformat(entry["accepted"]) if entry and entry["accepted"] else quarter["known"]
-    return accepted, quarter["known"], "periodic filing"
+    return accepted, quarter["known"], "periodic filing", None
 
 
 def _sue(quarters: list[dict], index: int, receipt: datetime) -> dict:
@@ -143,7 +143,7 @@ def compute_earnings_events(
 ) -> dict:
     """One event per quarter with both features; ``prices`` and ``benchmark_prices`` are adjusted EUR.
 
-    ``public_announcement_time`` is taken from the parsed 8-K accepted at exactly the SEC receipt time.
+    ``public_announcement_time`` is taken from the parsed 8-K with the receipt's accession and acceptance time.
     """
     if str(country or "").strip().upper() not in _US:
         return {"status": "unavailable", "reason": "non_us_issuer", "events": []}
@@ -152,11 +152,11 @@ def compute_earnings_events(
     quarters = _quarters(companyfacts, acceptances)
     events = []
     for index, quarter in enumerate(quarters):
-        receipt, gate, source = _receipt(quarter, tables, acceptances)
+        receipt, gate, source, accn = _receipt(quarter, tables, acceptances)
         sue = _sue(quarters, index, receipt)
         exact = source == "8-K item 2.02" or bool((acceptances.get(quarter["accn"]) or {}).get("accepted"))
         announced = next((k.public_announcement_time for k in eight_ks
-                          if source == "8-K item 2.02" and k.is_earnings_release and k.sec_receipt_time == receipt), "unavailable")
+                          if accn and k.is_earnings_release and k.accession == accn and k.sec_receipt_time == receipt), "unavailable")
         if sue["status"] == "available":
             sue["available_at"] = max(gate, quarter["known"]).isoformat()
         events.append({
@@ -177,7 +177,7 @@ def record_earnings_events(store: BitemporalStore, instrument_id: str, events: l
                 continue
             value = {"feature": feature, "value": result["value"], "event_key": event["quarter_end"],
                      "event_definition": "sec_receipt", "sec_receipt_time": event["sec_receipt_time"],
-                     "public_announcement_time": event["public_announcement_time"], "pit_grade": "observed", "inputs": result["inputs"]}
+                     "public_announcement_time": event.get("public_announcement_time", "unavailable"), "pit_grade": "observed", "inputs": result["inputs"]}
             store.record_observation(
                 dataset_id=DATASET_ID, entity_id=instrument_id, stable_id=stable_id, value=value,
                 source_id="sec_receipt", source_checksum=hashlib.sha256(

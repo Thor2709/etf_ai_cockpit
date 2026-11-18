@@ -142,8 +142,8 @@ def test_announcement_time_comes_only_from_the_matching_8k_release_and_stays_una
     receipt = datetime(2022, 4, 28, 20, 5, tzinfo=timezone.utc)
     printed = "2022-04-28T19:55:00+00:00"
 
-    def release(announced, accepted=receipt):
-        return EightKFiling("8-K-2022-Q1", "8-K", "0000777001", "2022-04-28", accepted, ("2.02", "9.01"), (),
+    def release(announced, accepted=receipt, accession="8-K-2022-Q1"):
+        return EightKFiling(accession, "8-K", "0000777001", "2022-04-28", accepted, ("2.02", "9.01"), (),
                             announced, "explicit_in_release", "ab" * 32)
 
     def announcements(eight_ks):
@@ -154,6 +154,7 @@ def test_announcement_time_comes_only_from_the_matching_8k_release_and_stays_una
     assert set(announcements([release(printed)]).values()) == {printed, "unavailable"}  # only the 8-K quarter
     assert set(announcements([]).values()) == {"unavailable"}
     assert set(announcements([release(printed, accepted=receipt.replace(minute=6))]).values()) == {"unavailable"}  # other filing
+    assert set(announcements([release(printed, accession="8-K-OTHER")]).values()) == {"unavailable"}  # same second, other filing
     assert set(announcements([release("unavailable")]).values()) == {"unavailable"}
 
     events = compute_earnings_events("ZZA", facts, submissions, prices, benchmark, country="US", eight_ks=[release(printed)])["events"]
@@ -163,3 +164,7 @@ def test_announcement_time_comes_only_from_the_matching_8k_release_and_stays_una
     stored = {v["event_key"]: v["public_announcement_time"] for v in values}
     assert stored["2022-03-31"] == printed and all(v["event_definition"] == "sec_receipt" for v in values)
     assert all(v["sec_receipt_time"] != v["public_announcement_time"] for v in values)
+    old_events = [{k: v for k, v in e.items() if k != "public_announcement_time"} for e in events]  # stored before INT-18
+    with BitemporalStore(tmp_path / "old") as store:
+        record_earnings_events(store, "ZZA", old_events, run_id="run-2")
+        assert {o.value["public_announcement_time"] for o in store.observations("earnings_information", entity_id="ZZA")} == {"unavailable"}
