@@ -351,6 +351,7 @@ def _fx_rate_pivot(
     sessions = [stamp.date() for stamp in index]
     books_by_cutoff: dict[datetime | None, EurRateBook] = {}
     by_currency: dict[str, np.ndarray] = {}
+    quote_dates: pd.Series | None = None  # parsed once, only when a non-EUR listing needs a book
     for column in columns:
         currency = major_currency(currency_by_id.get(column, "EUR"))
         if currency is None:
@@ -366,7 +367,8 @@ def _fx_rate_pivot(
                 if book is None:
                     session_fx = fx_rates
                     if isinstance(fx_rates, pd.DataFrame) and "as_of_date" in fx_rates.columns:
-                        quote_dates = pd.to_datetime(fx_rates["as_of_date"], errors="coerce", utc=True).dt.date
+                        if quote_dates is None:
+                            quote_dates = pd.to_datetime(fx_rates["as_of_date"], errors="coerce", utc=True).dt.date
                         # EurRateBook rejects quotes older than three business days; ten calendar days
                         # keeps every potentially usable quote while limiting each point-in-time book.
                         first_relevant_date = session - timedelta(days=10)

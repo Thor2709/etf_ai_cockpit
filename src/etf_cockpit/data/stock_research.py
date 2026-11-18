@@ -9,6 +9,8 @@ inapplicable sectors are not forced through industrial formulas.
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
+from contextvars import ContextVar
+import copy
 from dataclasses import asdict, dataclass
 from datetime import date
 import math
@@ -800,68 +802,72 @@ def build_stock_research_report(
     guidance_evidence: Iterable[object] | Mapping[str, object] | pd.DataFrame | None = None,
     as_known_at: str | date | None = None,
 ) -> dict[str, object]:
-    frame = _statement_frame(statements, instrument_id, as_known_at=as_known_at)
-    sector = sector or _text((classification_context or {}).get("sector"))
-    assumption_values = assumptions or {}
-    sector_known = _classification_is_known(sector, classification_context)
-    special = sector_known and _is_special_sector(sector, classification_context)
-    capital_sector = "financials" if special else sector
-    profitability = profitability_analysis(
-        frame,
-        instrument_id=instrument_id,
-        sector=sector,
-        peer_frame=peer_frame,
-        classification_context=classification_context,
-        peer_context=peer_context,
-        strict_comparability=strict_comparability,
-        tax_rate=_float(assumption_values.get("tax_rate")),
-        as_known_at=as_known_at,
-    )
-    capital_efficiency = capital_efficiency_analysis(
-        frame,
-        instrument_id=instrument_id,
-        sector=capital_sector,
-        peer_frame=peer_frame if not strict_comparability else None,
-        tax_rate=_float(assumption_values.get("tax_rate")),
-        cost_of_capital_ledger=build_cost_of_capital_ledger(assumption_values),
-        intangible_assumptions=assumption_values.get("intangible_adjustment") if isinstance(assumption_values.get("intangible_adjustment"), Mapping) else None,
-        profitability_output=profitability,
-        strict_comparability=strict_comparability,
-        as_known_at=as_known_at,
-    )
-    if strict_comparability and not sector_known:
-        _mark_capital_efficiency_unavailable(capital_efficiency, "Classification is unavailable or unresolved; industrial capital-efficiency applicability cannot be established.")
-    _bind_capital_efficiency_source_provenance(
-        capital_efficiency, frame, assumption_values
-    )
-    return {
-        "schema_version": STOCK_RESEARCH_SCHEMA_VERSION,
-        "instrument_id": instrument_id or "",
-        "profitability": profitability,
-        "capital_efficiency": capital_efficiency,
-        "balance_sheet": balance_sheet_analysis(frame, instrument_id=instrument_id, sector=sector, classification_context=classification_context, strict_comparability=strict_comparability, as_known_at=as_known_at, assumptions=assumption_values),
-        "valuation": valuation_analysis(
+    token = _EVIDENCE_MEMO.set({})  # one report reads the same statement frames many times
+    try:
+        frame = _statement_frame(statements, instrument_id, as_known_at=as_known_at)
+        sector = sector or _text((classification_context or {}).get("sector"))
+        assumption_values = assumptions or {}
+        sector_known = _classification_is_known(sector, classification_context)
+        special = sector_known and _is_special_sector(sector, classification_context)
+        capital_sector = "financials" if special else sector
+        profitability = profitability_analysis(
             frame,
             instrument_id=instrument_id,
-            market_inputs=market_inputs,
-            assumptions=assumptions,
-            as_known_at=as_known_at,
-            strict_comparability=strict_comparability,
             sector=sector,
-            classification_context=classification_context,
             peer_frame=peer_frame,
-            peer_market_inputs=peer_market_inputs,
-            financial_projection=financial_projection,
-        ),
-        "growth": growth_analysis(frame, instrument_id=instrument_id, strict_comparability=strict_comparability, as_known_at=as_known_at),
-        "expectations": _expectations_report(frame, expectation_evidence, guidance_evidence, instrument_id=instrument_id, as_known_at=as_known_at),
-        "classification_context": dict(classification_context or {}),
-        "peer_context": dict(peer_context or {}),
-        "financial_institutions": _financial_projection_payload(financial_projection),
-        "statement_context": _statement_context(frame),
-        "source_lineage": _lineage(frame),
-        "execution_allowed": False,
-    }
+            classification_context=classification_context,
+            peer_context=peer_context,
+            strict_comparability=strict_comparability,
+            tax_rate=_float(assumption_values.get("tax_rate")),
+            as_known_at=as_known_at,
+        )
+        capital_efficiency = capital_efficiency_analysis(
+            frame,
+            instrument_id=instrument_id,
+            sector=capital_sector,
+            peer_frame=peer_frame if not strict_comparability else None,
+            tax_rate=_float(assumption_values.get("tax_rate")),
+            cost_of_capital_ledger=build_cost_of_capital_ledger(assumption_values),
+            intangible_assumptions=assumption_values.get("intangible_adjustment") if isinstance(assumption_values.get("intangible_adjustment"), Mapping) else None,
+            profitability_output=profitability,
+            strict_comparability=strict_comparability,
+            as_known_at=as_known_at,
+        )
+        if strict_comparability and not sector_known:
+            _mark_capital_efficiency_unavailable(capital_efficiency, "Classification is unavailable or unresolved; industrial capital-efficiency applicability cannot be established.")
+        _bind_capital_efficiency_source_provenance(
+            capital_efficiency, frame, assumption_values
+        )
+        return {
+            "schema_version": STOCK_RESEARCH_SCHEMA_VERSION,
+            "instrument_id": instrument_id or "",
+            "profitability": profitability,
+            "capital_efficiency": capital_efficiency,
+            "balance_sheet": balance_sheet_analysis(frame, instrument_id=instrument_id, sector=sector, classification_context=classification_context, strict_comparability=strict_comparability, as_known_at=as_known_at, assumptions=assumption_values),
+            "valuation": valuation_analysis(
+                frame,
+                instrument_id=instrument_id,
+                market_inputs=market_inputs,
+                assumptions=assumptions,
+                as_known_at=as_known_at,
+                strict_comparability=strict_comparability,
+                sector=sector,
+                classification_context=classification_context,
+                peer_frame=peer_frame,
+                peer_market_inputs=peer_market_inputs,
+                financial_projection=financial_projection,
+            ),
+            "growth": growth_analysis(frame, instrument_id=instrument_id, strict_comparability=strict_comparability, as_known_at=as_known_at),
+            "expectations": _expectations_report(frame, expectation_evidence, guidance_evidence, instrument_id=instrument_id, as_known_at=as_known_at),
+            "classification_context": dict(classification_context or {}),
+            "peer_context": dict(peer_context or {}),
+            "financial_institutions": _financial_projection_payload(financial_projection),
+            "statement_context": _statement_context(frame),
+            "source_lineage": _lineage(frame),
+            "execution_allowed": False,
+        }
+    finally:
+        _EVIDENCE_MEMO.reset(token)
 
 
 def load_stock_research_frame(path: object, *, instrument_id: str | None = None, as_known_at: str | date | None = None) -> pd.DataFrame:
@@ -2185,11 +2191,12 @@ def _period_label(frame: pd.DataFrame) -> str:
 
 
 def _lineage(frame: pd.DataFrame) -> dict[str, object]:
+    metadata = _evidence_metadata(frame)
     lineage = {
         "statement_view": frame.attrs.get("statement_view", "latest_restated"),
-        "coverage": statement_coverage(frame),
+        "coverage": metadata["coverage"],
         "source_ids": sorted({str(value) for value in frame.get("source_id", pd.Series(dtype="object")).dropna() if str(value)}),
-        **_evidence_metadata(frame),
+        **metadata,
         "execution_allowed": False,
     }
     if frame.attrs.get("as_known_at"):
@@ -2197,7 +2204,21 @@ def _lineage(frame: pd.DataFrame) -> dict[str, object]:
     return lineage
 
 
+_EVIDENCE_MEMO: ContextVar[dict[int, tuple[pd.DataFrame, dict[str, object]]] | None] = ContextVar(
+    "stock_research_evidence_memo", default=None
+)
+
+
 def _evidence_metadata(frame: pd.DataFrame) -> dict[str, object]:
+    memo = _EVIDENCE_MEMO.get()
+    if memo is None:
+        return _compute_evidence_metadata(frame)
+    if id(frame) not in memo:
+        memo[id(frame)] = (frame, _compute_evidence_metadata(frame))  # holding the frame keeps its id unique
+    return copy.deepcopy(memo[id(frame)][1])
+
+
+def _compute_evidence_metadata(frame: pd.DataFrame) -> dict[str, object]:
     columns = {
         "periods": ("period_key", "period_end"),
         "known_at": ("known_at", "available_at"),

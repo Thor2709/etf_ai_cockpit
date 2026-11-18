@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from datetime import date, timedelta
+from functools import lru_cache
 import json
 import os
 from pathlib import Path
@@ -358,9 +360,16 @@ class AppConfig(BaseModel):
         return self.models.forecast_uncertainty
 
 
+@lru_cache(maxsize=64)
+def _parse_yaml_text(text: str) -> object:
+    """Parse one exact config text once; callers receive private copies."""
+
+    return yaml.safe_load(text)
+
+
 def _read_yaml(path: Path) -> dict[str, Any]:
     try:
-        return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        return deepcopy(_parse_yaml_text(path.read_text(encoding="utf-8"))) or {}
     except Exception as exc:
         raise ConfigError(f"Could not read YAML config {path}: {exc}") from exc
 

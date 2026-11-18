@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import functools
 import os
 import shutil
 import socket
@@ -409,6 +410,46 @@ def _repo_write_guard() -> Iterator[None]:
         )
 
 
+@pytest.fixture(autouse=True, scope="session")
+def _no_external_network() -> Iterator[None]:
+    """The suite is offline: a Python-level lookup of, or connect to, another machine fails at once."""
+
+    import ipaddress
+
+    real_connect, real_connect_ex, real_getaddrinfo = socket.socket.connect, socket.socket.connect_ex, socket.getaddrinfo
+    local_names = {"", "localhost", socket.gethostname().lower()}
+
+    def check(host: object) -> None:
+        if isinstance(host, bytes):
+            host = host.decode("ascii", "replace")
+        if not isinstance(host, str) or host.lower() in local_names:
+            return
+        try:
+            address = ipaddress.ip_address(host.split("%", 1)[0])
+        except ValueError:
+            raise OSError(f"external network is blocked in tests: {host}") from None
+        if not (address.is_loopback or address.is_unspecified):
+            raise OSError(f"external network is blocked in tests: {host}")
+
+    def connect(self: socket.socket, address: object) -> None:
+        check(address[0] if isinstance(address, tuple) else None)
+        return real_connect(self, address)
+
+    def connect_ex(self: socket.socket, address: object) -> int:
+        check(address[0] if isinstance(address, tuple) else None)
+        return real_connect_ex(self, address)
+
+    def getaddrinfo(host: object, *args: object, **kwargs: object) -> object:
+        check(host)
+        return real_getaddrinfo(host, *args, **kwargs)
+
+    socket.socket.connect, socket.socket.connect_ex, socket.getaddrinfo = connect, connect_ex, getaddrinfo  # type: ignore[method-assign,assignment]
+    try:
+        yield
+    finally:
+        socket.socket.connect, socket.socket.connect_ex, socket.getaddrinfo = real_connect, real_connect_ex, real_getaddrinfo  # type: ignore[method-assign]
+
+
 @pytest.fixture
 def readiness_pass(monkeypatch: pytest.MonkeyPatch):
     """Opt downstream paper-bot tests into a recorded readiness evaluation double."""
@@ -493,7 +534,19 @@ def reserved_tcp_port() -> Iterator[socket.socket]:
 # Files that must share one xdist worker because they use one resource outside their isolated
 # project root.  Every entry needs a reason; tests/test_parallel_scheduling.py rejects stale
 # entries.  Tests that must not run concurrently with anything use @pytest.mark.serial in the file.
-SHARED_RESOURCE_GROUPS: dict[str, tuple[str, tuple[str, ...]]] = {}
+SHARED_RESOURCE_GROUPS: dict[str, tuple[str, tuple[str, ...]]] = {
+    "parity_pipeline_capture": (
+        "the pipeline captures (tests/refactor_parity/conftest.py) are built once per run and shard; "
+        "one shard for all five files keeps it to one build per capture",
+        (
+            "tests/refactor_parity/test_backtest_golden.py",
+            "tests/refactor_parity/test_clock_independence.py",
+            "tests/refactor_parity/test_persisted_schema_golden.py",
+            "tests/refactor_parity/test_scoreboard_golden.py",
+            "tests/refactor_parity/test_snapshot_golden.py",
+        ),
+    ),
+}
 _DURATIONS_PATH = Path(__file__).with_name("file_durations.json")
 
 
@@ -588,6 +641,25 @@ def _shard_of(scope: str, total: int, assignment: dict[str, int]) -> int:
 
     # Files without a recorded duration (new tests) are spread by a stable hash.
     return assignment.get(scope) or zlib.crc32(scope.encode("utf-8")) % total + 1
+
+
+@functools.lru_cache(maxsize=1)
+def _session_shard_assignment(total: int) -> dict[str, int]:
+    return _shard_assignment(total)
+
+
+def pytest_ignore_collect(collection_path: Path, config: pytest.Config) -> bool | None:
+    """A shard does not import the test modules of the other shards (importing all of them takes most of a minute).
+
+    The result equals the deselection in pytest_collection_modifyitems, which stays as the authority.
+    """
+
+    shard = _parse_shard(_SHARD_VALUE)
+    if shard is None or not collection_path.match("test_*.py") or not collection_path.is_relative_to(config.rootpath):
+        return None
+    index, total = shard
+    scope = _scheduling_scope(collection_path.relative_to(config.rootpath).as_posix())
+    return _shard_of(scope, total, _session_shard_assignment(total)) != index or None
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:

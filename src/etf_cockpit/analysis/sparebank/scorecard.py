@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from functools import lru_cache
 import hashlib
 import math
 from pathlib import Path
@@ -38,12 +40,19 @@ class SparebankScorecardPolicy:
     valuation_defaults: Mapping[str, object] = field(default_factory=dict)
 
 
+@lru_cache(maxsize=8)
+def _parse_yaml_text(text: str) -> object:
+    """Parse one exact scorecard text once; callers receive private copies."""
+
+    return yaml.safe_load(text)
+
+
 def load_sparebank_scorecard_policy(path: Path = SCORECARD_CONFIG_PATH) -> SparebankScorecardPolicy:
     """Load the dedicated scorecard config and hash its LF-normalised bytes."""
 
     try:
         normalized = path.read_bytes().replace(b"\r\n", b"\n")
-        payload = yaml.safe_load(normalized.decode("utf-8")) or {}
+        payload = deepcopy(_parse_yaml_text(normalized.decode("utf-8"))) or {}
     except (OSError, UnicodeDecodeError, yaml.YAMLError) as exc:
         raise SparebankScorecardError(f"could not load Sparebank scorecard policy: {type(exc).__name__}") from exc
     judgement = payload.get("judgement")

@@ -11,6 +11,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from datetime import date, datetime, time, timedelta, timezone
 from enum import StrEnum
+from functools import lru_cache
 import hashlib
 import json
 from pathlib import Path
@@ -27,6 +28,14 @@ MARKET_CALENDAR_CONTRACT = "market-calendar.v1"
 MARKET_CALENDAR_CORRECTIONS_SCHEMA = "market-calendar-corrections.v1"
 CALENDAR_LIBRARY = "exchange_calendars"
 CALENDAR_LIBRARY_VERSION = str(getattr(xcals, "__version__", "unavailable"))
+
+
+@lru_cache(maxsize=64)
+def _exchange_calendar(name: str, start_year: int, end_year: int) -> Any:
+    """exchange_calendars keeps one instance per name and rebuilds it when the window changes; keep each window."""
+    return xcals.get_calendar(name, start=f"{start_year}-01-01", end=f"{end_year}-12-31")
+
+
 UTC = timezone.utc
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 # Conservative upper bound for an opening/closing auction call period.  A larger
@@ -1124,11 +1133,7 @@ class MarketCalendarService:
             # The lookback must be covered; never truncate it to the default window.
             start_year = min(start_year, earliest.year)
         try:
-            return xcals.get_calendar(
-                calendar_id.upper(),
-                start=f"{start_year}-01-01",
-                end=f"{around.year + 3}-12-31",
-            )
+            return _exchange_calendar(calendar_id.upper(), start_year, around.year + 3)
         except (KeyError, ValueError, TypeError):
             return None
 

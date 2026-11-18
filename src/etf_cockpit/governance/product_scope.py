@@ -608,15 +608,16 @@ def authority_matrix_coverage_errors(policy: AuthorityMatrixPolicy | None = None
         from etf_cockpit.core.navigation import ROUTE_TITLES
 
         expected.update(f"route:{route}" for route, _title in ROUTE_TITLES)
-        feature_payload = yaml.safe_load(FEATURE_REGISTRY_PATH.read_text(encoding="utf-8")) or {}
+        # The three parsed payloads below are shared with later calls and are only read.
+        feature_payload = _parse_yaml_text(FEATURE_REGISTRY_PATH.read_text(encoding="utf-8")) or {}
         expected.update(
             f"dataset:{dependency}"
             for entry in feature_payload.get("features", feature_payload.get("entries", ()))
             for dependency in entry.get("data_dependencies", entry.get("required_data", ()))
         )
-        model_payload = yaml.safe_load((CONFIG_DIR / "model_settings.yaml").read_text(encoding="utf-8")) or {}
+        model_payload = _parse_yaml_text((CONFIG_DIR / "model_settings.yaml").read_text(encoding="utf-8")) or {}
         expected.update(f"model:{model_id}" for model_id in model_payload.get("models", {}))
-        strategy_payload = yaml.safe_load(STRATEGY_SCOPE_PATH.read_text(encoding="utf-8")) or {}
+        strategy_payload = _parse_yaml_text(STRATEGY_SCOPE_PATH.read_text(encoding="utf-8")) or {}
         expected.update(
             f"strategy:{entry['strategy_id']}"
             for entry in strategy_payload.get("strategies", strategy_payload.get("entries", ()))

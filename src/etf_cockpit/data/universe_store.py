@@ -9,6 +9,7 @@ import re
 import shutil
 from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timezone
+from functools import lru_cache
 from pathlib import Path
 from typing import Iterable, Mapping
 
@@ -1213,9 +1214,16 @@ def _record_from_mapping(raw: Mapping[str, object], *, default_tier: str) -> Uni
     )
 
 
+@lru_cache(maxsize=32)
+def _parse_yaml_text(text: str) -> object:
+    """Parse one exact universe text once; the result is shared and must only be read."""
+
+    return yaml.safe_load(text)
+
+
 def import_legacy_universe(primary_yaml: Path, candidate_csv: Path | None = None) -> LegacyImportResult:
     primary_yaml = Path(primary_yaml)
-    payload = yaml.safe_load(primary_yaml.read_text(encoding="utf-8")) if primary_yaml.exists() else {}
+    payload = _parse_yaml_text(primary_yaml.read_text(encoding="utf-8")) if primary_yaml.exists() else {}
     primary_rows = (payload.get("etfs", ()) or ()) if isinstance(payload, dict) else ()
     records: list[UniverseRecord] = [_record_from_mapping(raw, default_tier="primary") for raw in primary_rows if isinstance(raw, Mapping)]
     warnings: list[str] = []

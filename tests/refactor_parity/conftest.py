@@ -1,16 +1,20 @@
-"""Session fixtures: the sample pipeline is built once per pytest session in a clock-frozen subprocess."""
+"""Session fixtures: the sample pipeline is built once per pytest run in a clock-frozen subprocess."""
 
 from __future__ import annotations
 
+import contextlib
+import json
 import os
 import shutil
 import tempfile
+import time
 from collections.abc import Iterator
 from pathlib import Path
 
+import conftest
 import pytest
 
-from refactor_parity._harness import build_capture_root, remove_capture_root, run_capture
+from refactor_parity._harness import CAPTURE_TIMEOUT_SECONDS, build_capture_root, remove_capture_root, run_capture
 
 
 def _capture(now_offset_days: int) -> Iterator[dict[str, object]]:
@@ -18,11 +22,53 @@ def _capture(now_offset_days: int) -> Iterator[dict[str, object]]:
     # tests/conftest.py before it redirects TEMP into the checkout), never inside the checkout.
     base = Path(os.environ.get("ETF_COCKPIT_TEST_SYSTEM_TEMP") or tempfile.gettempdir()) / "etf_ai_cockpit_parity"
     base.mkdir(parents=True, exist_ok=True)
+    result = None
+    run_uid = os.environ.get("PYTEST_XDIST_TESTRUNUID")
+    if run_uid:
+        # xdist gives every worker its own session fixtures. The workers of one run share one capture: the worker
+        # that creates the claim file builds it, the others wait for the result file.
+        shared = base / f"shared_{run_uid}"
+        shared.mkdir(exist_ok=True)
+        result = shared / f"capture_{now_offset_days}.json"
+        claim = shared / f"capture_{now_offset_days}.claim"
+        try:
+            descriptor = os.open(claim, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            deadline = time.monotonic() + CAPTURE_TIMEOUT_SECONDS + 300
+            while not result.exists():
+                builder = claim.read_text(encoding="ascii")  # empty until the builder has written its pid
+                if time.monotonic() > deadline or (builder and not conftest._pid_alive(int(builder)) and not result.exists()):
+                    raise AssertionError(f"shared capture {result} was not built: the building worker timed out or died") from None
+                time.sleep(1)
+            payload = json.loads(result.read_text(encoding="utf-8"))
+            if "capture_error" in payload:
+                raise AssertionError(f"shared capture failed in another worker: {payload['capture_error']}")
+            yield payload
+            return
+        os.write(descriptor, str(os.getpid()).encode("ascii"))
+        os.close(descriptor)
+        for stale in base.glob("shared_*"):  # left by runs of earlier days
+            with contextlib.suppress(OSError):
+                if time.time() - stale.stat().st_mtime > 86400:
+                    shutil.rmtree(stale, ignore_errors=True)
+
+    def publish(payload: dict[str, object]) -> None:
+        if result is not None:
+            partial = result.with_suffix(".partial")
+            partial.write_text(json.dumps(payload), encoding="utf-8")
+            os.replace(partial, result)
+
     work = Path(tempfile.mkdtemp(prefix="run_", dir=base))
     root = work / "root"
     try:
-        build_capture_root(root)
-        yield run_capture(root, work / "capture.json", now_offset_days=now_offset_days)
+        try:
+            build_capture_root(root)
+            payload = run_capture(root, work / "capture.json", now_offset_days=now_offset_days)
+        except BaseException as exc:
+            publish({"capture_error": f"{type(exc).__name__}: {exc}"})
+            raise
+        publish(payload)
+        yield payload
     finally:
         remove_capture_root(root)  # unlinks the junctions first: never follows a link into the checkout
         shutil.rmtree(work, ignore_errors=True)

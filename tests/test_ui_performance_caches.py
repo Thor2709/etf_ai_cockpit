@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import sys
 from types import SimpleNamespace
 
 import flet as ft
@@ -12,10 +13,14 @@ import pytest
 import yaml
 
 from etf_cockpit.analysis.decision import domains, etf, opportunity, rank_validation, stock
+from etf_cockpit.analysis.sparebank import scorecard
 from etf_cockpit.app.components.kit import data as kit_data
 from etf_cockpit.app.components.kit.data import DataTable, TableColumn
-from etf_cockpit.core import settings_bundle
+from etf_cockpit.app.pages import diagnostics
+from etf_cockpit.core import config, settings_bundle
+from etf_cockpit.data import universe_store
 from etf_cockpit.features import crowding
+from etf_cockpit.governance import product_scope
 
 ROOT = Path(__file__).resolve().parents[1]
 REGISTRY = ROOT / "configs" / "decision_domains_v1.yaml"
@@ -112,6 +117,45 @@ def test_settings_yaml_reads_are_cached_by_text_and_copied(tmp_path, parse_count
     assert parse_counter["n"] == 1
     path.write_text("a: 2\n", encoding="utf-8")
     assert settings_bundle._read_yaml(path) == {"a": 2}
+
+
+def test_config_yaml_reads_are_cached_by_text_and_copied(tmp_path, parse_counter) -> None:
+    config._parse_yaml_text.cache_clear()
+    path = tmp_path / "c.yaml"
+    path.write_text("a: 1\nb: [1, 2]\n", encoding="utf-8")
+    first = config._read_yaml(path)
+    first["b"].append(3)  # a caller mutating its copy must not leak into the cache
+    assert config._read_yaml(path) == {"a": 1, "b": [1, 2]}
+    assert parse_counter["n"] == 1
+    path.write_text("a: 2\n", encoding="utf-8")
+    assert config._read_yaml(path) == {"a": 2}
+
+
+@pytest.mark.parametrize(
+    "load",
+    [
+        config.load_config,
+        lambda: universe_store.import_legacy_universe(ROOT / "configs" / "universe.yaml"),
+        product_scope.authority_matrix_coverage_errors,
+        scorecard.load_sparebank_scorecard_policy,
+    ],
+    ids=["config", "legacy_universe", "authority_coverage", "sparebank_scorecard"],
+)
+def test_hot_config_loaders_do_not_parse_unchanged_yaml_again(load, parse_counter) -> None:
+    first = load()
+    parsed = parse_counter["n"]
+    assert load() == first
+    assert parse_counter["n"] == parsed
+
+
+def test_diagnostics_reports_optional_model_packages_without_importing_them(tmp_path, monkeypatch) -> None:
+    package = tmp_path / "slow_model_package_for_test"
+    package.mkdir()
+    (package / "__init__.py").write_text("raise RuntimeError('imported')\n", encoding="utf-8")
+    monkeypatch.syspath_prepend(str(tmp_path))
+    assert diagnostics._optional_package_status("slow_model_package_for_test") == "installed"
+    assert "slow_model_package_for_test" not in sys.modules
+    assert diagnostics._optional_package_status("absent_model_package_for_test") == "missing"
 
 
 def _prices_with_gaps(columns: int = 7, rows: int = 130, seed: int = 4) -> pd.DataFrame:

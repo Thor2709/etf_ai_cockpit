@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import importlib
+import importlib.metadata
+import importlib.util
 import os
 import platform
 import sys
@@ -46,6 +48,20 @@ def _module_status(name: str) -> str:
         return f"ok {getattr(module, '__version__', '')}"
     except Exception as exc:
         return f"missing: {type(exc).__name__}: {exc}"
+
+
+def _optional_package_status(name: str) -> str:
+    """Report an optional model package without importing it (importing toto2 takes about 50 s)."""
+
+    try:
+        if importlib.util.find_spec(name) is None:
+            return "missing"
+    except (ImportError, ValueError) as exc:
+        return f"missing: {type(exc).__name__}: {exc}"
+    try:
+        return f"installed {importlib.metadata.version(name)}"
+    except importlib.metadata.PackageNotFoundError:
+        return "installed"
 
 
 def _torch_cuda_status() -> str:
@@ -113,8 +129,8 @@ def diagnostics_page(page: ft.Page, state: AppState | None) -> PageView:
         f"pyarrow: {_module_status('pyarrow')}",
         f"torch: {_module_status('torch')}",
         f"torch CUDA: {_torch_cuda_status()}",
-        f"timesfm: {_module_status('timesfm')}",
-        f"toto2: {_module_status('toto2')}",
+        f"timesfm: {_optional_package_status('timesfm')}",
+        f"toto2: {_optional_package_status('toto2')}",
         f"Presentation boundary: {architecture['status']} ({architecture['violation_count']} violations)",
         f"Local transactional storage: {storage}",
         f"Version registry: {versions['record_count']} records | {versions['available_count']} available | "

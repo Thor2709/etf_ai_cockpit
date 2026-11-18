@@ -7,6 +7,7 @@ import os
 import re
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -158,8 +159,12 @@ def test_shards_partition_every_scope_exactly_once_and_balance_recorded_time() -
         assignment = conftest._shard_assignment(total)
         owners = {scope: conftest._shard_of(scope, total, assignment) for scope in scopes}
         assert set(owners.values()) == set(range(1, total + 1))
-        loads = [sum(weights.get(scope, 0.0) for scope in scopes if owners[scope] == shard) for shard in range(1, total + 1)]
-        assert max(loads) - min(loads) <= max(weights.values())  # LPT bound: within one file of balance
+        scope_weights: dict[str, float] = {}
+        for path, seconds in weights.items():
+            scope = conftest._scheduling_scope(f"{path}::x")
+            scope_weights[scope] = scope_weights.get(scope, 0.0) + seconds
+        loads = [sum(seconds for scope, seconds in scope_weights.items() if owners[scope] == shard) for shard in range(1, total + 1)]
+        assert max(loads) - min(loads) <= max(scope_weights.values())  # LPT bound: within one scope of balance
 
 
 def _use_durations(monkeypatch, tmp_path: Path, payload: dict, workers: str | None) -> None:
@@ -260,6 +265,22 @@ def test_weighted_balance_keeps_shard_wall_time_balanced_around_serial_heavy_fil
 def test_invalid_shard_values_are_rejected(value: str) -> None:
     with pytest.raises(pytest.UsageError):
         conftest._parse_shard(value)
+
+
+def test_a_shard_does_not_import_the_test_files_of_other_shards(monkeypatch) -> None:
+    config = SimpleNamespace(rootpath=conftest.ROOT)
+    monkeypatch.setattr(conftest, "_SHARD_VALUE", "")
+    assert conftest.pytest_ignore_collect(conftest.ROOT / "tests/test_parallel_scheduling.py", config) is None
+    monkeypatch.setattr(conftest, "_SHARD_VALUE", "2/5")
+    assignment = conftest._shard_assignment(5)
+    files = [*conftest._file_weights(), "tests/test_brand_new_file.py", "tests/ui/test_brand_new_file.py"]
+    ignored = {path for path in files if conftest.pytest_ignore_collect(conftest.ROOT / path, config)}
+    # Exactly the files that the deselection in pytest_collection_modifyitems would drop.
+    assert ignored == {path for path in files if conftest._shard_of(conftest._scheduling_scope(f"{path}::x"), 5, assignment) != 2}
+    assert 0 < len(ignored) < len(files)
+    # Only test modules are skipped: conftest.py, helper modules and directories stay visible to every shard.
+    for kept in ("tests/conftest.py", "tests/refactor_parity/_harness.py", "tests/ui"):
+        assert conftest.pytest_ignore_collect(conftest.ROOT / kept, config) is None
 
 
 def test_test_processes_do_not_leak_the_shard_to_pytest_subprocesses() -> None:

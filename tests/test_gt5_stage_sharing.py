@@ -66,36 +66,53 @@ def _fx_frame(rate: float) -> pd.DataFrame:
     )
 
 
+def test_one_book_validates_each_quote_day_once_for_all_currencies(monkeypatch) -> None:
+    checks: list[int] = []
+    original = fx_data._fx_rate_consistency_errors
+    monkeypatch.setattr(fx_data, "_fx_rate_consistency_errors", lambda frame, **kwargs: checks.append(len(frame)) or original(frame, **kwargs))
+    gbp = _fx_frame(0.9).assign(base_currency="GBP", rate=1.15)
+    book = EurRateBook(pd.concat([_fx_frame(0.9), gbp], ignore_index=True), known_by="2026-01-10")
+
+    rates = [book.series(currency, [date(2026, 1, 2)]).rates.iloc[0] for currency in ("USD", "GBP")]
+
+    assert rates == [pytest.approx(0.9), pytest.approx(1.15)]
+    assert checks == [2]
+
+
 def test_fx_cross_rate_is_validated_once_per_distinct_day_content_inside_the_scope(monkeypatch) -> None:
     computed: list[float] = []
-    original = EurRateBook._compute_cross_rate
+    original = EurRateBook._validate_quote_day
 
-    def counting(dated, quote_day, currency):
+    def counting(dated, quote_day):
         computed.append(float(dated["rate"].iloc[0]))
-        return original(dated, quote_day, currency)
+        return original(dated, quote_day)
 
-    monkeypatch.setattr(EurRateBook, "_compute_cross_rate", staticmethod(counting))
+    monkeypatch.setattr(EurRateBook, "_validate_quote_day", staticmethod(counting))
+    crosses: list[str] = []
+    cross_rate = fx_data.fx_cross_rate
+    monkeypatch.setattr(fx_data, "fx_cross_rate", lambda snapshot, base, quote: crosses.append(base) or cross_rate(snapshot, base, quote))
     sessions = [date(2026, 1, 2)]
 
     with fx_data.fx_cross_rate_memo():
-        first = EurRateBook(_fx_frame(0.9), known_by="2026-01-10").series("USD", sessions).rates.iloc[0]
+        first =EurRateBook(_fx_frame(0.9), known_by="2026-01-10").series("USD", sessions).rates.iloc[0]
         second = EurRateBook(_fx_frame(0.9), known_by="2026-01-10").series("USD", sessions).rates.iloc[0]
         revised = EurRateBook(_fx_frame(0.8), known_by="2026-01-10").series("USD", sessions).rates.iloc[0]
 
     assert first == second == pytest.approx(0.9)
     assert revised == pytest.approx(0.8)  # a revised quote is different content and is never served from the memo
     assert computed == [0.9, 0.8]
+    assert crosses == ["USD", "USD"]  # each distinct day's cross-rate is computed once, too
 
 
 def test_fx_cross_rate_memo_exists_only_inside_the_scope_and_is_gone_after_exit_or_error(monkeypatch) -> None:
     computed: list[float] = []
-    original = EurRateBook._compute_cross_rate
+    original = EurRateBook._validate_quote_day
 
-    def counting(dated, quote_day, currency):
+    def counting(dated, quote_day):
         computed.append(float(dated["rate"].iloc[0]))
-        return original(dated, quote_day, currency)
+        return original(dated, quote_day)
 
-    monkeypatch.setattr(EurRateBook, "_compute_cross_rate", staticmethod(counting))
+    monkeypatch.setattr(EurRateBook, "_validate_quote_day", staticmethod(counting))
     sessions = [date(2026, 1, 2)]
 
     def read() -> float:
