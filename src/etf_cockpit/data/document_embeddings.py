@@ -23,7 +23,7 @@ from typing import Any
 
 import numpy as np
 
-from etf_cockpit.core.paths import MODEL_DIR
+from etf_cockpit.core.paths import CODE_CONFIG_DIR, MODEL_DIR
 from etf_cockpit.data import document_chunks as chunk_store
 from etf_cockpit.data.local_storage import connect_local_database
 from etf_cockpit.governance.supply_chain_intake import load_supply_chain_intake
@@ -44,7 +44,7 @@ class EmbeddingUnavailable(RuntimeError):
 
 @lru_cache(maxsize=1)
 def _weight_rows() -> tuple[dict[str, Any], ...]:
-    return tuple(row for row in load_supply_chain_intake()["components"] if row.get("weight_set") == WEIGHT_SET)
+    return tuple(row for row in load_supply_chain_intake(CODE_CONFIG_DIR / "supply_chain_intake.yaml")["components"] if row.get("weight_set") == WEIGHT_SET)
 
 
 def pinned_files() -> dict[str, str]:
@@ -74,6 +74,13 @@ def _embedder(model_dir: Path) -> Any:
     pins = pinned_files()
     if not pins:
         raise EmbeddingUnavailable("no sha256 pins for the embedding weights in the supply-chain intake registry")
+    # SOURCE.json is the download provenance note; fastembed never reads it.
+    unpinned = sorted(
+        item.relative_to(model_dir).as_posix() for item in model_dir.rglob("*")
+        if item.is_file() and item.relative_to(model_dir).as_posix() not in {*pins, "SOURCE.json"}
+    ) if model_dir.is_dir() else []
+    if unpinned:
+        raise EmbeddingUnavailable(f"model directory files are not pinned by sha256: {', '.join(unpinned)}")
     for name, expected in pins.items():
         path = model_dir / name
         if not path.is_file():
@@ -161,8 +168,9 @@ def hybrid_search(
 ) -> dict[str, object]:
     """Lexical and dense rankings fused by reciprocal-rank fusion; ``unavailable`` when either side is."""
 
-    lexical: dict[str, Any] = chunk_store.search(path, query, as_of=as_of, limit=CANDIDATES, chunker_version=chunker_version)
-    dense: dict[str, Any] = dense_search(path, query, as_of=as_of, limit=CANDIDATES, chunker_version=chunker_version)
+    window = max(CANDIDATES, limit)
+    lexical: dict[str, Any] = chunk_store.search(path, query, as_of=as_of, limit=window, chunker_version=chunker_version)
+    dense: dict[str, Any] = dense_search(path, query, as_of=as_of, limit=window, chunker_version=chunker_version)
     for part in (lexical, dense):
         if part["status"] != "available":
             return {"status": "unavailable", "reason": part["reason"], "hits": []}

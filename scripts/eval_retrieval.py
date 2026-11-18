@@ -57,7 +57,7 @@ def evaluate(root: Path, questions: Sequence[Mapping[str, Any]], *, as_of: str, 
         "min_questions": MIN_QUESTIONS, "status": "insufficient_evidence", "reason": None,
         "modes": dict.fromkeys(MODES), "mode_unavailable": {}, "hybrid_enabled": False, "execution_allowed": False,
     }
-    reason = _insufficient_reason(path, questions)
+    reason = _insufficient_reason(path, questions, as_of)
     if reason:
         return {**report, "reason": reason}
     texts = [str(item["question"]) for item in questions]
@@ -83,15 +83,15 @@ def evaluate(root: Path, questions: Sequence[Mapping[str, Any]], *, as_of: str, 
     return report
 
 
-def _insufficient_reason(path: Path, questions: Sequence[Mapping[str, Any]]) -> str | None:
+def _insufficient_reason(path: Path, questions: Sequence[Mapping[str, Any]], as_of: str) -> str | None:
     if len(questions) < MIN_QUESTIONS:
         return f"{len(questions)} labelled questions; at least {MIN_QUESTIONS} are required"
     if not path.is_file():
         return "no document chunk store"
     with closing(connect_local_database(path)) as connection:
-        known = {row[0] for row in connection.execute("SELECT chunk_id FROM chunks")}
+        known = {row[0] for row in connection.execute("SELECT chunk_id FROM chunks WHERE known_at <= ?", (chunk_store._utc(as_of),))}
     missing = sum(str(item.get("chunk_id")) not in known for item in questions)
-    return f"{missing} labels do not resolve to a chunk in the store" if missing else None
+    return f"{missing} labels do not resolve to a chunk known at as_of" if missing else None
 
 
 def main(argv: list[str] | None = None) -> int:

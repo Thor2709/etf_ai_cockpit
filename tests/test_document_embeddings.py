@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import math
 import os
 from pathlib import Path
@@ -44,6 +45,8 @@ def test_without_embeddings_search_is_lexical_hybrid_is_off_and_reranking_is_una
 
 
 def test_a_model_file_that_differs_from_its_pinned_hash_or_has_no_pin_is_unavailable(tmp_path, monkeypatch) -> None:
+    emb._weight_rows.cache_clear()
+    monkeypatch.chdir(tmp_path)  # the pins come from the repository registry, not the working directory
     for name in emb.pinned_files():
         (tmp_path / name).write_bytes(b"tampered")
     monkeypatch.setattr(emb, "EMBEDDING_MODEL_DIR", tmp_path)
@@ -55,9 +58,26 @@ def test_a_model_file_that_differs_from_its_pinned_hash_or_has_no_pin_is_unavail
     assert tampered["status"] == "unavailable" and "does not match its pinned sha256" in str(tampered["reason"])
     assert unpinned["status"] == "unavailable" and "no sha256 pins" in str(unpinned["reason"])
 
+    other = tmp_path / "other"
+    other.mkdir()
+    (other / "tokenizer.json").write_bytes(b"x")
+    (other / "model_optimized.onnx").write_bytes(b"unpinned weights")  # a file fastembed loads, with no pin
+    monkeypatch.setattr(emb, "EMBEDDING_MODEL_DIR", other)
+    monkeypatch.setattr(emb, "_weight_rows", lambda: ({"file": "tokenizer.json", "sha256": hashlib.sha256(b"x").hexdigest()},))
+    partial = emb.embedding_status()
+
+    assert partial["status"] == "unavailable" and "not pinned" in str(partial["reason"])
+
 
 def test_reciprocal_rank_fusion_metrics_and_the_hybrid_decision() -> None:
     assert emb.reciprocal_rank_fusion([["a", "b", "c"], ["c", "a", "d"]]) == ["a", "c", "b", "d"]
+    limits = []
+    side = lambda *_args, **kwargs: limits.append(kwargs["limit"]) or {"status": "available", "reason": None, "hits": []}  # noqa: E731
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(emb, "dense_search", side)
+        patch.setattr(store, "search", side)
+        emb.hybrid_search(Path("unused"), "q", as_of=AS_OF, limit=80)
+    assert limits == [80, 80]  # a limit above the default candidate window is not capped
 
     rankings, relevant = [["a", "x"], ["x", "a"], ["x", "y"]], ["a", "a", "a"]
     result = eval_retrieval.metrics(rankings, relevant, k=2)
@@ -73,8 +93,10 @@ def test_too_few_questions_or_an_unresolved_label_is_insufficient_evidence_and_k
     chunks = _index(tmp_path)
     few = [{"question": "ongoing charges", "chunk_id": chunks[0].chunk_id}] * 3
     unresolved = [{"question": f"q{n}", "chunk_id": "0" * 64} for n in range(50)]
+    future = _index(tmp_path, [f"Page {n} marker zq{n}x." for n in range(50)], **LATER)  # first known after as_of
+    future_only = [{"question": f"zq{n}x", "chunk_id": chunk.chunk_id} for n, chunk in enumerate(future)]
 
-    for questions in (few, unresolved):
+    for questions in (few, unresolved, future_only):
         report = eval_retrieval.evaluate(tmp_path, questions, as_of=AS_OF)
         assert report["status"] == "insufficient_evidence" and report["hybrid_enabled"] is False
         assert set(report["modes"]) == {"lexical", "dense", "hybrid"} and report["modes"]["lexical"] is None
