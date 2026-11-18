@@ -415,7 +415,7 @@ def test_report_computes_statement_coverage_once_per_frame(monkeypatch) -> None:
 
     build_stock_research_report(_statements(), instrument_id="ACME", market_inputs={"market_cap": 300.0}, assumptions={})
 
-    assert len(frames) <= len(set(frames)) + 1  # the lineage block reads it once more
+    assert len(frames) == len(set(frames))
 
 
 def test_profitability_production_wiring_injects_sector_and_peers(monkeypatch) -> None:
