@@ -136,3 +136,19 @@ def test_newer_storage_schema_fails_closed(tmp_path):
         )
     with pytest.raises(StorageSchemaError, match="newer than supported"):
         initialise_storage(tmp_path)
+    with pytest.raises(StorageSchemaError, match="newer than supported"):
+        TransactionalStore(tmp_path)
+
+
+def test_store_open_checks_the_schema_on_its_own_single_connection(tmp_path, monkeypatch):
+    from etf_cockpit.data import local_storage
+
+    initialise_storage(tmp_path)
+    opened = []
+    connect = local_storage.connect_storage
+    monkeypatch.setattr(local_storage, "connect_storage", lambda root: opened.append(root) or connect(root))
+
+    with TransactionalStore(tmp_path) as store:
+        assert store.integrity().ok
+
+    assert len(opened) == 1  # one connection runs the schema check and serves the store
