@@ -34,9 +34,13 @@ class SecOwnershipUnavailable(RuntimeError):
     """The evidence cannot be produced; the message is the explicit reason."""
 
 
-def _edgar() -> SimpleNamespace:
+def prepare_edgar_environment() -> None:
     # edgartools creates its HTTP cache folder at import; keep that out of the user profile.
     os.environ.setdefault("EDGAR_LOCAL_DATA_DIR", str(Path(tempfile.gettempdir()) / "etf_cockpit_edgartools"))
+
+
+def _edgar() -> SimpleNamespace:
+    prepare_edgar_environment()
     try:
         from edgar.ownership.core import detect_10b5_1_plan
         from edgar.ownership.models import Footnotes

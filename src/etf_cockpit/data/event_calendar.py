@@ -8,12 +8,12 @@ provenance is incomplete.
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 import hashlib
 import json
 from pathlib import Path
 import re
-from typing import Any, Iterable
+from typing import TYPE_CHECKING, Any, Iterable
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import pandas as pd
@@ -22,6 +22,9 @@ from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_group, p
 from etf_cockpit.core.file_guard import persistent_file_guard
 from etf_cockpit.core.paths import CLEAN_DIR, RAW_DIR
 
+
+if TYPE_CHECKING:
+    from etf_cockpit.data.sec_filing_documents import EightKFiling
 
 EVENT_SCHEMA_VERSION = "event_calendar.v1"
 EVENT_CLEAN_PATH = CLEAN_DIR / "event_calendar.parquet"
@@ -74,6 +77,30 @@ class EventPersistenceResult:
     rows: int
     checksum: str
     idempotent: bool = False
+
+
+def eight_k_calendar_events(filing: EightKFiling, instrument_id: str, *, ingested_at: datetime) -> list[CalendarEvent]:
+    """Events of one Item 2.02 8-K: the SEC receipt, and the release time only when it was printed.
+
+    Both are available from the SEC receipt: the release time is learned from the filing, not before.
+    """
+
+    if not filing.is_earnings_release:
+        return []
+    receipt = filing.sec_receipt_time.astimezone(timezone.utc).replace(microsecond=0)
+    common = {"instrument_id": instrument_id, "available_at": receipt.isoformat(), "ingested_at": ingested_at.isoformat(),
+              "source_id": "sec_edgar_8k", "source_authority": "sec_edgar", "timezone_name": "UTC", "risk_level": "unknown"}
+    events = [CalendarEvent(
+        event_id=f"{filing.accession}:sec_receipt", event_type="filing", event_date=receipt.date().isoformat(),
+        event_time=receipt.isoformat(), precision="second", title="8-K Item 2.02 received by the SEC",
+        description=f"sec_receipt_time; items={','.join(filing.items)}", **common)]
+    if filing.public_announcement_time != "unavailable":
+        announced = datetime.fromisoformat(filing.public_announcement_time).astimezone(timezone.utc)
+        events.append(CalendarEvent(
+            event_id=f"{filing.accession}:announcement", event_type="earnings", event_date=announced.date().isoformat(),
+            event_time=announced.isoformat(), precision="minute", title="Earnings release printed time",
+            description="public_announcement_time printed in the EX-99.1 release", **common))
+    return events
 
 
 def validate_event(event: CalendarEvent, decision_time: datetime | None = None) -> EventValidation:

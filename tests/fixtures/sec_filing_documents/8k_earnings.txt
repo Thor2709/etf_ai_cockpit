@@ -1,0 +1,72 @@
+<SEC-DOCUMENT>0000777001-26-000010.txt : 20260730
+<SEC-HEADER>0000777001-26-000010.hdr.sgml : 20260730
+<ACCEPTANCE-DATETIME>20260730161500
+ACCESSION NUMBER:		0000777001-26-000010
+CONFORMED SUBMISSION TYPE:	8-K
+PUBLIC DOCUMENT COUNT:		2
+CONFORMED PERIOD OF REPORT:	20260730
+ITEM INFORMATION:		Results of Operations and Financial Condition
+ITEM INFORMATION:		Financial Statements and Exhibits
+FILED AS OF DATE:		20260730
+DATE AS OF CHANGE:		20260730
+
+FILER:
+
+	COMPANY DATA:
+		COMPANY CONFORMED NAME:			EXAMPLE CORP
+		CENTRAL INDEX KEY:			0000777001
+		STANDARD INDUSTRIAL CLASSIFICATION:	SERVICES-PREPACKAGED SOFTWARE [7372]
+		STATE OF INCORPORATION:			DE
+		FISCAL YEAR END:			1231
+
+	FILING VALUES:
+		FORM TYPE:		8-K
+		SEC ACT:		1934 Act
+		SEC FILE NUMBER:	001-00001
+		FILM NUMBER:		261000001
+
+	BUSINESS ADDRESS:
+		STREET 1:		1 EXAMPLE WAY
+		CITY:			SPRINGFIELD
+		STATE:			IL
+		ZIP:			62701
+		BUSINESS PHONE:		2175550100
+</SEC-HEADER>
+<DOCUMENT>
+<TYPE>8-K
+<SEQUENCE>1
+<FILENAME>ex8k.htm
+<DESCRIPTION>8-K
+<TEXT>
+<html><body>
+<p>UNITED STATES SECURITIES AND EXCHANGE COMMISSION</p>
+<p>FORM 8-K</p>
+<p><b>Item 2.02 Results of Operations and Financial Condition.</b></p>
+<p>On July 30, 2026, Example Corp issued a press release announcing results for the quarter ended June 30, 2026. The press release is furnished as Exhibit 99.1.</p>
+<p><b>Item 9.01 Financial Statements and Exhibits.</b></p>
+<p>(d) Exhibits. 99.1 Press release dated July 30, 2026.</p>
+</body></html>
+</TEXT>
+</DOCUMENT>
+<DOCUMENT>
+<TYPE>EX-99.1
+<SEQUENCE>2
+<FILENAME>ex991.htm
+<DESCRIPTION>EX-99.1
+<TEXT>
+<html><body>
+<p>Example Corp Reports Second Quarter 2026 Results</p>
+<p>SPRINGFIELD, Ill., July 30, 2026 at 4:05 p.m. ET - Example Corp today reported results.</p>
+<p>CONSOLIDATED STATEMENTS OF OPERATIONS (in thousands, except per share data)</p>
+<table>
+<tr><td></td><td>Three Months Ended June 30, 2026</td><td>Three Months Ended June 30, 2025</td></tr>
+<tr><td>Revenue</td><td>$ 1,200</td><td>$ 1,000</td></tr>
+<tr><td>Cost of revenue</td><td>700</td><td>600</td></tr>
+<tr><td>Gross profit</td><td>500</td><td>400</td></tr>
+<tr><td>Net income</td><td>150</td><td>100</td></tr>
+<tr><td>Diluted earnings per share</td><td>$ 0.15</td><td>$ 0.10</td></tr>
+</table>
+</body></html>
+</TEXT>
+</DOCUMENT>
+</SEC-DOCUMENT>
