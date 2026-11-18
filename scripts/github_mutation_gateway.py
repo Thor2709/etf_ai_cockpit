@@ -65,6 +65,16 @@ CREATE_RECEIPT_RECOVERIES: dict[str, dict[str, Any]] = {
         "issue_id": "6466456408",
         "node_id": "I_kwDOTVHm5c8AAAABgW5LWA",
     },
+    # The writer failed before creating the issue, so the recovery creates it too: its id is
+    # unknown here (None) and is bound by the receipt itself.
+    "ISSUE-0186": {
+        "path": Path("scripts/recover_issue_0186_create.py"),
+        "authority_id": "573eef72000d17dbb7a637888189cdd18305198bb02b696ab148b72cecd424fe",
+        "source_sha": "92e2ca46004a92ec796bb3a3be503c627235fc4b",
+        "head_sha": "2c89eb46cac258395a61509d318a799867f45877",
+        "issue_id": None,
+        "node_id": None,
+    },
 }
 BOT_AUTHORS = frozenset({"github-actions[bot]"})
 GITHUB_ACTIONS_BOT_USER_ID = "41898282"
@@ -1809,8 +1819,11 @@ def _is_create_receipt_recovery(value: dict[str, Any]) -> bool:
         recovery is not None
         and value.get("create_mutation_id") == recovery["authority_id"]
         and value.get("authority_id") == recovery["authority_id"]
-        and value.get("issue_id") == recovery["issue_id"]
-        and value.get("issue_node_id") == recovery["node_id"]
+        and (
+            bool(value.get("issue_id")) and bool(value.get("issue_node_id"))
+            if recovery["issue_id"] is None
+            else (value.get("issue_id"), value.get("issue_node_id")) == (recovery["issue_id"], recovery["node_id"])
+        )
         and value.get("source_sha") == recovery["source_sha"]
         and value.get("head_sha") == recovery["head_sha"]
         and value.get("event_before") == recovery["head_sha"]
@@ -2815,13 +2828,20 @@ def validate_reviewed_create_authority(
     }
 
 
-def _list_after_write(gateway: MutationTransport, number: int | None) -> list[dict[str, Any]]:
-    """The issue list can lag a create: re-read it (never re-write) until the issue the POST returned shows.
+def _list_after_write(
+    gateway: MutationTransport, number: int | None, marker: str | None = None,
+) -> list[dict[str, Any]]:
+    """The issue list can lag a create: re-read it (never re-write) until the created issue shows.
 
-    Without a returned number there is nothing to wait for, so the list is read once."""
+    The issue is the one the POST returned or, when the response was lost, the one whose body holds
+    `marker`. With neither there is nothing to wait for, so the list is read once."""
     issues = gateway.list_issues()
     for delay in (2, 4, 8, 16):
-        if number is None or any(int(issue.get("number", 0)) == number for issue in issues):
+        if (
+            any(marker in str(issue.get("body") or "") for issue in issues)
+            if marker is not None
+            else number is None or any(int(issue.get("number", 0)) == number for issue in issues)
+        ):
             break
         time.sleep(delay)
         issues = gateway.list_issues()

@@ -178,7 +178,7 @@ jobs:
           fi
           candidate=".github/issue-transitions/post-merge-control-candidate.json"
           ledger=".github/issue-transitions/github-mutation-authority.jsonl"
-          recovery="scripts/recover_issue_0183_receipt.py"
+          recovery="scripts/recover_issue_0186_create.py"
           candidate_changed=false
           ledger_changed=false
           git diff --quiet "$ETF_COCKPIT_VALIDATION_BASE_SHA" "$ETF_COCKPIT_VALIDATION_HEAD_SHA" -- "$candidate" || candidate_changed=true
@@ -255,7 +255,7 @@ jobs:
             --expected-head "$ETF_COCKPIT_VALIDATION_HEAD_SHA" \
             --evidence-out "$STATUS_COMPLETION_EVIDENCE")
           if [[ "$RECEIPT_RECOVERY" == "true" ]]; then
-            python -m scripts.recover_issue_0183_receipt "${args[@]}"
+            python -m scripts.recover_issue_0186_create "${args[@]}"
           else
             python -m scripts.apply_reviewed_status_completion "${args[@]}" \
               --candidate .github/issue-transitions/post-merge-control-candidate.json
