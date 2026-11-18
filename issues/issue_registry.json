@@ -31863,7 +31863,7 @@
       "acceptance_criteria": [
         {
           "id": "AC1",
-          "text": "an as-of query before a revision returns the earlier FRED vintage; a series fetched without real-time vintages cannot enter a historical feature; each indicator is computed only from vintages known at the cut-off; with no API key or no network every indicator is `unavailable`, never zero-filled."
+          "text": "an as-of query before a revision returns the earlier FRED vintage; a series fetched without real-time vintages cannot enter a historical feature; a fixture ECB import stores a rate series and a reference FX series with their units, legal-terms row and point-in-time timestamps; each indicator is computed only from vintages known at the cut-off; with no API key or no network every indicator is `unavailable`, never zero-filled."
         }
       ],
       "acceptance_evidence": [],
@@ -31942,7 +31942,7 @@
       "acceptance_criteria": [
         {
           "id": "AC1",
-          "text": "for a fixture ETF whose constituents have statement facts, the roll-up uses stored constituent metrics known at the cut-off; a constituent without metrics lowers coverage and is never zero-filled; no value known after the cut-off is used."
+          "text": "starting from an empty metrics store, running the statement import for a fixture ETF's constituents writes per-constituent metric vintages, and the roll-up reads only the vintages known at the cut-off; a constituent without metrics lowers coverage and is never zero-filled."
         }
       ],
       "acceptance_evidence": [],
@@ -32021,7 +32021,7 @@
       "acceptance_criteria": [
         {
           "id": "AC1",
-          "text": "a fixture submission yields known_at from its ACCEPTANCE-DATETIME header and the announcement time; requests carry the declared User-Agent and respect the rate limit; with the network denied every filing document is `unavailable`."
+          "text": "a fixture submission yields known_at from its ACCEPTANCE-DATETIME header and the announcement time; requests carry the declared User-Agent and respect the rate limit; with the network denied an uncached filing is `unavailable` and a stored submission still parses."
         }
       ],
       "acceptance_evidence": [],
@@ -34242,7 +34242,7 @@
     "package_registry_sha256": "42f401c32d2fddb17af97333303f4aeea0f2d2f8384e2b8da382529c0c7d107c",
     "package_reviewed_commit": "e149db50945401fb014955f0f79794a909796a75",
     "package_sha256": "39e30adc22c34a2f80640fa895caa21473457cea5bd0de872927051f8f99839b",
-    "programme_control_state_sha256": "60b1d55bc31a0ec60065e0bc4a7aa674ee975a19b605a9f2e7d6eddc392c3d3e",
+    "programme_control_state_sha256": "a96494b2dcb436f83d7acd889ff9423dba4a765f05e70e0d1733a2c8df667b7f",
     "repository": "Thor2709/etf_ai_cockpit",
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   }
