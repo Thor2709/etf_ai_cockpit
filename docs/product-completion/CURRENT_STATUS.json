@@ -200,6 +200,10 @@
     "ISSUE-0203",
     "ISSUE-0205",
     "ISSUE-0208",
+    "ISSUE-0210",
+    "ISSUE-0211",
+    "ISSUE-0212",
+    "ISSUE-0213",
     "UPDATEV2-0010",
     "UPDATEV2-0011",
     "UPDATEV2-0012",
@@ -226,16 +230,16 @@
   "counts": {
     "closed": 17,
     "integrated": 183,
-    "planned": 27,
+    "planned": 31,
     "ready": 1,
     "research_only": 2
   },
   "execution_allowed": false,
   "phase_counts": {
     "phase-01-governance-scope": 59,
-    "phase-02-data-policy-identity": 42,
-    "phase-03-stock-research": 18,
-    "phase-04-etf-research": 7,
+    "phase-02-data-policy-identity": 44,
+    "phase-03-stock-research": 19,
+    "phase-04-etf-research": 8,
     "phase-05-returns-risk-portfolio": 36,
     "phase-06-model-research": 11,
     "phase-07-backtest-paper-execution": 18,
@@ -5531,6 +5535,94 @@
       "activation_reason_codes": [
         "ACTIVATION_READY_NO_DEPENDENCIES"
       ],
+      "edges": [
+        {
+          "dependency_id": "ISSUE-0201",
+          "evidence_state": "unresolved",
+          "reason_code": "EDGE_UNRESOLVED",
+          "resolved": false
+        }
+      ],
+      "execution_allowed": false,
+      "issue_id": "ISSUE-0210",
+      "ready": false,
+      "reason_codes": [
+        "BLOCKED_UNRESOLVED_DEPENDENCY"
+      ],
+      "required_inputs": []
+    },
+    {
+      "activation_edges": [],
+      "activation_ready": true,
+      "activation_reason_codes": [
+        "ACTIVATION_READY_NO_DEPENDENCIES"
+      ],
+      "edges": [
+        {
+          "dependency_id": "ISSUE-0203",
+          "evidence_state": "unresolved",
+          "reason_code": "EDGE_UNRESOLVED",
+          "resolved": false
+        }
+      ],
+      "execution_allowed": false,
+      "issue_id": "ISSUE-0211",
+      "ready": false,
+      "reason_codes": [
+        "BLOCKED_UNRESOLVED_DEPENDENCY"
+      ],
+      "required_inputs": []
+    },
+    {
+      "activation_edges": [],
+      "activation_ready": true,
+      "activation_reason_codes": [
+        "ACTIVATION_READY_NO_DEPENDENCIES"
+      ],
+      "edges": [
+        {
+          "dependency_id": "ISSUE-0200",
+          "evidence_state": "unresolved",
+          "reason_code": "EDGE_UNRESOLVED",
+          "resolved": false
+        }
+      ],
+      "execution_allowed": false,
+      "issue_id": "ISSUE-0212",
+      "ready": false,
+      "reason_codes": [
+        "BLOCKED_UNRESOLVED_DEPENDENCY"
+      ],
+      "required_inputs": []
+    },
+    {
+      "activation_edges": [],
+      "activation_ready": true,
+      "activation_reason_codes": [
+        "ACTIVATION_READY_NO_DEPENDENCIES"
+      ],
+      "edges": [
+        {
+          "dependency_id": "ISSUE-0183",
+          "evidence_state": "unresolved",
+          "reason_code": "EDGE_UNRESOLVED",
+          "resolved": false
+        }
+      ],
+      "execution_allowed": false,
+      "issue_id": "ISSUE-0213",
+      "ready": false,
+      "reason_codes": [
+        "BLOCKED_UNRESOLVED_DEPENDENCY"
+      ],
+      "required_inputs": []
+    },
+    {
+      "activation_edges": [],
+      "activation_ready": true,
+      "activation_reason_codes": [
+        "ACTIVATION_READY_NO_DEPENDENCIES"
+      ],
       "edges": [],
       "execution_allowed": false,
       "issue_id": "UPDATEV2-0010",
@@ -5958,5 +6050,5 @@
     "ISSUE-0205"
   ],
   "schema_version": "1.0",
-  "source_registry_sha256": "c4db5db7cedf59b8211ac0aa455aa9e6537232f7c831f04ad0bf006f24a7d57b"
+  "source_registry_sha256": "c8cfa30909edad2c6a0d56e95d929fb5222a7e75eddf0df8e88c81780adf6a6f"
 }

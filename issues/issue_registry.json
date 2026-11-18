@@ -39,8 +39,8 @@
   ],
   "counts": {
     "canonical_closed_package_records": 17,
-    "canonical_open_package_records": 213,
-    "canonical_records": 230,
+    "canonical_open_package_records": 217,
+    "canonical_records": 234,
     "closed_index_records": 17,
     "current_open_ledger_records": 97,
     "final_release_new_records": 24,
@@ -49,7 +49,7 @@
     "package_current_open_records": 72,
     "package_current_records": 76,
     "package_proposed_records": 83,
-    "package_records": 230
+    "package_records": 234
   },
   "dependency_reconciliation": [
     {
@@ -4062,6 +4062,34 @@
       "reason": "proposed programme prerequisite",
       "resolved_as": "blocking_dependencies",
       "source_id": "ISSUE-0209"
+    },
+    {
+      "candidate_type": "blocking",
+      "dependency": "ISSUE-0201",
+      "reason": "proposed programme prerequisite",
+      "resolved_as": "blocking_dependencies",
+      "source_id": "ISSUE-0210"
+    },
+    {
+      "candidate_type": "blocking",
+      "dependency": "ISSUE-0203",
+      "reason": "proposed programme prerequisite",
+      "resolved_as": "blocking_dependencies",
+      "source_id": "ISSUE-0211"
+    },
+    {
+      "candidate_type": "blocking",
+      "dependency": "ISSUE-0200",
+      "reason": "proposed programme prerequisite",
+      "resolved_as": "blocking_dependencies",
+      "source_id": "ISSUE-0212"
+    },
+    {
+      "candidate_type": "blocking",
+      "dependency": "ISSUE-0183",
+      "reason": "proposed programme prerequisite",
+      "resolved_as": "blocking_dependencies",
+      "source_id": "ISSUE-0213"
     }
   ],
   "local_only_records": [],
@@ -9359,6 +9387,94 @@
         "external:approved-chronos-2-weights",
         "external:chronos-forecasting-extra-approval"
       ]
+    },
+    {
+      "activation_edges": [],
+      "activation_ready": true,
+      "activation_reason_codes": [
+        "ACTIVATION_READY_NO_DEPENDENCIES"
+      ],
+      "edges": [
+        {
+          "dependency_id": "ISSUE-0201",
+          "evidence_state": "unresolved",
+          "reason_code": "EDGE_UNRESOLVED",
+          "resolved": false
+        }
+      ],
+      "execution_allowed": false,
+      "issue_id": "ISSUE-0210",
+      "ready": false,
+      "reason_codes": [
+        "BLOCKED_UNRESOLVED_DEPENDENCY"
+      ],
+      "required_inputs": []
+    },
+    {
+      "activation_edges": [],
+      "activation_ready": true,
+      "activation_reason_codes": [
+        "ACTIVATION_READY_NO_DEPENDENCIES"
+      ],
+      "edges": [
+        {
+          "dependency_id": "ISSUE-0203",
+          "evidence_state": "unresolved",
+          "reason_code": "EDGE_UNRESOLVED",
+          "resolved": false
+        }
+      ],
+      "execution_allowed": false,
+      "issue_id": "ISSUE-0211",
+      "ready": false,
+      "reason_codes": [
+        "BLOCKED_UNRESOLVED_DEPENDENCY"
+      ],
+      "required_inputs": []
+    },
+    {
+      "activation_edges": [],
+      "activation_ready": true,
+      "activation_reason_codes": [
+        "ACTIVATION_READY_NO_DEPENDENCIES"
+      ],
+      "edges": [
+        {
+          "dependency_id": "ISSUE-0200",
+          "evidence_state": "unresolved",
+          "reason_code": "EDGE_UNRESOLVED",
+          "resolved": false
+        }
+      ],
+      "execution_allowed": false,
+      "issue_id": "ISSUE-0212",
+      "ready": false,
+      "reason_codes": [
+        "BLOCKED_UNRESOLVED_DEPENDENCY"
+      ],
+      "required_inputs": []
+    },
+    {
+      "activation_edges": [],
+      "activation_ready": true,
+      "activation_reason_codes": [
+        "ACTIVATION_READY_NO_DEPENDENCIES"
+      ],
+      "edges": [
+        {
+          "dependency_id": "ISSUE-0183",
+          "evidence_state": "unresolved",
+          "reason_code": "EDGE_UNRESOLVED",
+          "resolved": false
+        }
+      ],
+      "execution_allowed": false,
+      "issue_id": "ISSUE-0213",
+      "ready": false,
+      "reason_codes": [
+        "BLOCKED_UNRESOLVED_DEPENDENCY"
+      ],
+      "required_inputs": []
     },
     {
       "activation_edges": [],
@@ -29477,7 +29593,8 @@
         "ISSUE-0187",
         "ISSUE-0191",
         "ISSUE-0202",
-        "ISSUE-0203"
+        "ISSUE-0203",
+        "ISSUE-0213"
       ],
       "epic": "",
       "evidence_grade": "",
@@ -30926,7 +31043,9 @@
           "state": "unresolved"
         }
       },
-      "downstream_issues": [],
+      "downstream_issues": [
+        "ISSUE-0212"
+      ],
       "epic": "",
       "evidence_grade": "",
       "exclusions": [
@@ -31007,7 +31126,9 @@
           "state": "unresolved"
         }
       },
-      "downstream_issues": [],
+      "downstream_issues": [
+        "ISSUE-0210"
+      ],
       "epic": "",
       "evidence_grade": "",
       "exclusions": [
@@ -31182,7 +31303,9 @@
           "state": "unresolved"
         }
       },
-      "downstream_issues": [],
+      "downstream_issues": [
+        "ISSUE-0211"
+      ],
       "epic": "",
       "evidence_grade": "",
       "exclusions": [
@@ -31735,6 +31858,322 @@
       "verified_commit": "78ef9d904288b3b3cf00ea3f995f36024655a4d6",
       "verified_date": "2026-11-16",
       "write_conflict_group": "model-governance"
+    },
+    {
+      "acceptance_criteria": [
+        {
+          "id": "AC1",
+          "text": "an as-of query before a revision returns the earlier FRED vintage; a series fetched without real-time vintages cannot enter a historical feature; each indicator is computed only from vintages known at the cut-off; with no API key or no network every indicator is `unavailable`, never zero-filled."
+        }
+      ],
+      "acceptance_evidence": [],
+      "activation_dependencies": [],
+      "blocking_dependencies": [
+        "ISSUE-0201"
+      ],
+      "canonical_id": "ISSUE-0210",
+      "capability_lane": "DATA_PLATFORM",
+      "classification": "proposed_new",
+      "contract_markdown": "Follow-up to ISSUE-0201: INT-27 execution follow-up (owner GO 2026-11-18).",
+      "data_and_dependencies": "A FRED API key is user-provided at run time; without it every FRED-backed indicator stays unavailable.",
+      "dependency_candidates": [
+        "ISSUE-0201"
+      ],
+      "dependency_conversions": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0201": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "downstream_issues": [],
+      "epic": "",
+      "evidence_grade": "",
+      "exclusions": [
+        "No new data, package, model-weight or execution authority from registration."
+      ],
+      "ledger_state": "open",
+      "normative_amendments": [],
+      "objective": "Add the deferred INT-19 data part: a FRED fetch with ALFRED real-time vintages, an ECB data API provider for rates and reference FX with a legal-terms row, and the INT-19 indicators, all stored as point-in-time MacroObservation vintages.",
+      "owner": "data-platform",
+      "package_status": "",
+      "phase": "phase-02-data-policy-identity",
+      "priority": "P3",
+      "programme_status": "planned",
+      "provenance": {
+        "amendment_references": [],
+        "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
+        "primary_source": "issues/programme_control_state.json",
+        "schema_version": "1.0",
+        "source_record_id": "ISSUE-0210"
+      },
+      "related_issues": [
+        "ISSUE-0201"
+      ],
+      "release_blocking": false,
+      "required_inputs": [],
+      "risk": {
+        "categories": [],
+        "level": "normal"
+      },
+      "rollback": "Revert the bounded integration and retain the existing local evidence and defaults.",
+      "scope": [
+        "Target the existing data/fred_provider.py; data/macro_warehouse.py; features/macro.py surfaces and a new data/ecb_provider.py, as identified in the INT-19 technical requirements."
+      ],
+      "source_file": "issues/programme_control_state.json",
+      "source_kind": "control_extension",
+      "source_record_id": "ISSUE-0210",
+      "source_title": "Macro fetchers and indicators: FRED vintages and ECB (follow-up to ISSUE-0201)",
+      "title": "Macro fetchers and indicators: FRED vintages and ECB (follow-up to ISSUE-0201)",
+      "validation": {
+        "required": [
+          "Focused tests for the intake acceptance criteria and the validation tier required by the product diff."
+        ]
+      },
+      "verified_commit": "556665da636b883bbdf7397c6a4adc5c84f4b679",
+      "verified_date": "2026-11-19",
+      "write_conflict_group": "data-platform"
+    },
+    {
+      "acceptance_criteria": [
+        {
+          "id": "AC1",
+          "text": "for a fixture ETF whose constituents have statement facts, the roll-up uses stored constituent metrics known at the cut-off; a constituent without metrics lowers coverage and is never zero-filled; no value known after the cut-off is used."
+        }
+      ],
+      "acceptance_evidence": [],
+      "activation_dependencies": [],
+      "blocking_dependencies": [
+        "ISSUE-0203"
+      ],
+      "canonical_id": "ISSUE-0211",
+      "capability_lane": "CORE_ANALYSIS",
+      "classification": "proposed_new",
+      "contract_markdown": "Follow-up to ISSUE-0203: INT-27 execution follow-up (owner GO 2026-11-18).",
+      "data_and_dependencies": "Uses only the existing local statement import and fundamentals store; no new data source or entitlement is required.",
+      "dependency_candidates": [
+        "ISSUE-0203"
+      ],
+      "dependency_conversions": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0203": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "downstream_issues": [],
+      "epic": "",
+      "evidence_grade": "",
+      "exclusions": [
+        "No new data, package, model-weight or execution authority from registration."
+      ],
+      "ledger_state": "open",
+      "normative_amendments": [],
+      "objective": "Write the per-constituent fundamentals metrics that the ISSUE-0203 look-through roll-ups read, from the existing statement import, so the roll-ups compute on real holdings.",
+      "owner": "etf-research",
+      "package_status": "",
+      "phase": "phase-04-etf-research",
+      "priority": "P3",
+      "programme_status": "planned",
+      "provenance": {
+        "amendment_references": [],
+        "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
+        "primary_source": "issues/programme_control_state.json",
+        "schema_version": "1.0",
+        "source_record_id": "ISSUE-0211"
+      },
+      "related_issues": [
+        "ISSUE-0203"
+      ],
+      "release_blocking": false,
+      "required_inputs": [],
+      "risk": {
+        "categories": [],
+        "level": "normal"
+      },
+      "rollback": "Revert the bounded integration and retain the existing local evidence and defaults.",
+      "scope": [
+        "Target the existing statement import and fundamentals store surfaces that ISSUE-0203 reads; no new data source."
+      ],
+      "source_file": "issues/programme_control_state.json",
+      "source_kind": "control_extension",
+      "source_record_id": "ISSUE-0211",
+      "source_title": "Constituent fundamentals producer for look-through roll-ups (follow-up to ISSUE-0203)",
+      "title": "Constituent fundamentals producer for look-through roll-ups (follow-up to ISSUE-0203)",
+      "validation": {
+        "required": [
+          "Focused tests for the intake acceptance criteria and the validation tier required by the product diff."
+        ]
+      },
+      "verified_commit": "556665da636b883bbdf7397c6a4adc5c84f4b679",
+      "verified_date": "2026-11-19",
+      "write_conflict_group": "etf-research"
+    },
+    {
+      "acceptance_criteria": [
+        {
+          "id": "AC1",
+          "text": "a fixture submission yields known_at from its ACCEPTANCE-DATETIME header and the announcement time; requests carry the declared User-Agent and respect the rate limit; with the network denied every filing document is `unavailable`."
+        }
+      ],
+      "acceptance_evidence": [],
+      "activation_dependencies": [],
+      "blocking_dependencies": [
+        "ISSUE-0200"
+      ],
+      "canonical_id": "ISSUE-0212",
+      "capability_lane": "DATA_PLATFORM",
+      "classification": "proposed_new",
+      "contract_markdown": "Follow-up to ISSUE-0200: INT-27 execution follow-up (owner GO 2026-11-18).",
+      "data_and_dependencies": "Uses the existing SEC EDGAR access under the declared User-Agent and SEC fair-access limits; the network may be unavailable and then every filing document stays unavailable.",
+      "dependency_candidates": [
+        "ISSUE-0200"
+      ],
+      "dependency_conversions": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0200": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "downstream_issues": [],
+      "epic": "",
+      "evidence_grade": "",
+      "exclusions": [
+        "No new data, package, model-weight or execution authority from registration."
+      ],
+      "ledger_state": "open",
+      "normative_amendments": [],
+      "objective": "Add the caller that fetches the SEC full-submission text for 8-K and 10-K filings already listed by the existing EDGAR path, under the SEC fair-access rules, and passes it to the ISSUE-0200 header and announcement parsing.",
+      "owner": "data-platform",
+      "package_status": "",
+      "phase": "phase-02-data-policy-identity",
+      "priority": "P3",
+      "programme_status": "planned",
+      "provenance": {
+        "amendment_references": [],
+        "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
+        "primary_source": "issues/programme_control_state.json",
+        "schema_version": "1.0",
+        "source_record_id": "ISSUE-0212"
+      },
+      "related_issues": [
+        "ISSUE-0200"
+      ],
+      "release_blocking": false,
+      "required_inputs": [],
+      "risk": {
+        "categories": [],
+        "level": "normal"
+      },
+      "rollback": "Revert the bounded integration and retain the existing local evidence and defaults.",
+      "scope": [
+        "Target the existing EDGAR listing and data/sec_filing_documents.py surfaces."
+      ],
+      "source_file": "issues/programme_control_state.json",
+      "source_kind": "control_extension",
+      "source_record_id": "ISSUE-0212",
+      "source_title": "SEC full-submission text fetch for 8-K and 10-K (follow-up to ISSUE-0200)",
+      "title": "SEC full-submission text fetch for 8-K and 10-K (follow-up to ISSUE-0200)",
+      "validation": {
+        "required": [
+          "Focused tests for the intake acceptance criteria and the validation tier required by the product diff."
+        ]
+      },
+      "verified_commit": "556665da636b883bbdf7397c6a4adc5c84f4b679",
+      "verified_date": "2026-11-19",
+      "write_conflict_group": "data-platform"
+    },
+    {
+      "acceptance_criteria": [
+        {
+          "id": "AC1",
+          "text": "a fixture with an unsupported transformation, an undefined or foreign-namespace unit and an inconsistent duplicate fact yields `unavailable` for the affected facts; outputs for valid facts are unchanged; every stored fact carries its decode status."
+        }
+      ],
+      "acceptance_evidence": [],
+      "activation_dependencies": [],
+      "blocking_dependencies": [
+        "ISSUE-0183"
+      ],
+      "canonical_id": "ISSUE-0213",
+      "capability_lane": "CORE_ANALYSIS",
+      "classification": "proposed_new",
+      "contract_markdown": "Follow-up to ISSUE-0183: INT-27 execution follow-up (owner GO 2026-11-18).",
+      "data_and_dependencies": "Uses only the existing local statement parsers and stored facts; no new data source is required.",
+      "dependency_candidates": [
+        "ISSUE-0183"
+      ],
+      "dependency_conversions": [],
+      "dependency_edge_evidence": {
+        "ISSUE-0183": {
+          "contract_reference": "",
+          "evidence_references": [],
+          "reviewed_date": "",
+          "reviewer": "",
+          "schema_version": "1.0",
+          "state": "unresolved"
+        }
+      },
+      "downstream_issues": [],
+      "epic": "",
+      "evidence_grade": "",
+      "exclusions": [
+        "No new data, package, model-weight or execution authority from registration."
+      ],
+      "ledger_state": "open",
+      "normative_amendments": [],
+      "objective": "Harden the ESEF parser for every stored statement fact: supported transformation namespaces and names only, unit measures checked by QName and namespace, inconsistent duplicate facts treated as conflicts, and the decode status stored with each fact.",
+      "owner": "stock-research",
+      "package_status": "",
+      "phase": "phase-03-stock-research",
+      "priority": "P3",
+      "programme_status": "planned",
+      "provenance": {
+        "amendment_references": [],
+        "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
+        "primary_source": "issues/programme_control_state.json",
+        "schema_version": "1.0",
+        "source_record_id": "ISSUE-0213"
+      },
+      "related_issues": [
+        "ISSUE-0183"
+      ],
+      "release_blocking": false,
+      "required_inputs": [],
+      "risk": {
+        "categories": [],
+        "level": "normal"
+      },
+      "rollback": "Revert the bounded integration and retain the existing local evidence and defaults.",
+      "scope": [
+        "Target the existing parsers/esef_ixbrl.py; parsers/sec_facts.py; data/stock_sources.py surfaces."
+      ],
+      "source_file": "issues/programme_control_state.json",
+      "source_kind": "control_extension",
+      "source_record_id": "ISSUE-0213",
+      "source_title": "ESEF inline-XBRL parser hardening (follow-up to ISSUE-0183)",
+      "title": "ESEF inline-XBRL parser hardening (follow-up to ISSUE-0183)",
+      "validation": {
+        "required": [
+          "Focused tests for the intake acceptance criteria and the validation tier required by the product diff."
+        ]
+      },
+      "verified_commit": "556665da636b883bbdf7397c6a4adc5c84f4b679",
+      "verified_date": "2026-11-19",
+      "write_conflict_group": "stock-research"
     },
     {
       "acceptance_evidence": [],
@@ -33570,6 +34009,8 @@
         "ISSUE-0206",
         "ISSUE-0207",
         "ISSUE-0208",
+        "ISSUE-0210",
+        "ISSUE-0212",
         "UPDATEV2-0011",
         "UPDATEV2-0015",
         "UPDATEV2-0016",
@@ -33578,9 +34019,9 @@
         "UPDATEV2-0023",
         "UPDATEV2-0030"
       ],
-      "issue_range": "ISSUE-0007, ISSUE-0022–ISSUE-0023, ISSUE-0025, ISSUE-0038, ISSUE-0048, ISSUE-0054–ISSUE-0056, ISSUE-0068, ISSUE-0080–ISSUE-0090, ISSUE-0153, ISSUE-0155, ISSUE-0170–ISSUE-0171, ISSUE-0181, ISSUE-0199–ISSUE-0202, ISSUE-0204–ISSUE-0208, UPDATEV2-0011, UPDATEV2-0015–UPDATEV2-0016, UPDATEV2-0018, UPDATEV2-0021, UPDATEV2-0023, UPDATEV2-0030",
+      "issue_range": "ISSUE-0007, ISSUE-0022–ISSUE-0023, ISSUE-0025, ISSUE-0038, ISSUE-0048, ISSUE-0054–ISSUE-0056, ISSUE-0068, ISSUE-0080–ISSUE-0090, ISSUE-0153, ISSUE-0155, ISSUE-0170–ISSUE-0171, ISSUE-0181, ISSUE-0199–ISSUE-0202, ISSUE-0204–ISSUE-0208, ISSUE-0210, ISSUE-0212, UPDATEV2-0011, UPDATEV2-0015–UPDATEV2-0016, UPDATEV2-0018, UPDATEV2-0021, UPDATEV2-0023, UPDATEV2-0030",
       "phase": "phase-02-data-policy-identity",
-      "record_count": 42,
+      "record_count": 44,
       "title": "Local-first data policy, identity and data platform"
     },
     {
@@ -33602,11 +34043,12 @@
         "ISSUE-0187",
         "ISSUE-0188",
         "ISSUE-0189",
-        "ISSUE-0191"
+        "ISSUE-0191",
+        "ISSUE-0213"
       ],
-      "issue_range": "ISSUE-0091–ISSUE-0102, ISSUE-0183, ISSUE-0186–ISSUE-0189, ISSUE-0191",
+      "issue_range": "ISSUE-0091–ISSUE-0102, ISSUE-0183, ISSUE-0186–ISSUE-0189, ISSUE-0191, ISSUE-0213",
       "phase": "phase-03-stock-research",
-      "record_count": 18,
+      "record_count": 19,
       "title": "Stock statements, fundamentals, valuation and sectors"
     },
     {
@@ -33617,11 +34059,12 @@
         "ISSUE-0106",
         "ISSUE-0107",
         "ISSUE-0172",
-        "ISSUE-0203"
+        "ISSUE-0203",
+        "ISSUE-0211"
       ],
-      "issue_range": "ISSUE-0103–ISSUE-0107, ISSUE-0172, ISSUE-0203",
+      "issue_range": "ISSUE-0103–ISSUE-0107, ISSUE-0172, ISSUE-0203, ISSUE-0211",
       "phase": "phase-04-etf-research",
-      "record_count": 7,
+      "record_count": 8,
       "title": "ETF economics, structure, exposure and context"
     },
     {
@@ -33799,7 +34242,7 @@
     "package_registry_sha256": "42f401c32d2fddb17af97333303f4aeea0f2d2f8384e2b8da382529c0c7d107c",
     "package_reviewed_commit": "e149db50945401fb014955f0f79794a909796a75",
     "package_sha256": "39e30adc22c34a2f80640fa895caa21473457cea5bd0de872927051f8f99839b",
-    "programme_control_state_sha256": "a37357bf1bd2e30e048da32a60680ccfc6cf8259e957cf6046b8729be63836e4",
+    "programme_control_state_sha256": "c25520ec1c8633220d8713d11da8d9dc59b75960999dcb468d91680fc3e653d2",
     "repository": "Thor2709/etf_ai_cockpit",
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   }
