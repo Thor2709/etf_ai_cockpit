@@ -467,8 +467,12 @@ def _panel_matrices(allocation: pd.DataFrame, panel: pd.DataFrame, holdings: pd.
 
     if panel.empty or not {"etf_id", "date"}.issubset(panel.columns):
         return []
+    panel = panel.assign(date=pd.to_datetime(panel["date"], errors="coerce", utc=True).dt.tz_localize(None))
+    # Descriptors come from the dated panel only; an allocation column of the same name would win the merge.
+    descriptors = ("value_score_10", "value_score", "stock_value_score", "momentum_120d", "momentum_60d", "return_60d_log", "quality_score_10", "quality_score", "stock_quality_score", "investment_score_10", "investment_score", "vol_60d_ann", "vol_120d_ann", "ewma_vol_ann")
+    allocation = allocation.drop(columns=list(descriptors), errors="ignore")
     matrices: list[tuple[pd.Timestamp, pd.DataFrame]] = []
-    for day in sorted(pd.to_datetime(panel["date"], errors="coerce").dropna().dt.normalize().unique()):
+    for day in sorted(panel["date"].dropna().dt.normalize().unique()):
         exposures = build_factor_exposures(allocation, panel, holdings, as_of=day)
         if exposures.empty:
             continue
@@ -486,7 +490,7 @@ def _fit_cross_sectional(returns: pd.DataFrame, exposures: pd.DataFrame, panels:
     for dt in dates:
         matrix = exposures
         if panels is not None:
-            known = [item for day, item in panels if day < pd.Timestamp(dt)]
+            known = [item for day, item in panels if day < pd.Timestamp(dt).normalize()]
             if not known:
                 continue
             matrix = known[-1]
