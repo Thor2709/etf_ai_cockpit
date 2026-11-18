@@ -33,6 +33,8 @@ from etf_cockpit.models.calibration import (
 )
 
 OPTIONAL_MODELS = ("timesfm", "timesfm3", "toto", "chronos2")
+# Never promoted, never score-eligible: they keep checkpoint evidence but only ever run as shadows.
+SHADOW_ONLY_MODELS = ("chronos2",)
 BASELINE_MODEL = "baseline"
 # Partial declared cutoff: 2023-11-30 covers only some TimesFM3 pretraining
 # corpora (other pretraining data include GiftEvalPretrain and synthetic data).
@@ -266,6 +268,9 @@ def evaluate_model_promotions(
         & forecasts["horizon_days"].eq(settings.evidence_horizon_days)
     ]
     for model in models:
+        if model in SHADOW_ONLY_MODELS:
+            decisions[model] = ModelPromotion(model, NOT_PROVEN, "Never promoted: this model is not eligible to count in scores.")
+            continue
         own = forecasts.loc[forecasts["model_name"].eq(model)]
         verified_own = own.loc[
             own["provenance_verified"] & own["horizon_days"].eq(settings.evidence_horizon_days)

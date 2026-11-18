@@ -42,6 +42,7 @@ from etf_cockpit.models.calibration import adjusted_log_return_target, load_fore
 from etf_cockpit.models.forecast_scores import configured_forecast_request_identity as configured_forecast_request_identity, forecast_request_identity
 from etf_cockpit.models.model_promotion import (
     OPTIONAL_MODELS,
+    SHADOW_ONLY_MODELS,
     PRETRAINING_CUTOFFS,
     PRETRAINING_SOURCES,
     checkpoint_provenance,
@@ -200,7 +201,7 @@ class ForecastService:
             progress_callback("Checking cached Toto forecasts", 3, 4)
         with timed_step("forecasts", "model:toto", run_id=run_id):
             forecasts.extend(_stamp_adjusted_log_return_target(self._run_toto_forecasts(price_frame, etf_ids, horizons, as_of_date, run_id)))
-        if self.config.models.runtime("chronos2").enabled:
+        if resolved_live_optional_models and self.config.models.runtime("chronos2").enabled:
             with timed_step("forecasts", "model:chronos2", run_id=run_id):
                 forecasts.extend(_stamp_adjusted_log_return_target(
                     self._run_chronos2_forecasts(pivot, etf_ids, horizons, as_of_date, run_id, benchmark_returns, benchmark_id)
@@ -511,7 +512,7 @@ def _forecast_to_row(
     promotions: Mapping[str, ModelPromotion] | None = None,
     model_settings: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
-    if forecast.model_name == "baseline":
+    if forecast.model_name == "baseline" or forecast.model_name in SHADOW_ONLY_MODELS:
         forecast = _apply_promotion(forecast, {}, False)
     forecast = _identity_gated_forecast(forecast, model_settings)
     data = asdict(forecast)
@@ -628,7 +629,7 @@ def _apply_promotion(
 
     if row.model_name == "baseline":
         return replace(row, model_allowed_in_score=row.status == "ok" and row.expected_return is not None)
-    if shadow_flag:
+    if shadow_flag or row.model_name in SHADOW_ONLY_MODELS:
         return _shadow_forecast(row)
     promotion = _promotion_for_row(row, promotions)
     if row.status != "ok" or promotion is None:

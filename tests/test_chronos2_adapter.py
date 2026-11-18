@@ -4,17 +4,22 @@ import os
 import socket
 from datetime import date
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
 import pytest
 
-from etf_cockpit.application.forecast_service import ForecastService
-from etf_cockpit.core.config import ModelRuntimeConfig, load_config
-from etf_cockpit.models import chronos2_adapter
+from etf_cockpit.application import forecast_service
+from etf_cockpit.application.forecast_service import ForecastService, _apply_promotion, _forecast_to_row
+from etf_cockpit.core.config import ModelPromotionSettings, ModelRuntimeConfig, load_config
+from etf_cockpit.core.types import ForecastResult
+from etf_cockpit.models import chronos2_adapter, model_promotion
 from etf_cockpit.models.chronos2_adapter import Chronos2Adapter
 from etf_cockpit.models.local_weights import model_weight_inventory
-from etf_cockpit.models.model_promotion import OPTIONAL_MODELS, PRETRAINING_CUTOFFS, checkpoint_provenance
+from etf_cockpit.models.model_promotion import (
+    COUNTING, OPTIONAL_MODELS, PRETRAINING_CUTOFFS, ModelPromotion, checkpoint_provenance, evaluate_model_promotions,
+)
 
 HORIZONS = [5, 20]
 FORECAST_DATE = date(2026, 3, 31)
@@ -70,6 +75,23 @@ def test_missing_weights_package_or_disabled_gives_unavailable_and_the_run_conti
     )
     assert [row.status for row in service_rows] == ["unavailable"] * 2
 
+    # A run that disables optional models never starts Chronos-2, even when its config is enabled and live.
+    monkeypatch.setattr(forecast_service, "current_settings_identity", lambda: {"settings_revision": "a" * 64})
+    monkeypatch.setattr(forecast_service, "settings_bound_run_id", lambda run_id, *, settings_identity: run_id)
+    monkeypatch.setattr(forecast_service, "ensure_run_manifest", lambda *_args, **_kwargs: None)
+    live = load_config().model_copy(deep=True)
+    live.models.models["chronos2"] = {"enabled": True, "mode": "live", "model_path": str(checkpoint)}
+    service = ForecastService(live, reference_context=SimpleNamespace(resolution=None, benchmark_data_id="BENCH", identity={}))
+    started: list[int] = []
+    for name in ("_run_timesfm_forecasts", "_run_toto_forecasts", "_write_forecasts"):
+        monkeypatch.setattr(service, name, lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(service, "_run_chronos2_forecasts", lambda *_args, **_kwargs: started.append(1) or [])
+    dates = pd.bdate_range("2026-08-01", periods=30)
+    frame = pd.DataFrame({"date": dates, "etf_id": "BENCH", "adjusted_close": np.exp(np.arange(30) * 0.01)})
+    for flag in (False, True):
+        service.run_forecasts(dates[-1].date(), ["BENCH"], frame, horizons=[1], live_optional_models=flag)
+        assert len(started) == int(flag)
+
 
 def test_output_is_horizon_log_returns_from_past_only_inputs(tmp_path, monkeypatch):
     series = _prices()
@@ -80,8 +102,12 @@ def test_output_is_horizon_log_returns_from_past_only_inputs(tmp_path, monkeypat
     future = pd.Series([999.0] * 3, index=pd.bdate_range(FORECAST_DATE + pd.Timedelta(days=1), periods=3))
     benchmark = pd.concat([pd.Series(0.001, index=series.index), future])
     after = pd.concat([series, pd.Series([1.0] * 3, index=future.index)])
+    # Published after the target's last close: the origin day's value is not yet known at the origin.
+    late = pd.Series(0.5, index=series.index + pd.Timedelta(hours=21))
 
-    rows = adapter.forecast_series(after, HORIZONS, etf_id="X", forecast_date=FORECAST_DATE, past_covariates={"benchmark": benchmark})
+    rows = adapter.forecast_series(
+        after, HORIZONS, etf_id="X", forecast_date=FORECAST_DATE, past_covariates={"benchmark": benchmark, "late": late},
+    )
 
     assert [row.horizon_days for row in rows] == HORIZONS and all(row.status == "ok" for row in rows)
     for row in rows:
@@ -94,6 +120,7 @@ def test_output_is_horizon_log_returns_from_past_only_inputs(tmp_path, monkeypat
     assert len(task["target"]) == len(series) and task["target"][-1] == pytest.approx(np.log(series.iloc[-1]))
     assert len(task["past_covariates"]["benchmark"]) == len(task["target"])
     assert not (task["past_covariates"]["benchmark"] == 999.0).any()
+    assert np.isnan(task["past_covariates"]["late"][-1]) and np.isfinite(task["past_covariates"]["late"][:-1]).all()
 
 
 def test_real_package_runs_offline_with_every_socket_denied(tmp_path, monkeypatch):
@@ -132,7 +159,7 @@ def test_real_package_runs_offline_with_every_socket_denied(tmp_path, monkeypatc
     assert all(np.isfinite(row.expected_return) and np.isfinite(row.q10_return) and np.isfinite(row.q90_return) for row in rows)
 
 
-def test_chronos2_is_shadow_with_unknown_cutoff_and_apache_licence_and_a_weight_row(tmp_path):
+def test_chronos2_is_shadow_with_unknown_cutoff_and_apache_licence_and_a_weight_row(tmp_path, monkeypatch):
     provenance = checkpoint_provenance("chronos2")
     assert "chronos2" in OPTIONAL_MODELS and "chronos2" not in PRETRAINING_CUTOFFS
     assert provenance.licence == "apache-2.0" and provenance.pretraining_cutoff is None
@@ -146,6 +173,19 @@ def test_chronos2_is_shadow_with_unknown_cutoff_and_apache_licence_and_a_weight_
     config.models.models["chronos2"]["model_path"] = str(tmp_path / "present")
     row = next(item for item in model_weight_inventory(config) if item.model_name == "chronos2")
     assert row.status in {"weights_present", "live_ready"} and len(row.weight_files) == 1
+
+    # Never promotable, even when the evaluator would say counting: no counting decision, no score
+    # eligibility, and every stored row carries the unknown-cutoff leakage flag.
+    forced = ModelPromotion("chronos2", COUNTING, "forced", model_version="v", evidence_after="2020-01-01")
+    monkeypatch.setattr(model_promotion, "_decide", lambda model, *_args, **_kwargs: ModelPromotion(model, COUNTING, "forced"))
+    decisions = evaluate_model_promotions(pd.DataFrame(), pd.DataFrame(), FORECAST_DATE, ModelPromotionSettings())
+    assert decisions["timesfm"].counting and not decisions["chronos2"].counting
+    result = ForecastResult("r", "chronos2", "v", "X", date(2026, 3, 2), 60, 0.02, 0.02, target_id="adj_close_log_return_60d")
+    for promotions in ({"chronos2": forced}, {}):
+        applied = _apply_promotion(result, promotions, False)
+        assert not applied.model_allowed_in_score and applied.promotion_status == "shadow_only"
+        for stored in (_forecast_to_row(applied, promotions, {}), _forecast_to_row(result, promotions, {})):
+            assert stored["contamination_status"] == "possibly_leaked" and stored["promotion_state"] == "shadow_only"
 
 
 def test_default_settings_keep_chronos2_off():

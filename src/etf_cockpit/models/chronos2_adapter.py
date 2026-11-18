@@ -104,11 +104,17 @@ class Chronos2Adapter(TimesFMAdapter):
 def _past_covariates(
     index: pd.Index, covariates: Mapping[str, pd.Series] | None,
 ) -> dict[str, np.ndarray]:
-    """Covariate values on the target's own sessions (already cut at the forecast date), so never future values."""
+    """Covariate values on the target's own sessions, only those published by the target's last close.
 
-    days = pd.to_datetime(index, utc=True).date
+    The index carries each close-availability timestamp, so an observation later than ``index[-1]`` is
+    not known at the forecast origin even when it falls on the same UTC date.
+    """
+
+    stamps = pd.to_datetime(index, utc=True)
+    days = stamps.date
     aligned: dict[str, np.ndarray] = {}
     for name, covariate in (covariates or {}).items():
+        covariate = covariate.loc[pd.to_datetime(covariate.index, utc=True) <= stamps[-1]]
         covariate_days = pd.to_datetime(covariate.index, utc=True).date
         known = pd.Series(covariate.to_numpy(dtype=float), index=covariate_days)
         known = known[~known.index.duplicated(keep="last")]
