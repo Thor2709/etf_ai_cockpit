@@ -78,10 +78,14 @@ def _unusable(status: RankerStatus, reason: str) -> RankerOutcome:
     return RankerOutcome(status, reason, None)
 
 
+def _leaking_ids(feature_ids: Sequence[str]) -> list[str]:
+    return sorted(name for name in feature_ids if name.startswith(("fwd_", "label_")))
+
+
 def _check_panel(panel: pd.DataFrame, horizon: int, feature_ids: Sequence[str]) -> None:
     """Fail closed on missing columns and on label or forward-return feature ids."""
 
-    leaking = sorted(name for name in feature_ids if name.startswith(("fwd_", "label_")))
+    leaking = _leaking_ids(feature_ids)
     if leaking:
         raise PanelContractError(f"feature ids may not be labels: {', '.join(leaking)}")
     needed = {
@@ -226,10 +230,12 @@ def fit(
 def score(artefact: RankerArtefact, rows: pd.DataFrame) -> pd.Series:
     """Ordinal scores for rows; NaN, never a number, where a feature is not finite."""
 
+    result = pd.Series(np.nan, index=rows.index, dtype=float)
+    if not is_available() or _leaking_ids(artefact.feature_ids):
+        return result
     features = rows[list(artefact.feature_ids)].apply(pd.to_numeric, errors="coerce")
     finite = np.isfinite(features.to_numpy(dtype=float)).all(axis=1)
-    result = pd.Series(np.nan, index=rows.index, dtype=float)
-    if finite.any() and is_available():
+    if finite.any():
         import lightgbm as lgb
 
         booster = lgb.Booster(model_str=artefact.model_text)
