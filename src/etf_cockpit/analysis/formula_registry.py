@@ -73,6 +73,28 @@ _SPECS: tuple[FormulaSpec, ...] = (
     _spec("implied_growth_pe", "Implied growth (P/E)", "cost of equity - payout / P/E", "1", "spot", "ratio", "needs a configured cost of equity"),
     _spec("implied_growth_dcf", "Implied growth (2-stage DCF)", "stage-1 FCF growth that equates the DCF to market cap", "1", "spot", "ratio",
           f"needs configured cost of equity and terminal growth; FCF is {FCF_PROXY_LABEL}"),
+    _spec("piotroski_f", "Piotroski F-score", "count of 9 passed tests: ROA > 0, CFO > 0, ROA up, CFO / assets > ROA, interest-bearing debt / assets down, "
+          "current ratio up, no common-equity issuance, gross margin up, revenue / assets up", "1", "FY", "count",
+          "two consecutive fiscal years, one currency; ending total assets in both years (reference: beginning); interest-bearing debt stands for long-term debt; "
+          "the issuance point reads the reported share_issuance of the latest year (not the share-count change); "
+          "a missing input, share_issuance included, is unavailable; zero or negative assets, current liabilities or revenue is not_meaningful; banks and insurers are not_meaningful "
+          "(callers pass sector_applicable=False; the evidence build has no sector input)"),
+    _spec("altman_z", "Altman Z-score", "1.2 (CA - CL) / TA + 1.4 RE / TA + 3.3 EBIT / TA + 0.6 market cap / TL + revenue / TA", "1", "FY / spot", "ratio",
+          "original 1968 form for public manufacturers; ending balances of the latest fiscal year, decision-time market cap in the reporting currency; "
+          "book equity is not an input, so negative equity still scores; zero or negative TA, TL or market cap is not_meaningful; "
+          "a missing input is unavailable; banks and insurers are not_meaningful (sector_applicable=False)"),
+    _spec("beneish_m", "Beneish M-score", "-4.84 + 0.920 DSRI + 0.528 GMI + 0.404 AQI + 0.892 SGI + 0.115 DEPI - 0.172 SGAI + 4.679 TATA - 0.327 LVGI", "1", "FY", "ratio",
+          "8 indices over two consecutive fiscal years, one currency; TATA = (net income - CFO) / ending total assets; DEPI uses D&A; LVGI uses total liabilities / total assets "
+          "(long-term debt is not separate); a zero denominator or non-positive revenue or assets is not_meaningful; a missing input is unavailable; "
+          "banks and insurers are not_meaningful (sector_applicable=False)"),
+    _spec("gross_profitability", "Gross profitability", "gross profit", "ending total assets", "TTM|FY / latest balance", "ratio",
+          "zero or negative assets is not_meaningful; banks and insurers are not_meaningful (sector_applicable=False)"),
+    _spec("sbc_adjusted_fcf", "SBC-adjusted free cash flow", "CFO - capex - stock-based compensation", "1", "TTM|FY", "money",
+          f"{FCF_PROXY_LABEL}; a missing stock-based compensation is unavailable; banks and insurers are not_meaningful (sector_applicable=False)"),
+    _spec("buyback_yield", "Buyback yield", "gross buybacks", "market cap", "TTM|FY / spot", "ratio",
+          "gross, not netted against issuance; banks and insurers are not_meaningful (sector_applicable=False)"),
+    _spec("shareholder_yield", "Shareholder yield", "dividends + gross buybacks - share issuance", "market cap", "TTM|FY / spot", "ratio",
+          "same definition as data/capital_allocation; a missing part is unavailable; banks and insurers are not_meaningful (sector_applicable=False)"),
 )
 
 FORMULA_REGISTRY: Mapping[str, FormulaSpec] = MappingProxyType({spec.metric_key: spec for spec in _SPECS})

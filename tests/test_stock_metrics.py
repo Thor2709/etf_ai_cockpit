@@ -7,6 +7,7 @@ from datetime import date, datetime, timezone
 import pytest
 
 from etf_cockpit.analysis import stock_metrics as sm
+from tests.test_stock_evidence import _evidence, _market, _period
 
 UTC = timezone.utc
 
@@ -115,3 +116,76 @@ def test_ttm_is_four_known_quarters_else_fiscal_year() -> None:
     restated = _q("2025-12-31", "2026-06-01", revenue=999.0)
     later = sm.known_periods([*quarters, restated], datetime(2026, 3, 1, tzinfo=UTC))
     assert [p.values["revenue"] for p in later if p.period_end == date(2025, 12, 31)] == [130.0]
+
+
+# Quality, earnings-quality and distress scores (INT-04): two fiscal years, hand-computed from the published definitions.
+PREV = dict(revenue=1000.0, gross_profit=400.0, ebit=100.0, da=50.0, net_income_parent=50.0, cfo=60.0, total_assets=1000.0,
+            total_liabilities=600.0, equity_parent=400.0, minority_interest=0.0, ib_debt=300.0, current_assets=400.0,
+            current_liabilities=300.0, receivables=100.0, ppe_net=300.0, retained_earnings=150.0, sga=150.0, shares_outstanding=96.0)
+CUR = dict(PREV, revenue=1200.0, gross_profit=420.0, ebit=120.0, da=60.0, net_income_parent=90.0, cfo=100.0, total_assets=1100.0,
+           total_liabilities=660.0, equity_parent=440.0, ib_debt=250.0, current_assets=450.0, receivables=150.0, ppe_net=330.0,
+           retained_earnings=200.0, sga=200.0, shares_outstanding=100.0, stock_based_compensation=12.0, gross_buybacks=45.0, share_issuance=15.0)
+MCAP = 900.0  # price 9 x 100 shares
+BENEISH = (-4.84 + 0.920 * 1.25 + 0.528 * (0.4 / 0.35) + 0.404 * ((1 - 780 / 1100) / 0.3) + 0.892 * 1.2
+           + 0.115 * ((50 / 350) / (60 / 390)) + -0.172 * ((200 / 1200) / (150 / 1000)) + 4.679 * ((90 - 100) / 1100) - 0.327 * 1.0)
+ALTMAN = 1.2 * 150 / 1100 + 1.4 * 200 / 1100 + 3.3 * 120 / 1100 + 0.6 * 900 / 660 + 1200 / 1100
+
+
+def _scores():
+    evidence = _evidence([_period(2024, **PREV), _period(2025, **CUR)], _market(9.0)).metrics
+    return {key: evidence[key] for key in ("piotroski_f", "altman_z", "beneish_m", "gross_profitability", "accruals", "dilution",
+                                           "sbc_adjusted_fcf", "buyback_yield", "shareholder_yield")}
+
+
+@pytest.mark.parametrize("key, expected", [
+    ("piotroski_f", 7.0),  # ROA, CFO, dROA, CFO > ROA, leverage, current ratio, turnover pass; new shares and gross margin fail
+    ("altman_z", ALTMAN),
+    ("beneish_m", BENEISH),
+    ("gross_profitability", 420.0 / 1100.0),
+    ("accruals", (90.0 - 100.0) / 1050.0),  # Sloan, on average total assets (1000 + 1100) / 2
+    ("dilution", 100.0 / 96.0 - 1.0),  # net share issuance
+    ("sbc_adjusted_fcf", 100.0 - 70.0 - 12.0),
+    ("buyback_yield", 45.0 / MCAP),
+    ("shareholder_yield", (30.0 + 45.0 - 15.0) / MCAP),
+])
+def test_quality_scores_match_hand_values(key: str, expected: float) -> None:
+    metric = _scores()[key]
+    assert metric.status == sm.OK and metric.value == pytest.approx(expected)
+
+
+@pytest.mark.parametrize("call, status", [
+    (lambda: sm.piotroski_f(CUR, {k: v for k, v in PREV.items() if k != "current_liabilities"}), sm.UNAVAILABLE),
+    (lambda: sm.altman_z({k: v for k, v in CUR.items() if k != "retained_earnings"}, MCAP), sm.UNAVAILABLE),
+    (lambda: sm.altman_z(CUR, None), sm.UNAVAILABLE),
+    (lambda: sm.beneish_m(CUR, {k: v for k, v in PREV.items() if k != "sga"}), sm.UNAVAILABLE),
+    (lambda: sm.sbc_adjusted_fcf(30.0, None), sm.UNAVAILABLE),
+    (lambda: sm.buyback_yield(None, MCAP), sm.UNAVAILABLE),
+    (lambda: sm.piotroski_f(dict(CUR, total_assets=0.0), PREV), sm.NOT_MEANINGFUL),
+    (lambda: sm.beneish_m(CUR, dict(PREV, revenue=0.0)), sm.NOT_MEANINGFUL),
+    (lambda: sm.altman_z(dict(CUR, total_liabilities=0.0), MCAP), sm.NOT_MEANINGFUL),
+    (lambda: sm.altman_z(CUR, 0.0), sm.NOT_MEANINGFUL),
+    (lambda: sm.gross_profitability(420.0, 0.0), sm.NOT_MEANINGFUL),
+    # negative book equity (liabilities above assets) still scores: Altman uses the market value of equity
+    (lambda: sm.altman_z(dict(CUR, total_liabilities=1300.0, equity_parent=-200.0), MCAP), sm.OK),
+    (lambda: _evidence([_period(2025, **CUR)], _market(9.0)).metrics["piotroski_f"], sm.UNAVAILABLE),  # one fiscal year only
+    (lambda: _evidence([_period(2024), _period(2025)], _market(9.0)).metrics["buyback_yield"], sm.UNAVAILABLE),  # line item not reported
+])
+def test_quality_score_states_never_fill_in_missing_inputs(call, status: str) -> None:
+    metric = call()
+    assert metric.status == status
+    assert (metric.value is not None) == (status == sm.OK)
+
+
+@pytest.mark.parametrize("call", [
+    lambda applicable: sm.piotroski_f(CUR, PREV, sector_applicable=applicable),
+    lambda applicable: sm.altman_z(CUR, MCAP, sector_applicable=applicable),
+    lambda applicable: sm.beneish_m(CUR, PREV, sector_applicable=applicable),
+    lambda applicable: sm.gross_profitability(420.0, 1100.0, sector_applicable=applicable),
+    lambda applicable: sm.sbc_adjusted_fcf(30.0, 12.0, sector_applicable=applicable),
+    lambda applicable: sm.buyback_yield(45.0, MCAP, sector_applicable=applicable),
+    lambda applicable: sm.shareholder_yield(30.0, 45.0, 15.0, MCAP, sector_applicable=applicable),
+])
+def test_bank_and_insurer_scores_are_not_meaningful(call) -> None:
+    assert call(True).status == sm.OK
+    bank = call(False)
+    assert bank.status == sm.NOT_MEANINGFUL and bank.value is None

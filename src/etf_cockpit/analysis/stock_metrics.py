@@ -32,7 +32,7 @@ from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta, timezone
 from typing import Iterable, Mapping, Sequence
 
-# Statement line items (INT-03): parsed and stored like the fields above; no metric uses them yet.
+# Statement line items (INT-03): parsed and stored like the fields above; the quality scores below use them.
 LINE_ITEM_FLOW_FIELDS = ("sga", "rd_expense", "stock_based_compensation", "gross_buybacks", "share_issuance")
 LINE_ITEM_BALANCE_FIELDS = ("current_assets", "current_liabilities", "receivables", "inventory", "retained_earnings", "ppe_net", "goodwill")
 LINE_ITEM_FIELDS = LINE_ITEM_FLOW_FIELDS + LINE_ITEM_BALANCE_FIELDS
@@ -778,6 +778,134 @@ def dilution(shares_open: float | None, shares_close: float | None) -> Metric:
     if shares_open <= 0 or shares_close <= 0:
         return _not_meaningful(key, label, "share count is zero or negative", formula=formula)
     return Metric(key, label, shares_close / shares_open - 1.0, "ratio", OK, formula=formula)
+
+
+SECTOR_REASON = "banks and insurers: the statement lines of this formula are not defined for financial institutions"
+
+
+def _lacking(names: Sequence[str], *periods: Mapping[str, float]) -> list[str]:
+    """Names missing (not a finite number) in any of the usable-value mappings, sorted; never filled with 0."""
+
+    return sorted({name for period in periods for name in names if _finite(period.get(name)) is None})
+
+
+def piotroski_f(cur: Mapping[str, float], prev: Mapping[str, float], *, sector_applicable: bool = True) -> Metric:
+    """Piotroski F: count of 9 passed tests on two consecutive fiscal years (usable values of each year)."""
+
+    key, label, unit = "piotroski_f", "Piotroski F-score", "count"
+    formula = ("ROA > 0; CFO > 0; ROA up; CFO / assets > ROA; interest-bearing debt / assets down; current ratio up; "
+               "no common-equity issuance; gross margin up; revenue / assets up")
+    if not sector_applicable:
+        return _not_meaningful(key, label, SECTOR_REASON, formula=formula, unit=unit)
+    missing = sorted(set(_lacking(("net_income_parent", "cfo", "total_assets", "ib_debt", "current_assets", "current_liabilities",
+                                   "gross_profit", "revenue"), cur, prev)) | set(_lacking(("share_issuance",), cur)))
+    if missing:
+        return _unavailable(key, label, "needs " + ", ".join(missing) + " in the fiscal years", formula=formula, unit=unit)
+    if any(item["total_assets"] <= 0 or item["current_liabilities"] <= 0 or item["revenue"] <= 0 for item in (cur, prev)):
+        return _not_meaningful(key, label, "total assets, current liabilities or revenue is zero or negative", formula=formula, unit=unit)
+
+    def ratios(item: Mapping[str, float]) -> tuple[float, ...]:
+        assets = item["total_assets"]
+        return (item["net_income_parent"] / assets, item["cfo"] / assets, item["ib_debt"] / assets,
+                item["current_assets"] / item["current_liabilities"], item["gross_profit"] / item["revenue"], item["revenue"] / assets)
+
+    roa, cfo_assets, leverage, current, margin_now, turnover = ratios(cur)
+    roa_0, _, leverage_0, current_0, margin_0, turnover_0 = ratios(prev)
+    tests = (roa > 0, cur["cfo"] > 0, roa > roa_0, cfo_assets > roa, leverage < leverage_0, current > current_0,
+             cur["share_issuance"] <= 0, margin_now > margin_0, turnover > turnover_0)
+    return Metric(key, label, float(sum(tests)), unit, OK, formula=formula)
+
+
+def altman_z(values: Mapping[str, float], mcap: float | None, *, sector_applicable: bool = True) -> Metric:
+    """Altman Z (original 1968 form): 1.2 WC/TA + 1.4 RE/TA + 3.3 EBIT/TA + 0.6 market cap/TL + revenue/TA."""
+
+    key, label = "altman_z", "Altman Z-score"
+    formula = "1.2 (CA - CL) / TA + 1.4 RE / TA + 3.3 EBIT / TA + 0.6 market cap / TL + revenue / TA"
+    if not sector_applicable:
+        return _not_meaningful(key, label, SECTOR_REASON, formula=formula)
+    missing = _lacking(("current_assets", "current_liabilities", "retained_earnings", "ebit", "revenue", "total_assets",
+                        "total_liabilities"), values)
+    if _finite(mcap) is None:
+        missing.append("market cap")
+    if missing:
+        return _unavailable(key, label, "needs " + ", ".join(missing), formula=formula)
+    if values["total_assets"] <= 0 or values["total_liabilities"] <= 0 or mcap <= 0:
+        return _not_meaningful(key, label, "total assets, total liabilities or market cap is zero or negative", formula=formula)
+    assets = values["total_assets"]
+    z = (1.2 * (values["current_assets"] - values["current_liabilities"]) / assets + 1.4 * values["retained_earnings"] / assets
+         + 3.3 * values["ebit"] / assets + 0.6 * mcap / values["total_liabilities"] + values["revenue"] / assets)
+    return Metric(key, label, z, "ratio", OK, formula=formula)
+
+
+def beneish_m(cur: Mapping[str, float], prev: Mapping[str, float], *, sector_applicable: bool = True) -> Metric:
+    """Beneish M (8 indices, 1999) on two consecutive fiscal years; TATA = (net income - CFO) / ending total assets."""
+
+    key, label = "beneish_m", "Beneish M-score"
+    formula = "-4.84 + 0.920 DSRI + 0.528 GMI + 0.404 AQI + 0.892 SGI + 0.115 DEPI - 0.172 SGAI + 4.679 TATA - 0.327 LVGI"
+    if not sector_applicable:
+        return _not_meaningful(key, label, SECTOR_REASON, formula=formula)
+    missing = sorted(set(_lacking(("revenue", "receivables", "gross_profit", "current_assets", "ppe_net", "total_assets", "da",
+                                   "sga", "total_liabilities"), cur, prev)) | set(_lacking(("net_income_parent", "cfo"), cur)))
+    if missing:
+        return _unavailable(key, label, "needs " + ", ".join(missing) + " in the fiscal years", formula=formula)
+    if any(item["revenue"] <= 0 or item["total_assets"] <= 0 for item in (cur, prev)):
+        return _not_meaningful(key, label, "revenue or total assets is zero or negative", formula=formula)
+    tata = accruals_ratio(cur["net_income_parent"], cur["cfo"], cur["total_assets"]).value
+
+    def non_current_share(item: Mapping[str, float]) -> float:
+        return 1.0 - (item["current_assets"] + item["ppe_net"]) / item["total_assets"]
+
+    try:
+        dsri = (cur["receivables"] / cur["revenue"]) / (prev["receivables"] / prev["revenue"])
+        gmi = (prev["gross_profit"] / prev["revenue"]) / (cur["gross_profit"] / cur["revenue"])
+        aqi = non_current_share(cur) / non_current_share(prev)
+        sgi = cur["revenue"] / prev["revenue"]
+        depi = (prev["da"] / (prev["da"] + prev["ppe_net"])) / (cur["da"] / (cur["da"] + cur["ppe_net"]))
+        sgai = (cur["sga"] / cur["revenue"]) / (prev["sga"] / prev["revenue"])
+        lvgi = (cur["total_liabilities"] / cur["total_assets"]) / (prev["total_liabilities"] / prev["total_assets"])
+    except ZeroDivisionError:
+        return _not_meaningful(key, label, "an index has a zero denominator", formula=formula)
+    m = (-4.84 + 0.920 * dsri + 0.528 * gmi + 0.404 * aqi + 0.892 * sgi + 0.115 * depi - 0.172 * sgai + 4.679 * tata
+         - 0.327 * lvgi)
+    return Metric(key, label, m, "ratio", OK, formula=formula)
+
+
+def gross_profitability(gross_profit: float | None, total_assets: float | None, *, sector_applicable: bool = True) -> Metric:
+    key, label, formula = "gross_profitability", "Gross profitability", "gross profit / total assets"
+    if not sector_applicable:
+        return _not_meaningful(key, label, SECTOR_REASON, formula=formula)
+    if _finite(gross_profit) is None or _finite(total_assets) is None:
+        return _unavailable(key, label, "needs gross profit and total assets", formula=formula)
+    if total_assets <= 0:
+        return _not_meaningful(key, label, "total assets are zero or negative", formula=formula)
+    return Metric(key, label, gross_profit / total_assets, "ratio", OK, formula=formula)
+
+
+def sbc_adjusted_fcf(fcf: float | None, sbc: float | None, *, sector_applicable: bool = True) -> Metric:
+    key, label = "sbc_adjusted_fcf", "SBC-adjusted free cash flow"
+    formula = f"CFO - capex - stock-based compensation ({FCF_PROXY_LABEL})"
+    if not sector_applicable:
+        return _not_meaningful(key, label, SECTOR_REASON, formula=formula, unit="money")
+    if _finite(fcf) is None or _finite(sbc) is None:
+        return _unavailable(key, label, "needs free cash flow and stock-based compensation", formula=formula, unit="money")
+    return Metric(key, label, fcf - sbc, "money", OK, formula=formula)
+
+
+def buyback_yield(gross_buybacks: float | None, mcap: float | None, *, sector_applicable: bool = True) -> Metric:
+    key, label, formula = "buyback_yield", "Buyback yield", "gross buybacks / market cap"
+    if not sector_applicable:
+        return _not_meaningful(key, label, SECTOR_REASON, formula=formula)
+    return yield_of(key, label, gross_buybacks, mcap, formula=formula)
+
+
+def shareholder_yield(dividends: float | None, gross_buybacks: float | None, share_issuance: float | None, mcap: float | None,
+                      *, sector_applicable: bool = True) -> Metric:
+    key, label, formula = "shareholder_yield", "Shareholder yield", "(dividends + gross buybacks - share issuance) / market cap"
+    if not sector_applicable:
+        return _not_meaningful(key, label, SECTOR_REASON, formula=formula)
+    amounts = (dividends, gross_buybacks, share_issuance)
+    total = None if any(_finite(amount) is None for amount in amounts) else dividends + gross_buybacks - share_issuance  # type: ignore[operator]
+    return yield_of(key, label, total, mcap, formula=formula)
 
 
 def price_shares_consistency(
