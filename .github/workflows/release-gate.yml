@@ -66,7 +66,7 @@ jobs:
           HEAD_REPOSITORY: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
         run: |
           base="$PR_BASE_SHA"
-          if [[ -z "$base" ]]; then base="$(git rev-parse origin/main)"; fi
+          if [[ -z "$base" ]]; then base="$HEAD_SHA"; fi
           if [[ ! "$base" =~ ^[0-9a-f]{40}$ ]] || [[ "$base" == "0000000000000000000000000000000000000000" ]]; then
             echo "Missing exact validation base" >&2
             exit 1

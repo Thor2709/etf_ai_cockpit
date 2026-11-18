@@ -620,6 +620,8 @@ def test_release_workflow_is_matrixed_isolated_and_read_only() -> None:
     assert "repository_dispatch:" not in trigger
     assert "workflow_dispatch:" not in trigger
     assert 'cron: "17 3 * * *"' in trigger
+    # A scheduled run classifies its exact head against itself, so a later main commit cannot skip the gate.
+    assert 'if [[ -z "$base" ]]; then base="$HEAD_SHA"; fi' in workflow
     assert "name: release-gate-${{ github.sha }}-${{ matrix.platform }}" in workflow
     assert "contents: read" in workflow
     assert "issues: write" not in workflow

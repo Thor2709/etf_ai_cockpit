@@ -181,7 +181,7 @@ upward when classification is unknown.
 - O: ordinary product work. Run focused and affected tests, UI/architecture
   and static checks and source smoke. Prose (`.md`, `.rst`, `.txt`) outside the
   policy identity paths, `artifacts/`, `docs/architecture/decisions/`,
-  `docs/codex-config/` and `docs/product-completion/` is O. Risk words in a path
+  `docs/codex-config/`, `docs/product-completion/` and `ADR-*` files is O. Risk words in a path
   make product code H, but not tests or UI pages under `src/etf_cockpit/app/`;
   `*_store.py` under `src/` stays H. Every pull
   request with `package_gate_required=false` (tiers E and O) also runs the

@@ -84,6 +84,7 @@ def test_prose_is_ordinary_but_policy_prose_stays_high() -> None:
         "docs/codex-config/README.md",
         "plans/ACTIVE_CODEX_GOAL.md",
         "docs/architecture/decisions/ADR-0007-validation-cadence-and-report-only-pilot.md",
+        "docs/architecture/ADR-0071-new-decision.md",
         "docs/product-completion/programme/notes.md",
         "issues/notes.md",
         "configs/notes.md",

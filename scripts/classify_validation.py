@@ -151,7 +151,7 @@ def classify_path(value: str) -> PathClassification:
     policy = [item.lower() for item in identity_groups()["policy"]]
     prose = parsed_path.suffix in PROSE_SUFFIXES and not any(
         lowered == item or lowered.startswith(item + "/") for item in policy
-    ) and not lowered.startswith(PROTECTED_PROSE_PREFIXES)
+    ) and not lowered.startswith(PROTECTED_PROSE_PREFIXES) and not parsed_path.name.lower().startswith("adr-")
     risk_words = not prose and not lowered.startswith(TOKEN_EXEMPT_PREFIXES)
     if (
         lowered in PROTECTED_POLICY_PATHS
