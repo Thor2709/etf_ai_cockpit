@@ -42,6 +42,23 @@ def test_form4_counts_only_open_market_unplanned_buys_known_by_decision_time() -
     assert seen[names[0]].detail["net_value_usd"] == pytest.approx(1000 * 10.5 + 300 * 10.6)
     assert seen[names[1]].value == 1.0 and seen[names[1]].detail["is_cluster"] is False
 
+    stale = so.insider_purchase_features([replace(filing, known_at=_utc(2025, 1, 1))], issuer_cik="12345", decision_time=_utc(2026, 8, 14))
+    assert {stale[n].status for n in names} == {"unavailable"}  # no filing inside the window: not an ok zero
+    unsized = replace(filing, transactions=(replace(filing.transactions[0], shares=None), *filing.transactions[1:]))
+    gap = so.insider_purchase_features([unsized], issuer_cik="12345", decision_time=_utc(2026, 8, 14))
+    assert {gap[n].status for n in names} == {"unavailable"}  # a purchase without shares cannot be netted
+
+    swap = so.parse_ownership_xml(
+        xml.replace(b"<transactionCode>P</transactionCode><equitySwapInvolved>0", b"<transactionCode>P</transactionCode><equitySwapInvolved>1", 1),
+        accession="a", known_at=ACCEPTED,
+    )
+    assert swap.transactions[0].exclusion_reason == "equity_swap" and swap.transactions[3].exclusion_reason is None
+    remark = so.parse_ownership_xml(
+        xml.replace(b"<ownerSignature>", b"<remarks>All sales were made under a Rule 10b5-1 trading plan.</remarks><ownerSignature>"),
+        accession="b", known_at=ACCEPTED,
+    )
+    assert [t.exclusion_reason for t in remark.transactions if t.code in ("P", "S")] == ["rule_10b5_1_plan"] * 3 + ["derivative_row"]
+
 
 def test_13f_amendment_replaces_only_from_its_own_acceptance_and_is_never_current_exposure() -> None:
     pytest.importorskip("edgar")
@@ -82,6 +99,19 @@ def test_13f_amendment_replaces_only_from_its_own_acceptance_and_is_never_curren
 
     assert change(_utc(2026, 9, 1)).value == 400.0 and change(_utc(2026, 9, 11)).value == 900.0
     assert change(_utc(2026, 7, 1)).status == "unavailable"
+    chain.append(replace(original, accession="0000900002-26-000001", manager_cik="0000900002", known_at=_utc(2026, 12, 1)))
+    assert change(_utc(2026, 9, 11)).detail["skipped_managers"] == 0  # a manager first disclosed later is not skipped
+
+    primary = (directory / "primary_original.xml").read_bytes()
+    info = (directory / "info_original.xml").read_bytes()
+    bad = {
+        "count": (primary.replace(b"<tableEntryTotal>1<", b"<tableEntryTotal>2<"), info),
+        "empty": (primary, info[: info.index(b"<infoTable>")] + b"</informationTable>"),
+        "quantity": (primary, info.replace(b"<sshPrnamt>1000</sshPrnamt>", b"<sshPrnamt></sshPrnamt>")),
+    }
+    for case, (p, i) in bad.items():
+        with pytest.raises(so.SecOwnershipUnavailable, match="information table"):
+            so.parse_13f(p, i, accession="x", form="13F-HR", known_at=_utc(2026, 8, 1), **kwargs)
 
 
 def test_missing_edgartools_is_unavailable_and_filing_documents_are_bounded_fetches(
