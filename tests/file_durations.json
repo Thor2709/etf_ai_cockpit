@@ -371,7 +371,7 @@
     "tests/test_issue0010_validation_classifier.py": 0.0,
     "tests/test_issue0032_broker_architecture.py": 94.6,
     "tests/test_issue0047_feature_driver_contract.py": 0.8,
-    "tests/test_issue0183_receipt_recovery.py": 1.4,
+    "tests/test_issue0186_create_recovery.py": 1.4,
     "tests/test_issue_0007_contradictions.py": 0.4,
     "tests/test_issue_0012_progress.py": 234.5,
     "tests/test_issue_0045_ui_smoke.py": 39.7,
