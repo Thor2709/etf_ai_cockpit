@@ -70,4 +70,5 @@ the sharded xdist gate already decides. Both are removed. Tier O never requires
 the package gate by count; a daily scheduled run on `main` (no changed paths,
 so tier H) runs the full gate instead. A tier-O change whose focused selection
 is the whole suite requires the sharded package gate. Prose outside the policy
-paths is tier O, and risk words no longer lift tests or UI pages to H.
+paths is tier O, and risk words no longer lift tests or UI pages to H. The two
+`plans/` entry points stay in the policy identity hash but are prose tier O.

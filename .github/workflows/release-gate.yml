@@ -428,7 +428,8 @@ jobs:
       fail-fast: false
       matrix:
         platform: [windows, linux]
-        shard: [1, 2, 3, 4, 5, 6, 7, 8]
+        # Eight test shards, and one package job that builds and smoke-tests the package, per platform.
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, package]
         include:
           - platform: windows
             runner: windows-latest
@@ -561,13 +562,14 @@ jobs:
           ETF_COCKPIT_RELEASE_BUILD: "1"
           ETF_COCKPIT_SETUP_PYTHON_CACHE_HIT: ${{ steps.setup-python.outputs.cache-hit }}
           ETF_COCKPIT_XDIST_MAX: "4"
-          # File-level partition of the suite (tests/conftest.py); each shard runs the complete gate.
+          # File-level partition of the suite (tests/conftest.py); the shards run the tests, the package job the rest.
           ETF_COCKPIT_TEST_SHARD: "${{ matrix.shard }}/8"
         run: |
           output="artifacts/release/github-${{ github.sha }}/${{ matrix.platform }}-s${{ matrix.shard }}"
           # Both platforms: one xdist worker per usable runner CPU (capped at 4); serial on one CPU.
           # Collection parity and node-level execution parity keep the two-phase run exhaustive.
           arguments=(--root . --output "$output" --allow-unsigned --xdist-workers auto)
+          if [[ "${{ matrix.shard }}" == package ]]; then arguments+=(--skip-tests); else arguments+=(--skip-package --skip-smoke); fi
           python scripts/release_gate.py "${arguments[@]}"
 
       - name: Publish failure digest

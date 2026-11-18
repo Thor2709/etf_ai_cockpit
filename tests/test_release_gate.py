@@ -191,8 +191,16 @@ def test_workflow_runs_xdist_auto_on_both_platforms() -> None:
     # Eight file-level shards per platform run in parallel; the gate does not wait for preflight,
     # but validation-summary still requires preflight and every shard.
     gate = jobs["release-gate"]
-    assert gate["strategy"]["matrix"]["shard"] == [1, 2, 3, 4, 5, 6, 7, 8]
-    assert gate["strategy"]["matrix"]["shard"] == list(range(1, validation_summary.EXPECTED_SHARD_COUNT + 1))
+    # Plus one package job per platform: it alone builds and smoke-tests the package, the shards only run tests.
+    assert gate["strategy"]["matrix"]["shard"] == [1, 2, 3, 4, 5, 6, 7, 8, "package"]
+    assert gate["strategy"]["matrix"]["shard"][:-1] == list(range(1, validation_summary.EXPECTED_SHARD_COUNT + 1))
+    assert (
+        'if [[ "${{ matrix.shard }}" == package ]]; then arguments+=(--skip-tests); '
+        "else arguments+=(--skip-package --skip-smoke); fi"
+    ) in gate_step["run"]
+    assert "name: release-gate-${{ github.sha }}-${{ matrix.platform }}-s${{ matrix.shard }}" in (
+        root / ".github" / "workflows" / "release-gate.yml"
+    ).read_text(encoding="utf-8")
     assert gate["name"].endswith("shard ${{ matrix.shard }}/8)")
     assert gate["strategy"]["matrix"]["platform"] == ["windows", "linux"]
     assert gate_step["env"]["ETF_COCKPIT_TEST_SHARD"] == "${{ matrix.shard }}/8"

@@ -82,6 +82,7 @@ The active entry points are durable operational policy, not E-exempt chronology.
 Their former bytes remain archived; new session observations stay local/untracked
 and cannot invalidate a frozen head merely by recording progress. Policy/harness
 changes remain H-tier with the complete sharded Linux/Windows packaged gates.
+The two `plans/` entry points stay in the policy identity but are prose tier O.
 Where the contract permits, product lifecycle completion is atomic/automatic
 rather than a serial chain of administrative PRs.
 Generic live convergence executes the synchroniser as a module from the
@@ -180,7 +181,7 @@ upward when classification is unknown.
   evidence reuse.
 - O: ordinary product work. Run focused and affected tests, UI/architecture
   and static checks and source smoke. Prose (`.md`, `.rst`, `.txt`) outside the
-  policy identity paths, `artifacts/`, `docs/architecture/decisions/`,
+  policy identity paths (except the two `plans/` entry points), `artifacts/`, `docs/architecture/decisions/`,
   `docs/codex-config/`, `docs/product-completion/` and `ADR-*` files is O. Risk words in a path
   make product code H, but not tests or UI pages under `src/etf_cockpit/app/`;
   `*_store.py` under `src/` stays H. Every pull
@@ -199,7 +200,7 @@ upward when classification is unknown.
 - H: CI, generator, classifier, policy, persistence, concurrency, canonical
   finance, point-in-time, security, release, programme-control or authority
   changes. Run the complete Linux and Windows packaged gates (8 file-level
-  shards per platform) immediately.
+  test shards and one package build and smoke job per platform) immediately.
 - C: final certification. Run the complete cross-platform certification and
   all package, parity, performance, security, privacy, legal, SBOM and
   signature evidence.
