@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import copy
+import json
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
 import pandas as pd
 
 from etf_cockpit.data import stock_sources as src
+from etf_cockpit.data import stock_fundamentals as store
 from etf_cockpit.data.stock_fundamentals import load_stock_config
 
 CONFIG = load_stock_config()
@@ -170,3 +173,106 @@ def test_edgar_without_user_agent_is_unavailable_with_the_exact_step() -> None:
     assert src.resolve_cik("SU.PA", "ua") is None  # exchange-suffixed symbols have no CIK
     tickers = {"0": {"cik_str": 789019, "ticker": "MSFT"}}
     assert src.resolve_cik("msft", "ua", fetch=lambda _u, _a: tickers) == "0000789019"
+
+
+
+# --- INT-03 statement line items -------------------------------------------------------------------------
+US_BALANCE = {"current_assets": "AssetsCurrent", "current_liabilities": "LiabilitiesCurrent", "receivables": "AccountsReceivableNetCurrent",
+              "inventory": "InventoryNet", "retained_earnings": "RetainedEarningsAccumulatedDeficit", "ppe_net": "PropertyPlantAndEquipmentNet",
+              "goodwill": "Goodwill"}
+US_FLOW = {"sga": "SellingGeneralAndAdministrativeExpense", "rd_expense": "ResearchAndDevelopmentExpense",
+           "stock_based_compensation": "ShareBasedCompensation", "gross_buybacks": "PaymentsForRepurchaseOfCommonStock",
+           "share_issuance": "ProceedsFromIssuanceOfCommonStock"}
+IFRS = {"current_assets": "CurrentAssets", "current_liabilities": "CurrentLiabilities", "receivables": "TradeAndOtherCurrentReceivables",
+        "inventory": "Inventories", "retained_earnings": "RetainedEarnings", "ppe_net": "PropertyPlantAndEquipment", "goodwill": "Goodwill",
+        "sga": "SellingGeneralAndAdministrativeExpense", "rd_expense": "ResearchAndDevelopmentExpense",
+        "stock_based_compensation": "AdjustmentsForSharebasedPayments", "gross_buybacks": "PaymentsToAcquireOrRedeemEntitysShares",
+        "share_issuance": "ProceedsFromIssuingShares"}
+LINE_ITEMS = (*US_BALANCE, *US_FLOW)
+
+
+def _before_line_items(config: dict) -> dict:
+    """The config as it was before the line items: the existing-field outputs must not change."""
+    old = copy.deepcopy(dict(config))
+    for section in ("sec_edgar_concepts", "esef_concepts"):
+        for name in LINE_ITEMS:
+            old[section].pop(name, None)
+    return old
+
+
+def _existing_fields(rows: list[dict]) -> list[dict]:
+    out = []
+    for row in rows:
+        kept = {key: value for key, value in row.items() if key.removesuffix("_currency") not in LINE_ITEMS}
+        status = {key: value for key, value in json.loads(kept.pop("value_status", "") or "{}").items() if key not in LINE_ITEMS}
+        out.append({**kept, **({"value_status": json.dumps(status, sort_keys=True)} if status else {})})
+    return out
+
+
+def _us_line_item_payload() -> dict:
+    payload = _companyfacts()
+    gaap = payload["facts"]["us-gaap"]
+    for offset, concept in enumerate(US_BALANCE.values()):
+        gaap[concept] = {"units": {"USD": [_fact(None, "2025-12-31", 10.0 + offset, "2026-02-10")]}}
+    for offset, concept in enumerate(US_FLOW.values()):
+        gaap[concept] = {"units": {"USD": [_fact("2025-01-01", "2025-03-31", 5.0 + offset, "2025-05-01"),
+                                           _fact("2025-01-01", "2025-06-30", 12.0 + offset, "2025-08-01"),
+                                           _fact("2025-01-01", "2025-12-31", 30.0 + offset, "2026-02-10")]}}
+    return payload
+
+
+def test_edgar_line_items_are_observed_and_a_year_to_date_flow_gives_the_discrete_quarter() -> None:
+    payload = _us_line_item_payload()
+    rows = src.parse_edgar_companyfacts(payload, CONFIG, source_ref="test")
+    by_key = {(row["period_end"], row["period_type"]): row for row in rows}
+    fy = store._row_period(by_key[("2025-12-31", "FY")], {})
+
+    assert {name: fy.status_of(name) for name in LINE_ITEMS} == dict.fromkeys(LINE_ITEMS, "observed")
+    assert by_key[("2025-06-30", "Q")]["gross_buybacks"] == 7.0  # H1 year-to-date 15 - Q1 8
+    assert _existing_fields(rows) == src.parse_edgar_companyfacts(payload, _before_line_items(CONFIG), source_ref="test")
+
+
+def test_edgar_new_tags_never_change_the_existing_fields() -> None:
+    payload = _us_line_item_payload()
+    gaap = payload["facts"]["us-gaap"]
+    del gaap["ShareBasedCompensation"]
+    gaap["Goodwill"]["units"]["USD"][0]["filed"] = "2026-03-15"  # only in a later amendment: never delays the row
+    gaap["InventoryNet"]["units"]["USD"].append(_fact(None, "2025-04-15", 9.0, "2025-05-01"))  # a later end in the Q1 filing
+    gaap["SellingGeneralAndAdministrativeExpense"]["units"]["USD"].append(_fact("2024-01-01", "2024-12-31", 9.0, "2025-02-10"))  # no existing field
+    for concept in ("AssetsCurrent", "LiabilitiesCurrent", "AccountsReceivableNetCurrent", "RetainedEarningsAccumulatedDeficit", "PropertyPlantAndEquipmentNet"):
+        gaap[concept]["units"] = {"EUR": gaap[concept]["units"]["USD"]}  # outnumbers the existing currency
+    rows = src.parse_edgar_companyfacts(payload, CONFIG, source_ref="test")
+    fy = store._row_period(next(row for row in rows if (row["period_end"], row["period_type"]) == ("2025-12-31", "FY")), {})
+
+    assert fy.status_of("goodwill") == "unavailable" and fy.status_of("stock_based_compensation") == "unavailable"
+    assert _existing_fields(rows) == src.parse_edgar_companyfacts(payload, _before_line_items(CONFIG), source_ref="test")
+    assert src.parse_edgar_companyfacts(_companyfacts(), CONFIG, source_ref="test") == src.parse_edgar_companyfacts(
+        _companyfacts(), _before_line_items(CONFIG), source_ref="test")
+
+
+def _esef(concept: str, value: float, known_at: str, *, flow: bool) -> dict:
+    return {"instrument_id": "XX", "taxonomy": "ifrs-full", "concept": concept, "unit": "EUR", "value": value,
+            "start": "2024-01-01" if flow else None, "end": "2024-12-31", "instant": None if flow else "2024-12-31",
+            "known_at": known_at, "dimensions": "", "consolidation_scope": "consolidated"}
+
+
+def test_esef_line_items_are_observed_and_a_later_known_item_never_delays_the_row() -> None:
+    first, later = "2025-03-01T00:00:00.000000+00:00", "2026-03-01T00:00:00.000000+00:00"
+    base = [_esef("Revenue", 100.0, first, flow=True), _esef("EquityAttributableToOwnersOfParent", 50.0, first, flow=False)]
+    items = [_esef(concept, -8.0 if name == "gross_buybacks" else 20.0, first, flow=name in US_FLOW) for name, concept in IFRS.items()]
+    row = src.parse_esef_statement_facts(pd.DataFrame(base + items), CONFIG, source_ref="esef:test")[0]
+    period = store._row_period(row, {})
+
+    assert {name: period.status_of(name) for name in LINE_ITEMS} == dict.fromkeys(LINE_ITEMS, "observed")
+    assert row["gross_buybacks"] == 8.0  # a payment is stored as the positive outflow
+    late = [item if item["concept"] != "Goodwill" else {**item, "known_at": later} for item in items]
+    late_row = src.parse_esef_statement_facts(pd.DataFrame(base + late), CONFIG, source_ref="esef:test")[0]
+    assert "goodwill" not in late_row and late_row["known_at"] == first
+    # Another currency, a year with no existing field and a second annual context for the same end change nothing.
+    sga = _esef("SellingGeneralAndAdministrativeExpense", 9.0, first, flow=True)
+    other = [{**item, "unit": "USD"} for item in late] + [{**sga, "start": "2023-12-25"}, {**sga, "start": "2023-01-01", "end": "2023-12-31"}]
+    rows = src.parse_esef_statement_facts(pd.DataFrame(base + other), CONFIG, source_ref="esef:test")
+    assert [(row["period_end"], row["sga"]) for row in rows] == [("2024-12-31", 20.0)]
+    for facts in (base + late, base + other):
+        old = src.parse_esef_statement_facts(pd.DataFrame(facts), _before_line_items(CONFIG), source_ref="esef:test")
+        assert _existing_fields(src.parse_esef_statement_facts(pd.DataFrame(facts), CONFIG, source_ref="esef:test")) == old

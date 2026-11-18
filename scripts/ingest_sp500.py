@@ -39,7 +39,7 @@ if str(Path(__file__).resolve().parents[1] / "src") not in sys.path:
 import pandas as pd
 import yaml
 
-from etf_cockpit.analysis.stock_metrics import FLOW_FIELDS
+from etf_cockpit.analysis.stock_metrics import FLOW_FIELDS, LINE_ITEM_FIELDS
 from etf_cockpit.core.atomic_io import atomic_write_bytes
 from etf_cockpit.data.sec_cik_history import cik_text, map_cik
 from etf_cockpit.data.sec_pit_facts import acceptance_index, fact_known_at, select_facts
@@ -50,7 +50,7 @@ from etf_cockpit.data.sp500_history import (
 from etf_cockpit.data.stock_fundamentals import (
     PERIOD_COLUMNS, _write, append_period_rows_batch, load_stock_config, store_paths,
 )
-from etf_cockpit.data.stock_sources import IDENTITY_SEC_CONCEPTS, parse_edgar_companyfacts
+from etf_cockpit.data.stock_sources import IDENTITY_SEC_CONCEPTS, parse_edgar_companyfacts, without_line_items
 from etf_cockpit.data.universe_membership import import_licensed_history
 
 
@@ -275,6 +275,10 @@ def _issuer(task: dict) -> dict:
         return {"cik": cik, "status": "failed", "reason": f"{type(exc).__name__}: {exc}", "rows": []}
 
 
+# Statement line items (INT-03) are not bulk-ingested; a store written before them reads them as unreported.
+LINE_ITEM_COLUMNS = (*LINE_ITEM_FIELDS, *(f"{name}_currency" for name in LINE_ITEM_FIELDS))
+
+
 def _fingerprint(row: dict) -> str:
     def clean(value):
         if value is None or (not isinstance(value, (dict, list)) and pd.isna(value)):
@@ -293,9 +297,10 @@ def _read_existing_facts(path: Path) -> pd.DataFrame:
     # The canonical reader treats corruption as empty; ingestion must never
     # replace an unreadable existing store with a partial reconstruction.
     frame = pd.read_parquet(path) if path.exists() else pd.DataFrame(columns=PERIOD_COLUMNS)
-    if not set(PERIOD_COLUMNS) <= set(frame.columns):
+    missing = [column for column in PERIOD_COLUMNS if column not in frame.columns]
+    if set(missing) - set(LINE_ITEM_COLUMNS):
         raise ValueError("existing fundamentals schema incomplete")
-    return frame
+    return frame.assign(**dict.fromkeys(missing, None))
 
 
 def _pending_facts(frame: pd.DataFrame, instrument_id: str, rows: list[dict], *, preserve_vintages: bool = False) -> list[dict]:
@@ -552,7 +557,7 @@ def ingest(config: dict, *, root: Path, workers: int | None = None) -> dict:
             for instrument_id in bindings if instrument_id in existing_by_instrument
         }
         tasks.append({
-            "cik": cik, "config": config, "stock_config": load_stock_config(ROOT),
+            "cik": cik, "config": config, "stock_config": without_line_items(load_stock_config(ROOT)),
             "submissions_member": members[cik], "prepare_fundamentals": facts_error is None,
             "fundamental_targets": [
                 {"instrument_id": instrument_id, "known_at": known}
