@@ -624,3 +624,20 @@ def test_news_context_discloses_timed_event_provenance(monkeypatch):
     assert "available_at_decision_time=True" in text
     assert "context_only=true" in text and "execution_allowed=false" in text
     assert "FUTURE-SENTINEL" not in text
+
+
+def test_8k_earnings_release_gives_a_filing_event_and_an_announcement_event_only_when_printed():
+    from dataclasses import replace
+    from etf_cockpit.data.event_calendar import eight_k_calendar_events
+    from etf_cockpit.data.sec_filing_documents import EightKFiling
+
+    receipt = datetime(2026, 7, 30, 20, 15, tzinfo=timezone.utc)
+    base = EightKFiling("0000777001-26-000010", "8-K", "0000777001", "2026-07-30", receipt, ("2.02", "9.01"), (),
+                        "2026-07-30T20:05:00+00:00", "explicit_in_release", "ab" * 32)
+    events = eight_k_calendar_events(base, "ZZA", ingested_at=receipt)
+    assert [(e.event_type, e.event_time, e.precision) for e in events] == [
+        ("filing", "2026-07-30T20:15:00+00:00", "second"), ("earnings", "2026-07-30T20:05:00+00:00", "minute")]
+    assert {e.available_at for e in events} == {receipt.isoformat()}  # the announcement is known from the filing, not before
+    assert all(validate_event(e).status == "valid_context" for e in events)
+    assert [e.event_type for e in eight_k_calendar_events(replace(base, public_announcement_time="unavailable"), "ZZA", ingested_at=receipt)] == ["filing"]
+    assert eight_k_calendar_events(replace(base, items=("8.01",)), "ZZA", ingested_at=receipt) == []

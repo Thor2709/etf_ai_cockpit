@@ -1,0 +1,52 @@
+<SEC-DOCUMENT>0000777001-26-000004.txt : 20260227
+<SEC-HEADER>0000777001-26-000004.hdr.sgml : 20260227
+<ACCEPTANCE-DATETIME>20260227213000
+ACCESSION NUMBER:		0000777001-26-000004
+CONFORMED SUBMISSION TYPE:	10-K
+PUBLIC DOCUMENT COUNT:		1
+CONFORMED PERIOD OF REPORT:	20251231
+FILED AS OF DATE:		20260227
+DATE AS OF CHANGE:		20260227
+
+FILER:
+
+	COMPANY DATA:
+		COMPANY CONFORMED NAME:			EXAMPLE CORP
+		CENTRAL INDEX KEY:			0000777001
+		STANDARD INDUSTRIAL CLASSIFICATION:	SERVICES-PREPACKAGED SOFTWARE [7372]
+		STATE OF INCORPORATION:			DE
+		FISCAL YEAR END:			1231
+
+	FILING VALUES:
+		FORM TYPE:		10-K
+		SEC ACT:		1934 Act
+		SEC FILE NUMBER:	001-00001
+		FILM NUMBER:		261000002
+</SEC-HEADER>
+<DOCUMENT>
+<TYPE>10-K
+<SEQUENCE>1
+<FILENAME>ex10k.htm
+<DESCRIPTION>10-K
+<TEXT>
+<html><body>
+<p><b>PART I</b></p>
+<p><b>Item 1. Business</b></p>
+<p>Example Corp sells prepackaged software to small businesses in the United States.</p>
+<p><b>Item 1A. Risk Factors</b></p>
+<p>Our results depend on a small number of large customers. The loss of one customer would reduce revenue.</p>
+<p>We face strong competition from larger vendors with greater resources.</p>
+<p><b>Item 1B. Unresolved Staff Comments</b></p>
+<p>None.</p>
+<p><b>Item 2. Properties</b></p>
+<p>We lease one office in Springfield, Illinois.</p>
+<p><b>PART II</b></p>
+<p><b>Item 7. Management's Discussion and Analysis of Financial Condition and Results of Operations</b></p>
+<p>Revenue grew twenty percent in 2025 because existing customers bought more seats.</p>
+<p>Liquidity remained adequate; we hold no debt.</p>
+<p><b>Item 8. Financial Statements and Supplementary Data</b></p>
+<p>See the consolidated financial statements that follow.</p>
+</body></html>
+</TEXT>
+</DOCUMENT>
+</SEC-DOCUMENT>
