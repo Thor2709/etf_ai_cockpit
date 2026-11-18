@@ -77,6 +77,22 @@ Generated with `python scripts/generate_data_dictionary.py`. Regenerate after a 
 | capture_log | source | TEXT | NOT NULL | etf_cockpit/data/universe_membership.py |
 | capture_log | source_id | TEXT | NOT NULL | etf_cockpit/data/universe_membership.py |
 | capture_log | source_kind | TEXT | NOT NULL | etf_cockpit/data/universe_membership.py |
+| chunk_embeddings | <table constraint> | — | PRIMARY KEY (chunk_id, index_version, model_revision) | etf_cockpit/data/document_embeddings.py |
+| chunk_embeddings | chunk_id | TEXT | NOT NULL | etf_cockpit/data/document_embeddings.py |
+| chunk_embeddings | dim | INTEGER | NOT NULL | etf_cockpit/data/document_embeddings.py |
+| chunk_embeddings | index_version | TEXT | NOT NULL | etf_cockpit/data/document_embeddings.py |
+| chunk_embeddings | model_revision | TEXT | NOT NULL | etf_cockpit/data/document_embeddings.py |
+| chunk_embeddings | vector | BLOB | NOT NULL | etf_cockpit/data/document_embeddings.py |
+| chunks | char_end | INTEGER | NOT NULL | etf_cockpit/data/document_chunks.py |
+| chunks | char_start | INTEGER | NOT NULL | etf_cockpit/data/document_chunks.py |
+| chunks | chunk_id | TEXT | PRIMARY KEY | etf_cockpit/data/document_chunks.py |
+| chunks | chunker_version | TEXT | NOT NULL | etf_cockpit/data/document_chunks.py |
+| chunks | document_sha256 | TEXT | NOT NULL | etf_cockpit/data/document_chunks.py |
+| chunks | known_at | TEXT | NOT NULL | etf_cockpit/data/document_chunks.py |
+| chunks | page | INTEGER | NOT NULL | etf_cockpit/data/document_chunks.py |
+| chunks | published_at | TEXT | NOT NULL | etf_cockpit/data/document_chunks.py |
+| chunks | source_id | TEXT | NOT NULL | etf_cockpit/data/document_chunks.py |
+| chunks | text | TEXT | NOT NULL | etf_cockpit/data/document_chunks.py |
 | durable_job_dependencies | <table constraint> | — | CHECK(job_id <> dependency_job_id) | etf_cockpit/data/local_storage.py |
 | durable_job_dependencies | <table constraint> | — | FOREIGN KEY(dependency_job_id) REFERENCES durable_jobs(job_id) ON DELETE CASCADE | etf_cockpit/data/local_storage.py |
 | durable_job_dependencies | <table constraint> | — | FOREIGN KEY(job_id) REFERENCES durable_jobs(job_id) ON DELETE CASCADE | etf_cockpit/data/local_storage.py |
@@ -387,7 +403,7 @@ Generated with `python scripts/generate_data_dictionary.py`. Regenerate after a 
 | configs/stoxx600_universe_v1.yaml | date_added_timezone, entity_type, error_limit, execution_allowed, gleif_isin_column, gleif_lei_column, http_retries, page_size, request_interval, schema_version, scope, share_class_members | schema_version=stoxx600-universe.v1 |
 | configs/strategy_scope.yaml | capability_profiles, exclusion_policy, executable_authority, execution_allowed, instrument_rules, matrix_version, policy_id, policy_version, profile_assignments, schema_version, strategies, ui_surface | matrix_version="2026-07-21"; policy_version="2026-07-21"; schema_version="2.0" |
 | configs/strategy_templates_v1.yaml | default_enabled, execution_allowed, registry_version, rejected_strategy_types, schema_version, templates | registry_version="strategy_templates.v1"; schema_version="1.0" |
-| configs/supply_chain_intake.yaml | components, dependency_lock, policy, registry_version, review_status, schema_version, signature, third_party_notices | registry_version="2026-11-18.1"; schema_version="supply-chain-intake.v1" |
+| configs/supply_chain_intake.yaml | components, dependency_lock, policy, registry_version, review_status, schema_version, signature, third_party_notices | registry_version="2026-11-18.3"; schema_version="supply-chain-intake.v1" |
 | configs/supply_chain_policy.yaml | advisory_intake_exceptions, approved_mitigations, critical_vulnerabilities, dependency_cooldown_days, dependency_lock, emergency_patch_window_hours, end_of_life_policy, missing_license_metadata, parser_dependency_lock, policy_version, schema_version, secret_scan, signature_algorithm, signing_key_env, unclassified_vulnerabilities, update_mode, vulnerability_tool | policy_version="2026-07-17"; schema_version="1.0" |
 | configs/top_n_selection_v1.yaml | bootstrap_count, bootstrap_seed, maximum_top_n, minimum_effective_support, minimum_raw_support, schema_version, tie_break, top_n, utility_name, version, weights | schema_version=top_n_selection.v1; version=top_n_selection_v1 |
 | configs/tuning_v1.yaml | defaults, parameters, schema_version, version | schema_version=1; version=tuning-v1 |
