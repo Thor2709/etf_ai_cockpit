@@ -250,12 +250,13 @@ def test_edgar_new_tags_never_change_the_existing_fields() -> None:
     del gaap["ShareBasedCompensation"], gaap["EarningsPerShareDiluted"]
     gaap["WeightedAverageNumberOfDilutedSharesOutstanding"]["units"]["shares"].append(_fact("2025-01-01", "2025-12-31", 99.0, "2026-02-10"))  # same filing, two values
     gaap["EarningsPerShareDiluted"] = {"units": {"USD/shares": [_fact("2025-01-01", "2025-12-31", 6.0, "2026-02-10"), _fact("2025-01-01", "2025-03-31", 1.5, "2025-05-01"),
-                                                              _fact("2025-01-10", "2025-03-31", 1.4, "2025-05-01"),  # 80 days: not the Q1 row's interval
+                                                              _fact("2025-01-10", "2025-03-31", 1.4, "2025-05-01"),  # 80 days, a start only SG&A uses: not the Q1 row's interval
                                                               _fact("2025-01-01", "bad", 9.0, "2025-05-01")],  # a malformed end is skipped
                                          "EUR/shares": [_fact("2025-01-01", "2025-12-31", 5.0, "2026-02-10")]}}  # same filing, two units
     gaap["Goodwill"]["units"]["USD"][0]["filed"] = "2026-03-15"  # only in a later amendment: never delays the row
     gaap["InventoryNet"]["units"]["USD"].append(_fact(None, "2025-04-15", 9.0, "2025-05-01"))  # a later end in the Q1 filing
     gaap["SellingGeneralAndAdministrativeExpense"]["units"]["USD"].append(_fact("2024-01-01", "2024-12-31", 9.0, "2025-02-10"))  # no existing field
+    gaap["SellingGeneralAndAdministrativeExpense"]["units"]["USD"].append(_fact("2025-01-10", "2025-03-31", 4.0, "2025-05-01"))  # another field's start
     for concept in ("AssetsCurrent", "LiabilitiesCurrent", "AccountsReceivableNetCurrent", "RetainedEarningsAccumulatedDeficit", "PropertyPlantAndEquipmentNet"):
         gaap[concept]["units"] = {"EUR": gaap[concept]["units"]["USD"]}  # outnumbers the existing currency
     rows = src.parse_edgar_companyfacts(payload, CONFIG, source_ref="test")

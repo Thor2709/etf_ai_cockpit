@@ -470,8 +470,8 @@ def parse_edgar_companyfacts(payload: Mapping[str, Any], config: Mapping[str, An
     # (field, quarter end) -> every candidate value; resolved once below so that the outcome never
     # depends on the order in which the filing facts or the chains were visited.
     quarter_candidates: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
-    # (period end, period type) -> the start dates of the intervals that existing facts use for that period
-    row_starts: dict[tuple[str, str], set[str]] = defaultdict(set)
+    # (period end, period type) -> the start date of the interval that sets the row's period_days (a line item never does)
+    row_start: dict[tuple[str, str], str] = {}
 
     def row(end: str, ptype: str) -> dict[str, Any]:
         entry = rows.setdefault(
@@ -496,9 +496,9 @@ def parse_edgar_companyfacts(payload: Mapping[str, Any], config: Mapping[str, An
     def concept_of(name: str, start: str, end: str) -> str | None:
         return selected_flow_concepts.get((name, start, end))
 
-    def put_quarter(name: str, end: str, kind: str, value: float | None, unit: str, filed: Sequence[str], days: int, concepts: set[str | None]) -> None:
+    def put_quarter(name: str, end: str, kind: str, value: float | None, unit: str, filed: Sequence[str], days: int, concepts: set[str | None], start: str) -> None:
         row(end, "Q")
-        quarter_candidates[(name, end)].append({"kind": kind, "value": value, "unit": unit, "filed": list(filed), "days": days, "concepts": concepts})
+        quarter_candidates[(name, end)].append({"kind": kind, "value": value, "unit": unit, "filed": list(filed), "days": days, "concepts": concepts, "start": start})
 
     for name, cumulative in flow_cumulative.items():
         chains: dict[str, list[tuple[str, float, str, str]]] = defaultdict(list)
@@ -512,7 +512,8 @@ def parse_edgar_companyfacts(payload: Mapping[str, Any], config: Mapping[str, An
                 if 345 <= length <= 385:
                     entry = row(end, "FY")
                     entry.setdefault("period_days", length)
-                    row_starts[(end, "FY")].add(start)
+                    if name not in LINE_ITEM_FIELDS:
+                        row_start.setdefault((end, "FY"), start)
                     if unit == "currency_mismatch":
                         entry[f"{name}_currency"] = unit
                     else:
@@ -532,25 +533,27 @@ def parse_edgar_companyfacts(payload: Mapping[str, Any], config: Mapping[str, An
                     step = (date.fromisoformat(end) - date.fromisoformat(previous_end)).days
                     if 75 <= step <= 110:
                         # a derived quarter starts the day after the earlier link ends, as a reported quarter's fact does
-                        row_starts[(end, "Q")].add((date.fromisoformat(previous_end) + timedelta(days=1)).isoformat())
+                        derived_start = (date.fromisoformat(previous_end) + timedelta(days=1)).isoformat()
                         if unit != previous_unit or unit == "currency_mismatch":
-                            put_quarter(name, end, "inferred", None, "currency_mismatch", [filed, previous_filed], step, set())
+                            put_quarter(name, end, "inferred", None, "currency_mismatch", [filed, previous_filed], step, set(), derived_start)
                         else:
-                            put_quarter(name, end, "inferred", value - previous_value, unit, [filed, previous_filed], step, {concept_of(name, start, end), concept_of(name, start, previous_end)})
+                            put_quarter(name, end, "inferred", value - previous_value, unit, [filed, previous_filed], step, {concept_of(name, start, end), concept_of(name, start, previous_end)}, derived_start)
                         previous_end, previous_value, previous_filed, previous_unit = end, value, filed, unit
                     else:
                         previous_end = ""
         # direct discrete quarters reported on their own (3-month facts), visited in a fixed order
         for (start, end), (value, filed, unit) in sorted(cumulative.items()):
             if 75 <= _days(start, end) <= 110:
-                row_starts[(end, "Q")].add(start)
-                put_quarter(name, end, "direct", None if unit == "currency_mismatch" else value, unit, [filed], _days(start, end), {concept_of(name, start, end)})
+                put_quarter(name, end, "direct", None if unit == "currency_mismatch" else value, unit, [filed], _days(start, end), {concept_of(name, start, end)}, start)
 
     for (name, end), candidates in sorted(quarter_candidates.items()):
         entry = row(end, "Q")
         entry["_filed"].extend(item for candidate in candidates for item in candidate["filed"])
         # the duration belongs to the period, not to the value: it stays verified even when the value is conflicted
-        entry.setdefault("period_days", min(candidates, key=lambda candidate: candidate["kind"] != "direct")["days"])
+        first = min(candidates, key=lambda candidate: candidate["kind"] != "direct")
+        entry.setdefault("period_days", first["days"])
+        if name not in LINE_ITEM_FIELDS:
+            row_start.setdefault((end, "Q"), first["start"])
         units = {candidate["unit"] for candidate in candidates}
         if "currency_mismatch" in units or len(units) > 1:
             entry[f"{name}_currency"] = "currency_mismatch"
@@ -585,7 +588,7 @@ def parse_edgar_companyfacts(payload: Mapping[str, Any], config: Mapping[str, An
     lease_parts = {name: collect_instant([name]) for name in concepts.get("lease_parts", [])}
     shares = collect_instant(concepts.get("shares_outstanding", []), shares=True)
     line_items = {name: collect_instant(concepts.get(name, [])) for name in LINE_ITEM_BALANCE_FIELDS}
-    # Per-share items take only a fact whose own interval is the row's (the start date existing facts use for that period),
+    # Per-share items take only a fact whose own interval is the row's (its start date is the one behind the row's period_days),
     # earliest filing first; a year-to-date fact is never differenced, so a quarter reported only year to date stays unavailable.
     per_share: dict[tuple[str, str, str], tuple[float, str, str]] = {}
     per_share_ambiguous: set[tuple[str, str, str]] = set()
@@ -597,7 +600,7 @@ def parse_edgar_companyfacts(payload: Mapping[str, Any], config: Mapping[str, An
                 for fact in facts:
                     start, end, filed = (_valid_filed(fact.get(key)) for key in ("start", "end", "filed"))
                     value = _number(fact.get("val"))
-                    ptype = next((kind for kind in ("Q", "FY") if start in row_starts.get((end, kind), ())), "")
+                    ptype = next((kind for kind in ("Q", "FY") if start and row_start.get((end, kind)) == start), "")
                     if not (ptype and filed) or value is None or not original(end, filed, fact):
                         continue
                     key = (name, end, ptype)
