@@ -7,6 +7,7 @@ established is unavailable or absent, so the consumer fails closed; nothing here
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
+import dataclasses
 from datetime import date, datetime, timedelta, timezone
 import hashlib
 import json
@@ -20,8 +21,15 @@ from etf_cockpit.analysis.decision.opportunity import _opportunity_benchmark_anc
 from etf_cockpit.analysis.decision.shadow_run import _config_hashes, _decision_timestamp
 from etf_cockpit.core.config import AppConfig
 from etf_cockpit.models.calibration import calibrate_forecast_distribution, log_to_simple_return, realised_horizon_return
-from etf_cockpit.portfolio.benchmark_reference import vwce_series_source_hash
-from etf_cockpit.portfolio.benchmark_reference_contract import BenchmarkDefinition
+from etf_cockpit.core.atomic_io import atomic_write_json
+from etf_cockpit.data.provenance import metadata_from_frame
+from etf_cockpit.portfolio.benchmark_reference import (
+    VWCE_BENCHMARK_ID, validate_vwce_reference_series, vwce_series_source_hash,
+)
+from etf_cockpit.portfolio.benchmark_reference_contract import (
+    BenchmarkDefinition, BenchmarkReferenceError, CanonicalBenchmarkRegistry,
+    load_canonical_benchmark_registry, local_benchmark_registry_path,
+)
 from etf_cockpit.portfolio.costs import estimated_cost_bps
 
 HORIZON = "60_sessions"  # the stored forecasts are at PRIMARY_MODEL_HORIZON_DAYS
@@ -120,6 +128,48 @@ def vwce_anchor_series_hash(prices: pd.DataFrame, anchor: BenchmarkDefinition) -
         return None
     frame["date"] = frame["date"].dt.strftime("%Y-%m-%d")
     return vwce_series_source_hash(frame.reset_index(drop=True))
+
+
+def import_vwce_anchor(prices: pd.DataFrame, *, known_at: datetime | None = None, path: Path | None = None) -> Path:
+    """Write a registry whose VWCE anchor is source-backed by the local price rows dated before ``known_at``.
+
+    ``known_at`` is the import instant. The series must pass the VWCE reference contract, else nothing is written."""
+
+    known = (known_at or datetime.now(timezone.utc))
+    if known.tzinfo is None:
+        raise BenchmarkReferenceError("known_at must be timezone-aware")
+    known = known.astimezone(timezone.utc)
+    packaged = load_canonical_benchmark_registry(packaged_only=True)
+    base = next(item for item in packaged.benchmarks if item.benchmark_id == VWCE_BENCHMARK_ID)
+    stamp = known.isoformat()
+    probe = dataclasses.replace(base, known_at=stamp, effective_at=stamp, content_hash="")
+    series_hash = vwce_anchor_series_hash(prices, probe)
+    if series_hash is None:
+        raise BenchmarkReferenceError("VWCE price series unavailable before known_at")
+    frame = prices.loc[prices["etf_id"].astype(str).eq("VWCE")]
+    dates = pd.to_datetime(frame["date"], errors="coerce")
+    if dates.isna().any():
+        raise BenchmarkReferenceError("VWCE series failed the reference contract: invalid_dates")
+    frame = frame.loc[dates.lt(pd.Timestamp(known.date()))].reset_index(drop=True)
+    metadata = dataclasses.replace(
+        metadata_from_frame(frame, source_name="yfinance", source_type="prices", as_of_date=None, currency="EUR"),
+        ingested_at=known,
+    )
+    check = validate_vwce_reference_series(frame, known_at=stamp, provider_metadata=metadata)
+    if check.status != "available":
+        raise BenchmarkReferenceError("VWCE series failed the reference contract: " + ",".join(check.reasons))
+    anchor = dataclasses.replace(
+        probe, status="available", opportunity_anchor=True, source_hashes=(series_hash,), version="1.1.0",
+        methodology="Source-backed: yfinance VWCE.DE adjusted close (ISIN IE00BK5BQT80), EUR, rows before known_at.",
+    )
+    registry = CanonicalBenchmarkRegistry(
+        benchmarks=tuple(anchor if item.benchmark_id == VWCE_BENCHMARK_ID else item for item in packaged.benchmarks),
+        cash_proxies=packaged.cash_proxies, peer_sets=packaged.peer_sets,
+        reference_portfolios=packaged.reference_portfolios, vwce_anchors=packaged.vwce_anchors,
+    )
+    destination = path or local_benchmark_registry_path()
+    atomic_write_json(destination, registry.as_payload())
+    return destination
 
 
 def latest_prior_decision(directory: Path, decision_time: date) -> dict[str, object] | None:
