@@ -76,6 +76,8 @@ sec_edgar_concepts:
   stock_based_compensation: [ShareBasedCompensation]
   gross_buybacks: [PaymentsForRepurchaseOfCommonStock]
   share_issuance: [ProceedsFromIssuanceOfCommonStock]
+  eps_diluted: [EarningsPerShareDiluted]
+  shares_diluted: [WeightedAverageNumberOfDilutedSharesOutstanding]
 
 sec_edgar_rules:
   # A fact for an earlier period than the latest period in its filing is a
@@ -132,6 +134,8 @@ esef_concepts:
   stock_based_compensation: [AdjustmentsForSharebasedPayments]
   gross_buybacks: [PaymentsToAcquireOrRedeemEntitysShares]
   share_issuance: [ProceedsFromIssuingShares]
+  eps_diluted: [DilutedEarningsLossPerShare]
+  shares_diluted: [AdjustedWeightedAverageShares]
 
 esef_rules:
   # a share count is accepted only when every filing that reports the date agrees within this relative tolerance

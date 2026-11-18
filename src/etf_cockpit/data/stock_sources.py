@@ -22,7 +22,9 @@ from typing import Any
 
 import pandas as pd
 
-from etf_cockpit.analysis.stock_metrics import BALANCE_FIELDS, FLOW_FIELDS, LINE_ITEM_BALANCE_FIELDS, LINE_ITEM_FIELDS, LINE_ITEM_FLOW_FIELDS
+from etf_cockpit.analysis.stock_metrics import (
+    BALANCE_FIELDS, FLOW_FIELDS, LINE_ITEM_BALANCE_FIELDS, LINE_ITEM_FIELDS, LINE_ITEM_FLOW_FIELDS, LINE_ITEM_PER_SHARE_FIELDS,
+)
 from etf_cockpit.core.paths import STATEMENT_FACTS_PATH
 from etf_cockpit.data.yfinance_provider import classify_provider_error
 
@@ -311,6 +313,9 @@ def _days(start: str, end: str) -> int:
     return (date.fromisoformat(end) - date.fromisoformat(start)).days
 
 
+_PER_SHARE_UNIT = {"eps_diluted": re.compile(r"^[A-Z]{3}/shares$"), "shares_diluted": re.compile(r"^shares$")}
+
+
 def without_line_items(config: Mapping[str, Any]) -> dict[str, Any]:
     """The stock config without the statement line-item concepts (INT-03)."""
 
@@ -573,6 +578,28 @@ def parse_edgar_companyfacts(payload: Mapping[str, Any], config: Mapping[str, An
     lease_parts = {name: collect_instant([name]) for name in concepts.get("lease_parts", [])}
     shares = collect_instant(concepts.get("shares_outstanding", []), shares=True)
     line_items = {name: collect_instant(concepts.get(name, [])) for name in LINE_ITEM_BALANCE_FIELDS}
+    # Per-share items take only a fact reported for the period itself (a quarter or a fiscal year), earliest filing first; a
+    # year-to-date fact is never differenced, so a quarter reported only year to date stays unavailable.
+    per_share: dict[tuple[str, str, str], tuple[float, str, str]] = {}
+    per_share_ambiguous: set[tuple[str, str, str]] = set()
+    for name in LINE_ITEM_PER_SHARE_FIELDS:
+        for concept_name in concepts.get(name, []):
+            for unit, facts in ((gaap.get(concept_name) or {}).get("units") or {}).items():
+                if not _PER_SHARE_UNIT[name].match(unit):
+                    continue
+                for fact in facts:
+                    start, end, filed, value = _valid_filed(fact.get("start")), fact.get("end"), _valid_filed(fact.get("filed")), _number(fact.get("val"))
+                    if not (start and end and filed) or value is None or not original(end, filed, fact):
+                        continue
+                    length = _days(start, end)
+                    key = (name, end, "Q" if 75 <= length <= 110 else "FY" if 345 <= length <= 385 else "")
+                    if not key[2]:
+                        continue
+                    if key not in per_share or filed < per_share[key][1]:
+                        per_share[key] = (value, filed, unit)
+                        per_share_ambiguous.discard(key)
+                    elif filed == per_share[key][1] and value != per_share[key][0]:
+                        per_share_ambiguous.add(key)  # one filing, two values for the period: nothing is guessed
 
     for (end, ptype), entry in list(rows.items()):
         def pick(series: Mapping[str, tuple[float, str, str]]) -> tuple[float, str, str] | None:
@@ -688,6 +715,11 @@ def parse_edgar_companyfacts(payload: Mapping[str, Any], config: Mapping[str, An
         if not filed:
             continue
         entry["known_at"] = max(filed)
+        # A per-share item never moves the row's known_at: it joins only when filed with, or before, the row's other facts.
+        for name in LINE_ITEM_PER_SHARE_FIELDS:
+            item = per_share.get((name, *key))
+            if item is not None and (name, *key) not in per_share_ambiguous and item[1] <= entry["known_at"]:
+                entry[name], entry[f"{name}_currency"] = item[0], item[2]
         if not any(name in entry for name in FLOW_FIELDS + BALANCE_FIELDS) and "value_status" not in entry:
             continue
         output.append(entry)
@@ -893,6 +925,8 @@ def parse_esef_statement_facts(facts: pd.DataFrame, config: Mapping[str, Any], *
         return bool(_CURRENCY_UNIT.match(unit))
 
     flow = {name: collect(name, kind="flow", unit_ok=is_currency) for name in FLOW_FIELDS if concepts.get(name)}
+    flow |= {name: collect(name, kind="flow", unit_ok=lambda unit, name=name: _PER_SHARE_UNIT[name].match(unit) is not None)
+             for name in LINE_ITEM_PER_SHARE_FIELDS if concepts.get(name)}
     instant_names = ("equity_parent", "minority_interest", "total_assets", "total_liabilities", "cash", "debt_total", "debt_noncurrent", "debt_current", "lease_total", "lease_noncurrent", "lease_current", *LINE_ITEM_BALANCE_FIELDS)
     instant = {name: collect(name, kind="instant", unit_ok=is_currency) for name in instant_names if concepts.get(name)}
     if concepts.get("shares_outstanding"):
@@ -908,7 +942,7 @@ def parse_esef_statement_facts(facts: pd.DataFrame, config: Mapping[str, Any], *
             length = _days(start, end)
             if not 345 <= length <= 385:
                 continue
-            if name in LINE_ITEM_FLOW_FIELDS:
+            if name in LINE_ITEM_FLOW_FIELDS + LINE_ITEM_PER_SHARE_FIELDS:
                 line_items[end].append((name, abs(value) if name in absolute_fields else value, unit, known, length))
                 continue
             entry = rows.setdefault(

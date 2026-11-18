@@ -187,8 +187,10 @@ IFRS = {"current_assets": "CurrentAssets", "current_liabilities": "CurrentLiabil
         "inventory": "Inventories", "retained_earnings": "RetainedEarnings", "ppe_net": "PropertyPlantAndEquipment", "goodwill": "Goodwill",
         "sga": "SellingGeneralAndAdministrativeExpense", "rd_expense": "ResearchAndDevelopmentExpense",
         "stock_based_compensation": "AdjustmentsForSharebasedPayments", "gross_buybacks": "PaymentsToAcquireOrRedeemEntitysShares",
-        "share_issuance": "ProceedsFromIssuingShares"}
-LINE_ITEMS = (*US_BALANCE, *US_FLOW)
+        "share_issuance": "ProceedsFromIssuingShares", "eps_diluted": "DilutedEarningsLossPerShare", "shares_diluted": "AdjustedWeightedAverageShares"}
+# per-share items: (US-GAAP concept, unit); neither is a currency amount and neither is ever differenced year to date
+US_PER_SHARE = {"eps_diluted": ("EarningsPerShareDiluted", "USD/shares"), "shares_diluted": ("WeightedAverageNumberOfDilutedSharesOutstanding", "shares")}
+LINE_ITEMS = (*US_BALANCE, *US_FLOW, *US_PER_SHARE)
 
 
 def _before_line_items(config: dict) -> dict:
@@ -218,6 +220,10 @@ def _us_line_item_payload() -> dict:
         gaap[concept] = {"units": {"USD": [_fact("2025-01-01", "2025-03-31", 5.0 + offset, "2025-05-01"),
                                            _fact("2025-01-01", "2025-06-30", 12.0 + offset, "2025-08-01"),
                                            _fact("2025-01-01", "2025-12-31", 30.0 + offset, "2026-02-10")]}}
+    for offset, (concept, unit) in enumerate(US_PER_SHARE.values()):
+        gaap[concept] = {"units": {unit: [_fact("2025-01-01", "2025-03-31", 1.5 + offset, "2025-05-01"),
+                                          _fact("2025-01-01", "2025-06-30", 3.0 + offset, "2025-08-01"),  # year to date only: no Q2 fact
+                                          _fact("2025-01-01", "2025-12-31", 6.0 + offset, "2026-02-10")]}}
     return payload
 
 
@@ -229,13 +235,19 @@ def test_edgar_line_items_are_observed_and_a_year_to_date_flow_gives_the_discret
 
     assert {name: fy.status_of(name) for name in LINE_ITEMS} == dict.fromkeys(LINE_ITEMS, "observed")
     assert by_key[("2025-06-30", "Q")]["gross_buybacks"] == 7.0  # H1 year-to-date 15 - Q1 8
+    # A per-share fact is never differenced and keeps its own unit: Q1 is reported, Q2 is only year to date, FY is reported.
+    assert (by_key[("2025-03-31", "Q")]["eps_diluted"], by_key[("2025-03-31", "Q")]["eps_diluted_currency"]) == (1.5, "USD/shares")
+    assert by_key[("2025-12-31", "FY")]["shares_diluted_currency"] == "shares" and by_key[("2025-12-31", "FY")]["currency"] == "USD"
+    q2 = store._row_period(by_key[("2025-06-30", "Q")], {})
+    assert {q2.status_of("eps_diluted"), q2.status_of("shares_diluted")} == {"unavailable"} and "eps_diluted" not in by_key[("2025-06-30", "Q")]
     assert _existing_fields(rows) == src.parse_edgar_companyfacts(payload, _before_line_items(CONFIG), source_ref="test")
 
 
 def test_edgar_new_tags_never_change_the_existing_fields() -> None:
     payload = _us_line_item_payload()
     gaap = payload["facts"]["us-gaap"]
-    del gaap["ShareBasedCompensation"]
+    del gaap["ShareBasedCompensation"], gaap["EarningsPerShareDiluted"]
+    gaap["WeightedAverageNumberOfDilutedSharesOutstanding"]["units"]["shares"].append(_fact("2025-01-01", "2025-12-31", 99.0, "2026-02-10"))  # same filing, two values
     gaap["Goodwill"]["units"]["USD"][0]["filed"] = "2026-03-15"  # only in a later amendment: never delays the row
     gaap["InventoryNet"]["units"]["USD"].append(_fact(None, "2025-04-15", 9.0, "2025-05-01"))  # a later end in the Q1 filing
     gaap["SellingGeneralAndAdministrativeExpense"]["units"]["USD"].append(_fact("2024-01-01", "2024-12-31", 9.0, "2025-02-10"))  # no existing field
@@ -244,14 +256,14 @@ def test_edgar_new_tags_never_change_the_existing_fields() -> None:
     rows = src.parse_edgar_companyfacts(payload, CONFIG, source_ref="test")
     fy = store._row_period(next(row for row in rows if (row["period_end"], row["period_type"]) == ("2025-12-31", "FY")), {})
 
-    assert fy.status_of("goodwill") == "unavailable" and fy.status_of("stock_based_compensation") == "unavailable"
+    assert {fy.status_of(name) for name in ("goodwill", "stock_based_compensation", "eps_diluted", "shares_diluted")} == {"unavailable"}
     assert _existing_fields(rows) == src.parse_edgar_companyfacts(payload, _before_line_items(CONFIG), source_ref="test")
     assert src.parse_edgar_companyfacts(_companyfacts(), CONFIG, source_ref="test") == src.parse_edgar_companyfacts(
         _companyfacts(), _before_line_items(CONFIG), source_ref="test")
 
 
-def _esef(concept: str, value: float, known_at: str, *, flow: bool) -> dict:
-    return {"instrument_id": "XX", "taxonomy": "ifrs-full", "concept": concept, "unit": "EUR", "value": value,
+def _esef(concept: str, value: float, known_at: str, *, flow: bool, unit: str = "EUR") -> dict:
+    return {"instrument_id": "XX", "taxonomy": "ifrs-full", "concept": concept, "unit": unit, "value": value,
             "start": "2024-01-01" if flow else None, "end": "2024-12-31", "instant": None if flow else "2024-12-31",
             "known_at": known_at, "dimensions": "", "consolidation_scope": "consolidated"}
 
@@ -259,7 +271,8 @@ def _esef(concept: str, value: float, known_at: str, *, flow: bool) -> dict:
 def test_esef_line_items_are_observed_and_a_later_known_item_never_delays_the_row() -> None:
     first, later = "2025-03-01T00:00:00.000000+00:00", "2026-03-01T00:00:00.000000+00:00"
     base = [_esef("Revenue", 100.0, first, flow=True), _esef("EquityAttributableToOwnersOfParent", 50.0, first, flow=False)]
-    items = [_esef(concept, -8.0 if name == "gross_buybacks" else 20.0, first, flow=name in US_FLOW) for name, concept in IFRS.items()]
+    items = [_esef(concept, -8.0 if name == "gross_buybacks" else 20.0, first, flow=name in (*US_FLOW, *US_PER_SHARE),
+                   unit="EUR/shares" if name == "eps_diluted" else "shares" if name == "shares_diluted" else "EUR") for name, concept in IFRS.items()]
     row = src.parse_esef_statement_facts(pd.DataFrame(base + items), CONFIG, source_ref="esef:test")[0]
     period = store._row_period(row, {})
 
