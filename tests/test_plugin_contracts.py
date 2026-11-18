@@ -153,8 +153,9 @@ def test_invalid_plugin_policy_fails_closed_without_disabling_core_contracts(tmp
 
 @pytest.mark.parametrize("module", ["skfolio", "arch", "statsmodels.api", "lightgbm", "scipy.optimize", "pypdf"])
 def test_optional_quant_and_pdf_packages_import_without_network(module: str) -> None:
-    if importlib.util.find_spec(module.split(".")[0]) is None:
-        pytest.skip(f"{module} is not installed")
+    root = module.split(".")[0]
+    if importlib.util.find_spec(root) is None:
+        pytest.skip(f"could not import {root!r}: optional extra not installed")
     # A fresh process, so the first import of the package runs under the socket probe.
     code = (
         "import importlib, sys\n"
