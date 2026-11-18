@@ -166,6 +166,7 @@ class SignalService:
             else pd.DataFrame()
         )
         structure_caps = _load_structure_caps(self.config.universe.enabled_ids, effective_date, config=self.config)
+        forecast_history = load_forecast_history()
         signals = generate_signals(
             self.config,
             latest,
@@ -177,7 +178,7 @@ class SignalService:
             forecast_scores=forecast_component_maps(forecasts, decision_time=effective_date),
             forecast_distributions=forecast_return_distributions(forecasts, decision_time=effective_date),
             structure_confidence_caps=structure_caps,
-            historical_forecasts=load_forecast_history(),
+            historical_forecasts=forecast_history,
             calibration_prices=prices,
             decision_time=decision_time,
         )
@@ -187,6 +188,9 @@ class SignalService:
             decision_time=effective_date,
             latest_features=latest,
             price_history=prices,
+            forecasts=forecasts,
+            forecast_history=forecast_history,
+            holdings=holdings,
         )
         return signals
 
@@ -198,6 +202,9 @@ def _run_decision_shadow_guard(
     decision_time: date,
     latest_features: pd.DataFrame | None = None,
     price_history: pd.DataFrame | None = None,
+    forecasts: pd.DataFrame | None = None,
+    forecast_history: pd.DataFrame | None = None,
+    holdings: pd.DataFrame | None = None,
 ) -> None:
     """Publish decision v1 beside v3 without allowing shadow errors to escape."""
 
@@ -217,12 +224,15 @@ def _run_decision_shadow_guard(
                     liquidity_reports[instrument] = None
         from etf_cockpit.analysis.decision.shadow_run import run_decision_shadow
 
+        merit, failures = _absolute_merit(config, decision_time, price_history, forecasts, forecast_history, holdings)
         run_decision_shadow(
             config,
             signals,
             decision_time=decision_time,
             latest_features=latest_features,
             liquidity_reports=liquidity_reports,
+            failures=failures,
+            absolute_merit=merit,
         )
     except Exception as exc:
         try:
@@ -242,3 +252,36 @@ def _sanitize_unavailable_relative_features(features: pd.DataFrame) -> None:
     for column in ("relative_strength_60d", "relative_strength_120d"):
         if column in features.columns:
             features[column] = float("nan")
+
+
+def _absolute_merit(
+    config: AppConfig,
+    decision_time: date,
+    prices: pd.DataFrame | None,
+    forecasts: pd.DataFrame | None,
+    history: pd.DataFrame | None,
+    holdings: pd.DataFrame | None,
+) -> tuple[dict[str, dict[str, object]] | None, list[dict[str, str]]]:
+    """The INT-09 bridge evidence; a missing input keeps today's output, a failure is recorded, not raised."""
+
+    if prices is None or forecasts is None or history is None:
+        return None, []
+    try:
+        from etf_cockpit.application.absolute_merit import (
+            build_absolute_merit,
+            latest_prior_decision,
+            positions_from_holdings,
+        )
+        from etf_cockpit.core.paths import LOG_DIR
+
+        return build_absolute_merit(
+            forecast_return_distributions(forecasts, decision_time=decision_time),
+            history,
+            prices,
+            config=config,
+            decision_time=decision_time,
+            prior=latest_prior_decision(LOG_DIR, decision_time),
+            positions=positions_from_holdings(holdings, config.universe.enabled_ids) if holdings is not None else None,
+        ), []
+    except Exception as exc:
+        return None, [{"instrument": "universe", "reason_code": f"ABSOLUTE_MERIT_FAILED:{type(exc).__name__}"}]

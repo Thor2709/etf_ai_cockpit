@@ -22,3 +22,5 @@ absolute_merit:
   uncertainty_hurdle: 0.02
   hysteresis_band: 0.002
   maximum_evidence_age_days: 5
+  # Level of the empirical |realised - expected| quantile used as the forecast uncertainty margin.
+  uncertainty_margin_quantile: 0.8

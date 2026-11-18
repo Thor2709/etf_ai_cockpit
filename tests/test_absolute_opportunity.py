@@ -491,3 +491,73 @@ def test_candidate_with_insufficient_status_cannot_be_a_candidate_buy(
     assert result.status == "Insufficient Evidence"
     assert result.decision_state == "SOURCE_UNAVAILABLE"
     assert result.decision_reason_code == "RELATIVE_EVIDENCE_INSUFFICIENT"
+
+
+def test_bridge_evidence_reaches_the_six_states_through_the_decision_shadow(
+    available_vwce_registry: CanonicalBenchmarkRegistry, monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    import dataclasses
+    import json
+    import math
+
+    import pandas as pd
+
+    from etf_cockpit.analysis.decision import shadow_run
+    from etf_cockpit.application import absolute_merit
+    from etf_cockpit.core.config import load_config
+    from etf_cockpit.portfolio.costs import estimated_cost_bps
+
+    config = load_config()
+    sessions = pd.bdate_range("2026-01-01", periods=160)
+    decision = sessions[-1].date()
+    realised = 60 * math.log1p(0.001)  # every 60-session outcome of the synthetic prices
+    cost = {name: estimated_cost_bps(config, name, 10_000.0) / 1e4 for name in ("VWCE", "UCG")}
+    hold = 0.03 - cost["VWCE"] + cost["UCG"] + 0.0185  # net excess 0.0185: inside the band below the hurdle
+    forecasts = {"VWCE": 0.03, "LYP6": 0.10, "SPYK": 0.04, "SXRJ_EMU_SMALL": 0.10, "EXX1": 0.10, "MSFT": 0.10, "UCG": hold}
+    prices, history, distributions = [], [], {}
+    for name, forecast in forecasts.items():
+        prices.append(pd.DataFrame({"etf_id": name, "date": sessions, "close": 100 * 1.001 ** pd.RangeIndex(160),
+                                    "adjusted_close": 100 * 1.001 ** pd.RangeIndex(160)}))
+        miss = [name == "SXRJ_EMU_SMALL" or k % 5 == 0 for k in range(99)]  # ~80% band coverage, or none
+        history.append(pd.DataFrame({
+            "etf_id": name, "model_name": "baseline", "model_id": "model-A", "model_version": "v1", "target_id": "target-1",
+            "prediction_id": [f"{name}-{k}" for k in range(99)], "fold_id": "wf-01", "out_of_fold": True,
+            "forecast_date": sessions[:99], "created_at": sessions[:99] + pd.Timedelta(hours=9), "horizon_days": 60,
+            "expected_return": realised, "q50_return": realised, "status": "ok", "model_allowed_in_score": True,
+            "q10_return": [realised + (0.1 if m else -0.05) for m in miss], "q90_return": [realised + (0.2 if m else 0.05) for m in miss],
+        }))
+        q50 = math.log1p(forecast)
+        distributions[name] = {"status": "available", "model_name": "baseline", "model_id": "model-A", "model_version": "v1",
+                               "target_id": "target-1", "horizon_days": 60, "q10_return": q50 - 0.05, "q50_return": q50,
+                               "q90_return": q50 + 0.05, "forecast_date": sessions[-2].isoformat()}
+    prices, history = pd.concat(prices, ignore_index=True), pd.concat(history, ignore_index=True)
+    anchor = dataclasses.replace(available_vwce_registry.benchmarks[0], known_at=sessions[100].isoformat() + "Z", source_hashes=("0" * 64,))
+    anchor = dataclasses.replace(anchor, source_hashes=(absolute_merit.vwce_anchor_series_hash(prices, anchor),))
+    monkeypatch.setattr(opportunity_module, "load_canonical_benchmark_registry", lambda: CanonicalBenchmarkRegistry(benchmarks=(anchor,)))
+    (tmp_path / "decision_opportunity_prior.json").write_text(json.dumps({
+        "decision_time": f"{sessions[-2].date()}T23:59:59Z", "config_hashes": shadow_run._config_hashes(),
+        "results": [{"instrument": "UCG", "decision_state": "HOLD_NO_TRADE", "absolute_horizon": "60_sessions"}],
+    }), encoding="utf-8")
+    holdings = pd.DataFrame({"as_of_date": [sessions[-2].date()], "etf_id": ["UCG"], "units": [0.0]})
+    positions = absolute_merit.positions_from_holdings(holdings, list(forecasts))
+    stamp = f"{decision}T00:00:00Z"
+    positions["UCG"] = {"status": "available", "held": True, "currency": "EUR", "friction_unit": "decimal_fraction",
+                        "cost_basis": 100.0, "mark_price": 101.0, "friction": 0.001,
+                        "effective_at": stamp, "known_at": stamp, "source_hash": "e" * 64}
+
+    merit = absolute_merit.build_absolute_merit(
+        distributions, history, prices, config=config, decision_time=decision,
+        prior=absolute_merit.latest_prior_decision(tmp_path, decision), positions=positions,
+    )
+    vetoed = (SimpleNamespace(status="BLOCKED", passed=False, reason_code="ECONOMIC_RISK_GATE"),)
+    candidates = [{**_candidate(name, float(rank), gate_results=vetoed if name == "EXX1" else ()), "score_authority": ScoreAuthorityFlags()}
+                  for rank, name in enumerate(forecasts) if name != "VWCE"]
+    path = shadow_run.run_decision_shadow(config, [], decision_time=decision, output_directory=tmp_path,
+                                          candidates=candidates, absolute_merit=merit)
+
+    results = {row["instrument"]: row for row in json.loads(path.read_text(encoding="utf-8"))["results"]}
+    assert {name: row["decision_state"] for name, row in results.items()} == {
+        "LYP6": "CANDIDATE_BUY", "SPYK": "POSITIVE_BUT_INSUFFICIENT_MARGIN", "SXRJ_EMU_SMALL": "RETURN_NOT_CALIBRATED",
+        "EXX1": "ECONOMIC_RISK_VETO", "MSFT": "SOURCE_UNAVAILABLE", "UCG": "HOLD_NO_TRADE"}
+    assert results["MSFT"]["decision_reason_code"] == "FX_CONVERSION_UNAVAILABLE"  # a USD forecast without fx evidence
+    assert merit["UCG"]["absolute_merit_evidence"]["previous_decision"]["state"] == "HOLD_NO_TRADE"

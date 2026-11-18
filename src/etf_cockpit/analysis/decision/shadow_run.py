@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, is_dataclass
+from dataclasses import asdict, is_dataclass, replace
 from datetime import date, datetime, time, timezone
 import hashlib
 import math
@@ -12,6 +12,7 @@ from typing import Mapping, Sequence
 
 import pandas as pd
 
+from etf_cockpit.analysis.decision.contracts import ScoreAuthorityFlags
 from etf_cockpit.analysis.decision.domains import load_domain_registry
 from etf_cockpit.analysis.decision.etf import (
     _exposure_scored_metrics,
@@ -71,6 +72,7 @@ def run_decision_shadow(
     failures: Sequence[Mapping[str, str]] = (),
     expected_index_returns: Mapping[str, Mapping[str, object]] | None = None,
     structural_drags: Mapping[str, Mapping[str, object]] | None = None,
+    absolute_merit: Mapping[str, Mapping[str, object]] | None = None,
 ) -> Path:
     """Write one immutable-by-run versioned JSON companion to the v3 signal log.
 
@@ -109,6 +111,9 @@ def run_decision_shadow(
                 }
             )
 
+    if absolute_merit is not None:
+        candidate_rows = [_with_absolute_merit(candidate, absolute_merit.get(str(candidate.get("instrument"))))
+                          for candidate in candidate_rows]
     config_hashes = _config_hashes()
     try:
         results = build_opportunity_results(
@@ -165,6 +170,20 @@ def run_decision_shadow(
     destination.parent.mkdir(parents=True, exist_ok=True)
     atomic_write_json(destination, payload)
     return destination
+
+
+def _with_absolute_merit(candidate: Mapping[str, object], merit: Mapping[str, object] | None) -> Mapping[str, object]:
+    """A candidate copy carrying the bridge evidence (INT-09); its other authority flags stay."""
+
+    if merit is None:
+        return candidate
+    authority = candidate.get("score_authority") or _member(candidate.get("assessment"), "score_authority")
+    flags = authority if isinstance(authority, ScoreAuthorityFlags) else ScoreAuthorityFlags()
+    return {
+        **candidate,
+        "absolute_merit_evidence": merit["absolute_merit_evidence"],
+        "score_authority": replace(flags, forecast_calibrated=merit["forecast_calibrated"] is True),
+    }
 
 
 def _compose_universe(
