@@ -55,3 +55,13 @@ def test_supply_chain_intake_signature_is_detached_and_keyed() -> None:
     assert signature["algorithm"] == "HMAC-SHA256"
     assert signature["key_id"] == "test"
     assert "local-test-key" not in json.dumps(signature)
+
+
+def test_quant_and_pdf_packages_have_exact_pinned_intake_records() -> None:
+    root = Path(__file__).resolve().parents[1]
+    pins = {line.split(";")[0].strip() for line in (root / "requirements-quant.txt").read_text(encoding="utf-8").splitlines() if "==" in line}
+    pins |= {line.strip() for line in (root / "requirements-release-parsers.txt").read_text(encoding="utf-8").splitlines() if line.startswith(("pypdf==", "lxml=="))}
+    pins |= {line.strip() for line in (root / "requirements-sec.txt").read_text(encoding="utf-8").splitlines() if "==" in line}
+    refs = {row["exact_ref"] for row in load_supply_chain_intake()["components"]}
+
+    assert len(pins) == 8 and pins <= refs

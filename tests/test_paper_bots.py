@@ -114,6 +114,7 @@ def _run_fixture(
     *,
     config_path: Path | None = None,
     binding_rows: list[dict[str, object]] | None = None,
+    **run_kwargs,
 ):
     derived = tmp_path / "data" / "derived"
     derived.mkdir(parents=True, exist_ok=True)
@@ -152,6 +153,7 @@ def _run_fixture(
         root=tmp_path,
         config_path=config_path or paper_bots.PAPER_BOTS_CONFIG_PATH,
         now=_NOW,
+        **run_kwargs,
     )
 
 
@@ -800,3 +802,140 @@ def test_the_shipped_baseline_version_is_read_from_the_score_policy_and_a_litera
     unknown.write_text(text.replace("score_engine_v3.formula_version", "other.thing"), encoding="utf-8")
     with pytest.raises(ValueError):
         paper_bots._load_config(unknown)
+
+
+# ISSUE-0196: opt-in optimiser challenger B2-o ---------------------------------------------------------------------------
+
+
+def _challenger_run(monkeypatch, tmp_path: Path, name: str, engines=None):
+    now = _NOW
+    known_at = now - timedelta(minutes=5)
+    rows = _rows(known_at)
+    root = tmp_path / name
+    root.mkdir()
+    kwargs = {} if engines is None else {"challenger_engines": engines}
+    return _run_fixture(monkeypatch, root, rows, _scoreboard(rows, known_at), now, **kwargs)
+
+
+def test_optimiser_challenger_is_opt_in_separate_and_fails_closed(monkeypatch, tmp_path: Path) -> None:
+    calls: list[tuple[list[str], datetime]] = []
+
+    def engine(ids, cutoff):
+        calls.append((list(ids), cutoff))
+        return {"AAA": 0.12, "BBB": 0.08}
+
+    plain = _challenger_run(monkeypatch, tmp_path, "plain")
+    assert not any(record["bot_family"] == "B2-o" for record in plain.records)
+
+    with_engine = _challenger_run(monkeypatch, tmp_path, "engine", {"sk_min_cvar": engine})
+    by_family = {record["bot_family"]: record for record in with_engine.records}
+    challenger = by_family["B2-o"]
+    assert challenger["status"] == "available" and challenger["execution_allowed"] is False
+    assert challenger["bot_id"].startswith("B2-o-") and challenger["bot_id"] != by_family["B2"]["bot_id"]
+    assert challenger["targets"] == pytest.approx({"VWCE": 0.8, "AAA": 0.12, "BBB": 0.08})
+    assert sum(challenger["targets"].values()) == pytest.approx(1.0, abs=1e-12)
+    assert [ids for ids, _cutoff in calls] == [["AAA", "BBB"]]  # B2's own CANDIDATE_BUY rule picks the set
+    assert calls[0][1] == _NOW
+    # B0-B3 records are equal with and without the challenger.
+    assert tuple(r for r in with_engine.records if r["bot_family"] != "B2-o") == plain.records
+
+    for name, engines in {
+        "missing": {},
+        "none": {"sk_min_cvar": lambda ids, cutoff: None},
+        "negative": {"sk_min_cvar": lambda ids, cutoff: {"AAA": 0.25, "BBB": -0.05}},
+        "wrong_sum": {"sk_min_cvar": lambda ids, cutoff: {"AAA": 0.1, "BBB": 0.05}},
+        "unknown_id": {"sk_min_cvar": lambda ids, cutoff: {"AAA": 0.1, "ZZZ": 0.1}},
+    }.items():
+        result = _challenger_run(monkeypatch, tmp_path, name, engines)
+        record = next(item for item in result.records if item["bot_family"] == "B2-o")
+        assert record["status"] == "unavailable", name
+        assert str(record["reason"]).startswith("NO_NEW_TRADE"), name
+        assert record["targets"] == {} and record["execution_allowed"] is False
+        assert result.status == "partial"
+        assert tuple(r for r in result.records if r["bot_family"] != "B2-o") == plain.records
+
+
+def test_optimiser_challenger_engine_sums_to_the_sleeve_within_caps_without_look_ahead() -> None:
+    pytest.importorskip("skfolio")
+    import numpy as np
+
+    ids = ["AAA", "BBB", "CCC", "DDD"]
+    days = pd.bdate_range("2026-01-01", periods=160)
+    rng = np.random.default_rng(7)
+    frames = []
+    for index, instrument in enumerate(ids):
+        steps = rng.normal(0.0004, 0.006 + 0.002 * index, len(days))
+        frames.append(pd.DataFrame({
+            "date": days,
+            "instrument_id": instrument,
+            "adjusted_close": 100.0 * np.cumprod(1.0 + steps),
+            "known_at": [_time(day.to_pydatetime().replace(tzinfo=timezone.utc) + timedelta(hours=20)) for day in days],
+        }))
+    prices = pd.concat(frames, ignore_index=True)
+    cutoff = datetime(2026, 8, 1, 12, 0, tzinfo=timezone.utc)
+
+    engine = paper_bots.optimiser_challenger_engine(prices, sleeve_weight=0.2, max_weight=0.1)
+    weights = engine(ids, cutoff)
+
+    assert weights is not None and set(weights) == set(ids)
+    assert sum(weights.values()) == pytest.approx(0.2, abs=1e-6)
+    assert all(-1e-9 <= value <= 0.1 + 1e-7 for value in weights.values())
+
+    future = prices.copy()
+    last = future["date"].max()
+    after = future[future["date"] == last].copy()
+    after["date"] = last + pd.offsets.BDay(1)
+    after["adjusted_close"] = after["adjusted_close"] * 3.0
+    after["known_at"] = _time(datetime(2026, 12, 1, tzinfo=timezone.utc))
+    assert paper_bots.optimiser_challenger_engine(pd.concat([future, after]), sleeve_weight=0.2, max_weight=0.1)(ids, cutoff) == weights
+    assert engine(["AAA", "NOPE"], cutoff) is None  # an instrument without history is unavailable, not substituted
+
+
+# ISSUE-0197: opt-in ranker challenger B1-r -------------------------------------------------------------------------------
+
+_NAN = float("nan")
+
+
+@pytest.mark.parametrize(
+    ("reason", "scores", "targets"),
+    [
+        ("scores", {"AAA": 0.2, "BBB": 0.9, "ZZZ": 5.0}, {"BBB": 1.0}),
+        ("nan_is_missing", {"AAA": _NAN, "BBB": 0.1}, {"BBB": 1.0}),
+        ("unavailable", None, None),
+        ("insufficient_evidence", {}, None),
+        ("all_nan", {"AAA": _NAN, "BBB": _NAN}, None),
+    ],
+)
+def test_ranker_challenger_selects_by_score_and_records_no_new_trade_without_scores(
+    monkeypatch, tmp_path: Path, reason: str, scores, targets
+) -> None:
+    config_path = tmp_path / "paper_bots.yaml"
+    config_path.write_text(
+        paper_bots.PAPER_BOTS_CONFIG_PATH.read_text(encoding="utf-8").replace("top_n: 10", "top_n: 1"), encoding="utf-8"
+    )
+    known_at = _NOW - timedelta(minutes=5)
+    rows = _rows(known_at)
+    board = _scoreboard(rows, known_at)
+
+    def run(name: str, **kwargs):
+        root = tmp_path / name
+        root.mkdir()
+        return _run_fixture(monkeypatch, root, rows, board, _NOW, config_path=config_path, **kwargs)
+
+    plain = run("plain")
+    assert not any(record["bot_family"] == "B1-r" for record in plain.records)
+    result = run("ranker", challenger_engines={"gbdt_rank_63": scores})
+    by_family = {record["bot_family"]: record for record in result.records}
+    challenger = by_family["B1-r"]
+    assert challenger["bot_id"].startswith("B1-r-") and challenger["bot_id"] != by_family["B1"]["bot_id"]
+    assert challenger["execution_allowed"] is False
+    assert by_family["B1"]["targets"] == {"AAA": 1.0}  # the canonical rank picks AAA; the score picks differently
+    if targets is not None:
+        assert challenger["status"] == "available" and challenger["targets"] == targets
+        assert challenger["score_lineage_hash"] == by_family["B1"]["score_lineage_hash"]  # pinned baseline lineage
+    else:
+        assert challenger["status"] == "unavailable" and str(challenger["reason"]).startswith("NO_NEW_TRADE")
+        assert challenger["targets"] == {}
+    # B0-B3 records are equal with and without the challenger (B2-o is the other opt-in record).
+    others = tuple(r for r in result.records if r["bot_family"] not in {"B1-r", "B2-o"})
+    assert others == tuple(r for r in plain.records)

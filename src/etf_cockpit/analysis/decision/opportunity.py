@@ -55,6 +55,7 @@ class OpportunityPolicy:
     uncertainty_hurdle: float
     hysteresis_band: float
     maximum_evidence_age_days: float
+    uncertainty_margin_quantile: float
 
 
 def load_opportunity_policy(path: str | Path = _DEFAULT_CONFIG) -> OpportunityPolicy:
@@ -144,6 +145,9 @@ def _opportunity_policy_for_content(content: bytes) -> OpportunityPolicy:
     maximum_evidence_age_days = _positive_number(
         absolute.get("maximum_evidence_age_days"), "maximum_evidence_age_days"
     )
+    uncertainty_margin_quantile = _fraction(absolute.get("uncertainty_margin_quantile"))
+    if not 0.0 < uncertainty_margin_quantile < 1.0:
+        raise ValueError("absolute merit uncertainty_margin_quantile must be inside (0, 1)")
     checksum = hashlib.sha256(
         content.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
     ).hexdigest()
@@ -166,6 +170,7 @@ def _opportunity_policy_for_content(content: bytes) -> OpportunityPolicy:
         uncertainty_hurdle=uncertainty_hurdle,
         hysteresis_band=hysteresis_band,
         maximum_evidence_age_days=maximum_evidence_age_days,
+        uncertainty_margin_quantile=uncertainty_margin_quantile,
     )
 
 

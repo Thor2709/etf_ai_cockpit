@@ -28,6 +28,14 @@ def validate_research_batch(items: Iterable[Mapping[str, Any]]) -> tuple[dict[st
     return rows
 
 
+def search_document_chunks(root: Path, query: str, *, as_of: str, limit: int = 10) -> dict[str, object]:
+    """Lexical search over the local document chunk store (INT-23); hit text stays untrusted."""
+
+    from etf_cockpit.data.document_chunks import CHUNK_STORE_NAME, search
+
+    return search(Path(root) / "data" / CHUNK_STORE_NAME, query, as_of=as_of, limit=limit)
+
+
 def research_revision(root: Path) -> str:
     return research_evidence_revision(Path(root) / "data")
 

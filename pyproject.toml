@@ -46,7 +46,21 @@ parsers = [
   "pillow>=13.0.0,<14",
   "pdfplumber>=0.11.9,<0.12",
   "defusedxml>=0.7.1,<0.8",
-  "feedparser>=6.0.11,<7"
+  "feedparser>=6.0.11,<7",
+  "pypdf>=7.1.0,<8"
+]
+quant = [
+  # Keep in step with requirements-quant.txt; install with -c requirements-release.txt.
+  "skfolio==1.12.9",
+  "arch==9.0.0",
+  "statsmodels==0.15.0",
+  "lightgbm==4.7.0",
+  "scipy==1.18.1; python_version >= '3.12'"  # scipy 1.18 requires Python 3.12+
+]
+sec = [
+  # Keep in step with requirements-sec.txt; install with -c requirements-release.txt.
+  "edgartools==6.1.0",
+  "lxml==6.1.3"  # edgartools needs lxml>=6.1.3 (XML external-entity fix)
 ]
 models = [
   # Keep in step with requirements-models.txt (exact verified pins live there).

@@ -800,3 +800,41 @@ def _fmt_float(value: float | None) -> str:
 
 def _clamp_score(value: float) -> float:
     return max(0.0, min(10.0, float(value)))
+
+
+# A two-state fit on fewer returns than this is not identified; the label stays unavailable.
+MIN_REGIME_OBSERVATIONS = 60
+
+
+def filtered_stress_probability(returns: pd.Series, cutoff: object) -> dict[str, object]:
+    """Probability of the high-variance state at ``cutoff`` from a two-state Markov-switching fit.
+
+    ``returns`` is a date-indexed return series.  It is sliced to ``cutoff`` before the fit, and the
+    result is the last *filtered* probability (known at the cut-off), never a smoothed one.  A missing
+    ``statsmodels`` package, too little history or a failed fit gives an explicit unavailable result.
+    Shadow context only.
+    """
+
+    unavailable = {"status": "unavailable", "probability": None, "execution_allowed": False}
+    try:
+        from statsmodels.tsa.regime_switching.markov_regression import MarkovRegression
+    except ImportError:
+        return {**unavailable, "reason": "statsmodels is not installed"}
+    sample = returns[returns.index <= pd.Timestamp(cutoff)].sort_index().dropna().astype(float)
+    if len(sample) < MIN_REGIME_OBSERVATIONS:
+        return {**unavailable, "reason": f"fewer than {MIN_REGIME_OBSERVATIONS} observations up to the cut-off"}
+    try:
+        result = MarkovRegression(sample.to_numpy(), k_regimes=2, switching_variance=True).fit(disp=False)
+        stress_state = int(np.argmax(np.asarray(result.params)[-2:]))
+        probability = float(np.asarray(result.filtered_marginal_probabilities)[-1, stress_state])
+    except Exception as exc:  # statsmodels raises assorted numerical errors on degenerate fits
+        return {**unavailable, "reason": f"regime fit failed: {type(exc).__name__}"}
+    if not np.isfinite(probability):
+        return {**unavailable, "reason": "regime fit returned a non-finite probability"}
+    return {
+        "status": "available",
+        "probability": probability,
+        "n_observations": int(len(sample)),
+        "as_of": str(sample.index[-1]),
+        "execution_allowed": False,
+    }

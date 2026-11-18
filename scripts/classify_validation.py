@@ -85,6 +85,8 @@ HIGH_RISK_NAMES = {
     "pyproject.toml",
     "requirements-release.txt",
     "requirements-release-parsers.txt",
+    "requirements-quant.txt",
+    "requirements-sec.txt",
 }
 CERTIFICATION_PREFIXES = (
     "docs/product-completion/certification/",

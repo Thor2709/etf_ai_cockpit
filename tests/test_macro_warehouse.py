@@ -9,6 +9,7 @@ import sqlite3
 from etf_cockpit.data import macro_warehouse as macro_warehouse_module
 from etf_cockpit.data.bitemporal import BitemporalError, BitemporalStore, _timestamp as _bitemporal_timestamp
 from etf_cockpit.data.local_storage import TransactionalStore
+from etf_cockpit.features.macro import macro_feature_value
 from etf_cockpit.data.macro_warehouse import (
     BenchmarkMetadata,
     CurvePoint,
@@ -110,6 +111,45 @@ def test_csv_parser_rejects_textual_revision_identity() -> None:
             available_at="2024-05-01T00:00:00+00:00",
             ingested_at="2024-05-02T00:00:00+00:00",
         )
+
+
+def test_macro_feature_bars_inferred_availability_and_empty_warehouse_is_unavailable(tmp_path) -> None:
+    warehouse = MacroWarehouse()
+    decision_time = "2025-01-01T00:00:00+00:00"
+
+    def feature() -> dict[str, object]:
+        frame = warehouse.as_of(root=tmp_path, dataset_id="policy-rate", decision_time=decision_time)
+        return macro_feature_value(frame, series_id="policy-rate:AU")
+
+    assert feature()["status"] == "unavailable"
+
+    inferred = _row(period_start="2024-02-01", value=9.9)
+    with BitemporalStore(tmp_path) as store:
+        store.record_observation(
+            dataset_id=inferred.dataset_id,
+            entity_id=inferred.series_id,
+            stable_id=inferred.stable_id,
+            value=inferred.ledger_value(),
+            source_id=inferred.source_id,
+            source_checksum=inferred.source_checksum,
+            revision=inferred.revision,
+            valid_from="2024-02-01T00:00:00+00:00",
+            published_at=inferred.published_at,
+            available_at=inferred.available_at,
+            observed_at=inferred.observed_at,
+            ingested_at=inferred.ingested_at,
+            run_id="inferred-macro-row",
+            availability_confidence="inferred",
+        )
+    only_inferred = feature()
+    assert only_inferred["status"] == "unavailable"
+    assert "exact" in str(only_inferred["reason"])
+
+    warehouse.ingest([_row()], root=tmp_path)
+    selected = feature()
+    assert selected["status"] == "available"
+    assert selected["value"] == 4.35
+    assert selected["period_start"] == "2024-01-01"
 
 
 def test_missing_country_and_currency_are_explicitly_unavailable(tmp_path) -> None:

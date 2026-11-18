@@ -16,7 +16,8 @@ from typing import Iterable, Mapping
 import numpy as np
 import pandas as pd
 
-from etf_cockpit.portfolio.robust_risk import ledoit_wolf_covariance
+from etf_cockpit.portfolio.optimiser_skfolio import SKFOLIO_METHODS, SkfolioUnavailable, solve_skfolio
+from etf_cockpit.portfolio.robust_risk import _covariance_estimators, _out_of_sample_selection, ledoit_wolf_covariance
 
 OPTIMISER_MODEL_VERSION = "portfolio-optimiser.v2"
 METHODS = (
@@ -39,7 +40,7 @@ RETURN_SHRINKAGE_PRIOR_OBSERVATIONS = 252  # mean shrunk toward zero by n / (n +
 CVAR_ALPHA = 0.05
 MIN_CVAR_TAIL_OBSERVATIONS = 5
 ROBUST_ESTIMATION_ERROR_Z = 0.5  # penalty = z x standard error of the annual mean (the mean is already shrunk toward zero)
-COVARIANCE_SHRINKAGE_MODES = ("ledoit_wolf", "none")
+COVARIANCE_SHRINKAGE_MODES = ("ledoit_wolf", "none", "oos_selected")
 DEFAULT_COST_BPS = 10.0
 
 
@@ -159,6 +160,8 @@ class PortfolioOptimiser:
             )
         try:
             self._validate_inputs()
+            if requested in SKFOLIO_METHODS:
+                return self._solve_skfolio(requested, constraints, current_weights)
             if requested not in METHODS:
                 raise ValueError(f"unsupported optimiser method: {requested}")
             current = _normalise_series(current_weights, self.ids, default=0.0)
@@ -428,6 +431,39 @@ class PortfolioOptimiser:
             return _robust_mean_risk(means, self.covariance, len(self.returns), constraints, self.ids)
         raise ValueError(f"unsupported optimiser method: {method}")
 
+    def _solve_skfolio(self, method: str, constraints: OptimiserConstraints, current_weights: Mapping[str, float] | pd.Series | None) -> OptimiserSolution:
+        """Optional skfolio backend: every failure is ``unavailable``, never an equal-weight stand-in."""
+
+        try:
+            current = _normalise_series(current_weights, self.ids, default=0.0)
+        except (TypeError, ValueError) as exc:
+            raise _MethodUnavailable("invalid_current_weights", str(exc)) from exc
+        try:
+            weights, model_version = solve_skfolio(
+                method,
+                self.returns,
+                cash_weight=float(constraints.cash_weight),
+                min_weight=float(constraints.min_weight),
+                max_weight=float(constraints.max_weight),
+                group_masks=_group_masks(constraints, self.ids),
+                turnover_limit=constraints.turnover_limit,
+                current=current,
+                covariance_shrinkage=self.covariance_shrinkage,
+            )
+        except SkfolioUnavailable as exc:
+            raise _MethodUnavailable(exc.reason_code, str(exc)) from exc
+        violations = _skfolio_violations(weights, constraints, self.ids, current)
+        if violations:
+            raise _MethodUnavailable("skfolio_solution_infeasible", f"skfolio weights break the constraints: {', '.join(violations)}", {"violations": violations})
+        diagnostics = _diagnostics(weights, self.covariance, constraints, current)
+        diagnostics.update(self._method_context(method))
+        diagnostics["backend"] = "skfolio"
+        diagnostics["method_note"] = "skfolio minimum-risk objective on skfolio's own covariance estimate; expected returns are not used"
+        native_equivalent = {"sk_mean_variance": "minimum_variance", "sk_min_cvar": "cvar", "sk_hrp": "hrp_like"}[method]
+        objective, objective_name = _objective(native_equivalent, weights, self.returns, self.covariance, None, self.expected_returns)
+        diagnostics["objective_name"] = objective_name
+        return OptimiserSolution(method, weights, "success", bool(diagnostics["feasible"]), objective, diagnostics, tuple(diagnostics["warnings"]), model_version=model_version)
+
     def _method_context(self, method: str) -> dict[str, object]:
         context: dict[str, object] = {
             "covariance": dict(self.covariance_diagnostics),
@@ -471,7 +507,8 @@ def _covariance(returns: pd.DataFrame, shrinkage: str = "ledoit_wolf") -> tuple[
     """Annual covariance of the supplied training window with PSD repair.
 
     ``ledoit_wolf`` shrinks toward a scaled identity; ``none`` is the plain
-    sample covariance.  Fewer than ``MIN_COVARIANCE_OBSERVATIONS`` rows is an
+    sample covariance; ``oos_selected`` is the matrix of the estimator that
+    ``_out_of_sample_selection`` picks on this window (already annual).  Fewer than ``MIN_COVARIANCE_OBSERVATIONS`` rows is an
     ``insufficient_sample`` status and no matrix.
     """
 
@@ -479,12 +516,19 @@ def _covariance(returns: pd.DataFrame, shrinkage: str = "ledoit_wolf") -> tuple[
         return pd.DataFrame(), {"status": "unavailable", "reason_code": "insufficient_shared_return_history", "observations": int(len(returns))}
     if len(returns) < MIN_COVARIANCE_OBSERVATIONS:
         return pd.DataFrame(), {"status": "insufficient_sample", "reason_code": "insufficient_sample", "observations": int(len(returns)), "minimum_observations": MIN_COVARIANCE_OBSERVATIONS}
-    if shrinkage == "ledoit_wolf":
-        daily, details = ledoit_wolf_covariance(returns)
-        intensity = float(details.get("shrinkage_intensity", 0.0)) if details.get("status") == "available" else None
+    estimator = shrinkage
+    if shrinkage == "oos_selected":
+        _, estimator, selection_warnings = _out_of_sample_selection(returns, None, ewma_lambda=0.97, shrinkage_alpha=0.10)
+        if selection_warnings:
+            return pd.DataFrame(), {"status": "unavailable", "reason_code": selection_warnings[0], "observations": int(len(returns))}
+        matrix, intensity = _covariance_estimators(returns, None, ewma_lambda=0.97, shrinkage_alpha=0.10)[0][estimator], None
     else:
-        daily, intensity = returns.cov(), 0.0
-    matrix = daily * ANNUALISATION if not daily.empty else daily
+        if shrinkage == "ledoit_wolf":
+            daily, details = ledoit_wolf_covariance(returns)
+            intensity = float(details.get("shrinkage_intensity", 0.0)) if details.get("status") == "available" else None
+        else:
+            daily, intensity = returns.cov(), 0.0
+        matrix = daily * ANNUALISATION if not daily.empty else daily
     if matrix.empty or matrix.isna().to_numpy().any() or not np.isfinite(matrix.to_numpy(float)).all():
         return pd.DataFrame(), {"status": "unavailable", "reason_code": "covariance_inputs_incomplete", "observations": int(len(returns))}
     values = matrix.to_numpy(float)
@@ -496,7 +540,7 @@ def _covariance(returns: pd.DataFrame, shrinkage: str = "ledoit_wolf") -> tuple[
     repaired = (repaired + repaired.T) / 2.0
     diagnostics = {
         "status": "available",
-        "estimator": shrinkage,
+        "estimator": estimator,
         "shrinkage_intensity": intensity,
         "observations": int(len(returns)),
         "annualisation": ANNUALISATION,
@@ -505,6 +549,8 @@ def _covariance(returns: pd.DataFrame, shrinkage: str = "ledoit_wolf") -> tuple[
         "minimum_eigenvalue": float(repaired_values.min()),
         "psd_repaired": bool(np.any(eigenvalues < floor)),
     }
+    if shrinkage == "oos_selected":
+        diagnostics["covariance_mode"] = shrinkage
     return pd.DataFrame(repaired, index=matrix.index, columns=matrix.columns), diagnostics
 
 
@@ -787,6 +833,22 @@ def _project_array(values: np.ndarray, constraints: OptimiserConstraints, curren
     return weights
 
 
+def _skfolio_violations(weights: pd.Series, constraints: OptimiserConstraints, ids: list[str], current: pd.Series) -> list[str]:
+    """Native feasibility check of backend weights (same tolerances as ``_diagnostics``); nothing is repaired."""
+
+    values = weights.reindex(ids).to_numpy(float)
+    found: list[str] = []
+    if not np.isfinite(values).all() or not math.isclose(float(values.sum()), 1.0 - constraints.cash_weight, abs_tol=1e-6):
+        found.append("invested_total")
+    if (values < constraints.min_weight - 1e-7).any() or (values > constraints.max_weight + 1e-7).any():
+        found.append("weight_bounds")
+    if any(float(values[members].sum()) > limit + 1e-7 for members, limit in _group_masks(constraints, ids)):
+        found.append("group_max_weights")
+    if constraints.turnover_limit is not None and float(np.abs(values - current.reindex(ids).to_numpy(float)).sum()) > float(constraints.turnover_limit) + 1e-7:
+        found.append("turnover_limit")
+    return found
+
+
 def _diagnostics(weights: pd.Series, covariance: pd.DataFrame, constraints: OptimiserConstraints, current: pd.Series | None) -> dict[str, object]:
     values = weights.to_numpy(float)
     invested = 1.0 - constraints.cash_weight
@@ -897,6 +959,7 @@ def optimiser_fingerprint(solution: OptimiserSolution) -> str:
 
 __all__ = [
     "METHODS",
+    "SKFOLIO_METHODS",
     "METHOD_ALIASES",
     "OPTIMISER_MODEL_VERSION",
     "OptimiserConstraints",

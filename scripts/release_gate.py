@@ -548,7 +548,7 @@ SKIP_REASON_ALLOWLIST = (
     re.compile(r"(?i)\bunavailable on Windows\b"),
     re.compile(r"(?i)\bresolved via /proc\b"),
     re.compile(r"(?i)\bgolden refresh run\b"),
-    re.compile(r"(?i)could not import '(torch|timesfm|toto)'"),  # optional model packages stay disabled-safe
+    re.compile(r"(?i)could not import '(torch|timesfm|toto|skfolio|arch|statsmodels|lightgbm|edgar)(\.[\w.]+)?'"),  # optional model packages stay disabled-safe
     # Only the optional HTTP integration may skip; defaults and scope grants run without the SDK.
     re.compile(r"^optional MCP SDK unavailable: remote HTTP is disabled by default; transport integration requires etf-ai-cockpit\[mcp\]$"),
 )

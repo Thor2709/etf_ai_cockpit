@@ -3,3 +3,4 @@ pillow>=13.0.0,<14
 pdfplumber>=0.11.9,<0.12
 defusedxml>=0.7.1,<0.8
 feedparser>=6.0.11,<7
+pypdf>=7.1.0,<8

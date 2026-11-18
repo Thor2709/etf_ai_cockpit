@@ -4,6 +4,7 @@ import pandas as pd
 import pytest
 
 from etf_cockpit.models.model_zoo import model_zoo_catalogue, model_zoo_frame, run_model_zoo
+from etf_cockpit.validation.protocol import ValidationSpec
 
 
 def test_model_zoo_catalogue_has_baselines_challengers_cards_and_safe_optional_states() -> None:
@@ -67,3 +68,29 @@ def test_model_zoo_separates_risk_and_quantile_outputs() -> None:
     assert risk.loc[risk["status"] == "ok", "forecast_vol"].notna().all()
     assert quantiles.loc[quantiles["status"] == "ok", "q10_return"].notna().all()
     assert quantiles.loc[quantiles["status"] == "ok", "q90_return"].notna().all()
+
+
+def test_tree_boosting_card_is_unavailable_without_lightgbm_and_shows_the_evidence_reason(monkeypatch) -> None:
+    from etf_cockpit.models import cross_sectional_ranker as ranker
+
+    monkeypatch.setattr(ranker, "find_spec", lambda name: None)
+    outcome = ranker.fit(
+        pd.DataFrame(), ValidationSpec(), feature_ids=("quality_score",),
+    )
+    assert outcome.status == "unavailable" and outcome.artefact is None
+    card = {
+        item.model_id: item
+        for item in model_zoo_catalogue(
+            optional_status={"tree_boosting": outcome.status == "fitted"},
+            state_reasons={"tree_boosting": f"{outcome.status}: {outcome.reason}"},
+        )
+    }["tree_boosting"]
+    assert card.state == "unavailable" and "lightgbm" in card.state_reason
+
+    monkeypatch.setattr(ranker, "find_spec", lambda name: object())
+    monkeypatch.setattr(ranker, "_prepare", lambda *args: "decision_dates 3 < 120")
+    outcome = ranker.fit(pd.DataFrame(), ValidationSpec(), feature_ids=("quality_score",))
+    assert outcome.status == "insufficient_evidence"
+    frame = model_zoo_frame(state_reasons={"tree_boosting": f"{outcome.status}: {outcome.reason}"})
+    row = frame.set_index("model_id").loc["tree_boosting"]
+    assert row["state"] == "unavailable" and row["state_reason"].startswith("insufficient_evidence")

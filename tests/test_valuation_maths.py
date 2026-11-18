@@ -10,7 +10,7 @@ import pytest
 from etf_cockpit.analysis import stock_metrics as sm
 from etf_cockpit.application import valuation_views
 from etf_cockpit.data import stock_research as sr
-from etf_cockpit.data.capital_efficiency import build_cost_of_capital_ledger, cost_of_capital_sensitivity_grid
+from etf_cockpit.data.capital_efficiency import build_cost_of_capital_ledger, compute_wacc, cost_of_capital_sensitivity_grid
 
 NIL_BRIDGE = {
     "lease_liabilities": "no leases reported",
@@ -544,3 +544,72 @@ def test_freshness_is_derived_from_the_inputs_each_model_consumed() -> None:
     assert stale_shares["expiry"]["status"] == "provisional" and stale_shares["expiry"]["components"]["statements"]["oldest_input"] == "shares_outstanding"
     market_shares = run(_fresh_frame(shares_outstanding="2022"), {"shares_outstanding": 100.0})
     assert "shares_outstanding" not in market_shares["expiry"]["consumed_inputs"] and market_shares["expiry"]["status"] == "current"
+
+
+# --- INT-10 valuation completion: WACC, Monte Carlo ----------------------------------------------------------
+
+
+def _wacc_inputs(**overrides: object) -> dict[str, object]:
+    base: dict[str, object] = {
+        "risk_free_rate": 0.03, "equity_risk_premium": 0.05, "beta": 1.2, "rate_currency": "EUR", "valuation_currency": "EUR",
+        "market_cap": 600.0, "debt": 400.0, "interest_expense": 20.0, "average_debt": 400.0, "tax_rate": 0.25, "tax_rate_source": "statutory",
+    }
+    return {**base, **overrides}
+
+
+def _mc_assumptions(**dispersion: float) -> dict[str, object]:
+    driver = {"revenue_growth": 0.04, "operating_margin": 0.2, "incremental_roic": 0.12}
+    extra = {"dispersion": {"draws": 200, **dispersion}} if dispersion else {}
+    return _assumptions(cash_flow_claim_type="fcff", wacc=0.092, tax_rate=0.25, driver_dcf=driver, **extra)
+
+
+def test_wacc_equals_a_hand_fixture_and_the_cost_of_debt_is_a_labelled_proxy() -> None:
+    # Blume beta 0.67 * 1.2 + 0.33 = 1.134; k_e = 0.03 + 1.134 * 0.05 = 0.0867; k_d = 20 / 400 = 5 %, 3.75 % after 25 % tax.
+    # Market weights 600 / 1000 and 400 / 1000: WACC = 0.6 * 0.0867 + 0.4 * 0.0375 = 0.06702.
+    result = compute_wacc(_wacc_inputs())
+    assert result["status"] == "available" and result["wacc"] == pytest.approx(0.06702)
+    assert result["cost_of_debt_status"] == "proxy" and result["tax_rate_source"] == "statutory"
+    override = compute_wacc(_wacc_inputs(cost_of_debt=0.04))
+    assert override["cost_of_debt_status"] == "override" and override["wacc"] == pytest.approx(0.6 * 0.0867 + 0.4 * 0.04 * 0.75)
+    assert compute_wacc(_wacc_inputs(sector="bank"))["status"] == "not_meaningful"
+    assert compute_wacc(_wacc_inputs(debt=0.0))["status"] == "not_meaningful"
+    assert compute_wacc(_wacc_inputs(capitalised_interest=True))["status"] == "not_meaningful"
+    assert compute_wacc(_wacc_inputs(rate_currency="USD"))["status"] == "unavailable"
+    assert compute_wacc(_wacc_inputs(tax_rate_source=""))["status"] == "unavailable"
+    rates = {name: _wacc_inputs()[name] for name in ("risk_free_rate", "equity_risk_premium", "beta")}
+    assert build_cost_of_capital_ledger({**rates, "wacc_inputs": _wacc_inputs()}).wacc == pytest.approx(0.06702)
+    assert build_cost_of_capital_ledger({**rates, "wacc": 0.09, "wacc_inputs": _wacc_inputs()}).wacc == 0.09  # an explicit WACC alias wins
+
+
+def test_zero_dispersion_monte_carlo_equals_the_deterministic_dcf_and_the_key_is_absent_without_dispersion() -> None:
+    def run(assumptions: dict[str, object]) -> dict[str, object]:
+        return sr.valuation_analysis(_driver_frame(), instrument_id="ACME", assumptions=assumptions, as_known_at="2026-06-30T00:00:00Z")["driver_dcf"]  # type: ignore[return-value]
+
+    plain = run(_mc_assumptions())
+    assert plain["status"] == "available" and "monte_carlo" not in plain
+    zero = run(_mc_assumptions(revenue_growth=0.0, operating_margin=0.0, wacc=0.0, terminal_growth=0.0))["monte_carlo"]
+    assert zero["status"] == "available" and zero["label"] == "scenario_dependent" and zero["draws"] == 200
+    assert set(zero["percentiles"].values()) == {plain["per_share"]}  # exact, not approximate
+    wide = run(_mc_assumptions(revenue_growth=0.02, operating_margin=0.02))["monte_carlo"]
+    assert wide["percentiles"]["p5"] < plain["per_share"] < wide["percentiles"]["p95"]
+    assert wide == run(_mc_assumptions(revenue_growth=0.02, operating_margin=0.02))["monte_carlo"]  # same (instrument_id, as_of), same output
+    assert run(_mc_assumptions(wacc=-0.01))["monte_carlo"]["status"] == "unavailable"  # a negative dispersion is not guessed at
+
+
+def test_monte_carlo_linear_toy_matches_analytic_mean_and_variance_and_is_seed_deterministic() -> None:
+    # value = 3 + 2 * x with x ~ N(5, 0.5^2): mean 13, variance 4 * 0.25 = 1.
+    def value(draw: dict[str, float]) -> float:
+        return 3.0 + 2.0 * draw["x"]
+
+    result = sr.run_monte_carlo({"x": 5.0}, {"x": 0.5}, value, seed_key="ACME|2026-06-30", draws=20000)
+    assert result["status"] == "available"
+    assert result["mean"] == pytest.approx(13.0, abs=0.05) and result["std"] ** 2 == pytest.approx(1.0, rel=0.05)
+    assert result == sr.run_monte_carlo({"x": 5.0}, {"x": 0.5}, value, seed_key="ACME|2026-06-30", draws=20000)
+    assert result["percentiles"] != sr.run_monte_carlo({"x": 5.0}, {"x": 0.5}, value, seed_key="ACME|2026-07-01", draws=20000)["percentiles"]
+
+
+def test_a_bank_monte_carlo_is_not_applicable_and_a_missing_seed_input_is_unavailable() -> None:
+    bank = sr.valuation_analysis(_driver_frame(), instrument_id="BANK", sector="bank", assumptions=_mc_assumptions(revenue_growth=0.02), as_known_at="2026-06-30T00:00:00Z")["driver_dcf"]
+    assert bank["status"] == "not_applicable" and bank["monte_carlo"]["status"] == "not_applicable"
+    unseeded = sr.valuation_analysis(_driver_frame(), assumptions=_mc_assumptions(revenue_growth=0.02), as_known_at="2026-06-30T00:00:00Z")["driver_dcf"]
+    assert unseeded["monte_carlo"]["status"] == "unavailable" and "instrument_id" in unseeded["monte_carlo"]["reason"]

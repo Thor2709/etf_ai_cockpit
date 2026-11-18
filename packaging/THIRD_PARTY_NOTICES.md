@@ -16,7 +16,9 @@ reviewer can compare the package against the signed release manifest:
 | requests / Rich / joblib / scikit-learn / yfinance | Package metadata and SBOM component |
 | exchange-calendars | Apache-2.0; audited exchange-session/holiday dependency pinned in the release lock, used locally without runtime network access |
 | cryptography | Fernet/PBKDF2 backup encryption; package metadata and SBOM component |
-| arelle-release[esef] / Pillow / pdfplumber / defusedxml / feedparser | Parser dependencies; package metadata and SBOM components from the parser release lock |
+| arelle-release[esef] / Pillow / pdfplumber / defusedxml / feedparser / pypdf | Parser dependencies; package metadata and SBOM components from the parser release lock |
+| Optional `quant` extra: skfolio / arch / statsmodels / LightGBM / SciPy | BSD-3-Clause (skfolio, statsmodels, SciPy), NCSA (arch), MIT (LightGBM); not in the release lock or the SBOM; recorded in `configs/supply_chain_intake.yaml` |
+| Optional `sec` extra: edgartools / lxml | MIT (edgartools 6.1.0), BSD-3-Clause (lxml 6.1.3); edgartools is not in the release lock or the SBOM; lxml is pinned in the parser lock; recorded in `configs/supply_chain_intake.yaml` |
 | pytest / Hypothesis / Ruff / mypy / pytest-timeout / pip-audit | Release-gate tooling; package metadata and SBOM component |
 
 No third-party source is silently bundled or downloaded by the application at

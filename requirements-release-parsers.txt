@@ -4,3 +4,5 @@ pillow==13.0.0
 pdfplumber==0.11.10
 defusedxml==0.7.1
 feedparser==6.0.11
+pypdf==7.1.0
+lxml==6.1.3

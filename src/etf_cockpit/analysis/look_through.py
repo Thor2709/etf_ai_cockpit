@@ -13,12 +13,22 @@ from etf_cockpit.core.values import finite_real_or_none as _finite_number
 from etf_cockpit.core.pandas_values import clean_text_or_empty as _clean_text
 from etf_cockpit.data.event_calendar import normalise_event_decision_time
 from etf_cockpit.data.fund_holdings import _authority_for_source, holdings_authority_rank, normalise_holdings
-from etf_cockpit.features.overlap import _normalise_snapshot, _typed_identity
+from etf_cockpit.features.overlap import _exposure_type, _normalise_snapshot, _typed_identity
 
 
 _DEFAULT_MAX_HOLDINGS_AGE_DAYS = 90
 _DEFAULT_MINIMUM_AGGREGATE_COVERAGE = 0.80
 _RECONCILIATION_TOLERANCE = 1e-9
+# Constituent metrics rolled up by weight. P/E is aggregated harmonically in _aggregate_fundamentals;
+# every metric listed here is an arithmetic mean over covered weight. Missing values are never zero-filled.
+_WEIGHTED_MEAN_METRICS = {
+    "roic": "ROIC",
+    "ebit_margin": "EBIT margin",
+    "revenue_growth": "revenue growth",
+    "net_debt_to_ebitda": "net debt / EBITDA",
+    "dividend_yield": "dividend yield",
+}
+_METRIC_NAMES = ("pe_ratio", *_WEIGHTED_MEAN_METRICS)
 
 
 @dataclass(frozen=True)
@@ -231,6 +241,11 @@ def calculate_look_through(
     unresolved_rows = overlap_frame.loc[overlap_frame.apply(lambda row: _typed_identity(row) is None, axis=1)]
     unresolved_weight = math.fsum(float(value) for value in unresolved_rows["weight"])
     unresolved_weight += fund_weight
+    untyped_cash_derivative_weight = math.fsum(
+        float(row["weight"])
+        for _, row in unresolved_rows.iterrows()
+        if _exposure_type([row]) in {"cash", "derivative"}
+    )
     unresolved_identity_items = [item for item in security_items if item not in mapped_items]
     unresolved_weight += math.fsum(item.weight for item in unresolved_identity_items)
     unresolved_weight += math.fsum(item.weight for item in coverage.holdings if item.exposure_type == "unknown")
@@ -348,6 +363,8 @@ def calculate_look_through(
         analysis,
         minimum_aggregate_coverage,
         reported_total,
+        # Equity-only denominator: cash and derivatives are excluded; held funds stay in and count as uncovered.
+        max(0.0, reported_total - cash_weight - derivative_weight - untyped_cash_derivative_weight),
     )
     limitations.extend(metric_limitations)
 
@@ -659,6 +676,7 @@ def _aggregate_fundamentals(
     analysis: date,
     minimum_aggregate_coverage: float,
     reported_total: float,
+    equity_weight: float,
 ) -> tuple[dict[str, dict[str, object]], dict[str, dict[str, object]], list[str]]:
     mapped_weight = math.fsum(float(row["weight"]) for row in economic_rows)
     portfolio_denominator = max(1.0, reported_total)
@@ -669,10 +687,11 @@ def _aggregate_fundamentals(
             "coverage_fraction": 0.0,
             "portfolio_coverage_fraction": 0.0,
             "portfolio_weight_denominator": round(portfolio_denominator, 12),
+            "equity_coverage_fraction": 0.0,
             "minimum_coverage": minimum_aggregate_coverage,
             "status": "unavailable",
         }
-        for name in ("pe_ratio", "roic")
+        for name in _METRIC_NAMES
     }
     metrics: dict[str, dict[str, object]] = {
         "pe_ratio": {
@@ -684,7 +703,9 @@ def _aggregate_fundamentals(
             "portfolio_coverage_fraction": 0.0,
             "minimum_coverage": minimum_aggregate_coverage,
         },
-        "roic": {
+    }
+    for name in _WEIGHTED_MEAN_METRICS:
+        metrics[name] = {
             "status": "unavailable",
             "value": None,
             "method": "covered-constituent arithmetic weight average",
@@ -692,8 +713,7 @@ def _aggregate_fundamentals(
             "coverage_fraction": 0.0,
             "portfolio_coverage_fraction": 0.0,
             "minimum_coverage": minimum_aggregate_coverage,
-        },
-    }
+        }
     limitations: list[str] = []
     if fundamentals is None or not isinstance(fundamentals, pd.DataFrame) or fundamentals.empty or not fundamentals.columns.is_unique:
         limitations.append("Constituent fundamental evidence is unavailable; provider headline metrics remain separate.")
@@ -715,11 +735,11 @@ def _aggregate_fundamentals(
         key = _canonical_key(holding.identity, holding.issuer, holding.company, identity_map)
         holdings_by_key.setdefault(key, []).append(holding)
     selected_metrics: dict[str, list[tuple[float, float, object, Mapping[str, object]]]] = {
-        "pe_ratio": [], "roic": []
+        name: [] for name in _METRIC_NAMES
     }
-    pe_covered = roic_covered = 0.0
+    covered_weights = {name: 0.0 for name in _METRIC_NAMES}
+    weighted_sums = {name: 0.0 for name in _WEIGHTED_MEAN_METRICS}
     weighted_yield = 0.0
-    weighted_roic = 0.0
     for economic in economic_rows:
         key = str(economic["identity"])
         # Resolve each listing separately: different listing prices can produce
@@ -741,11 +761,17 @@ def _aggregate_fundamentals(
             # not exclude them. Keep listing identity in contributor lineage.
             listing = holding.identity
             pe_row, pe_conflict = _latest_metric_row(matches, "pe_ratio")
-            roic_row, roic_conflict = _latest_metric_row(matches, "roic")
             if pe_conflict:
                 limitations.append(f"Conflicting same-vintage constituent P/E evidence was excluded for {listing}.")
-            if roic_conflict:
-                limitations.append(f"Conflicting same-vintage constituent ROIC evidence was excluded for {listing}.")
+            for name, label in _WEIGHTED_MEAN_METRICS.items():
+                metric_row, conflict = _latest_metric_row(matches, name)
+                if conflict:
+                    limitations.append(f"Conflicting same-vintage constituent {label} evidence was excluded for {listing}.")
+                value = _finite_number(metric_row.get(name)) if metric_row is not None else None
+                if value is not None:
+                    covered_weights[name] += weight
+                    weighted_sums[name] += weight * value
+                    selected_metrics[name].append((weight, value, listing, metric_row))
             pe = _finite_number(pe_row.get("pe_ratio")) if pe_row is not None else None
             if pe is not None:
                 if pe == 0:
@@ -753,35 +779,25 @@ def _aggregate_fundamentals(
                 else:
                     yld = 1.0 / pe
                     if math.isfinite(yld):
-                        pe_covered += weight
+                        covered_weights["pe_ratio"] += weight
                         weighted_yield += weight * yld
                         selected_metrics["pe_ratio"].append((weight, pe, listing, pe_row))
                     else:
                         limitations.append(f"Nonfinite earnings yield was excluded for {listing}.")
-            roic = _finite_number(roic_row.get("roic")) if roic_row is not None else None
-            if roic is not None:
-                roic_covered += weight
-                weighted_roic += weight * roic
-                selected_metrics["roic"].append((weight, roic, listing, roic_row))
 
-    empty_coverage["pe_ratio"] = {
-        "covered_weight": round(pe_covered, 12),
-        "mapped_weight": round(mapped_weight, 12),
-        "coverage_fraction": round(pe_covered / mapped_weight, 12) if mapped_weight > 0 else 0.0,
-        "portfolio_coverage_fraction": round(pe_covered / portfolio_denominator, 12),
-        "portfolio_weight_denominator": round(portfolio_denominator, 12),
-        "minimum_coverage": minimum_aggregate_coverage,
-        "status": "available" if mapped_weight > 0 and pe_covered / mapped_weight >= minimum_aggregate_coverage and pe_covered / portfolio_denominator >= minimum_aggregate_coverage else "partial" if pe_covered > 0 else "unavailable",
-    }
-    empty_coverage["roic"] = {
-        "covered_weight": round(roic_covered, 12),
-        "mapped_weight": round(mapped_weight, 12),
-        "coverage_fraction": round(roic_covered / mapped_weight, 12) if mapped_weight > 0 else 0.0,
-        "portfolio_coverage_fraction": round(roic_covered / portfolio_denominator, 12),
-        "portfolio_weight_denominator": round(portfolio_denominator, 12),
-        "minimum_coverage": minimum_aggregate_coverage,
-        "status": "available" if mapped_weight > 0 and roic_covered / mapped_weight >= minimum_aggregate_coverage and roic_covered / portfolio_denominator >= minimum_aggregate_coverage else "partial" if roic_covered > 0 else "unavailable",
-    }
+    pe_covered = covered_weights["pe_ratio"]
+    for name in _METRIC_NAMES:
+        covered = covered_weights[name]
+        empty_coverage[name] = {
+            "covered_weight": round(covered, 12),
+            "mapped_weight": round(mapped_weight, 12),
+            "coverage_fraction": round(covered / mapped_weight, 12) if mapped_weight > 0 else 0.0,
+            "portfolio_coverage_fraction": round(covered / portfolio_denominator, 12),
+            "portfolio_weight_denominator": round(portfolio_denominator, 12),
+            "equity_coverage_fraction": round(covered / equity_weight, 12) if equity_weight > 0 else 0.0,
+            "minimum_coverage": minimum_aggregate_coverage,
+            "status": "available" if mapped_weight > 0 and covered / mapped_weight >= minimum_aggregate_coverage and covered / portfolio_denominator >= minimum_aggregate_coverage else "partial" if covered > 0 else "unavailable",
+        }
     if pe_covered > 0 and math.isfinite(weighted_yield) and weighted_yield > 0:
         pe_value = pe_covered / weighted_yield
         if math.isfinite(pe_value):
@@ -819,35 +835,38 @@ def _aggregate_fundamentals(
             limitations.append("Aggregate earnings yield is zero or negative; calculated look-through P/E is unavailable.")
         else:
             limitations.append("Aggregate earnings yield is nonfinite; calculated look-through P/E is unavailable.")
-    if roic_covered > 0 and math.isfinite(weighted_roic):
-        metrics["roic"] = {
-            "status": "available",
-            "value": weighted_roic / roic_covered,
-            "covered_weight": round(roic_covered, 12),
-            "method": "covered-constituent arithmetic weight average",
-            "contributors": tuple(
-                {
-                    "identity": key,
-                    "weight": round(weight, 12),
-                    "roic": value,
-                    "source_id": _clean_text(row.get("source_id")),
-                    "as_of_date": _as_date(row.get("as_of_date", row.get("as_of"))).isoformat(),
-                    "available_at": _fundamental_known_at(row).isoformat(),
-                    "known_at": _fundamental_known_at(row).isoformat(),
-                }
-                for weight, value, key, row in selected_metrics["roic"]
-            ),
-        }
-    elif roic_covered > 0:
-        metrics["roic"]["reason_code"] = "nonfinite_weighted_roic"
-        limitations.append("Weighted ROIC arithmetic was nonfinite; the aggregate is unavailable.")
-    if pe_covered < mapped_weight or roic_covered < mapped_weight:
+    for name, label in _WEIGHTED_MEAN_METRICS.items():
+        covered = covered_weights[name]
+        if covered > 0 and math.isfinite(weighted_sums[name]):
+            metrics[name] = {
+                "status": "available",
+                "value": weighted_sums[name] / covered,
+                "covered_weight": round(covered, 12),
+                "method": "covered-constituent arithmetic weight average",
+                "contributors": tuple(
+                    {
+                        "identity": key,
+                        "weight": round(weight, 12),
+                        name: value,
+                        "source_id": _clean_text(row.get("source_id")),
+                        "as_of_date": _as_date(row.get("as_of_date", row.get("as_of"))).isoformat(),
+                        "available_at": _fundamental_known_at(row).isoformat(),
+                        "known_at": _fundamental_known_at(row).isoformat(),
+                    }
+                    for weight, value, key, row in selected_metrics[name]
+                ),
+            }
+        elif covered > 0:
+            metrics[name]["reason_code"] = f"nonfinite_weighted_{name}"
+            limitations.append(f"Weighted {label} arithmetic was nonfinite; the aggregate is unavailable.")
+    if any(covered_weights[name] < mapped_weight for name in ("pe_ratio", "roic")):
         limitations.append("Missing or unusable constituent metrics lower fundamental-data coverage; missing values were not treated as zero.")
-    for name, covered in (("pe_ratio", pe_covered), ("roic", roic_covered)):
+    for name, covered in covered_weights.items():
         fraction = covered / mapped_weight if mapped_weight > 0 else 0.0
         portfolio_fraction = covered / portfolio_denominator
         metrics[name]["coverage_fraction"] = fraction
         metrics[name]["portfolio_coverage_fraction"] = portfolio_fraction
+        metrics[name]["equity_coverage_fraction"] = covered / equity_weight if equity_weight > 0 else 0.0
         metrics[name]["minimum_coverage"] = minimum_aggregate_coverage
         if metrics[name].get("status") == "available" and (
             fraction < minimum_aggregate_coverage or portfolio_fraction < minimum_aggregate_coverage

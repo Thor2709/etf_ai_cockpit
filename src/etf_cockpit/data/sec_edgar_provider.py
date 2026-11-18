@@ -30,6 +30,9 @@ from etf_cockpit.parsers.contracts import RawDocument
 
 
 Transport = Callable[[str, dict[str, str]], Any]
+_FILING_DOCUMENT_URL = re.compile(
+    r"https://www\.sec\.gov/Archives/edgar/data/[0-9]{1,10}/(?P<accession>[0-9]{18})/(?P<name>[A-Za-z0-9_-]{1,80})\.xml"
+)
 
 
 def parse_reported_shares(payload: Mapping[str, Any], *, source_ref: str) -> list[dict[str, Any]]:
@@ -215,6 +218,52 @@ class SecEdgarProvider:
             publish_guard=publish_guard,
         )
         return document
+
+    def fetch_filing_document(
+        self,
+        url: str,
+        *,
+        publish_guard: PublicationScopeFactory | None = None,
+    ) -> RawDocument:
+        """Fetch one XML filing document (Form 3/4/5, 13F primary or information table) as raw bytes.
+
+        Only ``https://www.sec.gov/Archives/edgar/data/<cik>/<accession>/<name>.xml`` is admitted. The
+        payload is kept immutably under its sha256; acceptance time and identity come from the
+        submissions record, never from this response, and parsing happens elsewhere.
+        """
+        match = _FILING_DOCUMENT_URL.fullmatch(str(url or ""))
+        if match is None:
+            raise ValueError("SEC filing document URL must be a www.sec.gov Archives XML document")
+        headers = {"User-Agent": self.user_agent, "Accept": "application/xml"}
+        for attempt in range(self.max_retries + 1):
+            self._respect_rate_limit()
+            try:
+                response = self._request(url, headers)
+                if response.status == 429 or response.status >= 500:
+                    raise SecEdgarUnavailable(f"SEC endpoint returned HTTP {response.status}")
+            except (HTTPError, URLError, TimeoutError, OSError, SecEdgarUnavailable) as exc:
+                if attempt >= self.max_retries:
+                    raise SecEdgarUnavailable(f"SEC request unavailable after {attempt + 1} attempt(s)") from exc
+                self._sleep(min(2.0, 0.25 * (2**attempt)))
+                continue
+            break
+        if response.status < 200 or response.status >= 300:
+            raise SecEdgarError(f"SEC endpoint returned HTTP {response.status}")
+        payload = response.payload
+        if not payload.lstrip(b"\xef\xbb\xbf \t\r\n").startswith(b"<"):
+            raise ValueError("SEC filing document is not XML")
+        payload_sha = _sha256(payload)
+        path = self.cache_dir / "filings" / f"{match.group('accession')}_{match.group('name')}_{payload_sha[:16]}.xml"
+        with publication_scope(publish_guard):
+            if path.is_file():
+                if _sha256(path.read_bytes()) != payload_sha:
+                    raise ValueError("SEC immutable raw payload checksum mismatch")
+            else:
+                atomic_write_bytes(path, payload, lambda candidate: None)
+        return RawDocument(
+            path, url, datetime.now(timezone.utc), payload_sha, "sec_edgar", "sec_filing_document",
+            "application/xml", response.status,
+        )
 
     def import_submissions(
         self,
