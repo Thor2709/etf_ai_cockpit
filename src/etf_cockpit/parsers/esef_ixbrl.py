@@ -51,7 +51,13 @@ class XbrlFact:
     namespace: str | None = None
     consolidation_scope: str | None = None
     is_numeric: bool = True
+    unit_resolved: bool = False  # the fact's unitRef has a unit definition in the document
 
+
+# Diluted per-share items (INT-03): the statement-facts import marks a stored fact of these concepts as verified only when
+# the parser decoded its number (format, scale, sign) and resolved its unit definition; the fundamentals reader needs the mark.
+DILUTED_PER_SHARE_CONCEPTS = frozenset({"DilutedEarningsLossPerShare", "AdjustedWeightedAverageShares"})
+PER_SHARE_VERIFIED = "numeric_decoded_unit_resolved"
 
 _IFRS_MAPPING = {
     "Revenue": "revenue",
@@ -241,6 +247,7 @@ def parse_esef_package(path: Path) -> ParseResult[XbrlFact]:
                 namespace,
                 consolidation_scope if metadata_has_scope else _context_consolidation_scope(context, namespace_map),
                 local_name == "nonFraction",
+                bool(unit_ref and unit_ref in units),
             )
         )
 

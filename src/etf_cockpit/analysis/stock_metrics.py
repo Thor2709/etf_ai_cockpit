@@ -35,7 +35,9 @@ from typing import Iterable, Mapping, Sequence
 # Statement line items (INT-03): parsed and stored like the fields above; the quality scores below use them.
 LINE_ITEM_FLOW_FIELDS = ("sga", "rd_expense", "stock_based_compensation", "gross_buybacks", "share_issuance")
 LINE_ITEM_BALANCE_FIELDS = ("current_assets", "current_liabilities", "receivables", "inventory", "retained_earnings", "ppe_net", "goodwill")
-LINE_ITEM_FIELDS = LINE_ITEM_FLOW_FIELDS + LINE_ITEM_BALANCE_FIELDS
+# Per-share items are neither currency amounts nor cumulative: each is reported for its own period and never differenced.
+LINE_ITEM_PER_SHARE_FIELDS = ("eps_diluted", "shares_diluted")
+LINE_ITEM_FIELDS = LINE_ITEM_FLOW_FIELDS + LINE_ITEM_BALANCE_FIELDS + LINE_ITEM_PER_SHARE_FIELDS
 FLOW_FIELDS = (
     "revenue",
     "gross_profit",
@@ -66,7 +68,7 @@ BALANCE_FIELDS = (
     "shares_outstanding",
     *LINE_ITEM_BALANCE_FIELDS,
 )
-PERIOD_FIELDS = FLOW_FIELDS + BALANCE_FIELDS
+PERIOD_FIELDS = FLOW_FIELDS + BALANCE_FIELDS + LINE_ITEM_PER_SHARE_FIELDS
 
 OK = "ok"
 NOT_MEANINGFUL = "not_meaningful"

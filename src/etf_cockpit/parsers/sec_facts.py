@@ -16,7 +16,7 @@ from etf_cockpit.core.file_guard import persistent_file_guard
 from etf_cockpit.core.paths import FILINGS_STATEMENTS_PATH
 from etf_cockpit.data.instrument_identity import CanonicalIdentity
 from etf_cockpit.parsers.contracts import ParseResult, ParseWarning, RawDocument
-from etf_cockpit.parsers.esef_ixbrl import _safe_sha
+from etf_cockpit.parsers.esef_ixbrl import DILUTED_PER_SHARE_CONCEPTS, PER_SHARE_VERIFIED, _safe_sha
 
 
 STATEMENT_FACTS_SCHEMA_VERSION = "statement_facts.v1"
@@ -115,6 +115,9 @@ def statement_facts_from_esef(
         provider_id = str(source_provider or "filings_xbrl_org").strip() or "filings_xbrl_org"
         source_id = f"{provider_id}:{source_sha256[:16]}:{hashlib.sha256(source_anchor.encode('utf-8')).hexdigest()[:16]}"
         is_extension = mapping_status == "unmapped_extension" or (namespace and not is_ifrs_full_namespace(namespace))
+        verified_per_share = (concept in DILUTED_PER_SHARE_CONCEPTS and is_ifrs_full_namespace(namespace) and not dimensions
+                              and mapping_status not in {"unsupported_numeric", "non_numeric"} and bool(getattr(record, "is_numeric", False))
+                              and bool(getattr(record, "unit_resolved", False)))
         result.append(
             StatementFact(
                 instrument_id=instrument_id,
@@ -138,7 +141,7 @@ def statement_facts_from_esef(
                 dimensions=dimensions,
                 currency=_currency_from_unit(unit),
                 period_type="duration" if period_start else "instant",
-                mapping_confidence="high" if canonical_metric else "manual_review",
+                mapping_confidence="high" if canonical_metric else PER_SHARE_VERIFIED if verified_per_share else "manual_review",
                 manual_review_required=canonical_metric is None,
                 restatement_kind="reported",
                 available_at=known_at,
