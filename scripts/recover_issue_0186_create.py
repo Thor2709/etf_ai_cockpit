@@ -192,7 +192,7 @@ def recover(
         except Exception as exc:
             if not gateway._is_ambiguous_write_error(exc):
                 raise
-        after = gateway._list_after_write(client, number)
+        after = gateway._list_after_write(client, number, CREATE_MARKER)
         created = _carries(after, CREATE_MARKER)
         if (
             len(created) != 1

@@ -2828,13 +2828,20 @@ def validate_reviewed_create_authority(
     }
 
 
-def _list_after_write(gateway: MutationTransport, number: int | None) -> list[dict[str, Any]]:
-    """The issue list can lag a create: re-read it (never re-write) until the issue the POST returned shows.
+def _list_after_write(
+    gateway: MutationTransport, number: int | None, marker: str | None = None,
+) -> list[dict[str, Any]]:
+    """The issue list can lag a create: re-read it (never re-write) until the created issue shows.
 
-    Without a returned number there is nothing to wait for, so the list is read once."""
+    The issue is the one the POST returned or, when the response was lost, the one whose body holds
+    `marker`. With neither there is nothing to wait for, so the list is read once."""
     issues = gateway.list_issues()
     for delay in (2, 4, 8, 16):
-        if number is None or any(int(issue.get("number", 0)) == number for issue in issues):
+        if (
+            any(marker in str(issue.get("body") or "") for issue in issues)
+            if marker is not None
+            else number is None or any(int(issue.get("number", 0)) == number for issue in issues)
+        ):
             break
         time.sleep(delay)
         issues = gateway.list_issues()

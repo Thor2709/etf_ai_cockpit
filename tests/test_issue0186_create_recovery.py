@@ -59,11 +59,16 @@ def _bot_comment(body):
 class Transport:
     """GitHub stand-in that records every write in the shared `calls` list."""
 
-    def __init__(self, issues, calls, *, create_error=None, lands=True):
-        self.issues, self.calls, self.create_error, self.lands = issues, calls, create_error, lands
+    def __init__(self, issues, calls, *, create_error=None, lands=True, lag=0):
+        self.issues, self.calls, self.create_error, self.lands, self.lag = issues, calls, create_error, lands, lag
 
     def list_issues(self):
-        return [{**copy.deepcopy(issue), "comments": len(issue["comments"])} for issue in self.issues]
+        hide = bool(self.lag) and "create" in self.calls  # the list lags: the created issue is not shown yet
+        self.lag -= hide
+        return [
+            {**copy.deepcopy(issue), "comments": len(issue["comments"])}
+            for issue in self.issues if not (hide and issue["number"] == 1071)
+        ]
 
     def fetch_issue(self, number):
         return copy.deepcopy(next(issue for issue in self.issues if issue["number"] == number))
@@ -81,7 +86,7 @@ class Transport:
         next(issue for issue in self.issues if issue["number"] == number)["comments"].append(_bot_comment(body))
 
 
-def _setup(monkeypatch, issues, *, create_error=None, lands=True):
+def _setup(monkeypatch, issues, *, create_error=None, lands=True, lag=0):
     calls: list[str] = []
     authority = _authority()
 
@@ -103,7 +108,7 @@ def _setup(monkeypatch, issues, *, create_error=None, lands=True):
     monkeypatch.setattr(gateway, "reconcile_authority_ledger", lambda *_args, **_kwargs: {"accepted": True})
     monkeypatch.setattr(recovery, "_plan", plan)
     monkeypatch.setattr(recovery.sync, "scope_admitted_intake_plan", scope)
-    transport = Transport(issues, calls, create_error=create_error, lands=lands)
+    transport = Transport(issues, calls, create_error=create_error, lands=lands, lag=lag)
     return calls, transport, {
         "run_reader": lambda _run_id: pytest.fail("no run lookup is needed"),
         "main_fetcher": lambda _root: None, "transport": transport,
@@ -160,16 +165,21 @@ def test_refuses_when_the_list_changed_before_the_create(tmp_path, monkeypatch):
     assert calls == []
 
 
-@pytest.mark.parametrize("lands", [True, False])
-def test_ambiguous_create_rereads_and_never_posts_twice(tmp_path, monkeypatch, lands):
-    calls, _transport, inputs = _setup(monkeypatch, [copy.deepcopy(OTHER)], create_error=TimeoutError("lost"), lands=lands)
-    if lands:
+@pytest.mark.parametrize("lands,lag,delays", [(True, 0, []), (True, 1, [2]), (False, 0, [2, 4, 8, 16])])
+def test_ambiguous_create_rereads_and_never_posts_twice(tmp_path, monkeypatch, lands, lag, delays):
+    slept: list[int] = []
+    monkeypatch.setattr(gateway.time, "sleep", slept.append)
+    calls, _transport, inputs = _setup(
+        monkeypatch, [copy.deepcopy(OTHER)], create_error=TimeoutError("lost"), lands=lands, lag=lag,
+    )
+    if lands:  # the marker shows on the first or on the second re-read: one create, one receipt
         assert recovery.recover(tmp_path, **inputs)["transport_writes"] == 2
         assert calls == ["proof", "create", "append"]
-    else:
+    else:  # it never shows within the bounded re-reads: fail closed
         with pytest.raises(gateway.MutationTransportError) as raised:
             recovery.recover(tmp_path, **inputs)
         assert raised.value.evidence["transport_writes"] == 1 and calls == ["proof", "create"]
+    assert slept == delays
 
 
 def test_original_authority_names_git_revisions_with_forward_slashes(tmp_path, monkeypatch):
