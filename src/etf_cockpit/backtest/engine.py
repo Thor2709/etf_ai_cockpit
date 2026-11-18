@@ -545,13 +545,18 @@ def _drift_to_execution(signal_weights: pd.Series, execution_returns: pd.Series)
     drifted book, never with the signal-day weights.
     """
 
-    active_returns = execution_returns.loc[signal_weights.ne(0)]
-    if active_returns.isna().any():
+    # Both callers pass Series on the same ``columns`` index, so one numpy pass gives the pandas result.
+    weights = signal_weights.to_numpy(dtype=float)
+    returns = execution_returns.to_numpy(dtype=float)
+    active = weights != 0
+    if np.isnan(returns[active]).any():
         return signal_weights.copy(), float("nan")
-    execution_return = float((signal_weights.loc[active_returns.index] * active_returns).sum())
+    execution_return = float((weights[active] * returns[active]).sum())
     if execution_return <= -1.0:
         return signal_weights.copy(), execution_return
-    return signal_weights * (1.0 + execution_returns.where(signal_weights.ne(0), 0.0)) / (1.0 + execution_return), execution_return
+    drifted = weights * (1.0 + np.where(active, returns, 0.0)) / (1.0 + execution_return)
+    name = signal_weights.name if signal_weights.name == execution_returns.name else None
+    return pd.Series(drifted, index=signal_weights.index, name=name), execution_return
 
 
 def _adv_by_instrument(
