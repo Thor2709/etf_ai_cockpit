@@ -35,6 +35,16 @@ def _carries(issues: list[dict[str, Any]], marker: str) -> list[dict[str, Any]]:
     return [row for row in issues if marker in str(row.get("body") or "")]
 
 
+def _by_actions_bot(issue: dict[str, Any]) -> bool:
+    """The issue was opened by the GitHub Actions bot (same identity as a receipt's author)."""
+    author = gateway.normalise_comment(issue)
+    return (
+        author["author"] in gateway.BOT_AUTHORS
+        and author["author_type"] == "Bot"
+        and author["author_id"] == gateway.GITHUB_ACTIONS_BOT_USER_ID
+    )
+
+
 def _accepted(issue: dict[str, Any], authority: dict[str, Any]) -> bool:
     """True only for the exact created issue carrying a valid receipt bound to this authority."""
     payload = authority["payload"]
@@ -214,6 +224,8 @@ def recover(
             or not snapshot["node_id"]
         ):
             raise RuntimeError("issue_0186_recovery_create_unresolved")
+        if number is None and not _by_actions_bot(issue):  # a lost response: never receipt a lookalike
+            raise RuntimeError("issue_0186_recovery_creator_not_actions_bot")
         receipt, receipt_body = gateway.build_create_receipt(
             issue,
             mutation_id=AUTHORITY_ID,

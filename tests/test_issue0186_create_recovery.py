@@ -15,6 +15,8 @@ PLAN_SHA = "2" * 64
 ACTION = {"kind": "create", "stable_id": "ISSUE-0186", "title": "Earnings surprise and filing reaction (from #1026)"}
 DEFERRED = [{"kind": "create", "stable_id": f"ISSUE-{number}", "title": f"Deferred {number}"} for number in ("0187", "0188")]
 MARKER = gateway.CREATE_MARKER_TEMPLATE.format(recovery.AUTHORITY_ID)
+ACTIONS_BOT = {"login": "github-actions[bot]", "id": int(gateway.GITHUB_ACTIONS_BOT_USER_ID), "type": "Bot"}
+LOOKALIKE_CREATOR = {"login": "someone", "id": 1, "type": "User"}
 BINDING = {"ledger_blob_oid": "1" * 40, "ledger_blob_sha256": "1" * 64}
 ATTESTATION = {
     "event_name": "push", "event_ref": "refs/heads/main", "run_attempt": "1",
@@ -59,8 +61,9 @@ def _bot_comment(body):
 class Transport:
     """GitHub stand-in that records every write in the shared `calls` list."""
 
-    def __init__(self, issues, calls, *, create_error=None, lands=True, lag=0):
+    def __init__(self, issues, calls, *, create_error=None, lands=True, lag=0, creator=ACTIONS_BOT):
         self.issues, self.calls, self.create_error, self.lands, self.lag = issues, calls, create_error, lands, lag
+        self.creator = creator
 
     def list_issues(self):
         hide = bool(self.lag) and "create" in self.calls  # the list lags: the created issue is not shown yet
@@ -76,7 +79,8 @@ class Transport:
     def create_open_issue(self, title, body):
         self.calls.append("create")
         if self.lands:
-            self.issues.append(_issue(1071, body, issue_id="6500000001", node_id="I_kwNEW", title=title))
+            created = _issue(1071, body, issue_id="6500000001", node_id="I_kwNEW", title=title)
+            self.issues.append({**created, "user": self.creator})
         if self.create_error:
             raise self.create_error
         return 1071
@@ -86,7 +90,7 @@ class Transport:
         next(issue for issue in self.issues if issue["number"] == number)["comments"].append(_bot_comment(body))
 
 
-def _setup(monkeypatch, issues, *, create_error=None, lands=True, lag=0):
+def _setup(monkeypatch, issues, *, create_error=None, lands=True, lag=0, creator=ACTIONS_BOT):
     calls: list[str] = []
     authority = _authority()
 
@@ -108,7 +112,7 @@ def _setup(monkeypatch, issues, *, create_error=None, lands=True, lag=0):
     monkeypatch.setattr(gateway, "reconcile_authority_ledger", lambda *_args, **_kwargs: {"accepted": True})
     monkeypatch.setattr(recovery, "_plan", plan)
     monkeypatch.setattr(recovery.sync, "scope_admitted_intake_plan", scope)
-    transport = Transport(issues, calls, create_error=create_error, lands=lands, lag=lag)
+    transport = Transport(issues, calls, create_error=create_error, lands=lands, lag=lag, creator=creator)
     return calls, transport, {
         "run_reader": lambda _run_id: pytest.fail("no run lookup is needed"),
         "main_fetcher": lambda _root: None, "transport": transport,
@@ -165,18 +169,26 @@ def test_refuses_when_the_list_changed_before_the_create(tmp_path, monkeypatch):
     assert calls == []
 
 
-@pytest.mark.parametrize("lands,lag,delays", [(True, 0, []), (True, 1, [2]), (False, 0, [2, 4, 8, 16])])
-def test_ambiguous_create_rereads_and_never_posts_twice(tmp_path, monkeypatch, lands, lag, delays):
+@pytest.mark.parametrize(
+    "lands,lag,delays,creator,refusal",
+    [
+        (True, 0, [], ACTIONS_BOT, None),
+        (True, 1, [2], ACTIONS_BOT, None),
+        (False, 0, [2, 4, 8, 16], ACTIONS_BOT, "create_unresolved"),
+        (True, 0, [], LOOKALIKE_CREATOR, "creator_not_actions_bot"),
+    ],
+)
+def test_ambiguous_create_rereads_and_never_posts_twice(tmp_path, monkeypatch, lands, lag, delays, creator, refusal):
     slept: list[int] = []
     monkeypatch.setattr(gateway.time, "sleep", slept.append)
     calls, _transport, inputs = _setup(
-        monkeypatch, [copy.deepcopy(OTHER)], create_error=TimeoutError("lost"), lands=lands, lag=lag,
+        monkeypatch, [copy.deepcopy(OTHER)], create_error=TimeoutError("lost"), lands=lands, lag=lag, creator=creator,
     )
-    if lands:  # the marker shows on the first or on the second re-read: one create, one receipt
+    if refusal is None:  # the marker shows on the first or second re-read: one create, one receipt
         assert recovery.recover(tmp_path, **inputs)["transport_writes"] == 2
         assert calls == ["proof", "create", "append"]
-    else:  # it never shows within the bounded re-reads: fail closed
-        with pytest.raises(gateway.MutationTransportError) as raised:
+    else:  # it never shows, or a lookalike made by someone else shows: fail closed, no receipt
+        with pytest.raises(gateway.MutationTransportError, match=refusal) as raised:
             recovery.recover(tmp_path, **inputs)
         assert raised.value.evidence["transport_writes"] == 1 and calls == ["proof", "create"]
     assert slept == delays
