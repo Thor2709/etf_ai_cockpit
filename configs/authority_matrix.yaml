@@ -142,6 +142,7 @@ capabilities:
   - {capability_id: "model:paper", kind: model, authority_stage: paper, description: Paper simulation model, required_approvals: [paper_simulation_review], max_quantity_delta: 10000}
   - {capability_id: "model:timesfm", kind: model, authority_stage: research, description: Optional local TimesFM challenger, availability: optional}
   - {capability_id: "model:toto", kind: model, authority_stage: research, description: Optional local Toto challenger, availability: optional}
+  - {capability_id: "model:chronos2", kind: model, authority_stage: research, description: Optional local Chronos-2 challenger, availability: optional}
   - {capability_id: "model:lightgbm", kind: model, authority_stage: disabled, description: Future model challenger remains disabled, availability: disabled}
   - {capability_id: "strategy:baseline_simple_scores", kind: strategy, authority_stage: research, description: Deterministic baseline ranking}
   - {capability_id: "strategy:etf_trend_momentum", kind: strategy, authority_stage: shadow_proposal, description: ETF trend and momentum review, required_approvals: [shadow_proposal_review], max_quantity_delta: 10000}

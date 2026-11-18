@@ -1340,7 +1340,7 @@
     ["calibration_label", "null"]
    ]
   },
-  "data/derived/run_manifests/backtest__s5307f54f8af7.json": {
+  "data/derived/run_manifests/backtest__s93ac25467ed5.json": {
    "kind": "json",
    "structure": {
     "dependencies": {
@@ -1393,7 +1393,7 @@
    ],
    "run_id_pattern": "backtest__s<12hex>"
   },
-  "data/derived/run_manifests/features_2026-09-30_p<12hex>_x<12hex>__s5307f54f8af7.json": {
+  "data/derived/run_manifests/features_2026-09-30_p<12hex>_x<12hex>__s93ac25467ed5.json": {
    "kind": "json",
    "structure": {
     "dataset_bindings": {
@@ -1458,7 +1458,7 @@
    ],
    "run_id_pattern": "features_2026-09-30_p<12hex>_x<12hex>__s<12hex>"
   },
-  "data/derived/run_manifests/forecast_20260930_<sha256>__s5307f54f8af7.json": {
+  "data/derived/run_manifests/forecast_20260930_<sha256>__s93ac25467ed5.json": {
    "kind": "json",
    "structure": {
     "dependencies": {
@@ -2775,10 +2775,10 @@
      "max": null
     }
    },
-   "non_float_digest": "e323433b48be4f28343eda6b0de5c2e7975030dc622bb20786f33b8ec539c7bb",
+   "non_float_digest": "dd88696dd2a9140f3a43e43d6542dc495b0f0656a1d33f9d72ec9a5862663ff4",
    "first_rows": [
     {
-     "run_id": "forecast_20260930_<sha256>__s5307f54f8af7",
+     "run_id": "forecast_20260930_<sha256>__s93ac25467ed5",
      "model_name": "baseline",
      "model_version": "momentum_shrunk_v1",
      "etf_id": "VWCE",
@@ -2830,7 +2830,7 @@
      "execution_allowed": "<NaN>"
     },
     {
-     "run_id": "forecast_20260930_<sha256>__s5307f54f8af7",
+     "run_id": "forecast_20260930_<sha256>__s93ac25467ed5",
      "model_name": "baseline",
      "model_version": "momentum_shrunk_v1",
      "etf_id": "VWCE",
@@ -2882,7 +2882,7 @@
      "execution_allowed": "<NaN>"
     },
     {
-     "run_id": "forecast_20260930_<sha256>__s5307f54f8af7",
+     "run_id": "forecast_20260930_<sha256>__s93ac25467ed5",
      "model_name": "baseline",
      "model_version": "momentum_shrunk_v1",
      "etf_id": "VWCE",
@@ -2936,7 +2936,7 @@
    ],
    "last_rows": [
     {
-     "run_id": "forecast_20260930_<sha256>__s5307f54f8af7",
+     "run_id": "forecast_20260930_<sha256>__s93ac25467ed5",
      "model_name": "toto",
      "model_version": "toto_2_0_optional",
      "etf_id": "SPOG",
@@ -2988,7 +2988,7 @@
      "execution_allowed": false
     },
     {
-     "run_id": "forecast_20260930_<sha256>__s5307f54f8af7",
+     "run_id": "forecast_20260930_<sha256>__s93ac25467ed5",
      "model_name": "toto",
      "model_version": "toto_2_0_optional",
      "etf_id": "SPOG",
@@ -3040,7 +3040,7 @@
      "execution_allowed": false
     },
     {
-     "run_id": "forecast_20260930_<sha256>__s5307f54f8af7",
+     "run_id": "forecast_20260930_<sha256>__s93ac25467ed5",
      "model_name": "toto",
      "model_version": "toto_2_0_optional",
      "etf_id": "SPOG",

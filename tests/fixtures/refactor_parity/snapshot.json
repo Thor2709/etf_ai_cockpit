@@ -6765,7 +6765,8 @@
  "model_status": {
   "baseline": true,
   "timesfm": false,
-  "toto": false
+  "toto": false,
+  "chronos2": false
  },
  "model_inventory": [
   {
@@ -6785,6 +6786,13 @@
   {
    "model_name": "toto",
    "model_id": "Toto 2.0 1B",
+   "present": false,
+   "live_ready": false,
+   "status": "unavailable"
+  },
+  {
+   "model_name": "chronos2",
+   "model_id": "Chronos-2",
    "present": false,
    "live_ready": false,
    "status": "unavailable"
