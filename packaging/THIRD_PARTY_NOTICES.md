@@ -19,6 +19,7 @@ reviewer can compare the package against the signed release manifest:
 | arelle-release[esef] / Pillow / pdfplumber / defusedxml / feedparser / pypdf | Parser dependencies; package metadata and SBOM components from the parser release lock |
 | Optional `quant` extra: skfolio / arch / statsmodels / LightGBM / SciPy | BSD-3-Clause (skfolio, statsmodels, SciPy), NCSA (arch), MIT (LightGBM); not in the release lock or the SBOM; recorded in `configs/supply_chain_intake.yaml` |
 | Optional `sec` extra: edgartools / lxml | MIT (edgartools 6.1.0), BSD-3-Clause (lxml 6.1.3); edgartools is not in the release lock or the SBOM; lxml is pinned in the parser lock; recorded in `configs/supply_chain_intake.yaml` |
+| Optional `models` extra addition: chronos-forecasting | Apache-2.0 (chronos-forecasting 2.3.2, weights `amazon/chronos-2` revision `29ec3766`); not in the release lock or the SBOM; weights are local files outside git; recorded in `configs/supply_chain_intake.yaml` |
 | pytest / Hypothesis / Ruff / mypy / pytest-timeout / pip-audit | Release-gate tooling; package metadata and SBOM component |
 
 No third-party source is silently bundled or downloaded by the application at

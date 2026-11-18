@@ -32,13 +32,16 @@ from etf_cockpit.models.calibration import (
     target_matches_evaluation,
 )
 
-OPTIONAL_MODELS = ("timesfm", "timesfm3", "toto")
+OPTIONAL_MODELS = ("timesfm", "timesfm3", "toto", "chronos2")
 BASELINE_MODEL = "baseline"
 # Partial declared cutoff: 2023-11-30 covers only some TimesFM3 pretraining
 # corpora (other pretraining data include GiftEvalPretrain and synthetic data).
 # Every optional model also requires evidence after its first verified local run.
 PRETRAINING_CUTOFFS: dict[str, date] = {"timesfm3": date(2023, 11, 30)}
-PRETRAINING_SOURCES: dict[str, str] = {"timesfm3": "Partial: Wikipedia through Nov 2023; Google Trends through Dec 2022; other corpora have no verified cutoff"}
+PRETRAINING_SOURCES: dict[str, str] = {
+    "timesfm3": "Partial: Wikipedia through Nov 2023; Google Trends through Dec 2022; other corpora have no verified cutoff",
+    "chronos2": "Unknown: the model card and paper (arXiv 2510.15821) give no cutoff; corpora are Chronos datasets, GIFT-Eval Pretrain and synthetic data",
+}
 
 
 @dataclass(frozen=True)
@@ -78,6 +81,7 @@ class CheckpointProvenance:
 # Declared licence facts only; an unrecorded fact is "unknown", never copied from another checkpoint.
 _CHECKPOINT_LICENCES: dict[str, tuple[str, str]] = {
     "timesfm3": ("non-commercial", "Owner-approved for personal use only; not wired for commercial use."),
+    "chronos2": ("apache-2.0", "amazon/chronos-2 revision 29ec3766d36d6f73f0696f85560a422f50e8498c; cutoff unknown."),
 }
 
 

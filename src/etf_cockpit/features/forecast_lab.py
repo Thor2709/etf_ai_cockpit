@@ -139,7 +139,7 @@ OOS_LABEL = "out-of-sample (walk-forward test folds only; the validation figures
 MISSING_PRICE_SERIES = "missing_price_series"
 EXCLUDED_COLUMNS = ["run_id", "model_name", "etf_id", "forecast_date", "horizon_days", "prediction_id", "reason"]
 # Optional foundation models whose availability is judged from stored forecast artefacts.
-OPTIONAL_FORECAST_MODELS = ("timesfm", "timesfm3", "toto")
+OPTIONAL_FORECAST_MODELS = ("timesfm", "timesfm3", "toto", "chronos2")
 OPTIONAL_STATUS_COLUMNS = [
     "model_id",
     "artefact_available",
