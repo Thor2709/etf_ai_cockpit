@@ -49,6 +49,7 @@ _META_ID = "schema"
 _ROW_TYPE = "identity_source_row_v1"
 _CLAIM_TYPE = "identity_claim_v1"
 _REVIEW_TYPE = "identity_review_v1"
+_HINT_TYPE = "identity_hint_v1"
 
 _OBJECT_TYPES = frozenset(
     {
@@ -294,6 +295,37 @@ class IdentityMasterStore:
         except (StorageRevisionConflict, sqlite3.DatabaseError, ValueError, TypeError) as exc:
             raise IdentityMasterSchemaError(f"identity claims rejected: {exc}") from exc
         return tuple(record_id for _, record_id, _ in records)
+
+    def append_hints(self, hints: Iterable[Mapping[str, Any]]) -> tuple[str, ...]:
+        """Persist context-only hints (``hint_id``, ``identifiers``, ``attributes``, provenance) append-only.
+
+        Hints never become claims: resolution, projection, conflicts and the content digest ignore them.
+        """
+
+        items = tuple(dict(hint) for hint in hints)
+        for hint in items:
+            identifiers = hint.get("identifiers")
+            if not isinstance(identifiers, Mapping) or any(
+                key not in _EXACT_MATCH_IDENTIFIERS or not isinstance(value, str) or not value.strip()
+                for key, value in identifiers.items()
+            ):
+                raise IdentityMasterSchemaError("identity hints rejected: invalid identifiers mapping")
+        records = tuple((_HINT_TYPE, str(hint["hint_id"]), {"hint": hint}) for hint in items)
+        try:
+            self._store.put_many(records, immutable=True)
+        except (StorageRevisionConflict, sqlite3.DatabaseError, ValueError, TypeError) as exc:
+            raise IdentityMasterSchemaError(f"identity hints rejected: {exc}") from exc
+        return tuple(record_id for _, record_id, _ in records)
+
+    def hints_for_identifier(self, field: str, value: str) -> tuple[dict[str, Any], ...]:
+        """Read-only context hints carrying an exact identifier; never an input to resolution."""
+
+        canonical_field = _field(field)
+        normalised = _identifier_value(canonical_field, value)
+        return tuple(
+            dict(record.payload["hint"]) for record in self._store.list(_HINT_TYPE)
+            if normalised and _identifier_value(canonical_field, record.payload["hint"]["identifiers"].get(canonical_field)) == normalised
+        )
 
     def append_fund_lifecycle_events(
         self, events: Iterable[FundLifecycleEvent]
