@@ -49,8 +49,11 @@ def _business_days_between(start: date, end: date) -> int:
 
 
 @lru_cache(maxsize=512)
-def _weekdays(start: pd.Timestamp, end: pd.Timestamp) -> pd.DatetimeIndex:
-    """Weekdays from start to end. Instruments share date spans, so one validation asks for few distinct ranges."""
+def _weekdays(start: pd.Timestamp, end: pd.Timestamp, zone: str) -> pd.DatetimeIndex:
+    """Weekdays from start to end. Instruments share date spans, so one validation asks for few distinct ranges.
+
+    ``zone`` is only a cache key: equal instants in different time zones are equal timestamps with other weekdays.
+    """
     return pd.bdate_range(start, end)
 
 
@@ -62,7 +65,7 @@ def _missing_price_days(
 ) -> tuple[int, str]:
     """Use explicit identity evidence, or the configured listing exchange if absent."""
     dates = pd.DatetimeIndex(pd.to_datetime(group["date"]))
-    missing = _weekdays(dates.min(), dates.max()).difference(dates)
+    missing = _weekdays(dates.min(), dates.max(), str(dates.tz)).difference(dates)
     fallback = (len(missing), "Exchange calendar unknown or uncertified; weekday fallback.")
     if calendar is None:
         return fallback

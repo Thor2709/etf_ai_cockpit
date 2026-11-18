@@ -419,6 +419,8 @@ def _no_external_network() -> Iterator[None]:
     local_names = {"", "localhost", socket.gethostname().lower()}
 
     def check(host: object) -> None:
+        if isinstance(host, bytes):
+            host = host.decode("ascii", "replace")
         if not isinstance(host, str) or host.lower() in local_names:
             return
         try:
