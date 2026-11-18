@@ -463,9 +463,34 @@ def observation_summary_payload(rows: list[dict[str, object]], missing_jurisdict
     return {"status": "available" if rows else "unavailable", "rows": rows, "reason": reason}
 
 
+def macro_feature_value(rows: pd.DataFrame, *, series_id: str) -> dict[str, object]:
+    """Return the latest exact-availability value of one series from ``MacroWarehouse.as_of`` rows.
+
+    Rows whose ``availability_confidence`` is not ``exact`` (for example an inferred availability time)
+    never feed a feature.  No row, or only barred rows, gives an explicit unavailable result.
+    """
+
+    unavailable = {"status": "unavailable", "series_id": series_id, "value": None, "execution_allowed": False}
+    if rows.empty or "availability_confidence" not in rows.columns:
+        return {**unavailable, "reason": "no macro observations were available at the decision time"}
+    exact = rows[(rows["series_id"] == series_id) & (rows["availability_confidence"] == "exact")]
+    if exact.empty:
+        return {**unavailable, "reason": "no exact-availability observation for the series; inferred rows are barred"}
+    latest = exact.sort_values("period_start").iloc[-1]
+    return {
+        "status": "available",
+        "series_id": series_id,
+        "value": float(latest["value"]),
+        "period_start": str(latest["period_start"]),
+        "available_at": str(latest["available_at"]),
+        "execution_allowed": False,
+    }
+
+
 __all__ = [
     "build_macro_context",
     "finalize_observation_rows",
+    "macro_feature_value",
     "macro_status",
     "observation_summary_payload",
 ]
