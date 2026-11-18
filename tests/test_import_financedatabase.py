@@ -64,12 +64,12 @@ def _official(isin: str = OFFICIAL_ISIN) -> IdentitySourceRow:
     return IdentitySourceRow(
         row_id="official:1",
         instrument_id="SEC-VWRL",
-        object_type="instrument",
+        object_type="security",
         object_id="SEC-VWRL",
         parent_object_id=None,
         relationship=None,
         identifiers={"isin": isin},
-        attributes={"name": "Official Name", "currency": "EUR", "provider_symbol": "VWRL.L"},
+        attributes={"name": "Official Name", "provider_symbol": "VWRL.L"},
         source="issuer_register",
         authority=SourceAuthority.OFFICIAL,
         source_id="official:1",
@@ -80,17 +80,25 @@ def _official(isin: str = OFFICIAL_ISIN) -> IdentitySourceRow:
 
 def test_hint_never_overrides_an_official_identity(tmp_path: Path) -> None:
     folder, _ = _fixture(tmp_path)
-    store_root = tmp_path / "store"
-    with IdentityMasterStore(store_root) as store:
+    cutoffs = ({}, {"effective_at": "2024-06-01T00:00:00Z", "decision_time": "2024-06-01T00:00:00Z"})
+
+    def official_views(store: IdentityMasterStore) -> list:
+        return [store.resolve("SEC-VWRL", **cutoff) for cutoff in cutoffs]
+
+    with IdentityMasterStore(tmp_path / "plain") as plain:
+        plain.import_rows([_official()])
+        baseline = official_views(plain)
+    with IdentityMasterStore(tmp_path / "hinted") as store:
         store.import_rows([_official()])
-        importer.import_financedatabase(folder, store, imported_at=IMPORTED_AT)
-        resolution = store.resolve("SEC-VWRL")
-    assert resolution.identity.name == "Official Name"
-    hints = [c for c in resolution.claims if c.source == "financedatabase"]
-    assert hints and {c.authority for c in hints} == {SourceAuthority.COMMUNITY}
-    assert {c.field for c in hints} >= {"name", "provider_symbol"}
-    assert all(c.valid_from is None and c.valid_to is None for c in hints)
-    assert resolution.execution_allowed is False
+        summary = importer.import_financedatabase(folder, store, imported_at=IMPORTED_AT)
+        hinted = official_views(store)
+        hints = store.hints_for_identifier("isin", OFFICIAL_ISIN)
+    assert hinted == baseline
+    assert baseline[0].identity.name == "Official Name" and not baseline[0].conflicts
+    assert baseline[0].identity.currency is None and baseline[0].identity.mic is None
+    assert [h["attributes"]["name"] for h in hints] == ["Hint Name"]
+    assert {h["authority"] for h in hints} == {"community"}
+    assert summary["matched"] == 1 and summary["unmatched"] == 1 and summary["execution_allowed"] is False
 
 
 def test_offline_import_records_file_hash_and_provenance(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -102,14 +110,16 @@ def test_offline_import_records_file_hash_and_provenance(tmp_path: Path, monkeyp
     monkeypatch.setattr(socket.socket, "connect", _no_network)
     with IdentityMasterStore(tmp_path / "store") as store:
         summary = importer.import_financedatabase(folder, store, imported_at=IMPORTED_AT)
-        rows = [r.payload["row"] for r in store._store.list("identity_source_row_v1")]
+        rows = [r.payload["hint"] for r in store._store.list("identity_hint_v1")]
+        store_claims = len(store._store.list("identity_claim_v1")) + len(store._store.list("identity_source_row_v1"))
     assert summary["rows_imported"] == 2 and summary["rows_skipped_delisted"] == 1
     assert {r["source"] for r in rows} == {"financedatabase"}
     assert {r["authority"] for r in rows} == {"community"}
     assert {r["source_checksum"] for r in rows} == {digest}
     assert {datetime.fromisoformat(r["retrieved_at"].replace("Z", "+00:00")) for r in rows} == {IMPORTED_AT}
     assert all("2.5.1" in r["source_id"] and REVISION[:8] in r["source_id"] for r in rows)
-    assert all(r["valid_from"] is None and r["valid_to"] is None for r in rows)
+    assert all(r["version"] == "2.5.1" and r["revision"] == REVISION for r in rows)
+    assert store_claims == 0
 
 
 def test_tampered_file_is_refused(tmp_path: Path) -> None:

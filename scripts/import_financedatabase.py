@@ -1,13 +1,14 @@
-"""Import a user-downloaded FinanceDatabase copy as current, low-authority identity hints.
+"""Import a user-downloaded FinanceDatabase copy as context-only, low-authority identity hints.
 
 Reads ``database/{equities,etfs}/<EXCHANGE>.csv`` plus ``SOURCE.json`` (version,
 revision, per-file sha256) from a local folder; no network access. Every file is
-verified against its recorded sha256 before any row is read. Rows become
-``community``-authority ``financedatabase`` identity rows observed at the import
-time; they attach to an existing instrument only through an exact ISIN, CUSIP or
-FIGI match, so an official identity always outranks them. Rows flagged
-``delisted`` are skipped and no validity interval is inferred. Nothing here
-enables execution or reaches a broker or provider.
+verified against its recorded sha256 before any row is read. Rows are stored as
+separate append-only ``community`` hint records observed at the import time and
+read back by exact ISIN, CUSIP or FIGI. Hints are never identity claims: they take
+no part in resolution, object selection, conflicts, point-in-time checks or field
+filling, so an official identity is identical with and without an import. Rows
+flagged ``delisted`` are skipped and no validity interval is inferred. Nothing
+here enables execution or reaches a broker or provider.
 """
 
 from __future__ import annotations
@@ -23,7 +24,7 @@ import sys
 from typing import Any, Mapping, Sequence
 
 from etf_cockpit.data.contracts import SourceAuthority
-from etf_cockpit.data.identity_master import IdentityMasterStore, IdentitySourceRow
+from etf_cockpit.data.identity_master import IdentityMasterStore
 
 SOURCE = "financedatabase"
 _KINDS = ("equities", "etfs")
@@ -47,7 +48,7 @@ def import_financedatabase(
     stamp = imported_at.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     summary: dict[str, Any] = {
         "source": SOURCE, "version": version, "revision": revision, "imported_at": imported_at.isoformat(),
-        "rows_imported": 0, "rows_skipped_delisted": 0, "resolved": 0, "unresolved": 0, "quarantined": 0,
+        "rows_imported": 0, "rows_skipped_delisted": 0, "matched": 0, "unmatched": 0,
         "files": {}, "execution_allowed": False,
     }
     batches: list[tuple[str, str, bytes]] = []
@@ -61,7 +62,7 @@ def import_financedatabase(
             summary["files"][relative] = digest
             batches.append((relative, digest, payload))
     for relative, digest, payload in batches:
-        rows: list[IdentitySourceRow] = []
+        hints: list[dict[str, Any]] = []
         for record in csv.DictReader(io.StringIO(payload.decode("utf-8"), newline="")):
             if str(record.get("delisted", "")).strip().casefold() == "true":
                 summary["rows_skipped_delisted"] += 1
@@ -70,29 +71,25 @@ def import_financedatabase(
             if not symbol:
                 continue
             source_id = f"{SOURCE}:{version}:{revision[:8]}:{relative}:{symbol}"
-            rows.append(
-                IdentitySourceRow(
-                    row_id=f"{source_id}:{stamp}",
-                    instrument_id="",
-                    object_type="instrument",
-                    object_id="",
-                    parent_object_id=None,
-                    relationship=None,
-                    identifiers=_picked(record, {name: name for name in _IDENTIFIERS}),
-                    attributes=_picked(record, _ATTRIBUTES),
-                    source=SOURCE,
-                    authority=SourceAuthority.COMMUNITY,
-                    source_id=source_id,
-                    available_at=imported_at.isoformat(),
-                    retrieved_at=imported_at.isoformat(),
-                    source_checksum=digest,
-                )
+            identifiers = _picked(record, {name: name for name in _IDENTIFIERS})
+            hints.append(
+                {
+                    "hint_id": f"{source_id}:{stamp}",
+                    "source": SOURCE,
+                    "authority": SourceAuthority.COMMUNITY.value,
+                    "source_id": source_id,
+                    "version": version,
+                    "revision": revision,
+                    "source_checksum": digest,
+                    "retrieved_at": imported_at.isoformat(),
+                    "identifiers": identifiers,
+                    "attributes": _picked(record, _ATTRIBUTES),
+                }
             )
-        result = store.import_rows(rows)
-        summary["rows_imported"] += len(rows)
-        summary["resolved"] += len(result.resolved_row_ids)
-        summary["unresolved"] += len(result.unresolved_row_ids)
-        summary["quarantined"] += len(result.quarantined_row_ids)
+            matched = any(store.instruments_for_identifier(name, value) for name, value in identifiers.items())
+            summary["matched" if matched else "unmatched"] += 1
+        store.append_hints(hints)
+        summary["rows_imported"] += len(hints)
     return summary
 
 
