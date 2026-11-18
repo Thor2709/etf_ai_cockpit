@@ -57,8 +57,8 @@ def solve_skfolio(
         from skfolio.moments import LedoitWolf
         from skfolio.optimization import HierarchicalRiskParity, MeanRisk, ObjectiveFunction
         from skfolio.prior import EmpiricalPrior
-    except ImportError as exc:
-        raise SkfolioUnavailable("skfolio_unavailable", f"skfolio is not installed: {exc}") from exc
+    except Exception as exc:  # absent package or a backend dependency failing at import time
+        raise SkfolioUnavailable("skfolio_unavailable", f"skfolio cannot be imported: {type(exc).__name__}: {exc}") from exc
     try:
         prior = EmpiricalPrior(covariance_estimator=LedoitWolf()) if covariance_shrinkage == "ledoit_wolf" else None
         if method == "sk_hrp":
