@@ -13,9 +13,11 @@ Selection rules (union, printed one repository-relative POSIX path per line):
   targets) or a changed non-test helper module under ``tests/``; the changed set is first
   closed over the product import graph, so a test that reaches the change only through
   other ``src/etf_cockpit`` modules is selected too;
-* the UI contract sweep when anything under ``src/etf_cockpit/app/`` changed.
+* the UI contract sweep when anything under ``src/etf_cockpit/app/`` changed;
+* for a changed document (``.md``, ``.rst``, ``.txt`` outside ``tests/``), the test files
+  that name its file name or a glob of its suffix (``*.md``).
 
-An empty selection (documentation or configuration only) prints nothing and exits 0.
+An empty selection (configuration only, or a document no test reads) prints nothing and exits 0.
 Every unavailable input (bad SHA, failed Git diff, missing sweep file) exits non-zero
 with an explicit reason; the selection is never silently truncated or zero-filled.
 """
@@ -42,6 +44,7 @@ UI_CONTRACT_SWEEP = (
     "tests/test_accessibility_contracts.py",
 )
 LARGE_SELECTION = 150
+DOCUMENT_SUFFIXES = {".md", ".rst", ".txt"}
 UI_ACCEPTANCE_CONFIG = "configs/ui_acceptance.yaml"
 
 
@@ -154,13 +157,14 @@ def _all_test_files(root: Path) -> list[str]:
     )
 
 
-def _tests_naming(root: Path, needle: str) -> set[str]:
-    """Test files whose source mentions ``needle`` (unreadable files are selected, never skipped)."""
+def _tests_naming(root: Path, *needles: str) -> set[str]:
+    """Test files whose source mentions any of ``needles`` (unreadable files are selected, never skipped)."""
 
     found: set[str] = set()
     for test_path in _all_test_files(root):
         try:
-            if needle in (root / test_path).read_text(encoding="utf-8"):
+            source = (root / test_path).read_text(encoding="utf-8")
+            if any(needle in source for needle in needles):
                 found.add(test_path)
         except (OSError, UnicodeDecodeError):
             found.add(test_path)
@@ -240,6 +244,11 @@ def select_tests(root: Path, paths: list[str]) -> list[str]:
         selected.update(_all_test_files(root))  # shared fixtures/hooks can change every test
     if UI_ACCEPTANCE_CONFIG in paths:
         selected.update(_tests_naming(root, "ui_acceptance"))
+    documents = [PurePosixPath(path) for path in paths
+                 if PurePosixPath(path).suffix in DOCUMENT_SUFFIXES and not path.startswith(TESTS_PREFIX)]
+    if documents:
+        needles = {document.name for document in documents} | {f"*{document.suffix}" for document in documents}
+        selected.update(_tests_naming(root, *sorted(needles)))
     if any(path.startswith(APP_PREFIX) or path == UI_ACCEPTANCE_CONFIG for path in paths):
         for sweep in UI_CONTRACT_SWEEP:
             if not (root / sweep).is_file():

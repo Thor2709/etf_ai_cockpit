@@ -184,7 +184,7 @@ def _junit_tests(node: ET.Element) -> int:
 RELEASE_ARTIFACT_RE = re.compile(
     r"release-gate-(?P<sha>[^-]+)-(?P<platform>windows|linux)(?:-s(?P<shard>[0-9]+))?", re.IGNORECASE
 )
-EXPECTED_SHARD_COUNT = 5  # .github/workflows/release-gate.yml matrix.shard [1, 2, 3, 4, 5]
+EXPECTED_SHARD_COUNT = 8  # .github/workflows/release-gate.yml matrix.shard [1, 2, 3, 4, 5, 6, 7, 8]
 SHARD_KEYS = {
     "collected", "collection_nodeids", "executed_keys", "duplicates", "expected_modules", "head_sha", "labels",
     "report_errors", "shards", "tests",

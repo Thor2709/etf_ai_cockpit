@@ -381,7 +381,6 @@
     "tests/test_issue_0179_atomic_generation.py": 2.0,
     "tests/test_issue_0179_validation_summary.py": 0.4,
     "tests/test_issue_0180_environment_isolation.py": 0.0,
-    "tests/test_issue_0180_parallel_pilot.py": 15.8,
     "tests/test_issue_registry.py": 1.5,
     "tests/test_job_scheduler.py": 1.7,
     "tests/test_launcher_workflow.py": 0.0,
