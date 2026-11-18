@@ -28,12 +28,28 @@ def validate_research_batch(items: Iterable[Mapping[str, Any]]) -> tuple[dict[st
     return rows
 
 
-def search_document_chunks(root: Path, query: str, *, as_of: str, limit: int = 10) -> dict[str, object]:
-    """Lexical search over the local document chunk store (INT-23); hit text stays untrusted."""
+def search_document_chunks(root: Path, query: str, *, as_of: str, limit: int = 10, mode: str = "lexical") -> dict[str, object]:
+    """Search the local document chunk store (INT-23); hit text stays untrusted.
 
+    ``mode="hybrid"`` fuses lexical and dense rankings only while ``HYBRID_ENABLED`` is set and the
+    embeddings are available; otherwise the result is lexical and ``mode_used`` says so.
+    """
+
+    from etf_cockpit.data import document_embeddings
     from etf_cockpit.data.document_chunks import CHUNK_STORE_NAME, search
 
-    return search(Path(root) / "data" / CHUNK_STORE_NAME, query, as_of=as_of, limit=limit)
+    if mode not in {"lexical", "hybrid"}:
+        raise ValueError("mode must be 'lexical' or 'hybrid'")
+    path = Path(root) / "data" / CHUNK_STORE_NAME
+    reason = None
+    if mode == "hybrid":
+        reason = "hybrid retrieval is disabled until the evaluation shows it is not worse than lexical"
+        if document_embeddings.HYBRID_ENABLED:
+            hybrid = document_embeddings.hybrid_search(path, query, as_of=as_of, limit=limit)
+            if hybrid["status"] == "available":
+                return {**hybrid, "mode_used": "hybrid"}
+            reason = str(hybrid["reason"])
+    return {**search(path, query, as_of=as_of, limit=limit), "mode_used": "lexical", "fallback_reason": reason}
 
 
 def research_revision(root: Path) -> str:

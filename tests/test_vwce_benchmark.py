@@ -503,3 +503,28 @@ def test_passive_default_policy_is_versioned_pending_and_leaves_targets_untouche
     assert load_passive_default_policy(tmp_path / "missing.yaml")["status"] == "unavailable"
     targets = yaml.safe_load((path.parent / "portfolio_targets.yaml").read_text(encoding="utf-8"))
     assert targets["positions"]["VWCE"]["target_weight"] == 0.0
+
+def test_import_vwce_anchor_makes_a_source_backed_anchor_known_only_after_import(tmp_path, monkeypatch) -> None:
+    import etf_cockpit.core.paths as core_paths
+    from etf_cockpit.analysis.decision.opportunity import _opportunity_benchmark_anchor, load_opportunity_policy
+    from etf_cockpit.application.absolute_merit import import_vwce_anchor, vwce_anchor_series_hash
+
+    monkeypatch.setattr(core_paths, "DATA_DIR", tmp_path)
+    policy = load_opportunity_policy()
+    known = datetime.fromisoformat(KNOWN_AT)
+    before, after = datetime.fromisoformat("2025-03-19T12:00:00+00:00"), datetime.fromisoformat("2025-03-21T12:00:00+00:00")
+    prices = _series(etf_id="VWCE")
+    registry_file = tmp_path / "reference" / "benchmark_reference_registry.json"
+
+    with pytest.raises(BenchmarkReferenceError):  # a failing series writes nothing
+        import_vwce_anchor(_series(dividends=[0, 0, 0, 0.35, 0, 0, 0, 0, 0, 0], etf_id="VWCE"), known_at=known)
+    with pytest.raises(BenchmarkReferenceError, match="invalid_dates"):  # a row with no date is not silently dropped
+        import_vwce_anchor(_series(etf_id="VWCE").assign(date=lambda frame: frame["date"].mask(frame.index == 4)), known_at=known)
+    assert not registry_file.exists() and _opportunity_benchmark_anchor(policy, decision=after) is None
+
+    assert import_vwce_anchor(prices, known_at=known) == registry_file
+    anchor = _opportunity_benchmark_anchor(policy, decision=after)
+    assert anchor is not None and anchor.status == "available" and anchor.opportunity_anchor is True
+    assert anchor.source_hashes == (vwce_anchor_series_hash(prices, anchor),)
+    assert _opportunity_benchmark_anchor(policy, decision=before) is None  # point in time: unknown before the import
+    assert load_canonical_benchmark_registry(packaged_only=True).benchmarks[0].status == "unavailable"

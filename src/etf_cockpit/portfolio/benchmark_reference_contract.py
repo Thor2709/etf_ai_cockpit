@@ -1527,8 +1527,23 @@ class CanonicalBenchmarkRegistry:
         return authoritative
 
 
-def load_canonical_benchmark_registry(path: Path | None = None) -> CanonicalBenchmarkRegistry:
-    """Load one durable local registry, rejecting duplicate keys and tampering."""
+def local_benchmark_registry_path() -> Path:
+    """Where an imported, source-backed registry lives under the data root."""
+
+    from etf_cockpit.core import paths
+
+    return paths.DATA_DIR / "reference" / "benchmark_reference_registry.json"
+
+
+def load_canonical_benchmark_registry(
+    path: Path | None = None, *, packaged_only: bool = False
+) -> CanonicalBenchmarkRegistry:
+    """Load one durable registry, rejecting duplicate keys and tampering.
+
+    Without ``path`` the imported data-root registry wins when present, else the packaged resource."""
+
+    if path is None and not packaged_only and local_benchmark_registry_path().is_file():
+        path = local_benchmark_registry_path()
 
     def reject_duplicates(pairs: list[tuple[str, object]]) -> dict[str, object]:
         result: dict[str, object] = {}

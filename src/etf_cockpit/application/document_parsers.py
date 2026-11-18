@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from etf_cockpit.application.docling_worker import queue_tables
     from etf_cockpit.parsers.index_methodology import (
         apply_methodology_holdings_assessment,
         parse_index_methodology,
@@ -21,6 +22,7 @@ __all__ = [
     "parse_index_methodology",
     "parse_priips_kid",
     "parse_sfdr",
+    "queue_tables",
 ]
 
 
@@ -37,4 +39,8 @@ def __getattr__(name: str) -> object:
         from etf_cockpit.parsers.sfdr import parse_sfdr
 
         return parse_sfdr
+    if name == "queue_tables":
+        from etf_cockpit.application import docling_worker
+
+        return docling_worker.queue_tables
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

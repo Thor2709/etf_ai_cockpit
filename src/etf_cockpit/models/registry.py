@@ -20,8 +20,9 @@ def model_availability(
         "baseline": True,
         "timesfm": any(status.model_name == "timesfm" and status.live_ready for status in inventory),
         "toto": any(status.model_name == "toto" and status.live_ready for status in inventory),
+        "chronos2": any(status.model_name == "chronos2" and status.live_ready for status in inventory),
     }
-    reasons: dict[str, str | None] = {"timesfm": None, "toto": None}
+    reasons: dict[str, str | None] = {"timesfm": None, "toto": None, "chronos2": None}
     if "timesfm3" in config.models.models:
         availability["timesfm3"] = any(status.model_name == "timesfm3" and status.live_ready for status in inventory)
         reasons["timesfm3"] = None

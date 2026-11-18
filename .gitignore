@@ -30,6 +30,8 @@ models/cached/*
 !models/toto/README.md
 !models/toto/**/
 !models/toto/**/config.json
+models/chronos/*
+!models/chronos/README.md
 !models/lightgbm/README.md
 !models/cached/README.md
 models/timesfm/**/*.safetensors

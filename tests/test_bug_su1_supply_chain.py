@@ -524,3 +524,10 @@ def test_source_dependency_manifest_matches_project_metadata() -> None:
     assert _requirement_lines(ROOT / "requirements-quant.txt") == quant
     sec = {item.lower().replace(" ", "") for item in project["optional-dependencies"]["sec"]}
     assert _requirement_lines(ROOT / "requirements-sec.txt") == sec
+    documents = {item.lower().replace(" ", "") for item in project["optional-dependencies"]["documents"]}
+    assert _requirement_lines(ROOT / "requirements-documents.txt") == documents
+    retrieval = {item.lower().replace(" ", "") for item in project["optional-dependencies"]["retrieval"]}
+    assert _requirement_lines(ROOT / "requirements-retrieval.txt") == retrieval
+    chronos = "chronos-forecasting==2.3.2"
+    assert chronos in {item.lower().replace(" ", "") for item in project["optional-dependencies"]["models"]}
+    assert chronos in _requirement_lines(ROOT / "requirements-models.txt")

@@ -2,7 +2,7 @@
 
 ``sec_receipt_time`` is the acceptance time of the first SEC filing that carries the quarter:
 an 8-K with Item 2.02, else the 10-Q/10-K. It is not the public announcement time, which is
-left unavailable here. ``sue_revenue`` uses the earliest-filed (originally reported) revenue
+``unavailable`` unless that 8-K's parsed release prints it explicitly (ISSUE-0200). ``sue_revenue`` uses the earliest-filed (originally reported) revenue
 and is visible from the later of the receipt gate and the filing that holds the figure.
 ``filing_reaction_3s`` is the VWCE-relative return from the close before the first session
 closing after the receipt (``t``) to the close of ``t+1``, visible at the open after ``t+1``.
@@ -15,6 +15,7 @@ import hashlib
 import json
 import math
 import statistics
+from typing import TYPE_CHECKING
 
 import exchange_calendars as xcals
 import pandas as pd
@@ -23,6 +24,11 @@ from etf_cockpit.analysis.decision.rank_validation import _date_value, _forward_
 from etf_cockpit.data.bitemporal import BitemporalStore
 from etf_cockpit.data.sec_pit_facts import acceptance_index, fact_known_at
 from etf_cockpit.features.feature_store import FeatureDefinition, LocalFeatureStore
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from etf_cockpit.data.sec_filing_documents import EightKFiling
 
 DATASET_ID = "earnings_information"
 FEATURES = ("sue_revenue", "filing_reaction_3s")
@@ -64,8 +70,8 @@ def _quarters(companyfacts: dict, acceptances: dict) -> list[dict]:
     return [quarters[end] for end in sorted(quarters)]
 
 
-def _receipt(quarter: dict, tables: list[dict], acceptances: dict) -> tuple[datetime, datetime, str]:
-    """(sec_receipt_time, availability gate, source) of the first filing that carries the quarter."""
+def _receipt(quarter: dict, tables: list[dict], acceptances: dict) -> tuple[datetime, datetime, str, str | None]:
+    """(sec_receipt_time, availability gate, source, 8-K accession) of the first filing that carries the quarter."""
     candidates = []
     for table in tables:
         for accn, form, items in zip(table.get("accessionNumber", []), table.get("form", []), table.get("items", [])):
@@ -75,10 +81,10 @@ def _receipt(quarter: dict, tables: list[dict], acceptances: dict) -> tuple[date
                 candidates.append((datetime.fromisoformat(entry["accepted"]), accn, entry["filed"]))
     if candidates:
         accepted, accn, filed = min(candidates)
-        return accepted, datetime.fromisoformat(fact_known_at({"filed": filed, "accn": accn}, acceptances)), "8-K item 2.02"
+        return accepted, datetime.fromisoformat(fact_known_at({"filed": filed, "accn": accn}, acceptances)), "8-K item 2.02", accn
     entry = acceptances.get(quarter["accn"])
     accepted = datetime.fromisoformat(entry["accepted"]) if entry and entry["accepted"] else quarter["known"]
-    return accepted, quarter["known"], "periodic filing"
+    return accepted, quarter["known"], "periodic filing", None
 
 
 def _sue(quarters: list[dict], index: int, receipt: datetime) -> dict:
@@ -133,9 +139,12 @@ def _reaction(instrument_id: str, receipt: datetime, exact_acceptance: bool, pri
 
 def compute_earnings_events(
     instrument_id: str, companyfacts: dict, submissions: dict, prices: pd.DataFrame, benchmark_prices: pd.DataFrame,
-    *, country: str | None, historical_pages: list[dict] = (),
+    *, country: str | None, historical_pages: list[dict] = (), eight_ks: Sequence[EightKFiling] = (),
 ) -> dict:
-    """One event per quarter with both features; ``prices`` and ``benchmark_prices`` are adjusted EUR."""
+    """One event per quarter with both features; ``prices`` and ``benchmark_prices`` are adjusted EUR.
+
+    ``public_announcement_time`` is taken from the parsed 8-K with the receipt's accession and acceptance time.
+    """
     if str(country or "").strip().upper() not in _US:
         return {"status": "unavailable", "reason": "non_us_issuer", "events": []}
     acceptances = acceptance_index(submissions, list(historical_pages))
@@ -143,14 +152,16 @@ def compute_earnings_events(
     quarters = _quarters(companyfacts, acceptances)
     events = []
     for index, quarter in enumerate(quarters):
-        receipt, gate, source = _receipt(quarter, tables, acceptances)
+        receipt, gate, source, accn = _receipt(quarter, tables, acceptances)
         sue = _sue(quarters, index, receipt)
         exact = source == "8-K item 2.02" or bool((acceptances.get(quarter["accn"]) or {}).get("accepted"))
+        announced = next((k.public_announcement_time for k in eight_ks
+                          if accn and k.is_earnings_release and k.accession == accn and k.sec_receipt_time == receipt), "unavailable")
         if sue["status"] == "available":
             sue["available_at"] = max(gate, quarter["known"]).isoformat()
         events.append({
             "quarter_end": quarter["end"], "sec_receipt_time": receipt.isoformat(), "receipt_source": source,
-            "exact_acceptance": exact,
+            "exact_acceptance": exact, "public_announcement_time": announced,
             "features": {"sue_revenue": sue, "filing_reaction_3s": _reaction(instrument_id, receipt, exact, prices, benchmark_prices)},
         })
     return {"status": "available" if events else "unavailable", "reason": None if events else "no_quarterly_revenue", "events": events}
@@ -166,7 +177,7 @@ def record_earnings_events(store: BitemporalStore, instrument_id: str, events: l
                 continue
             value = {"feature": feature, "value": result["value"], "event_key": event["quarter_end"],
                      "event_definition": "sec_receipt", "sec_receipt_time": event["sec_receipt_time"],
-                     "public_announcement_time": "unavailable", "pit_grade": "observed", "inputs": result["inputs"]}
+                     "public_announcement_time": event.get("public_announcement_time", "unavailable"), "pit_grade": "observed", "inputs": result["inputs"]}
             store.record_observation(
                 dataset_id=DATASET_ID, entity_id=instrument_id, stable_id=stable_id, value=value,
                 source_id="sec_receipt", source_checksum=hashlib.sha256(

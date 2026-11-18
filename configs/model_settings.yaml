@@ -44,6 +44,19 @@ models:
     device: auto
     timeout_seconds: 180
     decode_block_size: 768
+  # Chronos-2 (amazon/chronos-2, Apache-2.0) is shadow-only and off by default; its pretraining cutoff is
+  # unknown (not published), so every origin counts as possibly leaked. Enable by setting enabled: true, mode: live.
+  chronos2:
+    enabled: false
+    mode: disabled
+    backend: chronos2
+    hf_repo_id: amazon/chronos-2
+    model_path: models/chronos/chronos-2
+    local_files_only: true
+    allow_remote_download: false
+    context_length: 2048
+    use_quantiles: true
+    device: auto
   lightgbm:
     enabled: false
 # Automatic, evidence-based promotion. An optional model counts in scores only when its matured
