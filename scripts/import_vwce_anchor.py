@@ -2,7 +2,7 @@
 
 Usage: python scripts/import_vwce_anchor.py [--root PATH]
 
-Reads data/validated/prices/prices_daily.parquet under --root (default ETF_COCKPIT_ROOT), sets known_at to now (UTC),
+Reads the committed prices (duckdb_store.load_prices) under --root (default ETF_COCKPIT_ROOT), sets known_at to now (UTC),
 validates the VWCE series with the reference contract and writes data/reference/benchmark_reference_registry.json
 atomically. Nothing is written when the series fails. execution_allowed stays false.
 """
@@ -23,16 +23,18 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--root (or ETF_COCKPIT_ROOT) is required")
     os.environ["ETF_COCKPIT_ROOT"] = str(Path(args.root).resolve())
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-    import pandas as pd
-
     from etf_cockpit.application.absolute_merit import import_vwce_anchor
+    from etf_cockpit.data.duckdb_store import PRICE_PARQUET, load_prices
     from etf_cockpit.portfolio.benchmark_reference_contract import BenchmarkReferenceError, local_benchmark_registry_path
 
     if not local_benchmark_registry_path().resolve().is_relative_to(Path(args.root).resolve()):
         print("VWCE anchor not imported: --root is not a project root (no configs/universe.yaml)", file=sys.stderr)
         return 1
+    if not PRICE_PARQUET.exists():
+        print(f"VWCE anchor not imported: no prices at {PRICE_PARQUET}", file=sys.stderr)
+        return 1
     try:
-        written = import_vwce_anchor(pd.read_parquet(Path(args.root) / "data" / "validated" / "prices" / "prices_daily.parquet"))
+        written = import_vwce_anchor(load_prices())  # the committed rows a decision later reads
     except (BenchmarkReferenceError, OSError, KeyError) as exc:
         print(f"VWCE anchor not imported: {exc}", file=sys.stderr)
         return 1

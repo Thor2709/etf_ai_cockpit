@@ -518,6 +518,8 @@ def test_import_vwce_anchor_makes_a_source_backed_anchor_known_only_after_import
 
     with pytest.raises(BenchmarkReferenceError):  # a failing series writes nothing
         import_vwce_anchor(_series(dividends=[0, 0, 0, 0.35, 0, 0, 0, 0, 0, 0], etf_id="VWCE"), known_at=known)
+    with pytest.raises(BenchmarkReferenceError, match="invalid_dates"):  # a row with no date is not silently dropped
+        import_vwce_anchor(_series(etf_id="VWCE").assign(date=lambda frame: frame["date"].mask(frame.index == 4)), known_at=known)
     assert not registry_file.exists() and _opportunity_benchmark_anchor(policy, decision=after) is None
 
     assert import_vwce_anchor(prices, known_at=known) == registry_file

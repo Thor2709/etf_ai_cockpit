@@ -142,7 +142,7 @@ def load_strategy_templates(path: Path | None = None) -> tuple[StrategyTemplate,
 
 def _canonical_benchmark_ids() -> set[str]:
     try:
-        return {item.benchmark_id for item in load_canonical_benchmark_registry().benchmarks}
+        return {item.benchmark_id for item in load_canonical_benchmark_registry(packaged_only=True).benchmarks}
     except BenchmarkReferenceError as exc:
         raise ValueError("canonical benchmark registry is unavailable") from exc
 

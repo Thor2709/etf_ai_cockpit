@@ -147,7 +147,10 @@ def import_vwce_anchor(prices: pd.DataFrame, *, known_at: datetime | None = None
     if series_hash is None:
         raise BenchmarkReferenceError("VWCE price series unavailable before known_at")
     frame = prices.loc[prices["etf_id"].astype(str).eq("VWCE")]
-    frame = frame.loc[pd.to_datetime(frame["date"]).lt(pd.Timestamp(known.date()))].reset_index(drop=True)
+    dates = pd.to_datetime(frame["date"], errors="coerce")
+    if dates.isna().any():
+        raise BenchmarkReferenceError("VWCE series failed the reference contract: invalid_dates")
+    frame = frame.loc[dates.lt(pd.Timestamp(known.date()))].reset_index(drop=True)
     metadata = dataclasses.replace(
         metadata_from_frame(frame, source_name="yfinance", source_type="prices", as_of_date=None, currency="EUR"),
         ingested_at=known,
