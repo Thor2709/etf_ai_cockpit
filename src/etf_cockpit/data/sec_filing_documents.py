@@ -104,7 +104,7 @@ def _header_instants(digits: str) -> set[datetime]:
 def _filing(ed: SimpleNamespace, source: bytes, forms: tuple[str, ...], known_at: datetime):
     text = source.decode("utf-8")
     stamp = _ACCEPTED.search(text)
-    if stamp is None or known_at.astimezone(timezone.utc).replace(microsecond=0) not in _header_instants(stamp[1]):
+    if stamp is None or known_at.astimezone(timezone.utc) not in _header_instants(stamp[1]):
         raise SecFilingDocumentUnavailable("known_at does not match the filing's stored acceptance time")
     filing = ed.Filing.from_sgml_text(text)
     if filing.form not in forms:

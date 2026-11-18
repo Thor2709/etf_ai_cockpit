@@ -40,6 +40,8 @@ def test_stored_8k_yields_items_one_table_and_separate_times_with_the_network_bl
     assert sfd.parse_8k(real, known_at=datetime(2026, 11, 12, 23, 58, 20, tzinfo=timezone.utc)).sec_receipt_time.hour == 23
     with pytest.raises(sfd.SecFilingDocumentUnavailable, match="acceptance"):  # the header read as UTC is refused
         sfd.parse_8k(real, known_at=datetime(2026, 11, 12, 18, 58, 20, tzinfo=timezone.utc))
+    with pytest.raises(sfd.SecFilingDocumentUnavailable, match="acceptance"):  # sub-second drift is not the stored time
+        sfd.parse_8k(real, known_at=datetime(2026, 11, 12, 23, 58, 20, 500000, tzinfo=timezone.utc))
 
 
 @pytest.mark.parametrize("printed, reason", [
