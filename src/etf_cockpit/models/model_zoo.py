@@ -88,6 +88,7 @@ def model_zoo_catalogue(
     optional_status: Mapping[str, bool] | None = None,
     horizons: Sequence[int] = _DEFAULT_HORIZONS,
     subgroup_results_by_model: Mapping[str, Sequence[Mapping[str, object]]] | None = None,
+    state_reasons: Mapping[str, str] | None = None,
 ) -> tuple[ModelCard, ...]:
     """Return deterministic baseline/challenger cards.
 
@@ -95,7 +96,8 @@ def model_zoo_catalogue(
     forecast artefact report.  Missing entries remain explicitly unavailable.
     ``subgroup_results_by_model`` attaches local subgroup evidence to cards;
     missing entries stay unavailable with a reason.  No network or package
-    discovery is performed here.
+    discovery is performed here.  ``state_reasons`` replaces a card's reason text, e.g.
+    ``insufficient_evidence: ...`` for ``tree_boosting`` (``ModelState`` stays two-valued).
     """
 
     clean_horizons = tuple(sorted({int(value) for value in horizons if int(value) > 0})) or _DEFAULT_HORIZONS
@@ -113,6 +115,8 @@ def model_zoo_catalogue(
         _card("timesfm3", "TimesFM 3.0", "foundation", ("return", "quantile"), clean_horizons, ("adjusted_close",), "Non-commercial; owner accepted personal use", "3.0", True, "available" if optional_status.get("timesfm3", False) else "unavailable", "SHADOW only. Local timesfm 3 runtime and weights required. Evaluation through November 2023 is possibly leaked and cannot support promotion.", "high", "high"),
         _card("toto", "Toto", "foundation", ("return", "quantile"), clean_horizons, ("adjusted_close",), "Model-specific terms", "optional", True, "available" if optional_status.get("toto", False) else "unavailable", "Optional local weights and runtime are not available." if not optional_status.get("toto", False) else "Optional local challenger; validation and licence review remain required.", "high", "high"),
     )
+    if state_reasons:
+        cards = tuple(replace(card, state_reason=state_reasons.get(card.model_id, card.state_reason)) for card in cards)
     if subgroup_results_by_model is None:
         return cards
     return tuple(
@@ -133,6 +137,7 @@ def model_zoo_frame(
     optional_status: Mapping[str, bool] | None = None,
     horizons: Sequence[int] = _DEFAULT_HORIZONS,
     subgroup_results_by_model: Mapping[str, Sequence[Mapping[str, object]]] | None = None,
+    state_reasons: Mapping[str, str] | None = None,
 ) -> pd.DataFrame:
     """Serialise cards into a stable UI/report table."""
 
@@ -148,6 +153,7 @@ def model_zoo_frame(
             optional_status=optional_status,
             horizons=horizons,
             subgroup_results_by_model=subgroup_results_by_model,
+            state_reasons=state_reasons,
         )
     ]
     return pd.DataFrame(rows, columns=columns)
