@@ -21,7 +21,7 @@ from typing import Any
 
 import pandas as pd
 
-from etf_cockpit.analysis.stock_metrics import BALANCE_FIELDS, FLOW_FIELDS
+from etf_cockpit.analysis.stock_metrics import BALANCE_FIELDS, FLOW_FIELDS, LINE_ITEM_BALANCE_FIELDS, LINE_ITEM_FLOW_FIELDS
 from etf_cockpit.core.paths import STATEMENT_FACTS_PATH
 from etf_cockpit.data.yfinance_provider import classify_provider_error
 
@@ -542,12 +542,13 @@ def parse_edgar_companyfacts(payload: Mapping[str, Any], config: Mapping[str, An
     debt_parts = {name: collect_instant([name]) for name in concepts.get("debt_parts", [])}
     lease_parts = {name: collect_instant([name]) for name in concepts.get("lease_parts", [])}
     shares = collect_instant(concepts.get("shares_outstanding", []), shares=True)
+    line_items = {name: collect_instant(concepts.get(name, [])) for name in LINE_ITEM_BALANCE_FIELDS}
 
     for (end, ptype), entry in list(rows.items()):
         def pick(series: Mapping[str, tuple[float, str, str]]) -> tuple[float, str, str] | None:
             return series.get(end)
 
-        for name, series in (("equity_parent", equity), ("minority_interest", minority), ("total_assets", total_assets), ("total_liabilities", total_liabilities), ("shares_outstanding", shares)):
+        for name, series in (("equity_parent", equity), ("minority_interest", minority), ("total_assets", total_assets), ("total_liabilities", total_liabilities), ("shares_outstanding", shares), *line_items.items()):
             item = pick(series)
             if item is not None:
                 entry[name] = item[0]
@@ -861,7 +862,7 @@ def parse_esef_statement_facts(facts: pd.DataFrame, config: Mapping[str, Any], *
         return bool(_CURRENCY_UNIT.match(unit))
 
     flow = {name: collect(name, kind="flow", unit_ok=is_currency) for name in FLOW_FIELDS if concepts.get(name)}
-    instant_names = ("equity_parent", "minority_interest", "total_assets", "total_liabilities", "cash", "debt_total", "debt_noncurrent", "debt_current", "lease_total", "lease_noncurrent", "lease_current")
+    instant_names = ("equity_parent", "minority_interest", "total_assets", "total_liabilities", "cash", "debt_total", "debt_noncurrent", "debt_current", "lease_total", "lease_noncurrent", "lease_current", *LINE_ITEM_BALANCE_FIELDS)
     instant = {name: collect(name, kind="instant", unit_ok=is_currency) for name in instant_names if concepts.get(name)}
     if concepts.get("shares_outstanding"):
         instant["shares_outstanding"] = collect("shares_outstanding", kind="instant", unit_ok=lambda unit: unit == "shares")
@@ -869,6 +870,7 @@ def parse_esef_statement_facts(facts: pd.DataFrame, config: Mapping[str, Any], *
     rows: dict[str, dict[str, Any]] = {}
     statuses: dict[str, dict[str, str]] = defaultdict(dict)
     known_of: dict[str, list[pd.Timestamp]] = defaultdict(list)
+    line_items: dict[str, list[tuple[str, float, str, pd.Timestamp]]] = defaultdict(list)
 
     for name, series in flow.items():
         for (start, end), (value, known, unit, _agree) in series.items():
@@ -890,6 +892,9 @@ def parse_esef_statement_facts(facts: pd.DataFrame, config: Mapping[str, Any], *
                 },
             )
             entry.setdefault("period_days", length)
+            if name in LINE_ITEM_FLOW_FIELDS:
+                line_items[end].append((name, abs(value) if name in absolute_fields else value, unit, known))
+                continue
             entry[name] = abs(value) if name in absolute_fields else value
             entry[f"{name}_currency"] = unit
             known_of[end].append(known)
@@ -936,6 +941,14 @@ def parse_esef_statement_facts(facts: pd.DataFrame, config: Mapping[str, Any], *
             else:
                 entry["lease_liabilities_currency"] = "currency_mismatch"
             known_of[end].extend(item[1] for item in lease_parts)
+        # A line item joins the row only when it was known with the row's other values: a later comparative never
+        # delays what was already known (the SEC path admits original-filing facts only, to the same effect).
+        first_known = max(known_of[end], default=None)
+        balance_items = [(name, item[0], item[2], item[1]) for name in LINE_ITEM_BALANCE_FIELDS if (item := at(name)) is not None]
+        for name, value, unit, known in line_items[end] + balance_items:
+            if first_known is None or known <= first_known:
+                entry[name], entry[f"{name}_currency"] = value, unit
+                known_of[end].append(known)
         reported = [
             str(entry[f"{name}_currency"])
             for name in FLOW_FIELDS + BALANCE_FIELDS

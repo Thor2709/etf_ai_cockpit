@@ -63,6 +63,19 @@ sec_edgar_concepts:
   short_term_investments: [ShortTermInvestments, MarketableSecuritiesCurrent, AvailableForSaleSecuritiesDebtSecuritiesCurrent]
   total_assets: [Assets]
   shares_outstanding: [CommonStockSharesOutstanding]
+  # statement line items (INT-03)
+  current_assets: [AssetsCurrent]
+  current_liabilities: [LiabilitiesCurrent]
+  receivables: [AccountsReceivableNetCurrent]
+  inventory: [InventoryNet]
+  retained_earnings: [RetainedEarningsAccumulatedDeficit]
+  ppe_net: [PropertyPlantAndEquipmentNet]
+  goodwill: [Goodwill]
+  sga: [SellingGeneralAndAdministrativeExpense]
+  rd_expense: [ResearchAndDevelopmentExpense]
+  stock_based_compensation: [ShareBasedCompensation]
+  gross_buybacks: [PaymentsForRepurchaseOfCommonStock]
+  share_issuance: [ProceedsFromIssuanceOfCommonStock]
 
 sec_edgar_rules:
   # A fact for an earlier period than the latest period in its filing is a
@@ -106,13 +119,26 @@ esef_concepts:
   total_assets: [Assets]
   total_liabilities: [Liabilities]
   shares_outstanding: [NumberOfSharesOutstanding]
+  # statement line items (INT-03)
+  current_assets: [CurrentAssets]
+  current_liabilities: [CurrentLiabilities]
+  receivables: [TradeAndOtherCurrentReceivables]
+  inventory: [Inventories]
+  retained_earnings: [RetainedEarnings]
+  ppe_net: [PropertyPlantAndEquipment]
+  goodwill: [Goodwill]
+  sga: [SellingGeneralAndAdministrativeExpense]
+  rd_expense: [ResearchAndDevelopmentExpense]
+  stock_based_compensation: [AdjustmentsForSharebasedPayments]
+  gross_buybacks: [PaymentsToAcquireOrRedeemEntitysShares]
+  share_issuance: [ProceedsFromIssuingShares]
 
 esef_rules:
   # a share count is accepted only when every filing that reports the date agrees within this relative tolerance
   # (filings disagree by thousands when one reports in thousands); otherwise it is conflicted, never picked
   share_count_agreement: 0.01
   # payments are stored as the positive outflow, as in the SEC path
-  absolute_value_fields: [capex, capex_extra, dividends_paid, interest_expense]
+  absolute_value_fields: [capex, capex_extra, dividends_paid, interest_expense, gross_buybacks]
 
 reporting:
   quarters_for_ttm: 4

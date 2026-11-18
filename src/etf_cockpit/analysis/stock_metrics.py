@@ -32,6 +32,9 @@ from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta, timezone
 from typing import Iterable, Mapping, Sequence
 
+# Statement line items (INT-03): parsed and stored like the fields above; no metric uses them yet.
+LINE_ITEM_FLOW_FIELDS = ("sga", "rd_expense", "stock_based_compensation", "gross_buybacks", "share_issuance")
+LINE_ITEM_BALANCE_FIELDS = ("current_assets", "current_liabilities", "receivables", "inventory", "retained_earnings", "ppe_net", "goodwill")
 FLOW_FIELDS = (
     "revenue",
     "gross_profit",
@@ -48,6 +51,7 @@ FLOW_FIELDS = (
     "cfi",  # accounting-identity legs (cash roll-forward); signed as reported
     "cff",
     "fx_effect",
+    *LINE_ITEM_FLOW_FIELDS,
 )
 BALANCE_FIELDS = (
     "equity_parent",
@@ -59,6 +63,7 @@ BALANCE_FIELDS = (
     "total_assets",
     "total_liabilities",  # accounting-identity leg (balance identity)
     "shares_outstanding",
+    *LINE_ITEM_BALANCE_FIELDS,
 )
 PERIOD_FIELDS = FLOW_FIELDS + BALANCE_FIELDS
 
