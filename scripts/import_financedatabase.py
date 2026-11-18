@@ -45,7 +45,8 @@ def import_financedatabase(
         for item in meta["files"]
         if "/database/" in Path(item["file"]).as_posix()
     }
-    stamp = imported_at.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    imported_at = imported_at.astimezone(timezone.utc)
+    stamp = imported_at.strftime("%Y%m%dT%H%M%S.%fZ")
     summary: dict[str, Any] = {
         "source": SOURCE, "version": version, "revision": revision, "imported_at": imported_at.isoformat(),
         "rows_imported": 0, "rows_skipped_delisted": 0, "matched": 0, "unmatched": 0,

@@ -302,7 +302,15 @@ class IdentityMasterStore:
         Hints never become claims: resolution, projection, conflicts and the content digest ignore them.
         """
 
-        records = tuple((_HINT_TYPE, str(hint["hint_id"]), {"hint": dict(hint)}) for hint in hints)
+        items = tuple(dict(hint) for hint in hints)
+        for hint in items:
+            identifiers = hint.get("identifiers")
+            if not isinstance(identifiers, Mapping) or any(
+                key not in _EXACT_MATCH_IDENTIFIERS or not isinstance(value, str) or not value.strip()
+                for key, value in identifiers.items()
+            ):
+                raise IdentityMasterSchemaError("identity hints rejected: invalid identifiers mapping")
+        records = tuple((_HINT_TYPE, str(hint["hint_id"]), {"hint": hint}) for hint in items)
         try:
             self._store.put_many(records, immutable=True)
         except (StorageRevisionConflict, sqlite3.DatabaseError, ValueError, TypeError) as exc:
