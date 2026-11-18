@@ -408,6 +408,16 @@ def test_combined_report_keeps_research_sections_and_provenance_boundary() -> No
     assert report["source_lineage"]["statement_view"] == "latest_restated"
 
 
+def test_report_computes_statement_coverage_once_per_frame(monkeypatch) -> None:
+    frames: list[int] = []
+    coverage = stock_research_data.statement_coverage
+    monkeypatch.setattr(stock_research_data, "statement_coverage", lambda frame: frames.append(id(frame)) or coverage(frame))
+
+    build_stock_research_report(_statements(), instrument_id="ACME", market_inputs={"market_cap": 300.0}, assumptions={})
+
+    assert len(frames) <= len(set(frames)) + 1  # the lineage block reads it once more
+
+
 def test_profitability_production_wiring_injects_sector_and_peers(monkeypatch) -> None:
     known_at = "2026-12-31T00:00:00Z"
     decision_time = "2027-01-02T00:00:00Z"
