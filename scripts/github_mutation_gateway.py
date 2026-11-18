@@ -48,7 +48,7 @@ RECOVERY_STABLE_ID = "ISSUE-0018"
 RECOVERY_EVENT_NAME = "workflow_dispatch"
 # Each first introduction on main authorises a receipt for one spent create whose writer
 # created the issue but stopped before the receipt (conflict_after_write).
-CREATE_RECEIPT_RECOVERIES = {
+CREATE_RECEIPT_RECOVERIES: dict[str, dict[str, Any]] = {
     "ISSUE-0182": {
         "path": Path("scripts/recover_issue_0182_receipt.py"),
         "authority_id": "4710da2531f34e582a31f2b7578970f5b4bc21a0fe6ac8b7748b27750fee0b1c",
