@@ -7,6 +7,7 @@ Network access is read-only and injectable so every parser has an offline test.
 
 from __future__ import annotations
 
+import functools
 import json
 import math
 import re
@@ -21,7 +22,7 @@ from typing import Any
 
 import pandas as pd
 
-from etf_cockpit.analysis.stock_metrics import BALANCE_FIELDS, FLOW_FIELDS, LINE_ITEM_BALANCE_FIELDS, LINE_ITEM_FLOW_FIELDS
+from etf_cockpit.analysis.stock_metrics import BALANCE_FIELDS, FLOW_FIELDS, LINE_ITEM_BALANCE_FIELDS, LINE_ITEM_FIELDS, LINE_ITEM_FLOW_FIELDS
 from etf_cockpit.core.paths import STATEMENT_FACTS_PATH
 from etf_cockpit.data.yfinance_provider import classify_provider_error
 
@@ -310,6 +311,29 @@ def _days(start: str, end: str) -> int:
     return (date.fromisoformat(end) - date.fromisoformat(start)).days
 
 
+def _line_items_join_existing_rows(parse: Callable[..., list[dict[str, Any]]]) -> Callable[..., list[dict[str, Any]]]:
+    """Rows come from the parse without the line items (INT-03); a line item joins a row only when known with it.
+
+    So a new tag never adds a row, moves a row's known_at or currency, or changes which facts count as original."""
+
+    @functools.wraps(parse)
+    def parse_with_line_items(data: Any, config: Mapping[str, Any], **kwargs: Any) -> list[dict[str, Any]]:
+        without = {**config, **{section: {name: names for name, names in (config.get(section) or {}).items() if name not in LINE_ITEM_FIELDS}
+                                for section in ("sec_edgar_concepts", "esef_concepts")}}
+        rows = parse(data, without, **kwargs)
+        full = {(row["period_end"], row["period_type"], row["known_at"]): row for row in parse(data, config, **kwargs)}
+        for row in rows:
+            other = full.get((row["period_end"], row["period_type"], row["known_at"]), {})
+            row.update({key: other[key] for name in LINE_ITEM_FIELDS for key in (name, f"{name}_currency") if key in other})
+            states = {name: state for name, state in json.loads(other.get("value_status") or "{}").items() if name in LINE_ITEM_FIELDS}
+            if states:
+                row["value_status"] = json.dumps({**json.loads(row.get("value_status") or "{}"), **states}, sort_keys=True)
+        return rows
+
+    return parse_with_line_items
+
+
+@_line_items_join_existing_rows
 def parse_edgar_companyfacts(payload: Mapping[str, Any], config: Mapping[str, Any], *, source_ref: str,
                             preselected_vintage: bool = False) -> list[dict[str, Any]]:
     """Discrete quarters, fiscal years and balance sheets as originally filed (known_at = filing date).
@@ -783,6 +807,7 @@ def _esef_spec(spec: str) -> tuple[str, str]:
     return (match.group(1), match.group(2)) if match else (spec, "")
 
 
+@_line_items_join_existing_rows
 def parse_esef_statement_facts(facts: pd.DataFrame, config: Mapping[str, Any], *, source_ref: str) -> list[dict[str, Any]]:
     """Annual Period rows from ESEF/IFRS statement facts, as originally reported.
 
@@ -870,12 +895,15 @@ def parse_esef_statement_facts(facts: pd.DataFrame, config: Mapping[str, Any], *
     rows: dict[str, dict[str, Any]] = {}
     statuses: dict[str, dict[str, str]] = defaultdict(dict)
     known_of: dict[str, list[pd.Timestamp]] = defaultdict(list)
-    line_items: dict[str, list[tuple[str, float, str, pd.Timestamp]]] = defaultdict(list)
+    line_items: dict[str, list[tuple[str, float, str, pd.Timestamp, int | None]]] = defaultdict(list)
 
     for name, series in flow.items():
         for (start, end), (value, known, unit, _agree) in series.items():
             length = _days(start, end)
             if not 345 <= length <= 385:
+                continue
+            if name in LINE_ITEM_FLOW_FIELDS:
+                line_items[end].append((name, abs(value) if name in absolute_fields else value, unit, known, length))
                 continue
             entry = rows.setdefault(
                 end,
@@ -892,9 +920,6 @@ def parse_esef_statement_facts(facts: pd.DataFrame, config: Mapping[str, Any], *
                 },
             )
             entry.setdefault("period_days", length)
-            if name in LINE_ITEM_FLOW_FIELDS:
-                line_items[end].append((name, abs(value) if name in absolute_fields else value, unit, known))
-                continue
             entry[name] = abs(value) if name in absolute_fields else value
             entry[f"{name}_currency"] = unit
             known_of[end].append(known)
@@ -941,12 +966,12 @@ def parse_esef_statement_facts(facts: pd.DataFrame, config: Mapping[str, Any], *
             else:
                 entry["lease_liabilities_currency"] = "currency_mismatch"
             known_of[end].extend(item[1] for item in lease_parts)
-        # A line item joins the row only when it was known with the row's other values: a later comparative never
-        # delays what was already known (the SEC path admits original-filing facts only, to the same effect).
-        first_known = max(known_of[end], default=None)
-        balance_items = [(name, item[0], item[2], item[1]) for name in LINE_ITEM_BALANCE_FIELDS if (item := at(name)) is not None]
-        for name, value, unit, known in line_items[end] + balance_items:
-            if first_known is None or known <= first_known:
+        # A line item joins the row only from the row's own annual context and when it was known with the row's other
+        # values: a later comparative never delays what was already known.
+        first_known = max(known_of[end])
+        balance_items = [(name, item[0], item[2], item[1], None) for name in LINE_ITEM_BALANCE_FIELDS if (item := at(name)) is not None]
+        for name, value, unit, known, length in line_items[end] + balance_items:
+            if length in (None, entry["period_days"]) and known <= first_known:
                 entry[name], entry[f"{name}_currency"] = value, unit
                 known_of[end].append(known)
         reported = [

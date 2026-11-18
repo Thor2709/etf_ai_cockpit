@@ -10,6 +10,7 @@ import pandas as pd
 import pytest
 import yaml
 
+from etf_cockpit.analysis.stock_metrics import LINE_ITEM_FIELDS
 from etf_cockpit.data.sec_cik_history import map_cik
 from etf_cockpit.data.sec_pit_facts import acceptance_index, fact_known_at, select_facts
 from etf_cockpit.data.stock_fundamentals import PERIOD_COLUMNS, _write, append_period_rows, store_paths
@@ -423,6 +424,18 @@ def test_changed_fundamental_at_existing_known_at_still_raises():
     changed = _fundamental_fact("2020-01-01T00:00:00+00:00", 101)
     with pytest.raises(ValueError, match="changed fundamentals at existing known_at"):
         ingest_sp500._pending_facts(existing, "synthetic-instrument-a", [changed])
+
+
+def test_store_from_before_the_line_items_is_read_and_keeps_its_vintages(tmp_path):
+    stored = _fundamental_fact("2020-01-01T00:00:00+00:00", 100)
+    path = tmp_path / "facts.parquet"
+    pd.DataFrame([stored]).drop(columns=[c for c in PERIOD_COLUMNS if c.removesuffix("_currency") in LINE_ITEM_FIELDS]).to_parquet(path)
+
+    existing = ingest_sp500._read_existing_facts(path)
+    enriched = {**stored, "goodwill": 5.0, "goodwill_currency": "USD"}
+    assert ingest_sp500._pending_facts(existing, "synthetic-instrument-a", [enriched]) == []
+    with pytest.raises(ValueError, match="changed fundamentals at existing known_at"):
+        ingest_sp500._pending_facts(existing, "synthetic-instrument-a", [{**enriched, "revenue": 101}])
 
 
 def test_ingestion_persists_membership_through_store(tmp_path):

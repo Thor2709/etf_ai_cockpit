@@ -35,6 +35,7 @@ from typing import Iterable, Mapping, Sequence
 # Statement line items (INT-03): parsed and stored like the fields above; no metric uses them yet.
 LINE_ITEM_FLOW_FIELDS = ("sga", "rd_expense", "stock_based_compensation", "gross_buybacks", "share_issuance")
 LINE_ITEM_BALANCE_FIELDS = ("current_assets", "current_liabilities", "receivables", "inventory", "retained_earnings", "ppe_net", "goodwill")
+LINE_ITEM_FIELDS = LINE_ITEM_FLOW_FIELDS + LINE_ITEM_BALANCE_FIELDS
 FLOW_FIELDS = (
     "revenue",
     "gross_profit",
