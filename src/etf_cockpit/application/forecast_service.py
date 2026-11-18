@@ -42,6 +42,7 @@ from etf_cockpit.models.calibration import adjusted_log_return_target, load_fore
 from etf_cockpit.models.forecast_scores import configured_forecast_request_identity as configured_forecast_request_identity, forecast_request_identity
 from etf_cockpit.models.model_promotion import (
     OPTIONAL_MODELS,
+    SHADOW_ONLY_MODELS,
     PRETRAINING_CUTOFFS,
     PRETRAINING_SOURCES,
     checkpoint_provenance,
@@ -71,7 +72,7 @@ from etf_cockpit.application.derived_cache import (
 def _live_optional_models_from_config(config: AppConfig) -> bool:
     return any(
         config.models.runtime(name).enabled and config.models.runtime(name).mode == "live"
-        for name in ("timesfm", "timesfm3", "toto")
+        for name in ("timesfm", "timesfm3", "toto", "chronos2")
     )
 
 
@@ -200,6 +201,11 @@ class ForecastService:
             progress_callback("Checking cached Toto forecasts", 3, 4)
         with timed_step("forecasts", "model:toto", run_id=run_id):
             forecasts.extend(_stamp_adjusted_log_return_target(self._run_toto_forecasts(price_frame, etf_ids, horizons, as_of_date, run_id)))
+        if resolved_live_optional_models and self.config.models.runtime("chronos2").enabled:
+            with timed_step("forecasts", "model:chronos2", run_id=run_id):
+                forecasts.extend(_stamp_adjusted_log_return_target(
+                    self._run_chronos2_forecasts(pivot, etf_ids, horizons, as_of_date, run_id, benchmark_returns, benchmark_id)
+                ))
         forecasts = _align_forecast_origins(forecasts, origins, as_of_date)
         forecasts = self._evidence_gated_forecasts(forecasts, as_of_date, evidence_prices)
         forecasts = _postprocess_forecast_benchmark_fields(
@@ -332,6 +338,41 @@ class ForecastService:
                         run_id=run_id,
                     )
                 )
+        finally:
+            adapter.unload_model()
+        return forecasts
+
+    def _run_chronos2_forecasts(
+        self,
+        pivot: pd.DataFrame,
+        etf_ids: list[str],
+        horizons: list[int],
+        as_of_date: date,
+        run_id: str,
+        benchmark_returns: pd.Series | None = None,
+        benchmark_id: str | None = None,
+    ) -> list[ForecastResult]:
+        from etf_cockpit.models.chronos2_adapter import Chronos2Adapter
+
+        adapter = Chronos2Adapter(self.config.models.runtime("chronos2"))
+        forecasts: list[ForecastResult] = []
+        try:
+            for etf_id in etf_ids:
+                try:
+                    series = _baseline_price_series(pivot, etf_id, as_of_date, decision_time=pivot.attrs.get("decision_time"))
+                except ValueError as exc:
+                    forecasts.extend(adapter._status_results(
+                        horizons, etf_id=etf_id, forecast_date=as_of_date,
+                        run_id=run_id, status="unavailable", message=str(exc),
+                    ))
+                    continue
+                forecasts.extend(adapter.forecast_series(
+                    series, horizons, etf_id=etf_id, forecast_date=as_of_date, run_id=run_id,
+                    past_covariates=(
+                        {"benchmark_return": benchmark_returns}
+                        if benchmark_returns is not None and etf_id != benchmark_id else None
+                    ),
+                ))
         finally:
             adapter.unload_model()
         return forecasts
@@ -471,7 +512,7 @@ def _forecast_to_row(
     promotions: Mapping[str, ModelPromotion] | None = None,
     model_settings: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
-    if forecast.model_name == "baseline":
+    if forecast.model_name == "baseline" or forecast.model_name in SHADOW_ONLY_MODELS:
         forecast = _apply_promotion(forecast, {}, False)
     forecast = _identity_gated_forecast(forecast, model_settings)
     data = asdict(forecast)
@@ -588,7 +629,7 @@ def _apply_promotion(
 
     if row.model_name == "baseline":
         return replace(row, model_allowed_in_score=row.status == "ok" and row.expected_return is not None)
-    if shadow_flag:
+    if shadow_flag or row.model_name in SHADOW_ONLY_MODELS:
         return _shadow_forecast(row)
     promotion = _promotion_for_row(row, promotions)
     if row.status != "ok" or promotion is None:
@@ -648,7 +689,7 @@ def build_forecast_lab_workspace(
     return _stamp_promotion_states(report, promotions, history)
 
 
-_OPTIONAL_RUNTIME_PACKAGES = {"timesfm": "timesfm", "timesfm3": "timesfm", "toto": "toto2"}
+_OPTIONAL_RUNTIME_PACKAGES = {"timesfm": "timesfm", "timesfm3": "timesfm", "toto": "toto2", "chronos2": "chronos"}
 
 
 def optional_runtime_installed() -> dict[str, bool]:
@@ -1058,7 +1099,7 @@ def _forecast_frame_status_summary(frame: pd.DataFrame) -> str:
 
 def _config_with_optional_models_disabled(config: AppConfig) -> AppConfig:
     quick_config = config.model_copy(deep=True)
-    for model_name in ("timesfm", "timesfm3", "toto"):
+    for model_name in ("timesfm", "timesfm3", "toto", "chronos2"):
         if model_name not in quick_config.models.models:
             continue
         model_config = dict(quick_config.models.models.get(model_name, {}))

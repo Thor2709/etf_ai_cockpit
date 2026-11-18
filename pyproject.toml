@@ -83,7 +83,8 @@ models = [
   "jaxtyping>=0.3,<0.4",
   "dd-unit-scaling>=0.1.0,<0.2",
   "rotary-embedding-torch>=0.9,<0.10",
-  "lightning>=2.6.6,<2.7"
+  "lightning>=2.6.6,<2.7",
+  "chronos-forecasting==2.3.2"
 ]
 
 [tool.setuptools.packages.find]

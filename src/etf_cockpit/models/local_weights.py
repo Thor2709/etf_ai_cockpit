@@ -51,6 +51,7 @@ def model_weight_inventory(config: AppConfig) -> list[LocalModelStatus]:
         _timesfm_status(config),
         _toto_status(config, "4m", "Toto-2.0-4m"),
         _toto_status(config, "1b", "Toto-2.0-1B"),
+        _chronos2_status(config),
     ]
     if "timesfm3" in config.models.models:
         runtime = config.models.runtime("timesfm3")
@@ -127,6 +128,39 @@ def _timesfm_status(config: AppConfig) -> LocalModelStatus:
             runtime_ready=runtime_ready,
             metadata_ready=metadata_ready,
             runtime_hint="Install optional torch + timesfm runtime for the configured local PyTorch backend.",
+        ),
+        safetensors=_first_safetensors_summary(weight_files),
+    )
+
+
+def _chronos2_status(config: AppConfig) -> LocalModelStatus:
+    runtime_config = config.models.runtime("chronos2")
+    path = _resolve_model_path(runtime_config.model_path, MODEL_DIR / "chronos" / "chronos-2")
+    weight_files = _weight_files(path)
+    has_config = path.is_dir() and (path / "config.json").exists()
+    packages = {"torch": _package_available("torch"), "chronos": _package_available("chronos")}
+    runtime_ready = packages["torch"] and packages["chronos"]
+    metadata_ready = has_config and (path / "model.safetensors").exists()
+    live_configured = runtime_config.enabled and runtime_config.mode == "live"
+    live_ready = live_configured and bool(weight_files) and metadata_ready and runtime_ready
+    return LocalModelStatus(
+        model_name="chronos2",
+        model_id="Chronos-2",
+        path=path,
+        present=bool(weight_files),
+        total_bytes=sum(file.stat().st_size for file in weight_files),
+        weight_files=weight_files,
+        has_config_json=has_config,
+        runtime_packages=packages,
+        live_ready=live_ready,
+        status="live_ready" if live_ready else ("weights_present" if weight_files else "missing_weights"),
+        message=_readiness_message(
+            enabled=live_configured,
+            mode=runtime_config.mode,
+            weight_files=weight_files,
+            runtime_ready=runtime_ready,
+            metadata_ready=metadata_ready,
+            runtime_hint="Install the optional torch + chronos-forecasting runtime. Chronos-2 also requires config.json beside model.safetensors.",
         ),
         safetensors=_first_safetensors_summary(weight_files),
     )

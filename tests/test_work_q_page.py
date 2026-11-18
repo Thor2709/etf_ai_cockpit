@@ -24,11 +24,11 @@ def test_forecast_lab_page_shows_each_models_promotion_state() -> None:
     state = SimpleNamespace(snapshot=snapshot, run_forecasting_models=lambda *_a, **_k: None, current_activity=None, recent_activity=())
 
     report = build_forecast_lab_workspace(config, forecasts, prices, timing_records=[])
-    assert report["promotion"].set_index("model_name")["state"].to_dict() == {"timesfm": NOT_PROVEN, "timesfm3": COUNTING, "toto": NOT_PROVEN}
+    assert report["promotion"].set_index("model_name")["state"].to_dict() == {"timesfm": NOT_PROVEN, "timesfm3": COUNTING, "toto": NOT_PROVEN, "chronos2": NOT_PROVEN}
     assert report["models"].set_index("model_name").loc["baseline", "promotion_state"] == "reference"
 
     text = all_text(forecast_lab_page(SimpleNamespace(width=1920, height=1200), state).body)
-    for expected in ("Promotion and leakage", "Counting in scores", "Not yet proven", "cutoff 2023-11-30", "of 100 matured", "1 of 3 counting"):
+    for expected in ("Promotion and leakage", "Counting in scores", "Not yet proven", "cutoff 2023-11-30", "of 100 matured", "1 of 4 counting"):
         assert expected in text
     assert "shadow only" not in text.lower()
 

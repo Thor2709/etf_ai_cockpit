@@ -64,6 +64,7 @@ def test_quant_and_pdf_packages_have_exact_pinned_intake_records() -> None:
     pins |= {line.strip() for line in (root / "requirements-sec.txt").read_text(encoding="utf-8").splitlines() if "==" in line}
     pins |= {line.strip() for line in (root / "requirements-documents.txt").read_text(encoding="utf-8").splitlines() if "==" in line}
     pins |= {line.strip() for line in (root / "requirements-retrieval.txt").read_text(encoding="utf-8").splitlines() if "==" in line}
+    pins |= {line.strip() for line in (root / "requirements-models.txt").read_text(encoding="utf-8").splitlines() if line.startswith("chronos-forecasting==")}
     refs = {row["exact_ref"] for row in load_supply_chain_intake()["components"]}
 
-    assert len(pins) == 10 and pins <= refs
+    assert len(pins) == 11 and pins <= refs
