@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import functools
 import os
 import shutil
 import socket
@@ -535,10 +536,11 @@ def reserved_tcp_port() -> Iterator[socket.socket]:
 # entries.  Tests that must not run concurrently with anything use @pytest.mark.serial in the file.
 SHARED_RESOURCE_GROUPS: dict[str, tuple[str, tuple[str, ...]]] = {
     "parity_pipeline_capture": (
-        "one pipeline_capture build (tests/refactor_parity/conftest.py) serves all four files; "
-        "one shard and adjacent order keep it to one build and no waiting workers",
+        "the pipeline captures (tests/refactor_parity/conftest.py) are built once per run and shard; "
+        "one shard for all five files keeps it to one build per capture",
         (
             "tests/refactor_parity/test_backtest_golden.py",
+            "tests/refactor_parity/test_clock_independence.py",
             "tests/refactor_parity/test_persisted_schema_golden.py",
             "tests/refactor_parity/test_scoreboard_golden.py",
             "tests/refactor_parity/test_snapshot_golden.py",
@@ -639,6 +641,25 @@ def _shard_of(scope: str, total: int, assignment: dict[str, int]) -> int:
 
     # Files without a recorded duration (new tests) are spread by a stable hash.
     return assignment.get(scope) or zlib.crc32(scope.encode("utf-8")) % total + 1
+
+
+@functools.lru_cache(maxsize=1)
+def _session_shard_assignment(total: int) -> dict[str, int]:
+    return _shard_assignment(total)
+
+
+def pytest_ignore_collect(collection_path: Path, config: pytest.Config) -> bool | None:
+    """A shard does not import the test modules of the other shards (importing all of them takes most of a minute).
+
+    The result equals the deselection in pytest_collection_modifyitems, which stays as the authority.
+    """
+
+    shard = _parse_shard(_SHARD_VALUE)
+    if shard is None or not collection_path.match("test_*.py") or not collection_path.is_relative_to(config.rootpath):
+        return None
+    index, total = shard
+    scope = _scheduling_scope(collection_path.relative_to(config.rootpath).as_posix())
+    return _shard_of(scope, total, _session_shard_assignment(total)) != index or None
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
