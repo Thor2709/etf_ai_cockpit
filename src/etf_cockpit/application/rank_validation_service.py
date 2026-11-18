@@ -80,7 +80,17 @@ def _shadow_rows(root: Path, prices: pd.DataFrame) -> pd.DataFrame:
     config = store.load_stock_config(root)
     chain = list((config.get("sources", {}) or {}).get("chain", ["sec_edgar", "esef", "yfinance"]))
     snapshots, fx = store.read_snapshots(root), store.read_fx(root)
-    traded = prices.assign(date=pd.to_datetime(prices["date"], errors="coerce")).dropna(subset=["date"]) if "close" in prices else pd.DataFrame()
+    traded = pd.DataFrame()
+    if "close" in prices:
+        dates = pd.to_datetime(prices["date"], errors="coerce")
+        if getattr(dates.dt, "tz", None) is not None:
+            dates = dates.dt.tz_localize(None)  # session dates are calendar days; market_inputs compares them tz-naive
+        traded = prices.assign(date=dates.dt.normalize()).dropna(subset=["date"])
+        # a bar is usable once known: its stored stamp, else the end of its session day (the rule market_inputs applies)
+        traded["_known"] = (
+            pd.to_datetime(traded["known_at"], errors="coerce", utc=True) if "known_at" in traded
+            else (traded["date"] + pd.Timedelta(days=1)).dt.tz_localize("UTC")
+        )
     rows: list[dict[str, object]] = []
     for instrument in sorted(frame["instrument_id"].astype(str).unique()):
         periods = store.periods_for(instrument, frame, chain)
@@ -89,13 +99,15 @@ def _shadow_rows(root: Path, prices: pd.DataFrame) -> pd.DataFrame:
             visible = sm.known_periods(periods, known)
             if not visible:
                 continue
-            market = market_inputs(history, store.latest_snapshot(instrument, snapshots, known), visible[-1].currency, known, fx, config)
+            bars = history.loc[history["_known"] <= known].drop(columns="_known") if not history.empty else history
+            market = market_inputs(bars, store.latest_snapshot(instrument, snapshots, known), visible[-1].currency, known, fx, config)
             metrics = build_stock_evidence(instrument, periods, known, market, None, config).metrics
             row: dict[str, object] = {
                 "instrument_id": instrument, "effective_at": visible[-1].period_end.isoformat(), "known_at": known.isoformat(),
             }
             for key, column, sign in _SHADOW_METRICS:
-                row[column] = sign * float(metrics[key].value) if metrics[key].available else float("nan")
+                metric = metrics.get(key)
+                row[column] = sign * float(metric.value) if metric is not None and metric.available else float("nan")
             latest = sm.latest_balance(visible, ["total_assets"])
             prior = sm.opening_balance(visible, latest.period_end, ["total_assets"]) if latest is not None else None
             row["asset_growth_neg"] = (
@@ -196,6 +208,20 @@ def build_rank_validation_report(
             "instrument_skips": {key: len(value) for key, value in skipped.items()},
         }
         sections: dict[str, object] = {}
+
+        def replay_section(label: str, policy, run_evidence: pd.DataFrame) -> dict[str, object]:
+            replay, validation = run_stored_rank_validation(
+                run_evidence, memberships, prices, costs, benchmark, cash, times, policy=policy
+            )
+            section = rank_validation_report_dict(
+                replay, validation, label=label,
+                requested_decision_times=times, excluded_decision_times=excluded,
+            )
+            conflicts = run_evidence.attrs.get("fundamental_conflicts")
+            if conflicts:
+                section["fundamental_conflicts"] = conflicts
+            return section
+
         runs = [("price_factors", research_policy(base_policy, fundamentals=False), evidence)]
         if fundamentals.empty:
             sections["fundamental_factors"] = {
@@ -219,21 +245,27 @@ def build_rank_validation_report(
                     shadow_evidence[name] = float("nan")
             # quality_v2: mean of the cross-sectional percentile ranks of the components available for that row
             shadow_evidence["quality_v2"] = shadow_evidence.groupby("known_at")[shadow_components].rank(pct=True).mean(axis=1)
-            challengers = {name: RankerSpec(_SHADOW_VERSION, {}, name) for name in (*shadow_components, "quality_v2")}
-            runs.append(("shadow_quality_value", replace(base_policy, rankers=challengers), shadow_evidence))
+            # one replay per challenger: a challenger available only late must not discard the cut-offs of the others
+            per_challenger = {
+                name: replay_section(
+                    f"shadow_quality_value_{name}_{window_years}y",
+                    replace(base_policy, rankers={name: RankerSpec(_SHADOW_VERSION, {}, name)}), shadow_evidence,
+                )
+                for name in (*shadow_components, "quality_v2")
+            }
+            first = next(iter(per_challenger.values()))
+            sections["shadow_quality_value"] = {
+                "label": f"shadow_quality_value_{window_years}y",
+                "status": "evaluated",  # each challenger carries its own validation status under "challengers"
+                "challengers": per_challenger,
+                "development": {name: item["development"][name] for name, item in per_challenger.items() if name in item["development"]},
+                "holdout": {name: item["holdout"][name] for name, item in per_challenger.items() if name in item["holdout"]},
+                "holdout_decision_times": first["holdout_decision_times"],
+                "unavailable_challengers": [name for name in _SHADOW_COMPONENTS if name not in shadow_components],
+                "promotion_applied": False, "rank_authority": False, "execution_allowed": False,
+            }
         for label, policy, run_evidence in runs:
-            replay, validation = run_stored_rank_validation(
-                run_evidence, memberships, prices, costs, benchmark, cash, times, policy=policy
-            )
-            sections[label] = rank_validation_report_dict(
-                replay, validation, label=f"{label}_{window_years}y",
-                requested_decision_times=times, excluded_decision_times=excluded,
-            )
-            conflicts = run_evidence.attrs.get("fundamental_conflicts")
-            if conflicts:
-                sections[label]["fundamental_conflicts"] = conflicts
-            if label == "shadow_quality_value":
-                sections[label]["unavailable_challengers"] = [name for name in _SHADOW_COMPONENTS if name not in shadow_components]
+            sections[label] = replay_section(f"{label}_{window_years}y", policy, run_evidence)
         window["sections"] = sections
         return window
 
