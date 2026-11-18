@@ -283,3 +283,112 @@ def test_inventory_counts_dates_not_instrument_rows():
     assert report["matured_labels"] == {"1": 2}
     assert report["non_overlapping_periods"] == {"1": 1}
     assert report["delisted_share"] == 0.5
+
+
+# --- ISSUE-0190: LightGBM cross-sectional ranker -------------------------------------------------
+
+_RANKER_FEATURES = ("quality_score", "value_score", "momentum_score")
+
+
+def _ranker_panel(dates: int = 150, instruments: int = 20, horizon: int = 5) -> pd.DataFrame:
+    import numpy as np
+
+    rng = np.random.RandomState(0)
+    start = pd.Timestamp("2025-01-01T17:00:00Z")
+    rows = []
+    for day in range(dates):
+        cutoff = start + pd.Timedelta(days=day)
+        available = (cutoff + pd.Timedelta(days=horizon + 2)).isoformat()
+        for number in range(instruments):
+            features = rng.normal(size=3)
+            rows.append({
+                "decision_time": cutoff.isoformat(), "instrument_id": f"I{number:02d}",
+                **dict(zip(_RANKER_FEATURES, features)),
+                f"fwd_total_{horizon}": float(features[0] + 0.5 * rng.normal()),
+                f"label_end_{horizon}": (cutoff + pd.Timedelta(days=horizon)).date().isoformat(),
+                f"label_available_at_{horizon}": available, "label_available_at": available,
+            })
+    panel = pd.DataFrame(rows)
+    panel.attrs.update({
+        "as_of": (start + pd.Timedelta(days=dates + 30)).isoformat(),
+        "membership_source": "fixture", "membership_pit_grade": "observed",
+    })
+    return panel
+
+
+_RANKER_SPEC = ValidationSpec(
+    n_splits=2, test_size=15, horizon=5, final_test_size=15, embargo=0, bootstrap_repetitions=1,
+)
+
+
+def _fit_ranker(panel):
+    from etf_cockpit.models import cross_sectional_ranker as ranker
+
+    return ranker.fit(panel, _RANKER_SPEC, horizon=5, feature_ids=_RANKER_FEATURES)
+
+
+def test_ranker_same_input_and_shuffled_rows_give_the_same_model_text():
+    pytest.importorskip("lightgbm")
+    panel = _ranker_panel()
+    first = _fit_ranker(panel)
+    shuffled = panel.sample(frac=1, random_state=3)
+    shuffled.attrs.update(panel.attrs)
+    assert first.status == "fitted" and first.artefact.seed == 42
+    assert _fit_ranker(panel).artefact.model_text == first.artefact.model_text
+    assert _fit_ranker(shuffled).artefact.model_text == first.artefact.model_text
+
+
+def test_ranker_trains_on_fold_rows_only_no_shared_date_and_no_late_label():
+    pytest.importorskip("lightgbm")
+    panel = _ranker_panel()
+    baseline = _fit_ranker(panel).artefact
+    assert set(baseline.train_dates).isdisjoint(baseline.validation_dates)
+    assert pd.Timestamp(baseline.training_cutoff) <= pd.Timestamp(baseline.validation_start)
+    # Labels of every row outside the training dates (validation, purged, final test) must not matter.
+    changed = panel.copy()
+    outside = ~pd.to_datetime(changed["decision_time"], utc=True).dt.date.astype(str).isin(baseline.train_dates)
+    changed.loc[outside, "fwd_total_5"] = -changed.loc[outside, "fwd_total_5"] * 7.0
+    changed.attrs.update(panel.attrs)
+    assert _fit_ranker(changed).artefact.model_text == baseline.model_text
+
+
+def test_ranker_failed_preflight_is_insufficient_evidence_and_has_no_artefact():
+    pytest.importorskip("lightgbm")
+    panel = _ranker_panel()
+    small = panel.loc[pd.to_datetime(panel["decision_time"], utc=True) < pd.Timestamp("2025-04-11T00:00:00Z")]
+    small.attrs.update(panel.attrs)
+    outcome = _fit_ranker(small)
+    assert outcome.status == "insufficient_evidence" and outcome.artefact is None
+    assert "decision_dates" in outcome.reason
+    ungraded = panel.copy()
+    ungraded.attrs.update(panel.attrs, membership_pit_grade="approximated")
+    assert "membership_pit_grade" in _fit_ranker(ungraded).reason
+
+
+def test_ranker_score_is_nan_not_zero_for_rows_with_a_missing_feature():
+    pytest.importorskip("lightgbm")
+    from etf_cockpit.models import cross_sectional_ranker as ranker
+
+    panel = _ranker_panel(instruments=30)
+    artefact = _fit_ranker(panel).artefact
+    rows = panel.head(3).copy()
+    rows.loc[rows.index[1], "value_score"] = None
+    scores = ranker.score(artefact, rows)
+    assert scores.notna().tolist() == [True, False, True]
+    # Rows with a missing feature are dropped from the panel before folds, so no fold row is imputed.
+    holey = panel.copy()
+    holey.loc[holey.index[::7], "value_score"] = None
+    holey.attrs.update(panel.attrs)
+    out_of_sample = ranker.walk_forward_scores(holey, _RANKER_SPEC, horizon=5, feature_ids=_RANKER_FEATURES)
+    assert not out_of_sample.empty and out_of_sample["score"].notna().all()
+    assert len(out_of_sample) < len(holey)
+
+
+def test_ranker_challenger_policy_replaces_only_the_rankers():
+    from etf_cockpit.analysis.decision.rank_validation import load_rank_validation_policy
+    from etf_cockpit.models import cross_sectional_ranker as ranker
+
+    policy = load_rank_validation_policy()
+    copy = ranker.challenger_policy(policy)
+    assert list(copy.rankers) == ["gbdt_rank_63"] and copy.rankers["gbdt_rank_63"].score_column == "gbdt_rank_63"
+    assert copy.top_n == policy.top_n and "gbdt_rank_63" not in policy.rankers
