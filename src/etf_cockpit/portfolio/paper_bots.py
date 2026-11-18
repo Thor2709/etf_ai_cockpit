@@ -1007,8 +1007,11 @@ def _build_decision(
             return unavailable("Canonical rank contains duplicate positions.")
 
         unscored_ids: set[str] = set()
+        is_ranker = spec.get("family_id") == _RANKER_CHALLENGER_FAMILY
+        if is_ranker and strategy != "top_n":
+            return unavailable("NO_NEW_TRADE: ranker challenger needs a top_n strategy")
         if strategy == "top_n":
-            selector = _real_text(spec.get("selector"))
+            selector = _real_text(spec.get("selector")) if is_ranker else None
             if selector is None:
                 chosen = eligible[: int(spec["top_n"])]
             else:
