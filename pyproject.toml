@@ -66,6 +66,10 @@ documents = [
   # Keep in step with requirements-documents.txt; install with -c requirements-release.txt (CPU torch from PyPI).
   "docling-slim[convert-core,format-pdf,models-local,feat-ocr-rapidocr-onnx,feat-chunking]==2.150.0"
 ]
+retrieval = [
+  # Keep in step with requirements-retrieval.txt; install with -c requirements-release.txt.
+  "fastembed==0.9.1"
+]
 models = [
   # Keep in step with requirements-models.txt (exact verified pins live there).
   "torch>=2.11,<2.13",
