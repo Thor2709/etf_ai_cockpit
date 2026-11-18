@@ -604,10 +604,9 @@ The supplied ZIP is immutable external evidence. It is archived as nine extracte
 
 ## Current validation contract
 
-- The canonical classifier selects E/O/H/C. Validation is proportional to risk; H and C fail upward to the complete serial Linux and Windows package gates.
+- The canonical classifier selects E/O/H/C. Validation is proportional to risk; H and C fail upward to the complete sharded Linux and Windows package gates.
 - ISSUE-0177 observability records JUnit, slow tests, stage timings, environment and cache evidence, with early preflight before expensive gates.
 - Exact-tree evidence is reusable only when every protected identity matches. Do not weaken tests or repeat unchanged passing validation.
-- Safe and unsafe four-worker pytest execution is report-only evidence. The serial packaged gate remains authoritative; the pilot is required only for the documented drift triggers in the delivery workflow.
 - The terminal `validation-summary` is the normal CI interface. Raw artefacts are inspected only for failure, inconsistency, sampled audit or final certification.
 
 ## Required test layers
@@ -674,7 +673,7 @@ The canonical registry and current evidence live in `issues/issue_registry.json`
 
 Live execution is not authorised: `execution_allowed=false`. Portfolio, paper, broker-read-only and disabled canary scaffolding have separate certification/activation lanes and cannot gain authority from a model, LLM, UI action or programme status.
 
-Current delivery mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`. Canonical checks: `python scripts/generate_programme.py --root . --check`, `python scripts/classify_validation.py --root . --base <exact-origin-main> --head <exact-head>`, `python scripts/validate_app.py --changed`, and `python scripts/validate_app.py --offline`. Ordinary changes use focused evidence plus the classifier-derived full-gate cadence. Full/package certification is delegated to the existing protected release gate through `validate_app.py --full` and `--packaged`; authoritative serial Linux/Windows jobs and the terminal `validation-summary` remain the CI interface.""",
+Current delivery mechanics are defined in `docs/product-completion/DELIVERY_WORKFLOW.md`. Canonical checks: `python scripts/generate_programme.py --root . --check`, `python scripts/classify_validation.py --root . --base <exact-origin-main> --head <exact-head>`, `python scripts/validate_app.py --changed`, and `python scripts/validate_app.py --offline`. Ordinary changes use focused evidence plus the daily scheduled full gate on main. Full/package certification is delegated to the existing protected release gate through `validate_app.py --full` and `--packaged`; authoritative serial Linux/Windows jobs and the terminal `validation-summary` remain the CI interface.""",
     )
     write_managed_section(
         root / "CHANGELOG.md",

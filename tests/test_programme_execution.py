@@ -256,7 +256,7 @@ def test_deleted_or_renamed_financial_path_cannot_hide_behind_ordinary_edit(tmp_
     head = commit(tmp_path, "changed boundary")
     paths = changed_paths(tmp_path, base, head)
     assert "src/finance/old calculation.py" in paths
-    assert classifier.build_report(paths, ordinary_issues_since_full_gate=0)["tier"] == "H"
+    assert classifier.build_report(paths)["tier"] == "H"
 
 
 def test_dirty_state_cannot_mask_committed_diff_and_deleted_tests_are_not_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -370,7 +370,7 @@ def test_every_ci_source_checkout_and_integration_base_are_explicit() -> None:
             assert "git rev-parse HEAD" in guard["run"]
             assert 'git merge-base --is-ancestor "$EXPECTED_BASE_SHA" "$EXPECTED_SOURCE_SHA"' in guard["run"]
             assert '$(git rev-parse origin/main)' in guard["run"]
-    assert count == 8
+    assert count == 6  # classifier, preflight, supply-chain, release-gate, focused-tests, validation-summary
 
 
 def test_archived_history_is_exact_and_not_current_instruction_authority() -> None:

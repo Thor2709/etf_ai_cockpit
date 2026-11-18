@@ -11,7 +11,7 @@
     },
     {
       "path": "README.md",
-      "sha256": "a9ce11682c9333752c47f55a25a9b05dc7cb658d3de470337508775cde6be7af"
+      "sha256": "84e5e5812ffe858995222593cd3c4df8c91e3faa62be170286899f002938880b"
     },
     {
       "path": "docs/product-completion/CURRENT_STATUS.json",
@@ -19,7 +19,7 @@
     },
     {
       "path": "docs/product-completion/DELIVERY_WORKFLOW.md",
-      "sha256": "dc95068b18773eadfb6dde6e06c301d22f76f1d3a24e2c7fd2ef6e6d52e01762"
+      "sha256": "ff50a4972dfeeb7c441764ff93e9a4ce1afebbaa4ea43d367a9ea97b11e2894b"
     },
     {
       "path": "docs/product-completion/PROGRESS.md",
@@ -91,7 +91,7 @@
     },
     {
       "path": "docs/product-completion/programme/test-and-performance-strategy.md",
-      "sha256": "f09f5a0b5f6c7d1b82b1fc436d2161a6f1d86fcc3aedcabaef612320ca7ce6bb"
+      "sha256": "163901d542df923e28f17db8b2f0cc5a78e8bd4c0d71a5a2df734c4a2c4015e1"
     },
     {
       "path": "docs/product-completion/reconciliation/2026-07-21-2337f69/README.md",

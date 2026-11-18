@@ -517,13 +517,11 @@ guards, freshness or read-only authority.
 
 The operational delivery contract is
 [DELIVERY_WORKFLOW.md](../product-completion/DELIVERY_WORKFLOW.md). Validation
-uses E/O/H/C tiers and derives ordinary-product cadence from the exact PR
-base's first-parent `origin/main` history. E-only merges do not increment the
-count; the nearest verifiable H/C merge resets it; and unknown, stale, shallow
-or malformed evidence fails upward to the serial package gate. The optional
-Linux/Windows parallel pilot is report-only and cannot replace the
-authoritative serial package jobs or terminal validation summary. Selection,
-repetition and drift-sampling rules are recorded in
+uses E/O/H/C tiers. Tier O runs focused tests, or the sharded package gate
+when the focused selection is the whole suite; a daily scheduled run on
+`main` runs the full gate. Unknown or malformed evidence fails upward to the
+package gate. The rules and the 2026-11-18 removal of the cadence and the
+parallel pilot are recorded in
 [ADR-0007](decisions/ADR-0007-validation-cadence-and-report-only-pilot.md).
 
 ## 13. Current state, gaps, risks and technical debt

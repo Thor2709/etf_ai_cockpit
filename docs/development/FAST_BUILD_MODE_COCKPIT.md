@@ -90,8 +90,8 @@ environment and artifact identity are unchanged and verifiable.
 The existing E/O/H/C classifier remains authoritative. Persistence, migrations,
 concurrency, canonical financial calculations, security, release tooling,
 programme-control machinery and broker authority still require the complete
-Linux and Windows packaged gate. Ordinary work still receives the central full
-gate on every second completed O-tier issue and at final certification.
+Linux and Windows packaged gate. Ordinary work receives the daily scheduled
+full gate on `main` and the full gate at final certification.
 
 ## 6. Auxiliary failures and fallback
 

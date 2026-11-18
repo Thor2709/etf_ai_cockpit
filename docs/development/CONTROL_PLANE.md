@@ -210,7 +210,7 @@ executes the existing offline harness tests without personal AGY installation.
 CI source checkouts use and verify the exact reported head. PR heads must include
 the exact freshly fetched main base; this preserves integration coverage rather
 than testing an old branch alone. Trusted authority/base validation remains
-separate. Linux/Windows serial packaged gates, report-only pilot rules, preflight,
+separate. Linux/Windows sharded packaged gates, preflight,
 supply-chain and terminal-summary requirements are unchanged. Do not accept an
 old run after a source, test, dependency, policy, environment or artifact change.
 
@@ -220,7 +220,7 @@ WSL Linux shard 2/3 measurement (`-m "not serial" -n 4`) took 270 seconds with
 `worksteal` versus 410 seconds with `loadfile`; the same 2,487 tests ran with
 identical results.
 
-CI shards (`ETF_COCKPIT_TEST_SHARD=k/5`, `tests/conftest.py`) are balanced with LPT over
+CI shards (`ETF_COCKPIT_TEST_SHARD=k/8`, `tests/conftest.py`) are balanced with LPT over
 `tests/file_durations.json`. A shard's wall time is parallel seconds divided by the xdist
 worker count plus serial-phase seconds, so each file weighs `(total - serial) / W + serial`,
 where `serial_files` holds the per-file seconds of the serial phase and `W` is
@@ -228,7 +228,7 @@ where `serial_files` holds the per-file seconds of the serial phase and `W` is
 or invalid, and files without a `serial_files` entry weigh their plain total).
 `scripts/update_test_durations.py` fills `serial_files` from `junit-serial.xml` reports.
 Refresh the file from the `junit-serial.xml`/`junit-parallel.xml` of a recent green release-gate
-run (all ten shard artifacts) when many test files are missing from it; files without an entry are
+run (all sixteen shard artifacts) when many test files are missing from it; files without an entry are
 spread by hash at the median weight, so heavy new files can unbalance the shards.
 
 Product integration and lifecycle completion are distinct. When the ancestry
