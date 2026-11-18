@@ -19,6 +19,7 @@ reviewer can compare the package against the signed release manifest:
 | arelle-release[esef] / Pillow / pdfplumber / defusedxml / feedparser / pypdf | Parser dependencies; package metadata and SBOM components from the parser release lock |
 | Optional `quant` extra: skfolio / arch / statsmodels / LightGBM / SciPy | BSD-3-Clause (skfolio, statsmodels, SciPy), NCSA (arch), MIT (LightGBM); not in the release lock or the SBOM; recorded in `configs/supply_chain_intake.yaml` |
 | Optional `sec` extra: edgartools / lxml | MIT (edgartools 6.1.0), BSD-3-Clause (lxml 6.1.3); edgartools is not in the release lock or the SBOM; lxml is pinned in the parser lock; recorded in `configs/supply_chain_intake.yaml` |
+| Optional `documents` extra: Docling (docling-slim, docling-core, docling-ibm-models, docling-parse) / RapidOCR / rtree and local layout, table and OCR weights | MIT (Docling packages, rtree), Apache-2.0 (RapidOCR and its bundled PP-OCRv6 ONNX files; docling-layout-heron weights), CDLA-Permissive-2.0 and Apache-2.0 (docling-models TableFormer weights); not in the release lock or the SBOM; weights are not in git and are verified by sha256 from `configs/document_model_weights.yaml`; recorded in `configs/supply_chain_intake.yaml` |
 | pytest / Hypothesis / Ruff / mypy / pytest-timeout / pip-audit | Release-gate tooling; package metadata and SBOM component |
 
 No third-party source is silently bundled or downloaded by the application at

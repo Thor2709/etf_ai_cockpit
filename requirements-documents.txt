@@ -1,0 +1,5 @@
+# Optional documents extra (Docling PDF layout/table worker; MIT). Needs the local layout and table weights
+# listed in configs/document_model_weights.yaml; the base app and pdfplumber work without it.
+# Install on top of the release lock so no locked pin changes (CPU torch from PyPI; never the CUDA index):
+#   pip install -c requirements-release.txt -r requirements-documents.txt
+docling-slim[convert-core,format-pdf,models-local,feat-ocr-rapidocr-onnx,feat-chunking]==2.150.0

@@ -228,6 +228,13 @@ def detect_hardware(
     )
 
 
+def document_worker_limits() -> tuple[int, int]:
+    """(memory MB, seconds) for one document-worker child: the selected profile's job memory limit, time capped at 10 minutes."""
+
+    profile = ResourcePolicy().profile
+    return profile.job_memory_limit_mb, min(profile.job_time_limit_seconds, 600)
+
+
 def resource_profile_report(root: Path | None = None, *, requested_profile: str = "auto", snapshot: HardwareSnapshot | None = None) -> dict[str, object]:
     """Return the user-facing local hardware/profile report."""
 
@@ -532,6 +539,7 @@ __all__ = [
     "ResourcePolicy",
     "ResourceProfile",
     "detect_hardware",
+    "document_worker_limits",
     "estimate_workflow_resources",
     "generated_cache_cleanup",
     "resource_profile_report",

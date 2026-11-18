@@ -29,7 +29,7 @@ def identity_groups(artifact_manifest: str = DEFAULT_ARTIFACT_MANIFEST) -> dict[
     """Return fresh mappings; callers cannot mutate another consumer's policy."""
     environment = (
         "pyproject.toml", "requirements.txt", "requirements-dev.txt",
-        "requirements-release.txt", "requirements-release-parsers.txt", "requirements-quant.txt", "requirements-sec.txt",
+        "requirements-release.txt", "requirements-release-parsers.txt", "requirements-quant.txt", "requirements-sec.txt", "requirements-documents.txt",
         "requirements-github-mutation-runtime.txt", ".python-version",
         "uv.lock", "poetry.lock", "pdm.lock",
     )
