@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from contextlib import closing
-from dataclasses import astuple, dataclass, fields
+from dataclasses import astuple, dataclass, fields, replace
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -64,7 +64,8 @@ def chunk_pages(
 def index_document(path: Path, chunks: Sequence[DocumentChunk]) -> None:
     with closing(_connect(path)) as connection:
         for chunk in chunks:
-            inserted = connection.execute(f"INSERT OR IGNORE INTO chunks VALUES ({', '.join('?' * len(_COLUMNS))})", astuple(chunk))
+            row = astuple(replace(chunk, published_at=_utc(chunk.published_at), known_at=_utc(chunk.known_at)))
+            inserted = connection.execute(f"INSERT OR IGNORE INTO chunks VALUES ({', '.join('?' * len(_COLUMNS))})", row)
             if inserted.rowcount:
                 connection.execute("INSERT INTO chunks_fts (chunk_id, text) VALUES (?, ?)", (chunk.chunk_id, chunk.text))
 
@@ -98,7 +99,8 @@ def resolve(path: Path, chunk_id: str, document_sha256: str) -> DocumentChunk | 
         return None
     chunk = DocumentChunk(*row)
     identity = json.dumps([chunk.document_sha256, chunk.page, chunk.char_start, chunk.char_end, chunk.chunker_version])
-    if chunk.document_sha256 != document_sha256 or hashlib.sha256(identity.encode("utf-8")).hexdigest() != chunk_id:
+    if (chunk.document_sha256 != document_sha256 or hashlib.sha256(identity.encode("utf-8")).hexdigest() != chunk_id
+            or chunk.page < 1 or not 0 <= chunk.char_start < chunk.char_end or len(chunk.text) != chunk.char_end - chunk.char_start):
         return None
     return chunk
 
