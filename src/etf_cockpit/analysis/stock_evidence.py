@@ -30,6 +30,9 @@ SHRINK_FIELDS: dict[str, tuple[str, ...]] = {
     "revenue_cagr": ("revenue",),
 }
 ANALYST_MAX_AGE_DAYS = 120  # 90-day estimate lookback plus 30 days; scoring.analyst_revision.max_age_days overrides
+PIOTROSKI_FIELDS = ("net_income_parent", "cfo", "total_assets", "ib_debt", "current_assets", "current_liabilities", "gross_profit", "revenue", "share_issuance")
+BENEISH_FIELDS = ("revenue", "receivables", "gross_profit", "current_assets", "ppe_net", "total_assets", "da", "sga", "total_liabilities", "net_income_parent", "cfo")
+ALTMAN_FIELDS = ("current_assets", "current_liabilities", "retained_earnings", "ebit", "revenue", "total_assets", "total_liabilities")
 
 
 @dataclass(frozen=True)
@@ -932,8 +935,13 @@ class _Builder:
         if pair_reason is None and cur is not None and prev is not None:
             now, before = self._usable_values(cur), self._usable_values(prev)
             block = self._balance_block(cur) or self._balance_block(prev)
-            for key, score in (("piotroski_f", sm.piotroski_f), ("beneish_m", sm.beneish_m)):
-                self.metrics[key] = _missing(key, block) if block else _from(key, score(now, before), **ctx)
+            for key, score, fields in (("piotroski_f", sm.piotroski_f, PIOTROSKI_FIELDS), ("beneish_m", sm.beneish_m, BENEISH_FIELDS)):
+                if block:
+                    self.metrics[key] = _missing(key, block)
+                elif any(self._period_currency_mismatch(item, fields, cur.currency) for item in (cur, prev)):
+                    self.metrics[key] = _missing(key, "currency_mismatch between line items of the fiscal years")
+                else:
+                    self.metrics[key] = _from(key, score(now, before), **ctx)
             self.metrics["dilution"] = _from("dilution", sm.dilution(before.get("shares_outstanding"), now.get("shares_outstanding")), **ctx)
         else:
             for key in ("piotroski_f", "beneish_m", "dilution"):
@@ -946,6 +954,8 @@ class _Builder:
             self.metrics["altman_z"] = _missing("altman_z", "currency_mismatch between statements and market cap")
         elif (block := self._balance_block(cur)) is not None:
             self.metrics["altman_z"] = _missing("altman_z", block)
+        elif self._period_currency_mismatch(cur, ALTMAN_FIELDS, cur.currency):
+            self.metrics["altman_z"] = _missing("altman_z", "currency_mismatch between line items of the fiscal year")
         else:
             self.metrics["altman_z"] = _from("altman_z", sm.altman_z(self._usable_values(cur), mcap), **ctx)
         self._flow_over_assets("gross_profitability", ("gross_profit",), False,

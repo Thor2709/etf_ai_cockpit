@@ -794,13 +794,13 @@ def piotroski_f(cur: Mapping[str, float], prev: Mapping[str, float], *, sector_a
 
     key, label, unit = "piotroski_f", "Piotroski F-score", "count"
     formula = ("ROA > 0; CFO > 0; ROA up; CFO / assets > ROA; interest-bearing debt / assets down; current ratio up; "
-               "shares not up; gross margin up; revenue / assets up")
+               "no common-equity issuance; gross margin up; revenue / assets up")
     if not sector_applicable:
         return _not_meaningful(key, label, SECTOR_REASON, formula=formula, unit=unit)
-    missing = _lacking(("net_income_parent", "cfo", "total_assets", "ib_debt", "current_assets", "current_liabilities",
-                        "shares_outstanding", "gross_profit", "revenue"), cur, prev)
+    missing = sorted(set(_lacking(("net_income_parent", "cfo", "total_assets", "ib_debt", "current_assets", "current_liabilities",
+                                   "gross_profit", "revenue"), cur, prev)) | set(_lacking(("share_issuance",), cur)))
     if missing:
-        return _unavailable(key, label, "needs " + ", ".join(missing) + " in both fiscal years", formula=formula, unit=unit)
+        return _unavailable(key, label, "needs " + ", ".join(missing) + " in the fiscal years", formula=formula, unit=unit)
     if any(item["total_assets"] <= 0 or item["current_liabilities"] <= 0 or item["revenue"] <= 0 for item in (cur, prev)):
         return _not_meaningful(key, label, "total assets, current liabilities or revenue is zero or negative", formula=formula, unit=unit)
 
@@ -812,7 +812,7 @@ def piotroski_f(cur: Mapping[str, float], prev: Mapping[str, float], *, sector_a
     roa, cfo_assets, leverage, current, margin_now, turnover = ratios(cur)
     roa_0, _, leverage_0, current_0, margin_0, turnover_0 = ratios(prev)
     tests = (roa > 0, cur["cfo"] > 0, roa > roa_0, cfo_assets > roa, leverage < leverage_0, current > current_0,
-             cur["shares_outstanding"] <= prev["shares_outstanding"], margin_now > margin_0, turnover > turnover_0)
+             cur["share_issuance"] <= 0, margin_now > margin_0, turnover > turnover_0)
     return Metric(key, label, float(sum(tests)), unit, OK, formula=formula)
 
 

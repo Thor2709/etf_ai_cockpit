@@ -74,9 +74,10 @@ _SPECS: tuple[FormulaSpec, ...] = (
     _spec("implied_growth_dcf", "Implied growth (2-stage DCF)", "stage-1 FCF growth that equates the DCF to market cap", "1", "spot", "ratio",
           f"needs configured cost of equity and terminal growth; FCF is {FCF_PROXY_LABEL}"),
     _spec("piotroski_f", "Piotroski F-score", "count of 9 passed tests: ROA > 0, CFO > 0, ROA up, CFO / assets > ROA, interest-bearing debt / assets down, "
-          "current ratio up, shares not up, gross margin up, revenue / assets up", "1", "FY", "count",
+          "current ratio up, no common-equity issuance, gross margin up, revenue / assets up", "1", "FY", "count",
           "two consecutive fiscal years, one currency; ending total assets in both years (reference: beginning); interest-bearing debt stands for long-term debt; "
-          "a missing input is unavailable; zero or negative assets, current liabilities or revenue is not_meaningful; banks and insurers are not_meaningful "
+          "the issuance point reads the reported share_issuance of the latest year (not the share-count change); "
+          "a missing input, share_issuance included, is unavailable; zero or negative assets, current liabilities or revenue is not_meaningful; banks and insurers are not_meaningful "
           "(callers pass sector_applicable=False; the evidence build has no sector input)"),
     _spec("altman_z", "Altman Z-score", "1.2 (CA - CL) / TA + 1.4 RE / TA + 3.3 EBIT / TA + 0.6 market cap / TL + revenue / TA", "1", "FY / spot", "ratio",
           "original 1968 form for public manufacturers; ending balances of the latest fiscal year, decision-time market cap in the reporting currency; "
