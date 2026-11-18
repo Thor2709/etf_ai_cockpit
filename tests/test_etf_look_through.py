@@ -242,3 +242,56 @@ def test_application_facade_exposes_the_calculated_look_through_summary() -> Non
     assert result["status"] == "available"
     assert result["calculated_metrics"]["pe_ratio"]["value"] == pytest.approx(20.0)
     assert result["execution_allowed"] is False
+
+
+def _stock_metrics(identity: str, **metrics: float) -> dict[str, object]:
+    row = _fundamental(identity)
+    row.update(metrics)
+    return row
+
+
+def test_new_rollup_metrics_are_weighted_means_and_withheld_below_the_coverage_floor() -> None:
+    holdings = [
+        _holding("Apple", APPLE_ISIN, 0.5, "apple"),
+        _holding("Microsoft", MICROSOFT_ISIN, 0.3, "microsoft"),
+        _holding("Amazon", AMAZON_ISIN, 0.2, "amazon"),
+    ]
+    summary = _analyze(
+        holdings,
+        [
+            _stock_metrics("apple", ebit_margin=0.30, dividend_yield=0.01),
+            _stock_metrics("microsoft", ebit_margin=0.40),
+        ],
+    )
+
+    covered = summary.calculated_metrics["ebit_margin"]
+    assert covered["status"] == "available"
+    assert covered["value"] == pytest.approx((0.5 * 0.30 + 0.3 * 0.40) / 0.8)
+    assert summary.fundamental_data_coverage["ebit_margin"]["covered_weight"] == pytest.approx(0.8)
+    below = summary.calculated_metrics["dividend_yield"]
+    assert below["status"] == "unavailable"
+    assert below["value"] is None
+    assert below["reason_code"] == "minimum_aggregate_coverage_not_met"
+    assert summary.fundamental_data_coverage["dividend_yield"]["coverage_fraction"] == pytest.approx(0.5 / 1.0)
+    for name in ("revenue_growth", "net_debt_to_ebitda"):
+        assert summary.calculated_metrics[name]["status"] == "unavailable"
+        assert summary.calculated_metrics[name]["value"] is None
+        assert summary.fundamental_data_coverage[name]["covered_weight"] == 0.0
+
+
+def test_fund_of_funds_reports_uncovered_weight_against_equity_only_denominator() -> None:
+    summary = _analyze(
+        [
+            _holding("Apple", APPLE_ISIN, 0.7, "apple"),
+            _holding("Other ETF", FUND_ISIN, 0.2, "other-fund", exposure_type="fund"),
+            _holding("USD cash", "", 0.1, "cash", exposure_type="cash"),
+        ],
+        [_stock_metrics("apple", ebit_margin=0.3)],
+    )
+
+    coverage = summary.fundamental_data_coverage["ebit_margin"]
+    # Equity weight excludes cash (0.1) but keeps the held fund (0.2) as uncovered.
+    assert coverage["equity_coverage_fraction"] == pytest.approx(0.7 / 0.9)
+    assert summary.calculated_metrics["ebit_margin"]["equity_coverage_fraction"] == pytest.approx(0.7 / 0.9)
+    assert summary.calculated_metrics["ebit_margin"]["status"] == "unavailable"
+    assert summary.fund_weight == pytest.approx(0.2)
