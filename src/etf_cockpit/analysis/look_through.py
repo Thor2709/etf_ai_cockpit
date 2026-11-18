@@ -13,7 +13,7 @@ from etf_cockpit.core.values import finite_real_or_none as _finite_number
 from etf_cockpit.core.pandas_values import clean_text_or_empty as _clean_text
 from etf_cockpit.data.event_calendar import normalise_event_decision_time
 from etf_cockpit.data.fund_holdings import _authority_for_source, holdings_authority_rank, normalise_holdings
-from etf_cockpit.features.overlap import _normalise_snapshot, _typed_identity
+from etf_cockpit.features.overlap import _exposure_type, _normalise_snapshot, _typed_identity
 
 
 _DEFAULT_MAX_HOLDINGS_AGE_DAYS = 90
@@ -241,6 +241,11 @@ def calculate_look_through(
     unresolved_rows = overlap_frame.loc[overlap_frame.apply(lambda row: _typed_identity(row) is None, axis=1)]
     unresolved_weight = math.fsum(float(value) for value in unresolved_rows["weight"])
     unresolved_weight += fund_weight
+    untyped_cash_derivative_weight = math.fsum(
+        float(row["weight"])
+        for _, row in unresolved_rows.iterrows()
+        if _exposure_type([row]) in {"cash", "derivative"}
+    )
     unresolved_identity_items = [item for item in security_items if item not in mapped_items]
     unresolved_weight += math.fsum(item.weight for item in unresolved_identity_items)
     unresolved_weight += math.fsum(item.weight for item in coverage.holdings if item.exposure_type == "unknown")
@@ -359,7 +364,7 @@ def calculate_look_through(
         minimum_aggregate_coverage,
         reported_total,
         # Equity-only denominator: cash and derivatives are excluded; held funds stay in and count as uncovered.
-        max(0.0, reported_total - cash_weight - derivative_weight),
+        max(0.0, reported_total - cash_weight - derivative_weight - untyped_cash_derivative_weight),
     )
     limitations.extend(metric_limitations)
 
