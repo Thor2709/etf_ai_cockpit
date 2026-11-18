@@ -97,6 +97,36 @@ def test_lookthrough_rejects_aggregate_weight_above_tolerance() -> None:
     assert _lookthrough_map(holdings) == {}
 
 
+def test_panel_factor_return_at_t_ignores_descriptor_changes_and_dropouts_after_t() -> None:
+    prices, allocation, features = _fixture()
+    dates = sorted(prices["date"].unique())
+    t, later = dates[60], dates[70]
+
+    def vintage(day: object, momentum_order: list[int], skip: str | None = None) -> pd.DataFrame:
+        base = features.assign(date=day)
+        base["momentum_120d"] = base["momentum_120d"].to_numpy()[momentum_order]
+        return base[base["etf_id"] != skip] if skip else base
+
+    same = list(range(8))
+    stable = [vintage(dates[0], same), vintage(dates[50], same)]
+    original = pd.concat([*stable, vintage(later, same)], ignore_index=True)
+    changed = pd.concat([*stable, vintage(later, same[::-1], skip="ETF7")], ignore_index=True)
+
+    first = build_factor_risk_report(prices, allocation, features, exposure_panel=original)
+    second = build_factor_risk_report(prices, allocation, features, exposure_panel=changed)
+
+    def at(report: dict[str, object], day: object) -> pd.DataFrame:
+        frame = report["factor_returns"]
+        return frame[frame["date"] == day].reset_index(drop=True)
+
+    assert not at(first, t).empty
+    pd.testing.assert_frame_equal(at(first, t), at(second, t))
+    assert not at(first, dates[-1]).equals(at(second, dates[-1]))
+    assert first["exposure_basis"] == "point_in_time_panel_exposure"
+    assert "size" in first["diagnostics"]["non_point_in_time_descriptors"]
+    assert "current_exposure_replay" not in first["warnings"]
+
+
 def test_constant_or_undercovered_factors_are_excluded_with_a_reason() -> None:
     _prices, allocation, features = _fixture()
     features["quality_score_10"] = 5.0
