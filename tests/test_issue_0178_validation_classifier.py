@@ -627,3 +627,67 @@ def test_workflow_has_unconditional_bookends_and_single_source_scan() -> None:
     assert "workflow_dispatch:" in supply_workflow
     assert "pull_request:" not in supply_workflow
     assert "push:" not in supply_workflow
+
+
+def _merged_product_then_evidence(tmp_path: Path) -> tuple[str, str, str]:
+    """main: base -> merge(product PR) -> merge(E PR); returns (product head, main, E head)."""
+    _git(tmp_path, "init", "-q")
+    _git(tmp_path, "config", "user.email", "test@example.invalid")
+    _git(tmp_path, "config", "user.name", "Test")
+    product = tmp_path / "src" / "product.py"
+    product.parent.mkdir()
+    product.write_text("VALUE = 1\n", encoding="utf-8")
+    progress = tmp_path / "docs" / "product-completion" / "PROGRESS.md"
+    progress.parent.mkdir(parents=True)
+    progress.write_text("open\n", encoding="utf-8")
+    manifest = tmp_path / ".github" / "issue-transitions" / "protected-evidence-manifest.json"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text(json.dumps({"execution_allowed": False}), encoding="utf-8")
+    main = _commit(tmp_path, "base")
+    heads = []
+    for path, content in ((product, "VALUE = 2\n"), (progress, "integrated\n")):
+        path.write_text(content, encoding="utf-8")
+        heads.append(_commit(tmp_path, f"pull request changes {path.name}"))
+        _git(tmp_path, "checkout", "-q", main)
+        _git(tmp_path, "merge", "-q", "--no-ff", "-m", "merge pull request", heads[-1])
+        main = _git(tmp_path, "rev-parse", "HEAD")
+    progress.write_text("complete\n", encoding="utf-8")
+    return heads[0], main, _commit(tmp_path, "E projection")
+
+
+def test_certification_candidate_is_the_merged_head_that_introduced_the_source(tmp_path: Path) -> None:
+    product_head, main, evidence_head = _merged_product_then_evidence(tmp_path)
+
+    assert classify_validation.certification_candidate(tmp_path, main, evidence_head) == product_head
+    (tmp_path / "src" / "product.py").write_text("VALUE = 3\n", encoding="utf-8")
+    changed_source = _commit(tmp_path, "source change")
+    assert classify_validation.certification_candidate(tmp_path, main, changed_source) is None
+
+
+def test_verified_run_of_the_candidate_alone_authorizes_e_reuse(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    product_head, main, evidence_head = _merged_product_then_evidence(tmp_path)
+    certified = tmp_path.parent / f"{tmp_path.name}-certified-run.json"
+
+    def classify(head_sha: str) -> dict[str, object]:
+        certified.write_text(json.dumps({"head_sha": head_sha, "run_id": 7}), encoding="utf-8")
+        arguments = ["--root", str(tmp_path), "--base", main, "--head", evidence_head]
+        assert classify_validation.main([*arguments, "--certified-run", str(certified)]) == 0
+        return json.loads(capsys.readouterr().out)
+
+    report = classify(product_head)
+    assert report["tier"] == "E"
+    assert report["package_gate_required"] is False
+    assert report["evidence_reuse"] == {
+        "authorized": True,
+        "reason": "certified-run-identity-validated",
+        "certified_run": {"head_sha": product_head, "run_id": 7},
+    }
+    assert classify(main)["package_gate_required"] is True
+    manifest = tmp_path / ".github" / "issue-transitions" / "protected-evidence-manifest.json"
+    manifest.write_text(json.dumps({"execution_allowed": True}), encoding="utf-8")
+    evidence_head = _commit(tmp_path, "E change that allows execution")
+    assert classify(product_head)["package_gate_required"] is True
+    high = build_report(["src/etf_cockpit/data/x_store.py"], certified_run={"head_sha": product_head, "run_id": 7})
+    assert high["package_gate_required"] is True

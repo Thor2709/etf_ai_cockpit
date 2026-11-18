@@ -13,11 +13,11 @@ from pathlib import Path, PurePosixPath
 try:
     from scripts import select_focused_tests as focused_selection
     from scripts.git_change_paths import changed_paths
-    from scripts.validation_identity import identity_groups
+    from scripts.validation_identity import DEFAULT_ARTIFACT_MANIFEST, identity_groups
 except ImportError:  # also pywin32's top-level 'scripts' namespace
     import select_focused_tests as focused_selection  # type: ignore[no-redef]
     from git_change_paths import changed_paths  # type: ignore[no-redef]
-    from validation_identity import identity_groups  # type: ignore[no-redef]
+    from validation_identity import DEFAULT_ARTIFACT_MANIFEST, identity_groups  # type: ignore[no-redef]
 
 
 SCHEMA_VERSION = "validation-classifier.v1"
@@ -301,20 +301,58 @@ def derive_trusted_evidence(
     return identities
 
 
+def certification_candidate(
+    root: Path, base: str, head: str, artifact_manifest: str = DEFAULT_ARTIFACT_MANIFEST
+) -> str | None:
+    """Return the merged pull request head that introduced the protected identity of ``head``.
+
+    The exact-head package gate of that head is the only run that can certify this source. The
+    artifact manifest is evidence written after certification, so it is excluded, as in
+    ``derive_trusted_evidence``. The workflow confirms the run through the GitHub API.
+    """
+    paths = tuple(sorted({path for group in identity_groups(artifact_manifest).values()
+                          for path in group if path != artifact_manifest}))
+    try:
+        subprocess.run(["git", "merge-base", "--is-ancestor", base, head], cwd=root, check=True, capture_output=True)
+        target = _git_identity(root, head, paths)
+        commit = base
+        if _git_identity(root, commit, paths) != target:
+            return None
+        for _ in range(50):
+            parents = subprocess.check_output(
+                ["git", "rev-list", "--parents", "-n1", commit], cwd=root, text=True
+            ).split()[1:]
+            if not parents:
+                return None
+            if _git_identity(root, parents[0], paths) != target:
+                # This merge introduced the identity: its merged head carries the certifying run.
+                if len(parents) == 2 and _git_identity(root, parents[1], paths) == target:
+                    return parents[1]
+                return None
+            commit = parents[0]
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    return None
+
+
 def build_report(
     paths: list[str],
     *,
     reusable_evidence: dict[str, object] | None = None,
     expected_evidence: dict[str, object] | None = None,
     whole_suite_selection: bool = False,
+    certified_run: dict[str, object] | None = None,
 ) -> dict[str, object]:
     classified = sorted((classify_path(path) for path in paths), key=lambda item: item.path)
     if not classified:
         classified = [PathClassification("<no-changes>", "H", "empty-change-set-fails-upward")]
     tier = max((item.tier for item in classified), key=TIER_ORDER.__getitem__)
-    evidence_reuse_authorized = tier == "E" and _valid_reusable_evidence(
+    sidecar_reuse = tier == "E" and _valid_reusable_evidence(
         reusable_evidence, expected_evidence
     )
+    # A run passed here was verified by the workflow and bound to certification_candidate by main().
+    certified_reuse = tier == "E" and not sidecar_reuse and certified_run is not None
+    evidence_reuse_authorized = sidecar_reuse or certified_reuse
     # Tier O runs the focused tests, or the gate when that selection is the whole suite.
     # The scheduled run on main has no changed paths, so it fails upward to the full gate.
     package_gate_required = tier in {"H", "C"} or (tier == "E" and not evidence_reuse_authorized)
@@ -334,10 +372,11 @@ def build_report(
         "evidence_reuse": {
             "authorized": evidence_reuse_authorized,
             "reason": (
-                "exact-identities-validated"
-                if evidence_reuse_authorized
+                "exact-identities-validated" if sidecar_reuse
+                else "certified-run-identity-validated" if certified_reuse
                 else "absent-incomplete-or-inconsistent"
             ),
+            "certified_run": certified_run if certified_reuse else None,
         },
     }
 
@@ -406,7 +445,34 @@ def main(argv: list[str] | None = None) -> int:
         "--artifact-manifest",
         default=".github/issue-transitions/protected-evidence-manifest.json",
     )
+    parser.add_argument("--certification-candidate", action="store_true",
+                        help="print the head whose green package gate can certify --head, then exit")
+    parser.add_argument("--certified-run", type=Path,
+                        help='workflow-verified {"head_sha", "run_id"} of a green package gate')
     args = parser.parse_args(argv)
+
+    candidate = None
+    if args.base and (args.certification_candidate or args.certified_run):
+        candidate = certification_candidate(args.root.resolve(), args.base, args.head, args.artifact_manifest)
+    if args.certification_candidate:
+        print(candidate or "")
+        return 0
+    certified_run = None
+    if args.certified_run and candidate:
+        try:
+            value = json.loads(args.certified_run.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            value = None
+        try:  # The manifest is excluded from the identity, but never from execution_allowed=false.
+            manifest = json.loads(subprocess.check_output(
+                ["git", "show", f"{args.head}:{args.artifact_manifest}"], cwd=args.root.resolve()))
+        except (OSError, ValueError, subprocess.CalledProcessError):
+            manifest = None
+        if (isinstance(value, dict) and set(value) == {"head_sha", "run_id"}
+                and value["head_sha"] == candidate
+                and type(value["run_id"]) is int and value["run_id"] > 0
+                and isinstance(manifest, dict) and manifest.get("execution_allowed") is False):
+            certified_run = value
 
     paths = list(args.changed_file)
     classification_error = ""
@@ -439,6 +505,7 @@ def main(argv: list[str] | None = None) -> int:
         paths,
         reusable_evidence=reusable_evidence,
         expected_evidence=expected_evidence,
+        certified_run=certified_run,
     )
     if classification_error:
         report["classification_error"] = classification_error
