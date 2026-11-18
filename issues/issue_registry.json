@@ -31934,7 +31934,7 @@
           "Focused tests for the intake acceptance criteria and the validation tier required by the product diff."
         ]
       },
-      "verified_commit": "556665da636b883bbdf7397c6a4adc5c84f4b679",
+      "verified_commit": "4ae82e9ea684908ff12d2af53cae45552a536b75",
       "verified_date": "2026-11-19",
       "write_conflict_group": "data-platform"
     },
@@ -32013,7 +32013,7 @@
           "Focused tests for the intake acceptance criteria and the validation tier required by the product diff."
         ]
       },
-      "verified_commit": "556665da636b883bbdf7397c6a4adc5c84f4b679",
+      "verified_commit": "4ae82e9ea684908ff12d2af53cae45552a536b75",
       "verified_date": "2026-11-19",
       "write_conflict_group": "etf-research"
     },
@@ -32092,7 +32092,7 @@
           "Focused tests for the intake acceptance criteria and the validation tier required by the product diff."
         ]
       },
-      "verified_commit": "556665da636b883bbdf7397c6a4adc5c84f4b679",
+      "verified_commit": "4ae82e9ea684908ff12d2af53cae45552a536b75",
       "verified_date": "2026-11-19",
       "write_conflict_group": "data-platform"
     },
@@ -32171,7 +32171,7 @@
           "Focused tests for the intake acceptance criteria and the validation tier required by the product diff."
         ]
       },
-      "verified_commit": "556665da636b883bbdf7397c6a4adc5c84f4b679",
+      "verified_commit": "4ae82e9ea684908ff12d2af53cae45552a536b75",
       "verified_date": "2026-11-19",
       "write_conflict_group": "stock-research"
     },
@@ -34242,7 +34242,7 @@
     "package_registry_sha256": "42f401c32d2fddb17af97333303f4aeea0f2d2f8384e2b8da382529c0c7d107c",
     "package_reviewed_commit": "e149db50945401fb014955f0f79794a909796a75",
     "package_sha256": "39e30adc22c34a2f80640fa895caa21473457cea5bd0de872927051f8f99839b",
-    "programme_control_state_sha256": "c25520ec1c8633220d8713d11da8d9dc59b75960999dcb468d91680fc3e653d2",
+    "programme_control_state_sha256": "60b1d55bc31a0ec60065e0bc4a7aa674ee975a19b605a9f2e7d6eddc392c3d3e",
     "repository": "Thor2709/etf_ai_cockpit",
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   }
