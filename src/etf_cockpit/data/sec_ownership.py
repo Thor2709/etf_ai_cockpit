@@ -120,7 +120,8 @@ def parse_ownership_xml(xml: bytes, *, accession: str, known_at: datetime) -> In
         form = ed.child_text(root, "documentType") or ""
         issuer = ed.find_element(root, "issuer")
         issuer_cik = _cik(ed.child_text(issuer, "issuerCik"))
-        document_plan = ed.parse_xml_boolean(ed.child_text(root, "aff10b5One")) is True
+        # Filing-level remarks cannot be tied to single rows, so a plan disclosed there covers every row.
+        document_plan = ed.parse_xml_boolean(ed.child_text(root, "aff10b5One")) is True or ed.detect_10b5_1_plan(ed.child_text(root, "remarks")) is True
         footnotes = ed.Footnotes.extract(root)
         insiders = []
         for owner in ed.find_all_elements(root, "reportingOwner"):
@@ -144,7 +145,7 @@ def parse_ownership_xml(xml: bytes, *, accession: str, known_at: datetime) -> In
                     shares=_number(row.get("Shares")), price=_number(row.get("Price")),
                     security_title=str(row.get("Security") or ""), is_derivative=derivative,
                     transaction_date=when, is_10b5_1=planned,
-                    exclusion_reason=_exclusion(code, derivative, planned, when, form),
+                    exclusion_reason=_exclusion(code, derivative, planned, when, form, row.get("EquitySwap") in (True,)),
                 ))
     except SecOwnershipUnavailable:
         raise
@@ -165,7 +166,7 @@ def _date(value: object) -> date | None:
         return None
 
 
-def _exclusion(code: str, derivative: bool, planned: bool, when: date | None, form: str) -> str | None:
+def _exclusion(code: str, derivative: bool, planned: bool, when: date | None, form: str, swap: bool) -> str | None:
     if derivative:
         return "derivative_row"
     if form.upper().endswith("/A"):
@@ -174,6 +175,8 @@ def _exclusion(code: str, derivative: bool, planned: bool, when: date | None, fo
         return f"code_{code or 'missing'}"  # A grant, M exercise, F tax withholding, G gift, ...
     if planned:
         return "rule_10b5_1_plan"
+    if swap:
+        return "equity_swap"
     return None if when is not None else "transaction_date_missing"
 
 
@@ -204,11 +207,16 @@ def insider_purchase_features(
     start = decision_time.date() - timedelta(days=window_days)
     net_shares, net_value, unpriced = 0.0, 0.0, 0
     buyers: set[str] = set()
+    covered = unsized_any = unsized_buy = False
     for filing in visible:
         if not filing.insider_ciks:
             continue
+        covered = covered or start < filing.known_at.date()  # a filing inside the window shows the window was observed
         for row in filing.transactions:
-            if row.signal is None or row.shares is None or not start < (row.transaction_date or start) <= decision_time.date():
+            if row.signal is None or not start < (row.transaction_date or start) <= decision_time.date():
+                continue
+            if row.shares is None:
+                unsized_any, unsized_buy = True, unsized_buy or row.signal == "purchase"
                 continue
             sign = 1 if row.signal == "purchase" else -1
             net_shares += sign * row.shares
@@ -218,10 +226,12 @@ def insider_purchase_features(
                 net_value += sign * row.shares * row.price
             if sign > 0:
                 buyers.update(filing.insider_ciks)
+    if not covered:
+        return {name: _unavailable(name, "no_insider_filing_in_window") for name in names}
     detail = {"window_days": window_days, "net_value_usd": None if unpriced else net_value, "unpriced_rows": unpriced}
     return {
-        names[0]: ShadowFeature(names[0], "ok", net_shares, None, detail),
-        names[1]: ShadowFeature(names[1], "ok", float(len(buyers)), None, {**detail, "is_cluster": len(buyers) >= cluster_min_buyers, "cluster_min_buyers": cluster_min_buyers}),
+        names[0]: _unavailable(names[0], "signal_row_shares_missing") if unsized_any else ShadowFeature(names[0], "ok", net_shares, None, detail),
+        names[1]: _unavailable(names[1], "purchase_row_shares_missing") if unsized_buy else ShadowFeature(names[1], "ok", float(len(buyers)), None, {**detail, "is_cluster": len(buyers) >= cluster_min_buyers, "cluster_min_buyers": cluster_min_buyers}),
     }
 
 
@@ -272,7 +282,14 @@ def parse_13f(
             reasons.append("partial_new_holdings_only")
         holdings: tuple[Holding13F, ...] = ()
         if infotable_xml is not None:
-            table = ed.parse_infotable_xml(infotable_xml.decode("utf-8"))
+            text = infotable_xml.decode("utf-8")
+            table = ed.parse_infotable_xml(text)
+            entries = ed.find_all_elements(ed.parse_xml(text), "infoTable")
+            declared = primary.summary_page.total_holdings
+            if not entries or not len(entries) == len(table) == declared:
+                raise SecOwnershipUnavailable(f"13F information table has {len(table)} of {len(entries)} entries parsed, {declared} declared")
+            if any(_number(ed.child_text(e, "sshPrnamt")) is None for e in entries):
+                raise SecOwnershipUnavailable("13F information table entry without a share quantity")
             holdings = tuple(
                 Holding13F(str(r["Cusip"]), str(r["Issuer"]), str(r["Class"]), int(r["SharesPrnAmount"]), str(r["Type"]), str(r["PutCall"]))
                 for r in table.to_dict("records")
@@ -338,7 +355,8 @@ def holder_share_change(
 ) -> ShadowFeature:
     """Quarter-on-quarter share change in one CUSIP over managers with a complete report for both quarters."""
     name = "13f_share_change_qoq"
-    filings = list(filings)
+    decision_time = _aware(decision_time, "decision_time")
+    filings = [f for f in filings if f.known_at <= decision_time]
     now_held = prior_held = 0
     holders_now = holders_prior = matched = skipped = 0
     for manager in sorted({f.manager_cik for f in filings}):
