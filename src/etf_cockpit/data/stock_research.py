@@ -430,6 +430,9 @@ def valuation_analysis(
     sector_value = sector or _text((classification_context or {}).get("sector"))
     bank_route = _classification_is_known(sector_value, classification_context) and _is_special_sector(sector_value, classification_context)
     projection_metrics = _financial_projection_metrics(financial_projection) if bank_route else {}
+    if isinstance(assumption_values.get("wacc_inputs"), Mapping):  # the WACC build gets the resolved classification and the DCF cash-flow currency
+        statement_currencies = {_text(item).upper() for item in frame["currency"].dropna()} - {""} if "currency" in frame.columns else set()
+        assumption_values["wacc_inputs"] = {**assumption_values["wacc_inputs"], "financial": bank_route, "cash_flow_currency": next(iter(statement_currencies)) if len(statement_currencies) == 1 else ""}  # type: ignore[dict-item]
     if bank_route:
         for projection_name, value_name in (("net_profit_attributable", "net_income"), ("closing_equity", "equity"), ("tangible_book_value", "tangible_book_value")):
             if projection_metrics.get(projection_name) is not None:
@@ -3284,7 +3287,7 @@ def _driver_monte_carlo(
     def value(draw: Mapping[str, float]) -> float | None:
         shifted = {
             **inputs, "bridge": bridge, "wacc": draw["wacc"], "terminal_growth": draw["terminal_growth"], "start_growth": draw["revenue_growth"],
-            "start_margin": draw["operating_margin"], "end_margin": float(inputs["end_margin"]) + draw["operating_margin"] - base["operating_margin"],  # type: ignore[arg-type]
+            "start_margin": draw["operating_margin"], "end_margin": float(inputs["end_margin"]) + (draw["operating_margin"] - base["operating_margin"]),  # type: ignore[arg-type]
         }
         if roic_follows_wacc:  # the default terminal ROIC is the cost of capital, so it follows the draw
             shifted["end_roic"] = draw["wacc"]

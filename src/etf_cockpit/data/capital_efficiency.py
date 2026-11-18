@@ -103,7 +103,7 @@ def compute_wacc(inputs: Mapping[str, object]) -> dict[str, object]:
     def result(status: str, reason: str, **fields: object) -> dict[str, object]:
         return {"status": status, "reason": reason, "wacc": None, **fields, "execution_allowed": False}
 
-    if str(inputs.get("sector") or "").strip().casefold() in _SPECIAL_SECTORS:
+    if inputs.get("financial") or str(inputs.get("sector") or "").strip().casefold() in _SPECIAL_SECTORS:
         return result("not_meaningful", "WACC is not meaningful for financial institutions.")
     debt = _float(inputs.get("debt"))
     if debt is None or debt <= 0 or inputs.get("capitalised_interest"):
@@ -111,6 +111,9 @@ def compute_wacc(inputs: Mapping[str, object]) -> dict[str, object]:
     rate_currency = str(inputs.get("rate_currency") or "").strip().upper()
     if not rate_currency or rate_currency != str(inputs.get("valuation_currency") or "").strip().upper():
         return result("unavailable", "Risk-free rate and equity premium must be in the valuation currency.")
+    cash_flow_currency = inputs.get("cash_flow_currency")  # supplied only by a DCF caller: the WACC must be in the cash-flow currency
+    if cash_flow_currency is not None and rate_currency != str(cash_flow_currency).strip().upper():
+        return result("unavailable", "WACC currency does not match the currency of the DCF cash flows (currency mismatch).")
     tax_source = str(inputs.get("tax_rate_source") or "").strip()
     risk_free, premium, beta = (_float(inputs.get(name)) for name in ("risk_free_rate", "equity_risk_premium", "beta"))
     market_cap, tax = _float(inputs.get("market_cap")), _float(inputs.get("tax_rate"))
@@ -119,6 +122,8 @@ def compute_wacc(inputs: Mapping[str, object]) -> dict[str, object]:
     assert risk_free is not None and premium is not None and beta is not None and market_cap is not None and tax is not None
     cost_of_debt = _float(inputs.get("cost_of_debt"))
     cost_of_debt_status = "override"
+    if inputs.get("cost_of_debt") is not None and (cost_of_debt is None or cost_of_debt < 0):
+        return result("unavailable", "A supplied cost_of_debt override must be a finite non-negative rate; the proxy is not substituted.")
     if cost_of_debt is None:
         interest, average_debt = _float(inputs.get("interest_expense")), _float(inputs.get("average_debt"))
         if interest is None or average_debt is None or interest < 0 or average_debt <= 0:
