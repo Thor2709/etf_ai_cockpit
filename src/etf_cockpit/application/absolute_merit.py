@@ -130,10 +130,13 @@ def latest_prior_decision(directory: Path, decision_time: date) -> dict[str, obj
     cutoff = _decision_timestamp(decision_time)
     config_hash = _config_hashes()["decision_opportunity_v1"]
     for path in sorted(Path(directory).glob("decision_opportunity_*.json"), key=lambda item: item.stat().st_mtime, reverse=True):
-        published = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
+        before = path.stat().st_mtime
+        content = path.read_bytes()
+        if path.stat().st_mtime != before:
+            continue
+        published = datetime.fromtimestamp(before, tz=timezone.utc)
         if published > cutoff:
             continue
-        content = path.read_bytes()
         try:
             payload = json.loads(content)
             made = datetime.fromisoformat(str(payload["decision_time"]).replace("Z", "+00:00"))
@@ -156,7 +159,8 @@ def positions_from_holdings(holdings: pd.DataFrame, instruments: Iterable[str]) 
     latest = holdings.loc[pd.to_datetime(holdings["as_of_date"]).eq(as_of)]
     numbers = pd.to_numeric(latest["units"], errors="coerce")
     names = latest["etf_id"].astype(str)
-    units, invalid = numbers.groupby(names).sum(), set(names[numbers.isna()])
+    units = numbers.groupby(names).sum()
+    invalid = set(names[~np.isfinite(numbers)]) | set(units.index[~np.isfinite(units)])
     stamp = _iso(as_of.to_pydatetime().replace(tzinfo=timezone.utc))
     return {
         name: _record({"status": "unavailable" if name in invalid else "available", "held": bool(units.get(name, 0.0) > 0.0),

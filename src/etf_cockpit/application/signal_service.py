@@ -271,7 +271,10 @@ def _absolute_merit(
 
         # Only forecasts published by the cut-off; a row without a publication time cannot be verified.
         created = pd.to_datetime(forecasts.get("created_at"), errors="coerce", utc=True, format="mixed")
-        forecasts = forecasts.loc[created.le(_decision_timestamp(decision_time))] if "created_at" in forecasts else forecasts.iloc[0:0]
+        cutoff = _decision_timestamp(decision_time)
+        forecasts = forecasts.loc[created.le(cutoff)] if "created_at" in forecasts else forecasts.iloc[0:0]
+        if "known_at" in forecasts:
+            forecasts = forecasts.loc[pd.to_datetime(forecasts["known_at"], errors="coerce", utc=True, format="mixed").le(cutoff)]
         from etf_cockpit.application.absolute_merit import (
             build_absolute_merit,
             latest_prior_decision,
