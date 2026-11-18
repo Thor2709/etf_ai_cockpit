@@ -523,7 +523,7 @@ class EurRateBook:
         self._rows: pd.DataFrame = pd.DataFrame()
         self._by_date: dict[date, pd.DataFrame] = {}
         self._dates: list[date] = []
-        self._cross: dict[tuple[date, str], tuple[float | None, str | None]] = {}
+        self._days: dict[date, _QuoteDay] = {}
         try:
             self._prepare(fx, known_by)
         except Exception as exc:  # malformed frames fail closed with an explicit reason
@@ -645,46 +645,61 @@ class EurRateBook:
             age = _business_days_between(quote_day, session)
             if price_staleness_status(age) != "ok":
                 return None, f"latest FX quote {quote_day.isoformat()} is {age} business days older than {session.isoformat()}"
-        key = (quote_day, currency)
-        if key not in self._cross:
-            self._cross[key] = self._cross_rate(quote_day, currency)
-        rate, reason = self._cross[key]
+        rate, reason = self._cross_rate(quote_day, currency)
         if rate is None:
             return None, f"{reason} on {quote_day.isoformat()}"
         return rate, None
 
     def _cross_rate(self, quote_day: date, currency: str) -> tuple[float | None, str | None]:
+        snapshot, reason, rates = self._quote_day(quote_day)
+        if snapshot is None:
+            return None, reason
+        if currency not in rates:
+            cross = fx_cross_rate(snapshot, currency, "EUR")
+            if cross is None or not _usable_rate(cross.rate):
+                rates[currency] = (None, f"no unambiguous {currency}/EUR rate")
+            else:
+                rates[currency] = (float(cross.rate), None)
+        return rates[currency]
+
+    def _quote_day(self, quote_day: date) -> _QuoteDay:
+        """Validate one quote day once for every currency read from it."""
+
+        if quote_day in self._days:
+            return self._days[quote_day]
         dated = self._by_date[quote_day]
         # The outcome is a pure function of the day's quotes, so inside a ``fx_cross_rate_memo`` scope identical content
         # is validated once instead of once per EurRateBook (a backtest builds several books over the same days).
         memo = _CROSS_RATE_MEMO.get()
-        if memo is None:
-            return self._compute_cross_rate(dated, quote_day, currency)
-        content = (
-            quote_day,
-            currency,
-            tuple(
-                zip(
-                    dated["as_of_date"].tolist(),
-                    dated["pair"].tolist(),
-                    dated["base_currency"].tolist(),
-                    dated["quote_currency"].tolist(),
-                    dated["rate"].tolist(),
-                    dated["source"].tolist(),
-                    strict=True,
-                )
-            ),
-        )
-        known = memo.get(content)
+        content: tuple[object, ...] = ()
+        known = None
+        if memo is not None:
+            content = (
+                quote_day,
+                tuple(
+                    zip(
+                        dated["as_of_date"].tolist(),
+                        dated["pair"].tolist(),
+                        dated["base_currency"].tolist(),
+                        dated["quote_currency"].tolist(),
+                        dated["rate"].tolist(),
+                        dated["source"].tolist(),
+                        strict=True,
+                    )
+                ),
+            )
+            known = memo.get(content)
         if known is None:
-            known = self._compute_cross_rate(dated, quote_day, currency)
-            if len(memo) >= _CROSS_RATE_MEMO_LIMIT:
-                memo.clear()
-            memo[content] = known
+            known = (*self._validate_quote_day(dated, quote_day), {})
+            if memo is not None:
+                if len(memo) >= _CROSS_RATE_MEMO_LIMIT:
+                    memo.clear()
+                memo[content] = known
+        self._days[quote_day] = known
         return known
 
     @staticmethod
-    def _compute_cross_rate(dated: pd.DataFrame, quote_day: date, currency: str) -> tuple[float | None, str | None]:
+    def _validate_quote_day(dated: pd.DataFrame, quote_day: date) -> tuple[FxRateSnapshot | None, str | None]:
         if dated.duplicated(["as_of_date", "pair"]).any():
             return None, "FX rates contain duplicate date/pair rows"
         errors = _fx_rate_consistency_errors(dated)
@@ -703,13 +718,12 @@ class EurRateBook:
             available=True,
             reason=None,
         )
-        cross = fx_cross_rate(snapshot, currency, "EUR")
-        if cross is None or not _usable_rate(cross.rate):
-            return None, f"no unambiguous {currency}/EUR rate"
-        return float(cross.rate), None
+        return snapshot, None
 
 
-_CROSS_RATE_MEMO: ContextVar[dict[tuple[object, ...], tuple[float | None, str | None]] | None] = ContextVar(
+# One validated quote day: its snapshot (or the reason it is unusable) and the cross-rates read from it so far.
+_QuoteDay = tuple[FxRateSnapshot | None, str | None, dict[str, tuple[float | None, str | None]]]
+_CROSS_RATE_MEMO: ContextVar[dict[tuple[object, ...], _QuoteDay] | None] = ContextVar(
     "fx_cross_rate_memo", default=None
 )
 _CROSS_RATE_MEMO_LIMIT = 100_000
