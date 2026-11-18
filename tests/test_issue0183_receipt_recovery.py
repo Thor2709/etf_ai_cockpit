@@ -1,4 +1,4 @@
-"""Focused checks for the one-off ISSUE-0182 receipt recovery."""
+"""Focused checks for the one-off ISSUE-0183 receipt recovery."""
 
 from __future__ import annotations
 
@@ -8,18 +8,18 @@ import subprocess
 import pytest
 
 from scripts import github_mutation_gateway as gateway
-from scripts import recover_issue_0182_receipt as recovery
+from scripts import recover_issue_0183_receipt as recovery
 
 
 def _authority():
     return {
         "authority_id": recovery.AUTHORITY_ID,
-        "sequence": 194,
+        "sequence": 198,
         "payload": {
-            "source_sha": "8b1ff6738ed0c8284799bab2d8b1c1ac92079180",
-            "title": "Point-in-time cross-sectional panel (from #1022)",
+            "source_sha": "48ce8fd9b316220f3b38ec03d46b47d97f46d14b",
+            "title": "Statement line-item expansion (from #1023)",
             "managed_body": "<!-- etf-ai-cockpit:managed:start -->\n"
-            "<!-- etf-ai-cockpit:stable-id=ISSUE-0182 -->\n"
+            "<!-- etf-ai-cockpit:stable-id=ISSUE-0183 -->\n"
             "<!-- etf-ai-cockpit:managed:end -->",
             "plan_sha256": "2" * 64,
         },
@@ -28,8 +28,8 @@ def _authority():
 
 def _issue(authority):
     return {
-        "id": gateway.CREATE_RECEIPT_RECOVERY_ISSUE_ID,
-        "node_id": gateway.CREATE_RECEIPT_RECOVERY_NODE_ID,
+        "id": recovery.RECOVERY["issue_id"],
+        "node_id": recovery.RECOVERY["node_id"],
         "number": recovery.ISSUE_NUMBER,
         "title": authority["payload"]["title"],
         "body": gateway.CREATE_MARKER_TEMPLATE.format(recovery.AUTHORITY_ID)
@@ -87,7 +87,7 @@ def test_recognises_exact_valid_receipt_as_idempotent_no_op():
         mutation_id=recovery.AUTHORITY_ID,
         stable_id=recovery.TARGET,
         authority_id=recovery.AUTHORITY_ID,
-        authority_sequence=194,
+        authority_sequence=198,
         source_sha=authority["payload"]["source_sha"],
         head_sha=recovery.ORIGINAL_HEAD,
         ledger_blob_oid="1" * 40,
@@ -133,20 +133,20 @@ def test_reviewed_candidate_can_have_multiple_commits_but_apply_requires_merge_p
     git("add", ".")
     git("commit", "-qm", "spent create")
     base = git("rev-parse", "HEAD")
-    monkeypatch.setattr(gateway, "CREATE_RECEIPT_RECOVERY_HEAD_SHA", base)
+    monkeypatch.setitem(recovery.RECOVERY, "head_sha", base)
     git("commit", "--allow-empty", "-qm", "early change")
-    path = tmp_path / gateway.CREATE_RECEIPT_RECOVERY_PATH
+    path = tmp_path / recovery.RECOVERY["path"]
     path.parent.mkdir()
     path.write_text("# recovery\n", encoding="utf-8")
     git("add", ".")
     git("commit", "-qm", "reviewed recovery")
     candidate = git("rev-parse", "HEAD")
-    gateway.validate_create_receipt_recovery_push(tmp_path, base, candidate, validating_candidate=True)
-    with pytest.raises(ValueError, match="push_not_authorised"):
-        gateway.validate_create_receipt_recovery_push(tmp_path, base, candidate)
+    gateway.validate_create_receipt_recovery_push(tmp_path, base, candidate, stable_id=recovery.TARGET, validating_candidate=True)
+    with pytest.raises(ValueError, match="issue_0183_recovery_push_not_authorised"):
+        gateway.validate_create_receipt_recovery_push(tmp_path, base, candidate, stable_id=recovery.TARGET)
     git("switch", "--detach", base)
     git("merge", "--no-ff", "-qm", "reviewed merge", candidate)
-    gateway.validate_create_receipt_recovery_push(tmp_path, base, git("rev-parse", "HEAD"))
+    gateway.validate_create_receipt_recovery_push(tmp_path, base, git("rev-parse", "HEAD"), stable_id=recovery.TARGET)
 
 
 def test_parser_rejects_other_issues_using_recovery_push():
@@ -155,9 +155,9 @@ def test_parser_rejects_other_issues_using_recovery_push():
     _, body = gateway.build_create_receipt(
         issue,
         mutation_id="9" * 64,
-        stable_id="ISSUE-0183",
+        stable_id="ISSUE-0184",
         authority_id="9" * 64,
-        authority_sequence=195,
+        authority_sequence=199,
         source_sha=authority["payload"]["source_sha"],
         head_sha=recovery.ORIGINAL_HEAD,
         ledger_blob_oid="1" * 40,
@@ -217,8 +217,8 @@ def test_recover_appends_once_and_valid_receipt_is_noop(tmp_path, monkeypatch, l
                 "head_sha": recovery.ORIGINAL_HEAD, "status": "completed", "conclusion": "failure",
                 "run_attempt": 1, "repository": {"full_name": gateway.REPO}}
 
-    def verify_push(_root, parent, head, *, validating_candidate=False):
-        assert not validating_candidate
+    def verify_push(_root, parent, head, *, stable_id, validating_candidate=False):
+        assert not validating_candidate and stable_id == recovery.TARGET
         assert parent == recovery.ORIGINAL_HEAD and head == activation
 
     def verify_readback(_root, records, remote):

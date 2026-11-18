@@ -5,7 +5,7 @@ on:
     branches: [main]
     paths:
       - .github/issue-transitions/github-mutation-authority.jsonl
-      - scripts/recover_issue_0182_receipt.py
+      - scripts/recover_issue_0183_receipt.py
   workflow_dispatch: {}
 
 permissions:
@@ -68,11 +68,11 @@ jobs:
             --evidence-out artifacts/programme-status-completion/evidence.json
             --apply
           )
-          recovery=scripts/recover_issue_0182_receipt.py
+          recovery=scripts/recover_issue_0183_receipt.py
           if [[ "${{ github.event_name }}" == "push" ]] \
              && ! git cat-file -e "$EVENT_BEFORE:$recovery" 2>/dev/null \
              && git cat-file -e "HEAD:$recovery"; then
-            python -m scripts.recover_issue_0182_receipt \
+            python -m scripts.recover_issue_0183_receipt \
               --root . \
               --evidence-out artifacts/programme-status-completion/evidence.json \
               --apply

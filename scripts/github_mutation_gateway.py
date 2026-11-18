@@ -46,15 +46,26 @@ RECOVERY_SOURCE_SHA = "94e6376e1a81cdd11bc6c64adc1ebd6499c26bac"
 RECOVERY_HEAD_SHA = "f4f6707d19e4de0d26144971f6c254750e44aaa2"
 RECOVERY_STABLE_ID = "ISSUE-0018"
 RECOVERY_EVENT_NAME = "workflow_dispatch"
-# This first introduction on main authorises a receipt for one spent create.
-CREATE_RECEIPT_RECOVERY_PATH = Path("scripts/recover_issue_0182_receipt.py")
-CREATE_RECEIPT_RECOVERY_AUTHORITY_ID = (
-    "4710da2531f34e582a31f2b7578970f5b4bc21a0fe6ac8b7748b27750fee0b1c"
-)
-CREATE_RECEIPT_RECOVERY_SOURCE_SHA = "8b1ff6738ed0c8284799bab2d8b1c1ac92079180"
-CREATE_RECEIPT_RECOVERY_HEAD_SHA = "a918030121b8043e7a8ace413b3fdfe7969d0fa6"
-CREATE_RECEIPT_RECOVERY_ISSUE_ID = "6412342400"
-CREATE_RECEIPT_RECOVERY_NODE_ID = "I_kwDOTVHm5c8AAAABfjSUgA"
+# Each first introduction on main authorises a receipt for one spent create whose writer
+# created the issue but stopped before the receipt (conflict_after_write).
+CREATE_RECEIPT_RECOVERIES: dict[str, dict[str, Any]] = {
+    "ISSUE-0182": {
+        "path": Path("scripts/recover_issue_0182_receipt.py"),
+        "authority_id": "4710da2531f34e582a31f2b7578970f5b4bc21a0fe6ac8b7748b27750fee0b1c",
+        "source_sha": "8b1ff6738ed0c8284799bab2d8b1c1ac92079180",
+        "head_sha": "a918030121b8043e7a8ace413b3fdfe7969d0fa6",
+        "issue_id": "6412342400",
+        "node_id": "I_kwDOTVHm5c8AAAABfjSUgA",
+    },
+    "ISSUE-0183": {
+        "path": Path("scripts/recover_issue_0183_receipt.py"),
+        "authority_id": "91a89f714dbeb0667e3d0e9d4a64480f3f6ce4a9ef6335b8a4dc1867f3bd7b1c",
+        "source_sha": "48ce8fd9b316220f3b38ec03d46b47d97f46d14b",
+        "head_sha": "5e090c115640a4b5e8317cf94a8eed41af3bd48d",
+        "issue_id": "6466456408",
+        "node_id": "I_kwDOTVHm5c8AAAABgW5LWA",
+    },
+}
 BOT_AUTHORS = frozenset({"github-actions[bot]"})
 GITHUB_ACTIONS_BOT_USER_ID = "41898282"
 GITHUB_ACTIONS_APP_ID = "15368"
@@ -298,7 +309,7 @@ class MutationTransport(Protocol):
 
     def append_comment(self, number: int, body: str) -> None: ...
 
-    def create_open_issue(self, title: str, body: str) -> None: ...
+    def create_open_issue(self, title: str, body: str) -> int | None: ...
 
     def _refresh_managed_body(self, number: int, body: str) -> None: ...
 
@@ -1793,30 +1804,33 @@ def build_create_receipt(
 
 
 def _is_create_receipt_recovery(value: dict[str, Any]) -> bool:
+    recovery = CREATE_RECEIPT_RECOVERIES.get(str(value.get("stable_id")))
     return (
-        value.get("stable_id") == "ISSUE-0182"
-        and value.get("create_mutation_id") == CREATE_RECEIPT_RECOVERY_AUTHORITY_ID
-        and value.get("authority_id") == CREATE_RECEIPT_RECOVERY_AUTHORITY_ID
-        and value.get("issue_id") == CREATE_RECEIPT_RECOVERY_ISSUE_ID
-        and value.get("issue_node_id") == CREATE_RECEIPT_RECOVERY_NODE_ID
-        and value.get("source_sha") == CREATE_RECEIPT_RECOVERY_SOURCE_SHA
-        and value.get("head_sha") == CREATE_RECEIPT_RECOVERY_HEAD_SHA
-        and value.get("event_before") == CREATE_RECEIPT_RECOVERY_HEAD_SHA
-        and value.get("event_after") != CREATE_RECEIPT_RECOVERY_HEAD_SHA
+        recovery is not None
+        and value.get("create_mutation_id") == recovery["authority_id"]
+        and value.get("authority_id") == recovery["authority_id"]
+        and value.get("issue_id") == recovery["issue_id"]
+        and value.get("issue_node_id") == recovery["node_id"]
+        and value.get("source_sha") == recovery["source_sha"]
+        and value.get("head_sha") == recovery["head_sha"]
+        and value.get("event_before") == recovery["head_sha"]
+        and value.get("event_after") != recovery["head_sha"]
         and SHA_RE.fullmatch(str(value.get("event_after", ""))) is not None
     )
 
 
 def validate_create_receipt_recovery_push(
-    root: Path, before: str, after: str, *, validating_candidate: bool = False,
+    root: Path, before: str, after: str, *, stable_id: str, validating_candidate: bool = False,
 ) -> None:
     """Check the reviewed candidate or require its actual introducing main push."""
+    recovery = CREATE_RECEIPT_RECOVERIES[stable_id]
+    refused = f"{stable_id.lower().replace('-', '_')}_recovery_push_not_authorised"
     if (
-        before != CREATE_RECEIPT_RECOVERY_HEAD_SHA
+        before != recovery["head_sha"]
         or not SHA_RE.fullmatch(after)
         or after == before
     ):
-        raise ValueError("issue_0182_recovery_push_not_authorised")
+        raise ValueError(refused)
     if validating_candidate:
         based_on_original = subprocess.run(
             ["git", "merge-base", "--is-ancestor", before, after], cwd=root, check=False,
@@ -1827,12 +1841,12 @@ def validate_create_receipt_recovery_push(
         ).strip() == before
     if (
         not based_on_original
-        or _git_blob_bytes(root, before, CREATE_RECEIPT_RECOVERY_PATH) is not None
-        or _git_blob_bytes(root, after, CREATE_RECEIPT_RECOVERY_PATH) is None
+        or _git_blob_bytes(root, before, recovery["path"]) is not None
+        or _git_blob_bytes(root, after, recovery["path"]) is None
         or _git_blob_bytes(root, before, AUTHORITY_PATH)
         != _git_blob_bytes(root, after, AUTHORITY_PATH)
     ):
-        raise ValueError("issue_0182_recovery_push_not_authorised")
+        raise ValueError(refused)
 
 
 def parse_create_receipt(body: str) -> dict[str, Any] | None:
@@ -2018,12 +2032,15 @@ def validate_projected_git_binding(
 
     if "recovery_push" in projected:
         activation = str(projected["recovery_push"])
-        validate_create_receipt_recovery_push(root, CREATE_RECEIPT_RECOVERY_HEAD_SHA, activation)
+        stable_id = str(record["payload"]["stable_id"])
+        validate_create_receipt_recovery_push(
+            root, CREATE_RECEIPT_RECOVERIES[stable_id]["head_sha"], activation, stable_id=stable_id
+        )
         if subprocess.run(
             ["git", "merge-base", "--is-ancestor", activation, "origin/main"],
             cwd=root, check=False,
         ).returncode:
-            raise ValueError("issue_0182_recovery_push_not_on_main")
+            raise ValueError(f"{stable_id.lower().replace('-', '_')}_recovery_push_not_on_main")
 
     payload = record["payload"]
     source = str(projected.get("source_sha", ""))
@@ -2798,6 +2815,19 @@ def validate_reviewed_create_authority(
     }
 
 
+def _list_after_write(gateway: MutationTransport, number: int | None) -> list[dict[str, Any]]:
+    """The issue list can lag a create: re-read it (never re-write) until the issue the POST returned shows.
+
+    Without a returned number there is nothing to wait for, so the list is read once."""
+    issues = gateway.list_issues()
+    for delay in (2, 4, 8, 16):
+        if number is None or any(int(issue.get("number", 0)) == number for issue in issues):
+            break
+        time.sleep(delay)
+        issues = gateway.list_issues()
+    return issues
+
+
 def apply_reviewed_plan(
     plan: dict[str, Any],
     *,
@@ -2886,9 +2916,10 @@ def apply_reviewed_plan(
         authority_revalidator()
 
     reconciled: list[dict[str, Any]] | None = None
+    created_number: int | None = None
     try:
         evidence["transport_writes"] = 1
-        gateway.create_open_issue(title, body)
+        created_number = gateway.create_open_issue(title, body)
     except BaseException as exc:
         if not _is_ambiguous_write_error(exc):
             evidence["terminal_status"] = "write_failed"
@@ -2903,13 +2934,14 @@ def apply_reviewed_plan(
                 str(evidence["terminal_status"]), evidence
             ) from exc
 
-    after = reconciled or gateway.list_issues()
+    after = reconciled or _list_after_write(gateway, created_number)
     prior = _claim_inventory(before)
     current = _claim_inventory(after)
     new_rows = [row for row in current if row not in prior]
     if (
         any(row not in current for row in prior)
         or len(new_rows) != 1
+        or (created_number is not None and new_rows[0]["number"] != created_number)
         or new_rows[0]["title"] != title
         or new_rows[0]["body"] != body
         or new_rows[0]["state"] != "open"
@@ -3635,8 +3667,8 @@ class GhMutationTransport:
             input_text=json.dumps({"body": body}),
         )
 
-    def create_open_issue(self, title: str, body: str) -> None:
-        _run_gh(
+    def create_open_issue(self, title: str, body: str) -> int | None:
+        output = _run_gh(
             [
                 "api",
                 f"repos/{self.repository}/issues",
@@ -3649,3 +3681,7 @@ class GhMutationTransport:
             ],
             input_text=json.dumps({"title": title, "body": body}),
         )
+        try:
+            return int(json.loads(output)["number"])
+        except (TypeError, ValueError, KeyError):
+            return None  # the issue exists; the caller verifies it by listing alone

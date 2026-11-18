@@ -847,7 +847,7 @@ class CreateTransport:
     def list_issues(self) -> list[dict[str, Any]]:
         return copy.deepcopy(self.issues)
 
-    def create_open_issue(self, title: str, body: str) -> None:
+    def create_open_issue(self, title: str, body: str) -> int | None:
         self.writes += 1
         self.issues.append(
             {
@@ -863,6 +863,7 @@ class CreateTransport:
         )
         if self.ambiguous:
             raise TimeoutError("response lost")
+        return 1
 
     def fetch_issue(self, number: int) -> dict[str, Any]:
         assert number == 1
@@ -967,6 +968,31 @@ def test_single_open_create_is_verified_without_retry(ambiguous: bool) -> None:
     assert transport.writes == 2
     assert "create-mutation-id=" in transport.issues[0]["body"]
     assert "stable-id=ISSUE-0179" in transport.issues[0]["body"]
+
+
+@pytest.mark.parametrize("impostor", [False, True])
+def test_create_rereads_a_lagging_issue_list_for_the_created_issue_only(monkeypatch: pytest.MonkeyPatch, impostor: bool) -> None:
+    monkeypatch.setattr(gateway.time, "sleep", lambda _seconds: None)
+    plan = _create_plan()
+    transport = CreateTransport()
+    lag = [True]  # the first list after the POST does not show the created issue (number 1) yet
+    other: list[dict[str, Any]] = []
+
+    def list_issues() -> list[dict[str, Any]]:
+        if transport.writes and impostor and not other:
+            other.append({**transport.issues[0], "id": 1002, "node_id": "ISSUE_NODE_2", "number": 2})
+        if transport.writes and lag:
+            lag.pop()
+            return copy.deepcopy(other)
+        return copy.deepcopy(transport.issues + other)
+
+    transport.list_issues = list_issues  # type: ignore[method-assign]
+    evidence = _apply_create(plan, transport)
+
+    if impostor:  # same marker and content on another issue: never the receipt target
+        assert evidence["terminal_status"] == "conflict_after_write" and transport.writes == 1
+    else:
+        assert evidence["accepted"] is True and transport.writes == 2  # one create, one receipt
 
 
 def test_create_acceptance_preserves_informational_release_note() -> None:
