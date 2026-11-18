@@ -222,6 +222,15 @@ protected groups to the classifier and terminal summary, including tests and
 durable harness policy. The on-demand planner explains invalidation using the
 existing validator, never a competing evidence authority. Expanding a binding
 invalidates historical sidecars; it does not rewrite or manufacture evidence.
+An E change without a valid sidecar may instead reuse the green package gate
+of the merged pull request head that introduced its protected identity. The
+classifier finds that one head with git (`--certification-candidate`); all
+protected groups must match, except the artifact manifest, which is written
+after certification. The classifier job then asks the GitHub API for the
+latest successful `release-gate.yml` pull-request run of that head, and passes
+it as `--certified-run` only when every package-gate job of that run succeeded
+on that head. A lookup failure, or a head that ran only focused tests, fails
+upward to the full gate.
 The former O-tier cadence (every second O merge ran the full gate) is replaced
 by the daily scheduled full gate on `main`.
 

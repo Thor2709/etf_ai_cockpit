@@ -9,6 +9,7 @@ on:
     - cron: "17 3 * * *"
 
 permissions:
+  actions: read
   contents: read
   issues: read
 
@@ -64,6 +65,7 @@ jobs:
           HEAD_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
           BASE_REPOSITORY: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.repo.full_name || github.repository }}
           HEAD_REPOSITORY: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           base="$PR_BASE_SHA"
           if [[ -z "$base" ]]; then base="$HEAD_SHA"; fi
@@ -81,6 +83,21 @@ jobs:
           reuse_evidence=".github/issue-transitions/reuse-evidence.json"
           if [[ -f "$reuse_evidence" ]]; then
             arguments+=(--reuse-evidence "$reuse_evidence")
+          fi
+          # An E change may reuse the green package gate of the merged pull request head that introduced
+          # its protected identity (DELIVERY_WORKFLOW "Evidence reuse"). Any lookup failure fails upward.
+          if [[ -n "$PR_BASE_SHA" ]]; then
+            candidate="$(python scripts/classify_validation.py --root . --base "$base" --head "$HEAD_SHA" --certification-candidate || true)"
+            # A green run passed validation-summary, which already enforced full shard and package coverage.
+            if [[ "$candidate" =~ ^[0-9a-f]{40}$ ]] \
+              && run_id="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/release-gate.yml/runs?head_sha=$candidate&event=pull_request&status=success&per_page=1" --jq '.workflow_runs[0].id // empty')" \
+              && [[ "$run_id" =~ ^[0-9]+$ ]] \
+              && certified="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/jobs?per_page=100" --jq "[.jobs[] | select(.name | startswith(\"release-gate (\"))] | length > 0 and all(.conclusion == \"success\" and .head_sha == \"$candidate\")")" \
+              && [[ "$certified" == "true" ]] \
+              && printf '{"head_sha": "%s", "run_id": %s}\n' "$candidate" "$run_id" > "$RUNNER_TEMP/certified-run.json"; then
+              echo "Certified by run $run_id on merged head $candidate"
+              arguments+=(--certified-run "$RUNNER_TEMP/certified-run.json")
+            fi
           fi
           python scripts/classify_validation.py "${arguments[@]}"
           python - <<'PY'
