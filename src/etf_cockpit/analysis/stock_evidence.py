@@ -178,6 +178,15 @@ METRIC_LABELS: dict[str, tuple[str, str]] = {
     "pe_vs_peers": ("P/E vs peer median", "ratio"),
     "implied_growth_pe": ("Implied growth (P/E)", "ratio"),
     "implied_growth_dcf": ("Implied growth (2-stage DCF)", "ratio"),
+    "piotroski_f": ("Piotroski F-score", "count"),
+    "altman_z": ("Altman Z-score", "ratio"),
+    "beneish_m": ("Beneish M-score", "ratio"),
+    "gross_profitability": ("Gross profitability", "ratio"),
+    "accruals": ("Accruals ratio", "ratio"),
+    "dilution": ("Share dilution", "ratio"),
+    "sbc_adjusted_fcf": ("SBC-adjusted free cash flow", "money"),
+    "buyback_yield": ("Buyback yield", "ratio"),
+    "shareholder_yield": ("Shareholder yield", "ratio"),
 }
 
 
@@ -244,6 +253,7 @@ class _Builder:
         self.peer_stats: dict[str, PeerStat] = {}
         self.history_points = 0
         self.share_count_reason: str | None = None
+        self.mcap_result: tuple[float | None, str | None] = (None, None)
 
     # ----- windows ---------------------------------------------------------------------
 
@@ -370,6 +380,7 @@ class _Builder:
         self.flow_metrics()
         self.balance_metrics()
         self.valuation_metrics()
+        self.quality_metrics()
         components = self.components()
         return self._finish(components, None)
 
@@ -767,6 +778,7 @@ class _Builder:
 
     def valuation_metrics(self) -> None:
         mcap, reason, ctx = self.market_cap()
+        self.mcap_result = (mcap, reason)
         if mcap is None:
             for key in ("market_cap", "ev", "pe", "ev_ebit", "ev_sales", "pb", "fcf_yield", "earnings_yield", "ebit_ev_yield", "dividend_yield", "pe_percentile", "pe_vs_peers", "implied_growth_pe", "implied_growth_dcf"):
                 if key == "dividend_yield":
@@ -890,6 +902,94 @@ class _Builder:
             self.metrics["fcf_conversion"] = _metric("fcf_conversion", value=None, status=sm.NOT_MEANINGFUL, reason="not meaningful (loss): net income is zero or negative", formula=formula, **self._ctx(window))
         else:
             self.metrics["fcf_conversion"] = _metric("fcf_conversion", value=fcf / net_income, status=sm.OK, formula=formula, **self._ctx(window))
+
+    # ----- quality, earnings-quality and distress scores --------------------------------------
+
+    @staticmethod
+    def _usable_values(period: Period) -> dict[str, float]:
+        return {name: value for name, value in period.values.items() if period.usable(name)}
+
+    def quality_metrics(self) -> None:
+        """Piotroski F, Beneish M, Altman Z, share dilution and the window-based quality ratios (never zero-filled).
+
+        The evidence build has no sector input: callers pass ``sector_applicable=False`` to the ``stock_metrics`` functions
+        for banks and insurers; this build leaves that gate to the route that already sends financials elsewhere.
+        """
+
+        mcap, mcap_reason = self.mcap_result
+        annual = sorted((p for p in self.known if p.period_type == "FY"), key=lambda p: p.period_end)
+        cur = annual[-1] if annual else None
+        prev = annual[-2] if len(annual) > 1 else None
+        ctx: dict[str, object] = {} if cur is None else {"basis": "FY", "as_of": cur.period_end.isoformat(), "currency": cur.currency, "source": cur.source}
+        if cur is None or prev is None:
+            pair_reason: str | None = f"needs two consecutive fiscal years; {len(annual)} known at the decision time"
+        elif not sm.consecutive_fiscal_years([prev.period_end, cur.period_end]):
+            pair_reason = f"a fiscal year is missing between FY{prev.period_end.year} and FY{cur.period_end.year}; not bridged"
+        elif prev.currency != cur.currency:
+            pair_reason = "currency_mismatch across fiscal reporting periods"
+        else:
+            pair_reason = None
+        if pair_reason is None and cur is not None and prev is not None:
+            now, before = self._usable_values(cur), self._usable_values(prev)
+            block = self._balance_block(cur) or self._balance_block(prev)
+            for key, score in (("piotroski_f", sm.piotroski_f), ("beneish_m", sm.beneish_m)):
+                self.metrics[key] = _missing(key, block) if block else _from(key, score(now, before), **ctx)
+            self.metrics["dilution"] = _from("dilution", sm.dilution(before.get("shares_outstanding"), now.get("shares_outstanding")), **ctx)
+        else:
+            for key in ("piotroski_f", "beneish_m", "dilution"):
+                self.metrics[key] = _missing(key, str(pair_reason))
+        if cur is None:
+            self.metrics["altman_z"] = _missing("altman_z", "no fiscal year is known at the decision time")
+        elif mcap is None:
+            self.metrics["altman_z"] = _missing("altman_z", str(mcap_reason))
+        elif cur.currency != self.reporting_currency:
+            self.metrics["altman_z"] = _missing("altman_z", "currency_mismatch between statements and market cap")
+        elif (block := self._balance_block(cur)) is not None:
+            self.metrics["altman_z"] = _missing("altman_z", block)
+        else:
+            self.metrics["altman_z"] = _from("altman_z", sm.altman_z(self._usable_values(cur), mcap), **ctx)
+        self._flow_over_assets("gross_profitability", ("gross_profit",), False,
+                               lambda w, assets: sm.gross_profitability(sm.window_sum(w, "gross_profit"), assets))
+        self._flow_over_assets("accruals", ("net_income_parent", "cfo"), True,
+                               lambda w, assets: sm.accruals_ratio(sm.window_sum(w, "net_income_parent"), sm.window_sum(w, "cfo"), assets))
+        window = self.window("cfo", "capex", "stock_based_compensation")
+        if window is None:
+            self.metrics["sbc_adjusted_fcf"] = _missing("sbc_adjusted_fcf", self._no_window("cash from operations, capex and stock-based compensation", ("cfo", "capex", "stock_based_compensation")))
+        else:
+            fcf = sm.free_cash_flow(sm.window_sum(window, "cfo"), sm.window_sum(window, "capex"))
+            self.metrics["sbc_adjusted_fcf"] = _from("sbc_adjusted_fcf", sm.sbc_adjusted_fcf(fcf, sm.window_sum(window, "stock_based_compensation")), **self._ctx(window))
+        for key, fields, score in (
+            ("buyback_yield", ("gross_buybacks",),
+             lambda w, cap: sm.buyback_yield(sm.window_sum(w, "gross_buybacks"), cap)),
+            ("shareholder_yield", ("dividends_paid", "gross_buybacks", "share_issuance"),
+             lambda w, cap: sm.shareholder_yield(sm.window_sum(w, "dividends_paid"), sm.window_sum(w, "gross_buybacks"), sm.window_sum(w, "share_issuance"), cap)),
+        ):
+            window = self.window(*fields)
+            if mcap is None:
+                self.metrics[key] = _missing(key, str(mcap_reason))
+            elif window is None:
+                self.metrics[key] = _missing(key, self._no_window(", ".join(f.replace("_", " ") for f in fields), fields))
+            elif window.currency != self.reporting_currency:
+                self.metrics[key] = _missing(key, "currency_mismatch between statements and market cap")
+            else:
+                self.metrics[key] = _from(key, score(window, mcap), **self._ctx(window))
+
+    def _flow_over_assets(self, key: str, fields: Sequence[str], average: bool, score) -> None:  # noqa: ANN001
+        """A flow window over ending total assets, or over the average of the ending and opening total assets."""
+
+        window = self.window(*fields)
+        if window is None:
+            self.metrics[key] = _missing(key, self._no_window(", ".join(name.replace("_", " ") for name in fields), fields))
+            return
+        close = sm.balance_near(self.known, window.end, ["total_assets"], tolerance_days=45)
+        opening = sm.opening_balance(self.known, window.end, ["total_assets"]) if average else close
+        if close is None or opening is None:
+            self.metrics[key] = _missing(key, "needs total assets at the window end" + (" and one year earlier" if average else ""))
+        elif any(self._period_currency_mismatch(item, ("total_assets",), window.currency) for item in (close, opening)):
+            self.metrics[key] = _missing(key, "currency_mismatch between income and total assets")
+        else:
+            assets = (close.values["total_assets"] + opening.values["total_assets"]) / 2.0
+            self.metrics[key] = _from(key, score(window, assets), **self._ctx(window))
 
     # ----- history / peers / reverse valuation -------------------------------------------
 
