@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import importlib
+
 import pytest
 from pydantic import ValidationError
 
@@ -10,7 +12,7 @@ from etf_cockpit.plugins.contracts import (
     PluginResult,
     PluginStatus,
 )
-from etf_cockpit.plugins.registry import PluginRegistrationError, PluginRegistry
+from etf_cockpit.plugins.registry import PluginRegistrationError, PluginRegistry, _network_probe
 
 
 def test_plugin_manifest_declares_policy_without_executable_or_store_authority() -> None:
@@ -143,3 +145,12 @@ def test_invalid_plugin_policy_fails_closed_without_disabling_core_contracts(tmp
 
     assert rows["plugin:builtin.local-provider"]["status"] == "available"
     assert rows["plugin:builtin.paper-broker"]["status"] == "disabled"
+
+
+@pytest.mark.parametrize("module", ["skfolio", "arch", "statsmodels.api", "lightgbm", "scipy.optimize", "pypdf"])
+def test_optional_quant_and_pdf_packages_import_without_network(module: str) -> None:
+    pytest.importorskip(module.split(".")[0])
+    with _network_probe() as calls:
+        importlib.import_module(module)
+
+    assert calls == []
