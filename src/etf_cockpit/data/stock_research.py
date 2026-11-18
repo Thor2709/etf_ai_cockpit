@@ -8,13 +8,15 @@ inapplicable sectors are not forced through industrial formulas.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from contextvars import ContextVar
 import copy
 from dataclasses import asdict, dataclass
 from datetime import date
+import hashlib
 import math
 from pathlib import Path
+import random
 
 import pandas as pd
 
@@ -485,8 +487,10 @@ def valuation_analysis(
     )
     driver = (
         _not_applicable_valuation("Industrial driver DCF is not applicable to financial institutions.") if bank_route
-        else _rejected_valuation(rejection) if rejection else _driver_dcf(values, assumption_values)
+        else _rejected_valuation(rejection) if rejection else _driver_dcf(values, assumption_values, seed_key=None if instrument_id is None or as_known_at is None else f"{instrument_id}|{as_known_at}")
     )
+    if assumption_values.get("dispersion") is not None and driver.get("status") != "available":
+        driver = {**driver, "monte_carlo": {"status": "not_applicable" if bank_route else "unavailable", "reason": driver.get("reason", "driver DCF is unavailable"), "execution_allowed": False}}
     ledger = build_cost_of_capital_ledger(assumption_values)
     residual_assumptions = assumption_values
     if bank_route and "cost_of_equity" not in assumption_values:
@@ -3146,7 +3150,7 @@ def _residual_income(values: Mapping[str, float], assumptions: Mapping[str, obje
     }
 
 
-def _driver_dcf(values: Mapping[str, float], assumptions: Mapping[str, object]) -> dict[str, object]:
+def _driver_dcf(values: Mapping[str, float], assumptions: Mapping[str, object], *, seed_key: str | None = None) -> dict[str, object]:
     """Driver chain: revenue growth -> margin -> NOPAT -> reinvestment (g / ROIC) -> FCFF, with growth/ROIC fade."""
 
     base: dict[str, object] = {"cash_flow_claim_type": "fcff", "label": "driver_dcf", "score_eligible": False, "execution_allowed": False}
@@ -3170,14 +3174,46 @@ def _driver_dcf(values: Mapping[str, float], assumptions: Mapping[str, object]) 
         return {**base, "status": "unavailable", "confidence": "low", "reason": "revenue, shares, WACC, terminal growth, growth, margin, tax rate and incremental ROIC are required"}
     assert revenue is not None and wacc is not None and terminal_growth is not None and start_growth is not None
     assert start_margin is not None and end_margin is not None and tax is not None and start_roic is not None and end_roic is not None
+    inputs = {
+        "revenue": revenue, "shares": shares, "wacc": wacc, "terminal_growth": terminal_growth, "years": years, "start_growth": start_growth,
+        "start_margin": start_margin, "end_margin": end_margin, "tax": tax, "start_roic": start_roic, "end_roic": end_roic, "basis": ledger.basis,
+    }
+    result = _driver_dcf_value(values, assumptions, **inputs)  # type: ignore[arg-type]
+    if assumptions.get("dispersion") is not None and result["status"] == "available":
+        result["monte_carlo"] = _driver_monte_carlo(values, assumptions, inputs, result["bridge"], seed_key, "terminal_roic" not in raw)  # type: ignore[arg-type]
+    return {**base, **result}
+
+
+def _driver_dcf_value(
+    values: Mapping[str, float],
+    assumptions: Mapping[str, object],
+    *,
+    revenue: float,
+    shares: float,
+    wacc: float,
+    terminal_growth: float,
+    years: int,
+    start_growth: float,
+    start_margin: float,
+    end_margin: float,
+    tax: float,
+    start_roic: float,
+    end_roic: float,
+    basis: str,
+    bridge: Mapping[str, object] | None = None,
+) -> dict[str, object]:
+    """The one deterministic driver-DCF per-share calculation: ``_driver_dcf`` and the Monte Carlo draws both call it.
+
+    ``bridge`` is the already computed EV-to-equity bridge (the draws share it); ``None`` computes it at the documented step."""
+
     invalid = _terminal_growth_invalid(wacc, terminal_growth, _growth_cap(assumptions))
     if invalid is not None:
-        return {**base, "status": "unavailable", "confidence": "low", "reason": invalid}
+        return {"status": "unavailable", "confidence": "low", "reason": invalid}
     if revenue <= 0 or start_margin <= 0 or not 0.0 <= tax < 1.0 or start_roic <= 0 or end_roic <= 0 or start_growth <= -1.0:
-        return {**base, "status": "unavailable", "confidence": "low", "reason": "non-positive revenue, margin or ROIC, or an invalid tax rate, is not extrapolated"}
-    bridge = _ev_equity_bridge(values, assumptions, "fcff")
+        return {"status": "unavailable", "confidence": "low", "reason": "non-positive revenue, margin or ROIC, or an invalid tax rate, is not extrapolated"}
+    bridge = bridge if bridge is not None else _ev_equity_bridge(values, assumptions, "fcff")
     if bridge["status"] != "complete":
-        return {**base, "status": "unavailable", "confidence": "low", "reason": f"no binding per-share value: {bridge['reason']}", "bridge": bridge}
+        return {"status": "unavailable", "confidence": "low", "reason": f"no binding per-share value: {bridge['reason']}", "bridge": bridge}
     rows: list[dict[str, float]] = []
     present_value = 0.0
     current_revenue = float(revenue)
@@ -3189,7 +3225,7 @@ def _driver_dcf(values: Mapping[str, float], assumptions: Mapping[str, object]) 
         margin = start_margin + (end_margin - start_margin) * weight
         reinvestment_rate = growth / roic
         if reinvestment_rate >= 1.0:
-            return {**base, "status": "unavailable", "confidence": "low", "reason": f"year {year} reinvestment rate g/ROIC >= 100 %; growth is not fundable at this ROIC"}
+            return {"status": "unavailable", "confidence": "low", "reason": f"year {year} reinvestment rate g/ROIC >= 100 %; growth is not fundable at this ROIC"}
         current_revenue *= 1.0 + growth
         nopat = current_revenue * margin * (1.0 - tax)
         fcff = nopat * (1.0 - reinvestment_rate)
@@ -3197,14 +3233,13 @@ def _driver_dcf(values: Mapping[str, float], assumptions: Mapping[str, object]) 
         rows.append({"year": year, "revenue_growth": growth, "revenue": current_revenue, "operating_margin": margin, "nopat": nopat, "incremental_roic": roic, "reinvestment_rate": reinvestment_rate, "reinvestment": nopat * reinvestment_rate, "fcff": fcff})
     terminal_reinvestment = terminal_growth / end_roic
     if terminal_reinvestment >= 1.0:
-        return {**base, "status": "unavailable", "confidence": "low", "reason": "terminal reinvestment g/ROIC >= 100 %"}
+        return {"status": "unavailable", "confidence": "low", "reason": "terminal reinvestment g/ROIC >= 100 %"}
     terminal_fcff = nopat * (1.0 + terminal_growth) * (1.0 - terminal_reinvestment)
     enterprise_value = present_value + terminal_fcff / (wacc - terminal_growth) / (1.0 + wacc) ** years
     equity_value = _equity_from_enterprise(enterprise_value, bridge)
     if equity_value is None or equity_value <= 0 or not math.isfinite(equity_value):
-        return {**base, "status": "unavailable", "confidence": "low", "reason": "negative_equity_value_not_a_fair_value", "bridge": bridge}
+        return {"status": "unavailable", "confidence": "low", "reason": "negative_equity_value_not_a_fair_value", "bridge": bridge}
     return {
-        **base,
         "status": "available",
         "confidence": "scenario_only",
         "discount_rate": wacc,
@@ -3220,7 +3255,103 @@ def _driver_dcf(values: Mapping[str, float], assumptions: Mapping[str, object]) 
         "bridge": bridge,
         "kind": "sensitivity",
         "is_probability": False,
-        "cost_of_capital_basis": ledger.basis,
+        "cost_of_capital_basis": basis,
+    }
+
+
+_MONTE_CARLO_DRIVERS = ("revenue_growth", "operating_margin", "wacc", "terminal_growth")
+_MONTE_CARLO_MAX_DRAWS = 20000
+
+
+def _driver_monte_carlo(
+    values: Mapping[str, float],
+    assumptions: Mapping[str, object],
+    inputs: Mapping[str, object],
+    bridge: Mapping[str, object],
+    seed_key: str | None,
+    roic_follows_wacc: bool,
+) -> dict[str, object]:
+    """Monte Carlo over the native driver DCF: each draw is one ``_driver_dcf_value`` call, so there is no second DCF."""
+
+    spec = assumptions["dispersion"]
+    if not isinstance(spec, Mapping):
+        return {"status": "unavailable", "reason": "dispersion must be a mapping of driver standard deviations", "execution_allowed": False}
+    if seed_key is None:
+        return {"status": "unavailable", "reason": "instrument_id and as_of are required to seed the draws", "execution_allowed": False}
+    base = {name: float(inputs[key]) for name, key in zip(_MONTE_CARLO_DRIVERS, ("start_growth", "start_margin", "wacc", "terminal_growth"))}  # type: ignore[arg-type]
+    dispersion = {str(name): spec[name] for name in spec if name != "draws"}
+
+    def value(draw: Mapping[str, float]) -> float | None:
+        shifted = {
+            **inputs, "bridge": bridge, "wacc": draw["wacc"], "terminal_growth": draw["terminal_growth"], "start_growth": draw["revenue_growth"],
+            "start_margin": draw["operating_margin"], "end_margin": float(inputs["end_margin"]) + draw["operating_margin"] - base["operating_margin"],  # type: ignore[arg-type]
+        }
+        if roic_follows_wacc:  # the default terminal ROIC is the cost of capital, so it follows the draw
+            shifted["end_roic"] = draw["wacc"]
+        result = _driver_dcf_value(values, assumptions, **shifted)  # type: ignore[arg-type]
+        return float(result["per_share"]) if result["status"] == "available" else None  # type: ignore[arg-type]
+
+    outcome = run_monte_carlo(base, dispersion, value, seed_key=seed_key, draws=spec.get("draws", 1000))
+    return {**outcome, "assumptions": {"base": base, "dispersion": dispersion}}
+
+
+def run_monte_carlo(
+    base: Mapping[str, float],
+    dispersion: Mapping[str, object],
+    value_fn: Callable[[Mapping[str, float]], float | None],
+    *,
+    seed_key: str,
+    draws: object,
+) -> dict[str, object]:
+    """Seeded independent normal draws ``base[name] + sd[name] * z`` through ``value_fn``; percentiles are scenario-dependent.
+
+    ``seed_key`` is ``"<instrument_id>|<as_of>"``, so the same inputs always give the same output. A draw for which
+    ``value_fn`` returns ``None`` is counted as infeasible, never filled."""
+
+    def unavailable(reason: str) -> dict[str, object]:
+        return {"status": "unavailable", "reason": reason, "execution_allowed": False}
+
+    if isinstance(draws, bool) or not isinstance(draws, int) or not 0 < draws <= _MONTE_CARLO_MAX_DRAWS:
+        return unavailable(f"draws must be an integer from 1 to {_MONTE_CARLO_MAX_DRAWS}")
+    unknown = sorted(set(dispersion) - set(base))
+    if unknown:
+        return unavailable("dispersion names no driver of the model: " + ", ".join(unknown))
+    deviations = {name: _float(dispersion.get(name, 0.0)) for name in base}
+    if any(item is None or item < 0 or isinstance(dispersion.get(name), bool) for name, item in deviations.items()):
+        return unavailable("dispersion must be finite and non-negative")
+    rng = random.Random(int.from_bytes(hashlib.sha256(seed_key.encode("utf-8")).digest()[:8], "big"))
+    results: list[float] = []
+    for _ in range(draws):
+        draw = {name: base[name] + float(deviations[name]) * rng.gauss(0.0, 1.0) for name in sorted(base)}  # type: ignore[arg-type]
+        outcome = value_fn(draw)
+        if outcome is not None and math.isfinite(outcome):
+            results.append(outcome)
+    if not results:
+        return unavailable("no draw produced a feasible value")
+    results.sort()
+    mean = math.fsum(results) / len(results)
+    variance = math.fsum((item - mean) ** 2 for item in results) / (len(results) - 1) if len(results) > 1 else 0.0
+
+    def percentile(share: float) -> float:
+        position = share * (len(results) - 1)
+        low = int(position)
+        high = min(low + 1, len(results) - 1)
+        return results[low] + (results[high] - results[low]) * (position - low)
+
+    return {
+        "status": "available",
+        "label": "scenario_dependent",
+        "kind": "sensitivity",
+        "is_probability": False,
+        "score_eligible": False,
+        "correlation": "independent",
+        "seed_key": seed_key,
+        "draws": draws,
+        "n_infeasible": draws - len(results),
+        "mean": mean,
+        "std": math.sqrt(variance),
+        "percentiles": {f"p{round(share * 100)}": percentile(share) for share in (0.05, 0.25, 0.5, 0.75, 0.95)},
+        "execution_allowed": False,
     }
 
 

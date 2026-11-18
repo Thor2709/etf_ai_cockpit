@@ -23,6 +23,7 @@ CAPITAL_EFFICIENCY_SCHEMA_VERSION = "capital_efficiency.v2"
 _SPECIAL_SECTORS = frozenset(
     {"bank", "banks", "insurance", "insurer", "financial", "financials"}
 )
+_BLUME_WEIGHT = 0.67  # adjusted beta = 0.67 * raw + 0.33
 _MINIMUM_INCREMENTAL_PERIODS = 3
 _MINIMUM_CAPITAL_CHANGE = 0.01
 _FORMULAS = {
@@ -71,6 +72,7 @@ class CostOfCapitalLedger:
     wacc: float | None = None
     basis: str = "scenario"
     conflicts: tuple[str, ...] = field(default_factory=tuple)
+    wacc_build: Mapping[str, object] | None = None
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -84,9 +86,52 @@ class CostOfCapitalLedger:
             "wacc": self.wacc,
             "basis": self.basis,
             "conflicts": list(self.conflicts),
+            **({"wacc_build": dict(self.wacc_build)} if self.wacc_build is not None else {}),
             "immutable": True,
             "execution_allowed": False,
         }
+
+
+def compute_wacc(inputs: Mapping[str, object]) -> dict[str, object]:
+    """Market-weighted WACC with a Blume-adjusted CAPM cost of equity and an after-tax cost of debt.
+
+    The cost of debt is a proxy (``interest_expense / average_debt``, not the marginal forward rate) unless ``cost_of_debt``
+    is supplied. Debt enters at book value as the market-value proxy. Financials, zero or negative debt and capitalised
+    interest give ``not_meaningful``; a missing or mismatched input gives ``unavailable``. Never filled or zero-filled.
+    """
+
+    def result(status: str, reason: str, **fields: object) -> dict[str, object]:
+        return {"status": status, "reason": reason, "wacc": None, **fields, "execution_allowed": False}
+
+    if str(inputs.get("sector") or "").strip().casefold() in _SPECIAL_SECTORS:
+        return result("not_meaningful", "WACC is not meaningful for financial institutions.")
+    debt = _float(inputs.get("debt"))
+    if debt is None or debt <= 0 or inputs.get("capitalised_interest"):
+        return result("not_meaningful", "WACC is not meaningful with zero or negative debt or capitalised interest.")
+    rate_currency = str(inputs.get("rate_currency") or "").strip().upper()
+    if not rate_currency or rate_currency != str(inputs.get("valuation_currency") or "").strip().upper():
+        return result("unavailable", "Risk-free rate and equity premium must be in the valuation currency.")
+    tax_source = str(inputs.get("tax_rate_source") or "").strip()
+    risk_free, premium, beta = (_float(inputs.get(name)) for name in ("risk_free_rate", "equity_risk_premium", "beta"))
+    market_cap, tax = _float(inputs.get("market_cap")), _float(inputs.get("tax_rate"))
+    if not tax_source or None in (risk_free, premium, beta, market_cap, tax) or market_cap <= 0 or not 0.0 <= tax < 1.0:  # type: ignore[operator]
+        return result("unavailable", "Risk-free rate, premium, beta, market cap, a sourced tax rate in [0, 1) and debt are required.")
+    assert risk_free is not None and premium is not None and beta is not None and market_cap is not None and tax is not None
+    cost_of_debt = _float(inputs.get("cost_of_debt"))
+    cost_of_debt_status = "override"
+    if cost_of_debt is None:
+        interest, average_debt = _float(inputs.get("interest_expense")), _float(inputs.get("average_debt"))
+        if interest is None or average_debt is None or interest < 0 or average_debt <= 0:
+            return result("unavailable", "Interest expense and a positive average debt (or a cost_of_debt override) are required.")
+        cost_of_debt, cost_of_debt_status = interest / average_debt, "proxy"
+    adjusted_beta = _BLUME_WEIGHT * beta + (1.0 - _BLUME_WEIGHT)
+    cost_of_equity = risk_free + adjusted_beta * premium
+    weight_equity = market_cap / (market_cap + debt)
+    return result(
+        "available", "", wacc=weight_equity * cost_of_equity + (1.0 - weight_equity) * cost_of_debt * (1.0 - tax),
+        cost_of_equity=cost_of_equity, adjusted_beta=adjusted_beta, cost_of_debt=cost_of_debt, cost_of_debt_status=cost_of_debt_status,
+        weight_equity=weight_equity, weight_debt=1.0 - weight_equity, tax_rate=tax, tax_rate_source=tax_source,
+    )
 
 
 def build_cost_of_capital_ledger(assumptions: Mapping[str, object] | None) -> CostOfCapitalLedger:
@@ -109,6 +154,11 @@ def build_cost_of_capital_ledger(assumptions: Mapping[str, object] | None) -> Co
             conflicts.append("wacc aliases disagree: " + ", ".join(f"{name}={value}" for name, value in sorted(present.items())))
         else:
             wacc = present.get("wacc", present.get("cost_of_capital", present.get("discount_rate")))
+    wacc_build = None
+    structure = raw.get("wacc_inputs")
+    if not present and isinstance(structure, Mapping):  # only when no WACC alias is given
+        wacc_build = compute_wacc({"risk_free_rate": risk_free, "equity_risk_premium": premium, "beta": beta, **structure})
+        wacc = _float(wacc_build["wacc"])
     observed = (
         None not in (risk_free, premium, beta)
         and all(sources.values())
@@ -125,6 +175,7 @@ def build_cost_of_capital_ledger(assumptions: Mapping[str, object] | None) -> Co
         wacc=wacc,
         basis="observed" if observed else "scenario",
         conflicts=tuple(conflicts),
+        wacc_build=wacc_build,
     )
 
 
