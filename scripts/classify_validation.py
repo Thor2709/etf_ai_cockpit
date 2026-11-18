@@ -148,10 +148,10 @@ def classify_path(value: str) -> PathClassification:
         lowered.startswith(prefix.lower()) for prefix in EVIDENCE_PREFIXES
     ):
         return PathClassification(path, "E", "allowlisted-semantic-event-or-projection")
-    # The plans/ entry points stay in the policy identity hash, but their prose is tier O.
-    policy = [item.lower() for item in identity_groups()["policy"] if not item.startswith("plans/")]
+    policy = [item.lower() for item in identity_groups()["policy"]]
+    # The two plans/ entry point files stay in the policy identity hash, but their prose is tier O.
     prose = parsed_path.suffix in PROSE_SUFFIXES and not any(
-        lowered == item or lowered.startswith(item + "/") for item in policy
+        (lowered == item and not item.startswith("plans/")) or lowered.startswith(item + "/") for item in policy
     ) and not lowered.startswith(PROTECTED_PROSE_PREFIXES) and not parsed_path.name.lower().startswith("adr-")
     risk_words = not prose and not lowered.startswith(TOKEN_EXEMPT_PREFIXES)
     if (
