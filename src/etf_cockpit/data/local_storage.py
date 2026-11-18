@@ -199,15 +199,24 @@ def _enable_wal(connection: sqlite3.Connection) -> None:
 
 
 def initialise_storage(root: Path) -> StorageLayout:
+    layout, connection = _open_initialised_storage(root)
+    connection.close()
+    return layout
+
+
+def _open_initialised_storage(root: Path) -> tuple[StorageLayout, sqlite3.Connection]:
+    """Create the layout, check and migrate the schema, and return the connection that did it."""
+
     layout = storage_layout(root)
     for path in (layout.transactional_path.parent, layout.analytics_root, layout.snapshot_root, layout.export_root):
         path.mkdir(parents=True, exist_ok=True)
     connection = connect_storage(layout.root)
     try:
         _apply_migrations(connection)
-    finally:
+    except BaseException:
         connection.close()
-    return layout
+        raise
+    return layout, connection
 
 
 def _apply_migrations(connection: sqlite3.Connection) -> None:
@@ -1233,8 +1242,8 @@ class TransactionalStore:
             self.layout = storage_layout(root)
             self.connection = connect_storage_read_only(self.layout.root)
         else:
-            self.layout = initialise_storage(root)
-            self.connection = connect_storage(self.layout.root)
+            # A second connection would cost a WAL open and close (about half of each store open).
+            self.layout, self.connection = _open_initialised_storage(root)
 
     def close(self) -> None:
         self.connection.close()
