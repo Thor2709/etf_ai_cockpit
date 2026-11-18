@@ -875,6 +875,7 @@ def test_required_inputs_do_not_block_and_activation_is_reported_separately() ->
     issue["blocking_dependencies"] = []
     issue["dependency_edge_evidence"] = {}
     issue["activation_dependencies"] = ["ISSUE-0152"]
+    _record(registry, "ISSUE-0152")["ledger_state"] = "open"
 
     decision = next(
         item for item in readiness_projection(registry) if item["issue_id"] == "ISSUE-0070"

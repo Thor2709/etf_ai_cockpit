@@ -120,7 +120,9 @@ def test_a07_f6_fill_sets_quote_currency_and_clears_a_pre_fill_mark(tmp_path) ->
         ledger.mark("VWCE", adjusted_close=12, source_checksum="b" * 64, occurred_at=_day(3))
 
 
-def test_a07_f7_unsettled_reversal_does_not_suppress_fill_confirmation() -> None:
+def test_a07_f7_unsettled_reversal_does_not_suppress_fill_confirmation(monkeypatch) -> None:
+    # Record the entries before the as-of dates below, whatever the real date is.
+    monkeypatch.setattr("etf_cockpit.portfolio.ledger._utc_now", lambda: "2026-12-31T00:00:00.000000Z")
     connection = sqlite3.connect(":memory:")
     connection.row_factory = sqlite3.Row
     _register_ledger_sql_functions(connection)
