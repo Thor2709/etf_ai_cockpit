@@ -4,6 +4,7 @@ from collections.abc import (
     Mapping,
     Sequence,
 )
+from dataclasses import replace
 from datetime import (
     date,
     datetime,
@@ -30,6 +31,7 @@ from etf_cockpit.portfolio.top_n_selection import (
     SelectionPolicyError,
     build_selection_run,
     load_selection_policy,
+    marginal_active_risk,
     persist_selection_run,
 )
 from etf_cockpit.portfolio.selection_slices import materialise_selection_slices
@@ -77,6 +79,48 @@ def ordered_winners(candidates: Sequence[Mapping[str, object]], selected_ids: ob
         return (rank is None, rank or 0.0, score is None, -(score or 0.0), str(item.get("instrument_id")))
 
     return sorted((item for item in candidates if isinstance(item, Mapping) and item.get("instrument_id") in chosen), key=order)
+
+
+def _marginal_impacts_from_prices(
+    snapshot: object, portfolio_snapshot: Mapping[str, object] | None, decision_time: str
+) -> dict[str, float]:
+    """Negative marginal active risk against VWCE per instrument, from the selected covariance.
+
+    The covariance is the robust-risk report's out-of-sample-selected estimator over snapshot
+    prices clipped to the decision time. Without prices, a benchmark series or a covariance the
+    result is empty: those candidates keep an unavailable marginal impact, never zero.
+    """
+
+    from etf_cockpit.features.feature_pipeline import RELATIVE_STRENGTH_FALLBACK_ANCHOR as benchmark_id
+    from etf_cockpit.portfolio.benchmark_reference import clip_to_decision_window
+    from etf_cockpit.portfolio.robust_risk import build_robust_risk_report
+
+    prices = getattr(snapshot, "prices", None)
+    if not isinstance(prices, pd.DataFrame) or prices.empty:
+        return {}
+    try:
+        cutoff = pd.Timestamp(decision_time).tz_convert("UTC")
+        clipped = clip_to_decision_window(
+            prices, start_date="1900-01-01", end_date=cutoff.date().isoformat(), decision_time=decision_time
+        )
+        report = build_robust_risk_report(clipped, None, bootstrap_reps=0)
+        covariance = report["covariances"][report["selected_estimator"]]
+    except (KeyError, TypeError, ValueError):
+        return {}
+    holdings = portfolio_snapshot.get("holdings") if isinstance(portfolio_snapshot, Mapping) else None
+    weights: dict[str, float] = {}
+    for row in holdings if isinstance(holdings, Sequence) and not isinstance(holdings, (str, bytes)) else ():
+        if isinstance(row, Mapping):
+            name = str(row.get("etf_id") or row.get("instrument_id") or "").strip()
+            weight = row.get("current_weight")
+            if name and isinstance(weight, (int, float)) and weight == weight:
+                weights[name] = float(weight)
+    impacts: dict[str, float] = {}
+    for name in covariance.columns:
+        risk = marginal_active_risk(covariance, weights, str(name), benchmark_id)
+        if risk is not None:
+            impacts[str(name)] = -risk
+    return impacts
 
 
 def load_top_n_selection(
@@ -414,6 +458,14 @@ def load_top_n_selection(
                         )
                     except (TypeError, ValueError):
                         reference_anchor = None
+
+        impacts = _marginal_impacts_from_prices(snapshot, portfolio_snapshot, decision_time)
+        candidates = tuple(
+            replace(item, marginal_impact=impacts[item.instrument_id])
+            if item.marginal_impact is None and item.instrument_id in impacts
+            else item
+            for item in candidates
+        )
 
         if portfolio_policy is None and snapshot is not None:
             try:

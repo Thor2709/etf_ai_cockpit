@@ -473,3 +473,64 @@ def test_loader_builds_persists_frozen_evidence_and_rejects_stale_context_reuse(
     assert unavailable["status"] == "unavailable"
     assert unavailable["reason"] == "frozen_opportunity_candidates_unavailable"
     assert unavailable.get("run_id") != changed["run_id"]
+
+
+def test_correlated_candidate_ranks_below_equal_merit_diversifier() -> None:
+    import numpy as np
+    import pandas as pd
+
+    from etf_cockpit.application.selection_views import _marginal_impacts_from_prices
+    from etf_cockpit.portfolio.top_n_selection import marginal_active_risk
+
+    rng = np.random.default_rng(7)
+    days = 300
+    held_factor, market, other = rng.normal(0, 0.01, (3, days))
+    daily = {
+        "VWCE": market + rng.normal(0, 0.002, days),
+        "HELD": held_factor + rng.normal(0, 0.002, days),
+        "CORR": held_factor + rng.normal(0, 0.002, days),
+        "DIV": other + rng.normal(0, 0.002, days),
+    }
+    dates = pd.bdate_range("2026-01-01", periods=days + 1)
+    prices = pd.concat([
+        pd.DataFrame({"date": dates, "etf_id": name, "adjusted_close": 100 * np.exp(np.r_[0.0, np.cumsum(values)])})
+        for name, values in daily.items()
+    ])
+    # Rows after the decision day must not enter the covariance.
+    decision_time = DECISION_TIME
+    portfolio = {
+        "portfolio_id": "portfolio-test", "snapshot_id": "snapshot-1", "as_of": decision_time,
+        "holdings": [{"etf_id": "HELD", "current_weight": 0.5}, {"etf_id": "VWCE", "current_weight": 0.3}],
+    }
+
+    impacts = _marginal_impacts_from_prices(SimpleNamespace(prices=prices), portfolio, decision_time)
+
+    assert set(impacts) == {"CORR", "DIV", "HELD", "VWCE"}
+    assert impacts["CORR"] < impacts["DIV"]
+    assert _marginal_impacts_from_prices(SimpleNamespace(), portfolio, decision_time) == {}
+    assert marginal_active_risk(pd.DataFrame(), {"HELD": 0.5}, "CORR", "VWCE") is None
+
+    def with_impact(name: str, value: float | None) -> SelectionCandidate:
+        return replace(_candidate(name, "etf"), marginal_impact=value)
+
+    run = build_selection_run(
+        (with_impact("CORR", impacts["CORR"]), with_impact("DIV", impacts["DIV"]), with_impact("NOCOV", None)),
+        decision_time=decision_time,
+        policy=_policy(top_n=3, support=1),
+        portfolio_snapshot=portfolio,
+    )
+    ranks = {row["instrument_id"]: row["utility_rank"] for row in run.candidate_table}
+    assert ranks["DIV"] < ranks["CORR"]
+    nocov = next(row for row in run.candidate_table if row["instrument_id"] == "NOCOV")
+    assert nocov["common_metrics"]["marginal_impact"] is None
+
+
+def test_sizing_gate_stays_within_cap_and_states_caps_only() -> None:
+    from etf_cockpit.portfolio.rebalancing import proposed_new_weight, size_new_weight
+
+    decision = size_new_weight(0.02, 0.20, "add", 0.03)
+    assert decision.sizing_method == "caps_only"
+    assert decision.reason == "calibrated_return_distribution_unavailable"
+    assert decision.weight == proposed_new_weight(0.02, 0.20, "add", 0.03)
+    assert decision.weight is not None and decision.weight - 0.02 <= 0.03 + 1e-12
+    assert size_new_weight(0.02, 0.20, "hold", 0.03).weight is None
