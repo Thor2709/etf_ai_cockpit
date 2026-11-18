@@ -347,8 +347,9 @@ def _covariance_estimators(
             "reason_code": "factor_model_inputs_incomplete",
         }
     meta = {name: _covariance_diagnostics(matrix, len(complete), name) for name, matrix in matrices.items() if not matrix.empty}
-    if matrices["factor_model"].empty:
-        meta["factor_model"] = dict(repair_metadata["factor_model"])
+    for name, matrix in matrices.items():
+        if matrix.empty:
+            meta[name] = dict(repair_metadata[name])
     for name, details in repair_metadata.items():
         if name in meta:
             meta[name].update(details)
@@ -362,7 +363,10 @@ def _oas_covariance(returns: pd.DataFrame) -> pd.DataFrame:
 
     from sklearn.covariance import oas
 
-    shrunk, _ = oas(returns.to_numpy(float))
+    values = returns.to_numpy(float)
+    if not np.isfinite(values).all():
+        return pd.DataFrame(np.nan, index=returns.columns, columns=returns.columns)
+    shrunk, _ = oas(values)
     scaled = shrunk * len(returns) / (len(returns) - 1.0)
     return pd.DataFrame(scaled, index=returns.columns, columns=returns.columns)
 

@@ -34,6 +34,8 @@ def equilibrium_returns(covariance: pd.DataFrame, market_weights: pd.Series, *, 
         raise ValueError("covariance must be a finite, non-empty matrix")
     if not math.isfinite(risk_aversion) or risk_aversion <= 0:
         raise ValueError("risk_aversion must be a positive finite number")
+    if set(market_weights.index) != set(covariance.index):
+        raise ValueError("market_weights must name exactly the covariance assets")
     weights = market_weights.reindex(covariance.index)
     if weights.isna().any() or not np.isfinite(weights.to_numpy(float)).all():
         raise ValueError("market_weights must be finite for every covariance asset")
