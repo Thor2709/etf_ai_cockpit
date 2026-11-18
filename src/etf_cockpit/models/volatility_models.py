@@ -74,6 +74,8 @@ def volatility_model_report(
     problem = ""
     if not np.isfinite(returns.to_numpy()).all():
         problem = "log returns contain missing or non-finite values"
+    elif not (returns.index.is_monotonic_increasing and returns.index.is_unique):
+        problem = "log return index is not strictly increasing and unique"
     elif len(returns) < min_train + horizon:
         problem = "insufficient history for the requested training window and horizon"
     if problem:
