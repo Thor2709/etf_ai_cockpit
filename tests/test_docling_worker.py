@@ -12,13 +12,14 @@ import pytest
 import yaml
 
 from etf_cockpit.application import docling_worker as dw
+from etf_cockpit.core.paths import MODEL_DIR
 from etf_cockpit.data.pillar3_queue import load_queue
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = str(ROOT / "src")
 KID = ROOT / "tests" / "fixtures" / "official" / "priips_kid" / "vanguard-ie000q4j3cw6-priips-kid.pdf"
-# The weights live in the main checkout, never in a worktree; ETF_DOCLING_MODEL_DIR overrides.
-WEIGHTS = Path(os.environ.get("ETF_DOCLING_MODEL_DIR", r"C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\models\docling"))
+# The weights are not in git; ETF_DOCLING_MODEL_DIR points to a checkout that holds them.
+WEIGHTS = Path(os.environ.get("ETF_DOCLING_MODEL_DIR", MODEL_DIR / "docling"))
 
 
 def _env() -> dict[str, str]:
@@ -53,6 +54,10 @@ def test_weights_are_hash_verified_per_file(tmp_path: Path) -> None:
     assert dw.verify_weights(tmp_path, config) == ""
     (model / "w.bin").write_bytes(b"tampered")
     assert dw.verify_weights(tmp_path, config) == "weight_hash_mismatch:m/w.bin"
+    (model / "w.bin").write_bytes(b"weights")
+    (model / "sibling.onnx").write_bytes(b"x")
+    assert dw.verify_weights(tmp_path, config) == "weight_unpinned:m/sibling.onnx"
+    (model / "sibling.onnx").unlink()
     (model / "w.bin").unlink()
     assert dw.verify_weights(tmp_path, config) == "weight_missing:m/w.bin"
 
@@ -108,6 +113,54 @@ def test_table_enters_the_review_queue_as_pending_with_page_provenance(monkeypat
     figure = load_queue(tmp_path, "X")["figures"][0]
 
     assert (figure["metric"], figure["status"], figure["page"], figure["printed_text"]) == (dw.TABLE_METRIC, "pending", 3, table["markdown"])
+
+
+def test_identical_tables_on_one_page_keep_distinct_queue_entries(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    table = {"page": 1, "rows": 1, "columns": 1, "markdown": "| a |"}
+    monkeypatch.setattr(dw, "run_docling", lambda *_a, **_k: dw.DoclingResult("ok", pages=("t",), tables=(table, dict(table))))
+    pdf = tmp_path / "a.pdf"
+    pdf.write_bytes(b"%PDF-1.4")
+
+    dw.queue_tables(tmp_path, "X", pdf, source_url="https://example.com/a.pdf")
+    figures = load_queue(tmp_path, "X")["figures"]
+
+    assert len(figures) == 2 and len({item["figure_id"] for item in figures}) == 2 and len({item["period"] for item in figures}) == 2
+
+
+def test_an_interrupted_parent_never_leaves_the_child_running(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    pdf = tmp_path / "a.pdf"
+    pdf.write_bytes(b"%PDF-1.4")
+    started: list[subprocess.Popen[bytes]] = []
+    real = subprocess.Popen
+
+    class Interrupted(real):  # type: ignore[type-arg,misc]
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            super().__init__(*args, **kwargs)  # type: ignore[call-overload]
+            started.append(self)
+
+        def wait(self, timeout: float | None = None) -> int:
+            if timeout is not None:
+                raise KeyboardInterrupt
+            return super().wait()
+
+    monkeypatch.setattr(dw.subprocess, "Popen", Interrupted)
+    try:
+        with pytest.raises(KeyboardInterrupt):
+            dw.run_docling(pdf, model_dir=tmp_path, timeout_seconds=60, argv=[sys.executable, "-c", "import time; time.sleep(60)"])
+        assert started[0].poll() is not None
+    finally:
+        started[0].kill()
+
+
+def test_a_failing_memory_probe_stops_the_child_and_reports_an_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    pdf = tmp_path / "a.pdf"
+    pdf.write_bytes(b"%PDF-1.4")
+    monkeypatch.setenv("PYTHONPATH", _env()["PYTHONPATH"])
+    code = "import time; import etf_cockpit.application.docling_worker as w; w._rss_mb = lambda: 1 / 0; w.start_memory_watchdog(100); time.sleep(30)"
+
+    result = dw.run_docling(pdf, model_dir=tmp_path, timeout_seconds=60, argv=[sys.executable, "-c", code])
+
+    assert (result.status, result.reason) == ("error", "memory_probe_failed")
 
 
 @pytest.mark.skipif(importlib.util.find_spec("docling") is None or not (WEIGHTS / "docling-models").is_dir(), reason="docling extra or weights not available")

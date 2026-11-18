@@ -28,6 +28,8 @@ from etf_cockpit.core.paths import CONFIG_DIR, MODEL_DIR
 WEIGHTS_CONFIG = CONFIG_DIR / "document_model_weights.yaml"
 TABLE_METRIC = "docling_table"
 MEMORY_EXIT_CODE = 97
+PROBE_EXIT_CODE = 96  # the memory probe failed: the child stops (fail closed) and the parent reports an error
+_WEIGHT_SUFFIXES = (".safetensors", ".onnx", ".pt", ".bin")
 _LAYOUT_REPOSITORY = "docling-layout-heron"
 _OFFLINE_ENV = {"HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1", "CUDA_VISIBLE_DEVICES": "", "HF_HUB_DISABLE_TELEMETRY": "1", "DO_NOT_TRACK": "1"}
 
@@ -45,23 +47,30 @@ def _docling_available() -> bool:
     return importlib.util.find_spec("docling") is not None
 
 
+def _base(package: str, model_dir: Path) -> Path:
+    if not package:
+        return Path(model_dir)
+    spec = importlib.util.find_spec(package)
+    return Path(next(iter(spec.submodule_search_locations or ()), "")) if spec else Path()
+
+
 def verify_weights(model_dir: Path, config_path: Path = WEIGHTS_CONFIG, *, packaged: bool = False) -> str:
     """Empty string when every listed file exists and matches its sha256, else the first failure.
 
-    ``packaged`` selects the OCR files shipped inside a wheel; the others live under ``model_dir``.
+    ``packaged`` selects the OCR files shipped inside a wheel; the others live under ``model_dir``. A weight file
+    in a pinned folder that is not listed is a failure too, because the libraries load the first match.
     """
 
-    rows = yaml.safe_load(config_path.read_text(encoding="utf-8"))["weights"]
+    rows = [row for row in yaml.safe_load(config_path.read_text(encoding="utf-8"))["weights"] if bool(row.get("package")) == packaged]
+    pinned = {(str(row.get("package") or ""), row["path"]) for row in rows}
+    for package, folder in sorted({(str(row.get("package") or ""), row["path"].split("/")[0]) for row in rows}):
+        base = _base(package, model_dir)
+        for found in sorted((base / folder).rglob("*")):
+            relative = found.relative_to(base).as_posix()
+            if found.is_file() and found.suffix.lower() in _WEIGHT_SUFFIXES and (package, relative) not in pinned:
+                return f"weight_unpinned:{relative}"
     for row in rows:
-        package = row.get("package")
-        if bool(package) != packaged:
-            continue
-        if package:
-            spec = importlib.util.find_spec(str(package))
-            base = Path(next(iter(spec.submodule_search_locations or ()), "")) if spec else Path()
-            path = base / row["path"]
-        else:
-            path = Path(model_dir) / row["path"]
+        path = _base(str(row.get("package") or ""), model_dir) / row["path"]
         if not path.is_file():
             return f"weight_missing:{row['path']}"
         digest = hashlib.sha256()
@@ -106,11 +115,15 @@ def run_docling(
         try:
             code = process.wait(timeout=timeout_seconds)
         except subprocess.TimeoutExpired:
-            process.kill()
-            process.wait()
             return DoclingResult("timeout", f"exceeded_{timeout_seconds:g}_seconds")
+        finally:  # a timeout or any other interruption never leaves the child running
+            if process.poll() is None:
+                process.kill()
+            process.wait()
         if code == MEMORY_EXIT_CODE:
             return DoclingResult("memory_limit", f"exceeded_{memory_limit_mb}_mb")
+        if code == PROBE_EXIT_CODE:
+            return DoclingResult("error", "memory_probe_failed")
         try:
             payload = json.loads(result_path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
@@ -142,8 +155,8 @@ def queue_tables(
     digest = hashlib.sha256(Path(pdf_path).read_bytes()).hexdigest()
     document = {"document_id": digest[:16], "source_url": source_url, "title": Path(pdf_path).name, "sha256": digest, "pages": len(result.pages), "extractor": f"docling-{_docling_version()}"}
     figures = []
-    for table in result.tables:
-        key = hashlib.sha256(f"{digest}|{table['page']}|{table['markdown']}".encode("utf-8")).hexdigest()[:12]
+    for index, table in enumerate(result.tables):  # document order is stable, so identical tables keep distinct ids
+        key = hashlib.sha256(f"{digest}|{index}|{table['page']}|{table['markdown']}".encode("utf-8")).hexdigest()[:12]
         # A unique period key keeps one confirmed table from superseding another; no period matches a scorecard period.
         figures.append({"figure_id": f"{TABLE_METRIC}:{key}", "metric": TABLE_METRIC, "label": f"Table on page {table['page']}", "value": None, "unit": "",
                         "period": f"table:{key}", "page": table["page"], "printed_text": table["markdown"], "flags": ["docling_table", "unreviewed"],
@@ -176,18 +189,23 @@ def _rss_mb() -> float:
         kernel = ctypes.windll.kernel32  # type: ignore[attr-defined]
         kernel.GetCurrentProcess.restype = wintypes.HANDLE
         kernel.K32GetProcessMemoryInfo.argtypes = [wintypes.HANDLE, ctypes.POINTER(_Counters), wintypes.DWORD]
-        kernel.K32GetProcessMemoryInfo(kernel.GetCurrentProcess(), ctypes.byref(counters), counters.cb)
+        if not kernel.K32GetProcessMemoryInfo(kernel.GetCurrentProcess(), ctypes.byref(counters), counters.cb):
+            raise OSError("process memory probe failed")
         return counters.working_set / 1_048_576
     with open("/proc/self/statm", encoding="ascii") as handle:
         return int(handle.read().split()[1]) * os.sysconf("SC_PAGE_SIZE") / 1_048_576
 
 
 def start_memory_watchdog(limit_mb: float, interval: float = 0.2) -> None:
-    """End this process with ``MEMORY_EXIT_CODE`` as soon as its resident memory passes ``limit_mb``."""
+    """End this process with ``MEMORY_EXIT_CODE`` once its resident memory passes ``limit_mb`` (``PROBE_EXIT_CODE`` if unmeasurable)."""
 
     def watch() -> None:
         while True:
-            if _rss_mb() > limit_mb:
+            try:
+                over = _rss_mb() > limit_mb
+            except Exception:  # noqa: BLE001 - an unmeasurable child is stopped, not left unbounded
+                os._exit(PROBE_EXIT_CODE)
+            if over:
                 os._exit(MEMORY_EXIT_CODE)
             time.sleep(interval)
 
