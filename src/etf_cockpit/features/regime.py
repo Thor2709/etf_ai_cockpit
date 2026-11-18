@@ -820,7 +820,7 @@ def filtered_stress_probability(returns: pd.Series, cutoff: object) -> dict[str,
         from statsmodels.tsa.regime_switching.markov_regression import MarkovRegression
     except ImportError:
         return {**unavailable, "reason": "statsmodels is not installed"}
-    sample = returns.loc[:pd.Timestamp(cutoff)].dropna().astype(float)
+    sample = returns[returns.index <= pd.Timestamp(cutoff)].sort_index().dropna().astype(float)
     if len(sample) < MIN_REGIME_OBSERVATIONS:
         return {**unavailable, "reason": f"fewer than {MIN_REGIME_OBSERVATIONS} observations up to the cut-off"}
     try:
