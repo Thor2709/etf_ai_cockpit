@@ -102,8 +102,8 @@ def test_output_is_horizon_log_returns_from_past_only_inputs(tmp_path, monkeypat
     future = pd.Series([999.0] * 3, index=pd.bdate_range(FORECAST_DATE + pd.Timedelta(days=1), periods=3))
     benchmark = pd.concat([pd.Series(0.001, index=series.index), future])
     after = pd.concat([series, pd.Series([1.0] * 3, index=future.index)])
-    # Published after the target's last close: the origin day's value is not yet known at the origin.
-    late = pd.Series(0.5, index=series.index + pd.Timedelta(hours=21))
+    # Date-only stamps (real data): the origin day's close may be published after the target's, so it is dropped.
+    late = pd.Series(0.5, index=series.index)
 
     rows = adapter.forecast_series(
         after, HORIZONS, etf_id="X", forecast_date=FORECAST_DATE, past_covariates={"benchmark": benchmark, "late": late},
