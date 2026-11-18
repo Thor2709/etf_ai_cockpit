@@ -520,3 +520,5 @@ def test_source_dependency_manifest_matches_project_metadata() -> None:
 
     assert _requirement_lines(ROOT / "requirements.txt") == metadata
     assert _requirement_lines(ROOT / "requirements-parsers.txt") == parsers
+    quant = {item.lower().replace(" ", "") for item in project["optional-dependencies"]["quant"]}
+    assert _requirement_lines(ROOT / "requirements-quant.txt") == quant

@@ -1,0 +1,8 @@
+# Optional quant extra (portfolio optimisers, volatility and regime models, ranker).
+# The base app works without it. Install on top of the release lock so no locked pin changes:
+#   pip install -c requirements-release.txt -r requirements-quant.txt
+skfolio==1.12.9
+arch==9.0.0
+statsmodels==0.15.0
+lightgbm==4.7.0
+scipy==1.18.1; python_version >= '3.12'

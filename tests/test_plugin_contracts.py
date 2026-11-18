@@ -1,5 +1,11 @@
 from __future__ import annotations
 
+import importlib.util
+import os
+import subprocess
+import sys
+from pathlib import Path
+
 import pytest
 from pydantic import ValidationError
 
@@ -143,3 +149,21 @@ def test_invalid_plugin_policy_fails_closed_without_disabling_core_contracts(tmp
 
     assert rows["plugin:builtin.local-provider"]["status"] == "available"
     assert rows["plugin:builtin.paper-broker"]["status"] == "disabled"
+
+
+@pytest.mark.parametrize("module", ["skfolio", "arch", "statsmodels.api", "lightgbm", "scipy.optimize", "pypdf"])
+def test_optional_quant_and_pdf_packages_import_without_network(module: str) -> None:
+    if importlib.util.find_spec(module.split(".")[0]) is None:
+        pytest.skip(f"{module} is not installed")
+    # A fresh process, so the first import of the package runs under the socket probe.
+    code = (
+        "import importlib, sys\n"
+        "from etf_cockpit.plugins.registry import _network_probe\n"
+        "with _network_probe() as calls:\n"
+        "    importlib.import_module(sys.argv[1])\n"
+        "sys.exit(len(calls))\n"
+    )
+    env = {**os.environ, "PYTHONPATH": os.pathsep.join(filter(None, [str(Path(__file__).resolve().parents[1] / "src"), os.environ.get("PYTHONPATH")]))}
+    result = subprocess.run([sys.executable, "-c", code, module], env=env, capture_output=True, text=True, timeout=180)
+
+    assert result.returncode == 0, result.stderr[-600:]
