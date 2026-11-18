@@ -133,6 +133,8 @@ def validate_summary(report: dict[str, Any]) -> list[str]:
         errors.append("terminal summary platform JUnit counts are required")
     elif package is True:
         errors.extend(_shard_coverage_errors(report))
+    if package is True:
+        errors.extend(_package_errors(report))
     artifact_paths = {
         str(item.get("path", ""))
         for item in artifacts
@@ -184,7 +186,10 @@ def _junit_tests(node: ET.Element) -> int:
 RELEASE_ARTIFACT_RE = re.compile(
     r"release-gate-(?P<sha>[^-]+)-(?P<platform>windows|linux)(?:-s(?P<shard>[0-9]+))?", re.IGNORECASE
 )
-EXPECTED_SHARD_COUNT = 8  # .github/workflows/release-gate.yml matrix.shard [1, 2, 3, 4, 5, 6, 7, 8]
+EXPECTED_SHARD_COUNT = 8  # .github/workflows/release-gate.yml matrix.shard [1, 2, 3, 4, 5, 6, 7, 8, package]
+# The matrix entry shard=package builds and smoke-tests the package once per platform; the shards skip it.
+PACKAGE_ARTIFACT_RE = re.compile(r"release-gate-(?P<sha>[^-]+)-(?P<platform>windows|linux)-spackage", re.IGNORECASE)
+PACKAGE_CHECKS = ("package_build", "package_artifacts", "source_package_parity", "package_smoke")
 SHARD_KEYS = {
     "collected", "collection_nodeids", "executed_keys", "duplicates", "expected_modules", "head_sha", "labels",
     "report_errors", "shards", "tests",
@@ -317,6 +322,41 @@ def _collect_platform_junit(artifacts_root: Path, head: str, root: Path | None =
         record["labels"] = sorted(record["labels"])
         record["report_errors"] = sorted(record["report_errors"])
     return {platform: shards[platform]["tests"] for platform in platforms}, shards
+
+
+def _collect_platform_packages(artifacts_root: Path) -> dict[str, list[dict[str, Any]]]:
+    """Per platform, each package artifact's SHA, the git head its gate built and its package check results."""
+
+    packages: dict[str, list[dict[str, Any]]] = {"windows": [], "linux": []}
+    for directory in sorted(path for path in artifacts_root.iterdir() if path.is_dir()):
+        match = PACKAGE_ARTIFACT_RE.fullmatch(directory.name)
+        if match is None:
+            continue
+        try:
+            manifest = json.loads((directory / "release-manifest.json").read_text(encoding="utf-8"))
+            git_head = str(manifest["git"]["head"])
+            checks = {str(check["name"]): str(check["status"]) for check in manifest["checks"]}
+        except (OSError, ValueError, TypeError, KeyError):
+            git_head, checks = "", {}  # unreadable evidence proves nothing
+        packages[match["platform"].lower()].append({
+            "artifact_sha": match["sha"].lower(),
+            "git_head": git_head,
+            "checks": {name: checks.get(name, "absent") for name in PACKAGE_CHECKS},
+        })
+    return packages
+
+
+def _package_errors(report: dict[str, Any]) -> list[str]:
+    packages = report.get("platform_packages")
+    if not isinstance(packages, dict) or set(packages) != {"windows", "linux"}:
+        return ["terminal summary package evidence is required"]
+    expected = {"artifact_sha": report.get("tested_sha"), "git_head": report.get("head_sha"),
+                "checks": {name: "passed" for name in PACKAGE_CHECKS}}
+    return [
+        f"terminal summary {platform} package was not built and smoke-tested from the exact head"
+        for platform, records in sorted(packages.items(), reverse=True)
+        if records != [expected]
+    ]
 
 
 def _shard_coverage_errors(report: dict[str, Any]) -> list[str]:
@@ -896,6 +936,7 @@ def collect_summary(
         "job_results": job_results,
         "platform_junit": junit if package else {},
         "platform_shards": shards if package else {},
+        "platform_packages": _collect_platform_packages(artifacts_root) if package else {},
         "artifacts": artifacts,
         "identities": {key: _tree_identity(root, head, paths) for key, paths in groups.items()},
         "controls": {

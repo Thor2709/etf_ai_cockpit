@@ -22,4 +22,7 @@ evidence; pushes to `main` require the protected signing secret.
 
 For local diagnostics, `--skip-tests`, `--skip-package`, `--skip-smoke`,
 `--allow-dirty` and `--allow-unsigned` are explicit and make the corresponding
-check non-mandatory. They must not be used by a release promotion job.
+check non-mandatory. They must not be used by a release promotion job. The
+pull-request workflow splits one gate across jobs: the test shards skip the
+package and smoke checks, and one package job per platform skips the tests;
+`validation-summary` requires both.

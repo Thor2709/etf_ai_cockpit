@@ -230,6 +230,9 @@ or invalid, and files without a `serial_files` entry weigh their plain total).
 Refresh the file from the `junit-serial.xml`/`junit-parallel.xml` of a recent green release-gate
 run (all sixteen shard artifacts) when many test files are missing from it; files without an entry are
 spread by hash at the median weight, so heavy new files can unbalance the shards.
+The shards run only the tests (`--skip-package --skip-smoke`). One `package` matrix job per
+platform builds and smoke-tests the package (`--skip-tests`); `validation-summary` requires its
+passed package checks for the exact head and tested SHA.
 
 Product integration and lifecycle completion are distinct. When the ancestry
 guard requires the product on main, complete product gates first, merge that

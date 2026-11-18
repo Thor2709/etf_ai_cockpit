@@ -153,6 +153,10 @@ def _artifacts(
             (directory / "full_tests.log").write_text(
                 EVIDENCE_PREFIX + json.dumps(evidence) + "\n", encoding="utf-8"
             )
+        package = artifacts / f"release-gate-{sha}-{platform}-spackage"
+        package.mkdir(parents=True)
+        checks = [{"name": name, "status": "passed"} for name in validation_summary.PACKAGE_CHECKS]
+        (package / "release-manifest.json").write_text(json.dumps({"git": {"head": HEAD}, "checks": checks}), encoding="utf-8")
     return artifacts
 
 
@@ -208,7 +212,7 @@ def test_terminal_summary_requires_collection_identities_not_just_matching_total
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mutation: str,
 ) -> None:
     artifacts = _artifacts(tmp_path)
-    for directory in artifacts.glob("release-gate-*"):
+    for directory in artifacts.glob("release-gate-*-s[0-9]"):
         log = directory / "full_tests.log"
         evidence = json.loads(log.read_text(encoding="utf-8").removeprefix(EVIDENCE_PREFIX))
         if mutation == "wrong":

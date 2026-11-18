@@ -200,7 +200,7 @@ upward when classification is unknown.
 - H: CI, generator, classifier, policy, persistence, concurrency, canonical
   finance, point-in-time, security, release, programme-control or authority
   changes. Run the complete Linux and Windows packaged gates (8 file-level
-  shards per platform) immediately.
+  test shards and one package build and smoke job per platform) immediately.
 - C: final certification. Run the complete cross-platform certification and
   all package, parity, performance, security, privacy, legal, SBOM and
   signature evidence.

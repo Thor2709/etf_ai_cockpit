@@ -10,6 +10,14 @@ from scripts import validation_summary
 from scripts.validation_summary import validate_summary
 
 SHARDS = range(1, validation_summary.EXPECTED_SHARD_COUNT + 1)
+PASSED_PACKAGE = {name: "passed" for name in validation_summary.PACKAGE_CHECKS}
+
+
+def _write_package(artifacts: Path, platform: str, *, sha: str, head: str) -> None:
+    directory = artifacts / f"release-gate-{sha}-{platform}-spackage"
+    directory.mkdir(parents=True)
+    checks = [{"name": name, "status": "passed"} for name in validation_summary.PACKAGE_CHECKS]
+    (directory / "release-manifest.json").write_text(json.dumps({"git": {"head": head}, "checks": checks}), encoding="utf-8")
 
 
 def _summary(tier: str) -> dict:
@@ -39,6 +47,14 @@ def _summary(tier: str) -> dict:
                     "executed_keys": [["tests.m", f"t{number}"] for number in range(4)],
                     "expected_modules": ["tests/m.py"], "report_errors": [],
                 }
+                for platform in ("windows", "linux")
+            }
+            if package
+            else {}
+        ),
+        "platform_packages": (
+            {
+                platform: [{"artifact_sha": "b" * 40, "git_head": "b" * 40, "checks": dict(PASSED_PACKAGE)}]
                 for platform in ("windows", "linux")
             }
             if package
@@ -81,6 +97,8 @@ def test_e_and_h_terminal_summary_fixtures() -> None:
 def _with_shard_sha(report: dict, sha: str) -> dict:
     for record in report["platform_shards"].values():
         record["head_sha"] = [sha]
+    for records in report["platform_packages"].values():
+        records[0]["artifact_sha"] = sha
     return report
 
 
@@ -102,6 +120,25 @@ def test_shard_evidence_is_anchored_to_the_tested_merge_sha() -> None:
     push = _summary("H")  # push: tested_sha == head_sha
     assert push["tested_sha"] == push["head_sha"]
     assert validate_summary(push) == []
+
+
+def test_package_evidence_is_one_passed_build_per_platform_from_the_exact_head() -> None:
+    error = "terminal summary windows package was not built and smoke-tested from the exact head"
+    absent = _summary("H")
+    absent["platform_packages"] = {}
+    assert "terminal summary package evidence is required" in validate_summary(absent)
+    for change in (
+        lambda records: records.clear(),
+        lambda records: records.append(dict(records[0])),
+        lambda records: records[0].update(git_head="8" * 40),
+        lambda records: records[0].update(artifact_sha="8" * 40),
+        lambda records: records[0]["checks"].update(package_smoke="skipped"),
+        lambda records: records[0]["checks"].pop("package_build"),
+    ):
+        report = _summary("H")
+        change(report["platform_packages"]["windows"])
+        assert error in validate_summary(report)
+    assert validate_summary(_summary("O")) == []  # no package gate, no package evidence
 
 
 def test_terminal_summary_rejects_missing_and_forged_artifacts() -> None:
@@ -156,6 +193,7 @@ def test_terminal_collection_preserves_platform_artifact_directories(
             (directory / "full_tests.log").write_text(
                 validation_summary.EVIDENCE_PREFIX + json.dumps(evidence) + "\n", encoding="utf-8"
             )
+        _write_package(artifacts, platform, sha="b" * 40, head="b" * 40)
     preflight = artifacts / "validation-preflight-head" / "junit-affected.xml"
     preflight.parent.mkdir(parents=True)
     preflight.write_text('<testsuite tests="126" />\n', encoding="utf-8")
@@ -178,7 +216,17 @@ def test_terminal_collection_preserves_platform_artifact_directories(
     )
 
     assert report["platform_junit"] == {"windows": len(SHARDS), "linux": len(SHARDS)}  # one per shard, deduped
+    assert report["platform_packages"]["linux"] == [
+        {"artifact_sha": "b" * 40, "git_head": "b" * 40, "checks": PASSED_PACKAGE}
+    ]
     assert validate_summary(report) == []
+    (artifacts / f"release-gate-{'b' * 40}-windows-spackage" / "release-manifest.json").unlink()
+    unreadable = validation_summary.collect_summary(
+        tmp_path, artifacts, base="a" * 40, head="b" * 40, job_results=report["job_results"]
+    )
+    assert validate_summary(unreadable) == [
+        "terminal summary windows package was not built and smoke-tested from the exact head"
+    ]
 
 
 def _candidate_evidence() -> dict[str, object]:
