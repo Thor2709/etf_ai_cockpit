@@ -635,3 +635,124 @@ def test_default_off_keeps_all_consumers_on_v3() -> None:
     )
     assert recorded["ranker"] == "v3"
     assert "QV failed against v3" in recorded["reason"]
+
+
+def _shadow_fy(i: int, year: int, bonus: float = 0.0) -> dict[str, float]:
+    t = year - 2021
+    revenue = 1500.0 + 100.0 * i + t * 30.0 * (i - 2)
+    return {
+        "revenue": revenue,
+        "gross_profit": revenue * (0.25 + 0.03 * i) + t * 4.0 * (3 - i) + bonus,
+        "net_income_parent": 100.0 + 15.0 * i + t * 5.0 * (i - 2),
+        "cfo": 120.0 + 10.0 * i + t * 7.0 * (2 - i),
+        "dividends_paid": 20.0 + 3.0 * i,
+        "gross_buybacks": 10.0 * (i % 3),
+        "share_issuance": 4.0 * (i % 2),
+        "total_assets": 2000.0 + 120.0 * i + t * (60.0 + 40.0 * (i % 3)),
+        "ib_debt": 500.0 + 30.0 * i - t * 10.0 * (i - 2),
+        "current_assets": 800.0 + 20.0 * i + t * 15.0 * (i - 1),
+        "current_liabilities": 500.0 + 10.0 * i,
+        "shares_outstanding": 100.0 * (1.0 + 0.01 * t * (i - 2)),
+    }
+
+
+def _shadow_periods() -> pd.DataFrame:
+    rows = []
+    for i in range(6):
+        versions = ((2021, "2022-02-15", 0.0), (2022, "2023-02-15", 0.0), (2023, "2024-02-15", 0.0), (2023, "2024-09-02", 300.0))
+        for year, known, bonus in versions:  # the last version restates FY2023 after the early cut-offs
+            rows.append({
+                "instrument_id": f"I{i}", "period_end": f"{year}-12-31", "period_type": "FY", "fiscal_year": year,
+                "currency": "EUR", "source": "sec_edgar", "source_ref": f"acc-{i}-{year}",
+                "known_at": f"{known}T12:00:00Z", **_shadow_fy(i, year, bonus),
+            })
+            rows.append({  # the filing's reported share count, the only source market capitalisation accepts
+                "instrument_id": f"I{i}", "period_end": known, "period_type": "SHARES", "fiscal_year": year,
+                "currency": "EUR", "source": "sec_dei", "source_ref": f"dei-{i}-{known}",
+                "known_at": f"{known}T12:00:00Z", "available_at": f"{known}T12:00:00Z",
+                "shares_outstanding": _shadow_fy(i, year)["shares_outstanding"],
+            })
+    from etf_cockpit.data.stock_fundamentals import PERIOD_COLUMNS
+
+    return pd.DataFrame(rows).reindex(columns=PERIOD_COLUMNS)  # the store always carries every column
+
+
+def test_shadow_quality_value_challengers_use_known_versions_and_leave_v3_untouched(tmp_path, monkeypatch) -> None:
+    import math
+
+    import etf_cockpit.application.rank_validation_service as service
+    from etf_cockpit.analysis.decision.rank_validation import attach_fundamental_evidence, window_decision_times
+
+    monkeypatch.setattr(service, "load_rank_validation_policy", lambda: replace(_policy(), holding_period_sessions=20))
+    days = [day.date().isoformat() for day in pd.bdate_range("2023-01-02", periods=520)]
+    prices = pd.DataFrame([
+        {
+            "instrument_id": f"I{i}", "date": day, "known_at": f"{day}T23:59:59Z", "currency": "EUR",
+            "adjusted_close": close, "close": close, "stock_splits": 0.0, "actions_evidenced": True,
+        }
+        for i in range(6)
+        for t, day in enumerate(days)
+        for close in [100.0 * math.exp(0.0004 * (i + 1) * t + 0.03 * math.sin(t / (4.0 + i)))]
+    ])
+    times, _ = window_decision_times(prices, 1, step_sessions=20, holding_period_sessions=20)
+    prices.to_parquet(tmp_path / "prices.parquet")
+    pd.DataFrame([
+        {"instrument_id": f"I{i}", "valid_from": "2022-01-01", "valid_to": None, "known_at": f"{day}T00:00:00Z",
+         "snapshot_date": day, "snapshot_complete": True}
+        for i in range(6) for day in days
+    ]).to_csv(tmp_path / "membership.csv", index=False)
+    pd.DataFrame([
+        {"instrument_id": f"I{i}", "known_at": "2023-01-01T00:00:00Z", "round_trip_cost_bps": 10.0, "cost_model_id": COST_MODEL_ID}
+        for i in range(6)
+    ]).to_csv(tmp_path / "costs.csv", index=False)
+    pd.DataFrame([{"decision_date": text[:10], "net_return": 0.0001} for text in times]).to_csv(tmp_path / "cash.csv", index=False)
+    pd.DataFrame([
+        {"instrument_id": f"I{i}", "effective_at": "2023-01-01", "known_at": "2023-01-01T00:00:00Z",
+         "quality_score": 0.1 * i, "value_score": 0.5 - 0.05 * i, "v3_score": 0.3 + 0.07 * ((i * 5) % 6)}
+        for i in range(6)
+    ]).to_csv(tmp_path / "fundamentals.csv", index=False)
+    with_store, without_store = tmp_path / "with_store", tmp_path / "without_store"
+    (with_store / "data" / "clean").mkdir(parents=True)
+    (without_store / "data" / "clean").mkdir(parents=True)
+    _shadow_periods().to_parquet(with_store / "data" / "clean" / "stock_fundamentals.parquet")
+
+    def sections(root):
+        report = service.build_rank_validation_report(
+            root=root, years=(1,), benchmark_id="I0", prices_path=tmp_path / "prices.parquet",
+            membership_path=tmp_path / "membership.csv", costs_path=tmp_path / "costs.csv",
+            cash_path=tmp_path / "cash.csv", fundamentals_path=tmp_path / "fundamentals.csv",
+        )
+        return report["windows"][0]["sections"]
+
+    shadowed, plain = sections(with_store), sections(without_store)
+    names = {
+        "gross_profitability", "sloan_accruals_neg", "net_share_issuance_neg", "piotroski_f",
+        "asset_growth_neg", "shareholder_yield", "quality_v2",
+    }
+    shadow = shadowed["shadow_quality_value"]
+    for part in ("development", "holdout"):  # out-of-sample dates only: walk-forward test folds and the terminal holdout
+        assert set(shadow[part]) == names
+        for name in names:
+            assert math.isfinite(shadow[part][name]["rank_ic_mean"]), (part, name, shadow[part][name])
+            assert math.isfinite(shadow[part][name]["top_minus_bottom_mean"]), (part, name)
+    assert set(shadow["holdout_decision_times"]) <= set(times)
+    assert plain["shadow_quality_value"]["status"] == "unavailable"  # empty period store: stated, never filled
+    assert names.isdisjoint(shadowed["fundamental_factors"]["development"])  # shadow rankers never enter promotion selection
+    for label in ("price_factors", "fundamental_factors"):  # v3 and the other rankers are identical with and without the run
+        assert json.dumps(shadowed[label], sort_keys=True, default=str) == json.dumps(plain[label], sort_keys=True, default=str)
+
+    rows = service._shadow_rows(with_store, prices)
+    cutoffs = pd.DataFrame([
+        {"instrument_id": "I0", "effective_at": text, "known_at": text}
+        for text in ("2024-08-15T23:59:59Z", "2024-10-01T23:59:59Z")
+    ])
+    attached = attach_fundamental_evidence(cutoffs, rows, score_columns=sorted(names - {"quality_v2"}))
+    fy, before = _shadow_fy(0, 2023), _shadow_fy(0, 2022)
+    expected = {  # hand values for I0; "_neg" columns carry the negated metric
+        "gross_profitability": [fy["gross_profit"] / fy["total_assets"], (fy["gross_profit"] + 300.0) / fy["total_assets"]],
+        "sloan_accruals_neg": [-(fy["net_income_parent"] - fy["cfo"]) / ((fy["total_assets"] + before["total_assets"]) / 2.0)] * 2,
+        "net_share_issuance_neg": [-(fy["shares_outstanding"] / before["shares_outstanding"] - 1.0)] * 2,
+        "asset_growth_neg": [-(fy["total_assets"] / before["total_assets"] - 1.0)] * 2,
+    }
+    for column, values in expected.items():  # the 2024-09-02 restatement is attached only to the later cut-off
+        assert all(math.isclose(got, want, rel_tol=1e-9) for got, want in zip(attached[column], values)), (column, list(attached[column]), values)
