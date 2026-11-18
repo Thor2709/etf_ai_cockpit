@@ -17,6 +17,7 @@ import numpy as np
 import pandas as pd
 
 from etf_cockpit.analysis.decision.opportunity import _opportunity_benchmark_anchor, load_opportunity_policy
+from etf_cockpit.analysis.decision.shadow_run import _config_hashes, _decision_timestamp
 from etf_cockpit.core.config import AppConfig
 from etf_cockpit.models.calibration import calibrate_forecast_distribution, log_to_simple_return, realised_horizon_return
 from etf_cockpit.portfolio.benchmark_reference import vwce_series_source_hash
@@ -46,7 +47,7 @@ def build_absolute_merit(
     """
 
     policy = load_opportunity_policy()
-    decision = datetime.combine(decision_time, datetime.min.time(), tzinfo=timezone.utc)
+    decision = _decision_timestamp(decision_time)  # the consumer's cut-off
     stamp = _iso(decision)
     calibrated = {
         name: calibrate_forecast_distribution(
@@ -122,13 +123,16 @@ def vwce_anchor_series_hash(prices: pd.DataFrame, anchor: BenchmarkDefinition) -
 
 
 def latest_prior_decision(directory: Path, decision_time: date) -> dict[str, object] | None:
-    """The newest decision-shadow artefact made before ``decision_time``, with its file hash."""
+    """The newest decision-shadow artefact for an earlier decision, written before this cut-off, with its file hash.
 
-    from etf_cockpit.analysis.decision.shadow_run import _config_hashes
+    The file time is its publication time, so a later replay never feeds an earlier decision."""
 
-    cutoff = datetime.combine(decision_time, datetime.min.time(), tzinfo=timezone.utc)
+    cutoff = _decision_timestamp(decision_time)
     config_hash = _config_hashes()["decision_opportunity_v1"]
     for path in sorted(Path(directory).glob("decision_opportunity_*.json"), key=lambda item: item.stat().st_mtime, reverse=True):
+        published = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
+        if published > cutoff:
+            continue
         content = path.read_bytes()
         try:
             payload = json.loads(content)
@@ -137,7 +141,7 @@ def latest_prior_decision(directory: Path, decision_time: date) -> dict[str, obj
             continue
         if made < cutoff:
             same_policy = isinstance(payload.get("config_hashes"), Mapping) and payload["config_hashes"].get("decision_opportunity_v1") == config_hash
-            return {**payload, "source_hash": hashlib.sha256(content).hexdigest(), "same_policy": same_policy}
+            return {**payload, "source_hash": hashlib.sha256(content).hexdigest(), "same_policy": same_policy, "published_at": _iso(published)}
     return None
 
 
@@ -150,11 +154,13 @@ def positions_from_holdings(holdings: pd.DataFrame, instruments: Iterable[str]) 
         return {}
     as_of = pd.to_datetime(holdings["as_of_date"]).max()
     latest = holdings.loc[pd.to_datetime(holdings["as_of_date"]).eq(as_of)]
-    units = pd.to_numeric(latest["units"], errors="coerce").groupby(latest["etf_id"].astype(str)).sum()
+    numbers = pd.to_numeric(latest["units"], errors="coerce")
+    names = latest["etf_id"].astype(str)
+    units, invalid = numbers.groupby(names).sum(), set(names[numbers.isna()])
     stamp = _iso(as_of.to_pydatetime().replace(tzinfo=timezone.utc))
     return {
-        name: _record({"status": "available", "held": bool(units.get(name, 0.0) > 0.0), "currency": "EUR",
-                       "friction_unit": "decimal_fraction"}, stamp)
+        name: _record({"status": "unavailable" if name in invalid else "available", "held": bool(units.get(name, 0.0) > 0.0),
+                       "currency": "EUR", "friction_unit": "decimal_fraction"}, stamp)
         for name in instruments
     }
 
@@ -190,11 +196,15 @@ def _uncertainty_margin(
         & history["model_allowed_in_score"].astype(str).str.lower().isin({"true", "1", "yes"})
         & history["out_of_fold"].astype(str).str.lower().isin({"true", "1", "yes"})
     ]
-    for column in ("created_at", "known_at"):
-        if column in rows:
-            rows = rows.loc[pd.to_datetime(rows[column], errors="coerce", utc=True, format="mixed").le(decision)]
+    known_columns = [column for column in ("created_at", "known_at") if column in rows]
+    if not known_columns:
+        return None
+    for column in known_columns:  # known by the decision and by the end of the origin session (as calibration)
+        known = pd.to_datetime(rows[column], errors="coerce", utc=True, format="mixed")
+        origin_end = pd.to_datetime(rows["forecast_date"], errors="coerce", utc=True, format="mixed").dt.normalize() + pd.Timedelta(days=1)
+        rows = rows.loc[known.le(decision) & known.lt(origin_end)]
     closes = prices.assign(date=pd.to_datetime(prices["date"], errors="coerce"))
-    closes = closes.loc[closes["date"].lt(decision.replace(tzinfo=None))]
+    closes = closes.loc[closes["date"].lt(pd.Timestamp(decision.date()))]
     residuals = []
     for name, group in rows.groupby(rows["etf_id"].astype(str)):
         series = closes.loc[closes["etf_id"].astype(str).eq(name)].set_index("date")["adjusted_close"]
@@ -218,7 +228,7 @@ def _previous_decision(prior: Mapping[str, object] | None, name: str, decision: 
     for row in results if isinstance(results, list) else ():
         if isinstance(row, Mapping) and row.get("instrument") == name and row.get("absolute_horizon") == HORIZON:
             return {"status": "available", "state": row.get("decision_state"), "instrument_id": name, "horizon": HORIZON,
-                    "effective_at": prior["decision_time"], "known_at": prior["decision_time"],
+                    "effective_at": prior["decision_time"], "known_at": prior["published_at"],
                     "source_hash": prior["source_hash"], "execution_allowed": False}
     return None
 

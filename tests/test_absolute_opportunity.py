@@ -499,6 +499,7 @@ def test_bridge_evidence_reaches_the_six_states_through_the_decision_shadow(
     import dataclasses
     import json
     import math
+    import os
 
     import pandas as pd
 
@@ -534,10 +535,13 @@ def test_bridge_evidence_reaches_the_six_states_through_the_decision_shadow(
     anchor = dataclasses.replace(available_vwce_registry.benchmarks[0], known_at=sessions[100].isoformat() + "Z", source_hashes=("0" * 64,))
     anchor = dataclasses.replace(anchor, source_hashes=(absolute_merit.vwce_anchor_series_hash(prices, anchor),))
     monkeypatch.setattr(opportunity_module, "load_canonical_benchmark_registry", lambda: CanonicalBenchmarkRegistry(benchmarks=(anchor,)))
-    (tmp_path / "decision_opportunity_prior.json").write_text(json.dumps({
+    prior = tmp_path / "decision_opportunity_prior.json"
+    prior.write_text(json.dumps({
         "decision_time": f"{sessions[-2].date()}T23:59:59Z", "config_hashes": shadow_run._config_hashes(),
         "results": [{"instrument": "UCG", "decision_state": "HOLD_NO_TRADE", "absolute_horizon": "60_sessions"}],
     }), encoding="utf-8")
+    published = (sessions[-1] + pd.Timedelta(hours=1)).tz_localize("UTC").timestamp()  # written before the cut-off
+    os.utime(prior, (published, published))
     holdings = pd.DataFrame({"as_of_date": [sessions[-2].date()], "etf_id": ["UCG"], "units": [0.0]})
     positions = absolute_merit.positions_from_holdings(holdings, list(forecasts))
     stamp = f"{decision}T00:00:00Z"
