@@ -77,6 +77,16 @@ Generated with `python scripts/generate_data_dictionary.py`. Regenerate after a 
 | capture_log | source | TEXT | NOT NULL | etf_cockpit/data/universe_membership.py |
 | capture_log | source_id | TEXT | NOT NULL | etf_cockpit/data/universe_membership.py |
 | capture_log | source_kind | TEXT | NOT NULL | etf_cockpit/data/universe_membership.py |
+| chunks | char_end | INTEGER | NOT NULL | etf_cockpit/data/document_chunks.py |
+| chunks | char_start | INTEGER | NOT NULL | etf_cockpit/data/document_chunks.py |
+| chunks | chunk_id | TEXT | PRIMARY KEY | etf_cockpit/data/document_chunks.py |
+| chunks | chunker_version | TEXT | NOT NULL | etf_cockpit/data/document_chunks.py |
+| chunks | document_sha256 | TEXT | NOT NULL | etf_cockpit/data/document_chunks.py |
+| chunks | known_at | TEXT | NOT NULL | etf_cockpit/data/document_chunks.py |
+| chunks | page | INTEGER | NOT NULL | etf_cockpit/data/document_chunks.py |
+| chunks | published_at | TEXT | NOT NULL | etf_cockpit/data/document_chunks.py |
+| chunks | source_id | TEXT | NOT NULL | etf_cockpit/data/document_chunks.py |
+| chunks | text | TEXT | NOT NULL | etf_cockpit/data/document_chunks.py |
 | durable_job_dependencies | <table constraint> | — | CHECK(job_id <> dependency_job_id) | etf_cockpit/data/local_storage.py |
 | durable_job_dependencies | <table constraint> | — | FOREIGN KEY(dependency_job_id) REFERENCES durable_jobs(job_id) ON DELETE CASCADE | etf_cockpit/data/local_storage.py |
 | durable_job_dependencies | <table constraint> | — | FOREIGN KEY(job_id) REFERENCES durable_jobs(job_id) ON DELETE CASCADE | etf_cockpit/data/local_storage.py |
