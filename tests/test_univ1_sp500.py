@@ -426,16 +426,15 @@ def test_changed_fundamental_at_existing_known_at_still_raises():
         ingest_sp500._pending_facts(existing, "synthetic-instrument-a", [changed])
 
 
-def test_store_from_before_the_line_items_is_read_and_keeps_its_vintages(tmp_path):
+def test_store_from_before_the_line_items_is_read_and_replays_unchanged(tmp_path):
     stored = _fundamental_fact("2020-01-01T00:00:00+00:00", 100)
     path = tmp_path / "facts.parquet"
     pd.DataFrame([stored]).drop(columns=[c for c in PERIOD_COLUMNS if c.removesuffix("_currency") in LINE_ITEM_FIELDS]).to_parquet(path)
 
     existing = ingest_sp500._read_existing_facts(path)
-    enriched = {**stored, "goodwill": 5.0, "goodwill_currency": "USD"}
-    assert ingest_sp500._pending_facts(existing, "synthetic-instrument-a", [enriched]) == []
+    assert ingest_sp500._pending_facts(existing, "synthetic-instrument-a", [stored]) == []
     with pytest.raises(ValueError, match="changed fundamentals at existing known_at"):
-        ingest_sp500._pending_facts(existing, "synthetic-instrument-a", [{**enriched, "revenue": 101}])
+        ingest_sp500._pending_facts(existing, "synthetic-instrument-a", [{**stored, "revenue": 101}])
 
 
 def test_ingestion_persists_membership_through_store(tmp_path):

@@ -311,6 +311,13 @@ def _days(start: str, end: str) -> int:
     return (date.fromisoformat(end) - date.fromisoformat(start)).days
 
 
+def without_line_items(config: Mapping[str, Any]) -> dict[str, Any]:
+    """The stock config without the statement line-item concepts (INT-03)."""
+
+    return {**config, **{section: {name: names for name, names in (config.get(section) or {}).items() if name not in LINE_ITEM_FIELDS}
+                         for section in ("sec_edgar_concepts", "esef_concepts")}}
+
+
 def _line_items_join_existing_rows(parse: Callable[..., list[dict[str, Any]]]) -> Callable[..., list[dict[str, Any]]]:
     """Rows come from the parse without the line items (INT-03); a line item joins a row only when known with it.
 
@@ -318,9 +325,7 @@ def _line_items_join_existing_rows(parse: Callable[..., list[dict[str, Any]]]) -
 
     @functools.wraps(parse)
     def parse_with_line_items(data: Any, config: Mapping[str, Any], **kwargs: Any) -> list[dict[str, Any]]:
-        without = {**config, **{section: {name: names for name, names in (config.get(section) or {}).items() if name not in LINE_ITEM_FIELDS}
-                                for section in ("sec_edgar_concepts", "esef_concepts")}}
-        rows = parse(data, without, **kwargs)
+        rows = parse(data, without_line_items(config), **kwargs)
         full = {(row["period_end"], row["period_type"], row["known_at"]): row for row in parse(data, config, **kwargs)}
         for row in rows:
             other = full.get((row["period_end"], row["period_type"], row["known_at"]), {})
@@ -356,7 +361,8 @@ def parse_edgar_companyfacts(payload: Mapping[str, Any], config: Mapping[str, An
     # original value on a row because the storage contract has one known_at.
     max_lag = int((config.get("sec_edgar_rules", {}) or {}).get("max_original_filing_lag_days", 120))
     filing_ends: dict[tuple[str, str], str] = {}
-    for concept_name in {name for names in concepts.values() for name in names}:
+    # A filing's end comes from the existing concepts only, so a line-item tag never moves it.
+    for concept_name in {name for key, names in concepts.items() if key not in LINE_ITEM_FIELDS for name in names}:
         for unit, facts in (gaap.get(concept_name, {}).get("units", {}) or {}).items():
             if unit == "shares" or "/" in unit:
                 continue

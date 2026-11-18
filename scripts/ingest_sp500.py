@@ -22,7 +22,6 @@ snapshot at or before that date, known at snapshot-date UTC midnight.
 from __future__ import annotations
 
 import argparse
-from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import json
@@ -51,7 +50,7 @@ from etf_cockpit.data.sp500_history import (
 from etf_cockpit.data.stock_fundamentals import (
     PERIOD_COLUMNS, _write, append_period_rows_batch, load_stock_config, store_paths,
 )
-from etf_cockpit.data.stock_sources import IDENTITY_SEC_CONCEPTS, parse_edgar_companyfacts
+from etf_cockpit.data.stock_sources import IDENTITY_SEC_CONCEPTS, parse_edgar_companyfacts, without_line_items
 from etf_cockpit.data.universe_membership import import_licensed_history
 
 
@@ -276,17 +275,17 @@ def _issuer(task: dict) -> dict:
         return {"cik": cik, "status": "failed", "reason": f"{type(exc).__name__}: {exc}", "rows": []}
 
 
-# Statement line items (INT-03): a store written before them reads them as unreported.
+# Statement line items (INT-03) are not bulk-ingested; a store written before them reads them as unreported.
 LINE_ITEM_COLUMNS = (*LINE_ITEM_FIELDS, *(f"{name}_currency" for name in LINE_ITEM_FIELDS))
 
 
-def _fingerprint(row: dict, columns: Sequence[str] = PERIOD_COLUMNS) -> str:
+def _fingerprint(row: dict) -> str:
     def clean(value):
         if value is None or (not isinstance(value, (dict, list)) and pd.isna(value)):
             return None
         # Parquet can coerce integer facts to floating point in sparse columns.
         return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else value
-    payload = {key: clean(row.get(key)) for key in columns}
+    payload = {key: clean(row.get(key)) for key in PERIOD_COLUMNS}
     return hashlib.sha256(json.dumps(payload, sort_keys=True, allow_nan=False).encode()).hexdigest()
 
 
@@ -312,9 +311,6 @@ def _pending_facts(frame: pd.DataFrame, instrument_id: str, rows: list[dict], *,
         return tuple(str(row.get(key)) for key in ("period_end", "period_type", "source", "known_at"))
     for row in mine.to_dict("records"):
         identities.setdefault(identity(row), set()).add(_fingerprint(row))
-    legacy_columns = [column for column in PERIOD_COLUMNS if column not in LINE_ITEM_COLUMNS]
-    before_line_items = {(identity(row), _fingerprint(row, legacy_columns)) for row in mine.to_dict("records")
-                         if all(pd.isna(row.get(column)) for column in LINE_ITEM_COLUMNS)}
 
     def should_skip(raw: dict) -> bool:
         row = {**raw, "instrument_id": instrument_id}
@@ -322,8 +318,6 @@ def _pending_facts(frame: pd.DataFrame, instrument_id: str, rows: list[dict], *,
         if digest in existing:
             return True
         if identity(row) in identities and digest not in identities[identity(row)]:
-            if (identity(row), _fingerprint(row, legacy_columns)) in before_line_items:
-                return True  # a vintage stored before the line items stays as stored
             raise ValueError("changed fundamentals at existing known_at")
         return False
 
@@ -563,7 +557,7 @@ def ingest(config: dict, *, root: Path, workers: int | None = None) -> dict:
             for instrument_id in bindings if instrument_id in existing_by_instrument
         }
         tasks.append({
-            "cik": cik, "config": config, "stock_config": load_stock_config(ROOT),
+            "cik": cik, "config": config, "stock_config": without_line_items(load_stock_config(ROOT)),
             "submissions_member": members[cik], "prepare_fundamentals": facts_error is None,
             "fundamental_targets": [
                 {"instrument_id": instrument_id, "known_at": known}
