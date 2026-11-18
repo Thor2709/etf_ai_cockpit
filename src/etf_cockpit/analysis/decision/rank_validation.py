@@ -1779,17 +1779,20 @@ def price_momentum_risk_evidence(
 def attach_fundamental_evidence(
     price_evidence: pd.DataFrame,
     fundamentals: pd.DataFrame,
+    score_columns: Sequence[str] = ("quality_score", "value_score", "v3_score"),
 ) -> pd.DataFrame:
     """Attach supplied quality/value/v3 scores to each cutoff using only rows known by it.
 
     ``fundamentals`` needs ``instrument_id``, ``effective_at``, ``known_at`` and
-    the score columns.  Instruments with no row known by the cutoff keep NaN, so
-    the fundamental rankers report that date as insufficient.  Tied latest rows
+    the score columns (default quality, value and v3; ``score_columns`` names
+    others).  Instruments with no row known by the cutoff keep NaN, so the
+    fundamental rankers report that date as insufficient.  Tied latest rows
     that disagree are a conflict: the instrument keeps NaN and is listed per
     cutoff in ``result.attrs["fundamental_conflicts"]``; agreeing ties collapse.
     """
 
-    required = {"instrument_id", "effective_at", "known_at", "quality_score", "value_score", "v3_score"}
+    score_columns = list(score_columns)
+    required = {"instrument_id", "effective_at", "known_at", *score_columns}
     result = price_evidence.copy()
     if not _has_columns(fundamentals, required) or result.empty:
         return result
@@ -1798,7 +1801,6 @@ def attach_fundamental_evidence(
     funds["_effective"] = funds["effective_at"].map(_date_value)
     funds["instrument_id"] = funds["instrument_id"].astype(str)
     funds = funds.loc[funds["_known"].notna() & funds["_effective"].notna()]
-    score_columns = ["quality_score", "value_score", "v3_score"]
     conflicts: dict[str, list[str]] = {}
     for cutoff_text, group in result.groupby("known_at", sort=False):
         cutoff = _aware_timestamp(cutoff_text)
