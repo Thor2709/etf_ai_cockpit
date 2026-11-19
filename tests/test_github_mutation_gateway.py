@@ -1858,3 +1858,23 @@ def test_create_receipt_parser_rejects_other_issues_using_the_0186_recovery_push
     )
     with pytest.raises(ValueError, match="invalid_create_receipt_workflow_binding"):
         gateway.parse_create_receipt(body)
+
+
+def test_accepted_0186_receipt_projection_carries_the_recovery_push():
+    issue = _recovery_issue(
+        1071, RECOVERY_MARKER + chr(10) + "<!-- etf-ai-cockpit:stable-id=ISSUE-0186 -->", issue_id="6500000001", node_id="I_kwNEW"
+    )
+    _, receipt_body = gateway.build_create_receipt(
+        issue, mutation_id=RECOVERY_0186["authority_id"], stable_id=ISSUE_0186, authority_id=RECOVERY_0186["authority_id"],
+        authority_sequence=201, source_sha=RECOVERY_0186["source_sha"], head_sha=RECOVERY_0186["head_sha"],
+        event_before=RECOVERY_0186["head_sha"], event_after=RECOVERY_ACTIVATION,
+    )
+    issue["comments"] = [{
+        "id": 999, "node_id": "IC_test", "body": receipt_body,
+        "user": {"id": int(gateway.GITHUB_ACTIONS_BOT_USER_ID), "login": "github-actions[bot]", "type": "Bot"},
+        "performed_via_github_app": {"slug": "github-actions", "id": gateway.GITHUB_ACTIONS_APP_ID},
+        "created_at": "2026-11-18T14:00:00Z", "updated_at": "2026-11-18T14:00:00Z",
+    }]
+    acceptance = gateway.validate_create_acceptance(issue)
+    assert acceptance["accepted"] and acceptance["authority_id"] == RECOVERY_0186["authority_id"]
+    assert acceptance["head_sha"] == RECOVERY_0186["head_sha"] and acceptance["recovery_push"] == RECOVERY_ACTIVATION
