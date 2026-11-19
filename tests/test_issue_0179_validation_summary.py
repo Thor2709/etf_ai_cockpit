@@ -871,6 +871,46 @@ def test_pending_single_hop_candidate_evidence_is_accepted(
     assert validate_summary(_collect_candidate(tmp_path, monkeypatch, candidate=candidate)) == []
 
 
+def test_deferred_single_hop_candidate_is_accepted_only_from_planned(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for from_status, accepted in (("planned", True), ("ready", False)):
+        root = tmp_path / from_status
+        root.mkdir()
+        artifacts = _candidate_artifacts(root)
+        payload = _candidate_evidence()
+        payload["expected_update"] = {
+            "stable_id": "ISSUE-0179",
+            "from_status": from_status,
+            "to_status": "deferred",
+        }
+        evidence = (
+            artifacts
+            / "validation-status-completion-candidate-head"
+            / "status-completion-candidate.json"
+        )
+        evidence.parent.mkdir(parents=True)
+        evidence.write_text(json.dumps(payload), encoding="utf-8")
+        candidate = {
+            key: copy.deepcopy(payload[key])
+            for key in (
+                "execution_allowed",
+                "expected_parent_sha",
+                "authority_ref",
+                "remote_inventory_sha256",
+                "plan_semantic_sha256",
+                "expected_update",
+            )
+        }
+
+        if accepted:
+            assert validate_summary(_collect_candidate(root, monkeypatch, candidate=candidate)) == []
+        else:
+            with pytest.raises(ValueError, match="expected update identity is invalid"):
+                _collect_candidate(root, monkeypatch, candidate=candidate)
+
+
 def test_workflow_keeps_artifact_names_and_writes_failed_terminal_evidence() -> None:
     workflow = (
         Path(__file__).resolve().parents[1] / ".github" / "workflows" / "release-gate.yml"

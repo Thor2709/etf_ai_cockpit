@@ -547,7 +547,7 @@ def _validate_candidate_evidence(
         or not isinstance(expected_update.get("from_status"), str)
         or not expected_update.get("from_status")
         or expected_update.get("to_status")
-        not in {"ready", "in_progress", "integrated"}
+        not in {"ready", "in_progress", "integrated", "deferred"}
         or expected_update.get("to_status")
         not in CONTROL_ALLOWED_TRANSITIONS.get(
             str(expected_update.get("from_status")), frozenset()
@@ -880,7 +880,7 @@ def _validate_batch_candidate_evidence(
             or update.get("stable_id") != stable_id
             or row.get("from_status") != update.get("from_status")
             or row.get("to_status") != update.get("to_status")
-            or update.get("to_status") not in {"ready", "in_progress", "integrated"}
+            or update.get("to_status") not in {"ready", "in_progress", "integrated", "deferred"}
             or update.get("to_status")
             not in CONTROL_ALLOWED_TRANSITIONS.get(str(update.get("from_status")), frozenset())
         ):
