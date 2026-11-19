@@ -128,8 +128,9 @@ def _reaction(instrument_id: str, receipt: datetime, exact_acceptance: bool, pri
     for frame, name in ((prices, instrument_id), (benchmark, "VWCE")):
         entry = frame.loc[frame["instrument_id"].astype(str).eq(name) & frame["date"].map(_date_value).eq(entry_day)]
         closes = pd.to_numeric(entry["adjusted_close"], errors="coerce")
-        known = entry["known_at"].map(_aware_timestamp)  # as in _forward_return: an entry close known after its session close is not used
-        if not (closes.map(math.isfinite) & closes.gt(0) & known.notna() & known.le(entry_close)).any():
+        # as in _forward_return: a close known after its session close (or with no aware known_at) is not used
+        known = [_aware_timestamp(value) for value in entry["known_at"]] if "known_at" in entry else []
+        if not any(math.isfinite(close) and close > 0 and stamp is not None and stamp <= entry_close for close, stamp in zip(closes, known)):
             return {"status": "unavailable", "reason": f"{name}:entry_close_missing"}
         value, status = _forward_return(frame, name, entry_close, 2,
                                         target_session=target_day, outcome_known_by=available_at)
