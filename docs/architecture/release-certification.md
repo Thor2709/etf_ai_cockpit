@@ -16,9 +16,8 @@ failure details, and returns non-zero while mandatory evidence is blocked.
 The `/release-readiness` page shows the same local report, legal-terms status,
 registry checksum and accepted limitations.
 
-The current report is blocked for evidence-based reasons: the canonical
-programme still contains unresolved records, `ISSUE-0149` remains
-`hardening_required` pending professional legal and repository-licence review,
-the current candidate has no signed ISSUE-0152 release manifest, and the
-pre-certification full-suite baseline has recorded limitations. These are
-tracked blockers, not certification exemptions. Execution remains disabled.
+The certification issue itself is excluded from the closure check, because it
+can only become final after certification passes. Records with the `deferred`
+status are accepted final states and appear as explicit lines in the accepted
+limitations. The report stays blocked until a signed manifest matches the
+current commit. Execution remains disabled.

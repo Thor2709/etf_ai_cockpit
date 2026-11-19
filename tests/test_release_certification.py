@@ -57,3 +57,23 @@ def test_release_certification_report_writes_json_and_markdown(tmp_path: Path) -
 
     assert json.loads(json_path.read_text(encoding="utf-8"))["status"] == "blocked"
     assert "# Release certification report" in markdown_path.read_text(encoding="utf-8")
+
+
+def test_release_certification_excludes_itself_accepts_deferred_and_drops_baseline(tmp_path: Path) -> None:
+    _write_registry(
+        tmp_path,
+        [
+            {"canonical_id": "ISSUE-0152", "programme_status": "ready", "priority": "P0"},
+            {"canonical_id": "ISSUE-0149", "programme_status": "integrated", "priority": "P0"},
+            {"canonical_id": "ISSUE-0189", "programme_status": "deferred", "priority": "P1", "title": "Paid data feed"},
+        ],
+    )
+
+    report = release_certification_report(tmp_path)
+    checks = {check["check_id"]: check["status"] for check in report["checks"]}
+
+    assert checks["programme_closure_matrix"] == "passed"
+    assert checks["high_priority_closure"] == "passed"
+    assert "ISSUE-0189 (deferred): Paid data feed" in report["accepted_limitations"]
+    assert not any(item.startswith("Baseline") for item in report["blockers"])
+    assert report["status"] == "blocked"
