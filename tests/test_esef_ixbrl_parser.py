@@ -541,9 +541,11 @@ def test_state_discovery_and_download_keep_unavailable_state_explicit(tmp_path: 
 def _write_numeric_package(path: Path, facts: str) -> None:
     xhtml = f"""<?xml version='1.0'?>
     <html xmlns='http://www.w3.org/1999/xhtml' xmlns:ix='http://www.xbrl.org/2013/inlineXBRL'
-      xmlns:xbrli='http://www.xbrl.org/2003/instance' xmlns:ifrs-full='https://xbrl.ifrs.org/taxonomy/2024-03-27/ifrs-full'>
+      xmlns:xbrli='http://www.xbrl.org/2003/instance' xmlns:ifrs-full='https://xbrl.ifrs.org/taxonomy/2024-03-27/ifrs-full'
+      xmlns:iso4217='http://www.xbrl.org/2003/iso4217' xmlns:ixt='http://www.xbrl.org/inlineXBRL/transformation/2020-02-12'>
       <body><xbrli:context id='c'><xbrli:entity><xbrli:identifier>549300TESTLEI00000001</xbrli:identifier></xbrli:entity>
         <xbrli:period><xbrli:startDate>2025-01-01</xbrli:startDate><xbrli:endDate>2025-12-31</xbrli:endDate></xbrli:period></xbrli:context>
+        <xbrli:unit id='EUR'><xbrli:measure>iso4217:EUR</xbrli:measure></xbrli:unit>
         {facts}</body></html>"""
     with zipfile.ZipFile(path, "w") as archive:
         archive.writestr("META-INF/reportPackage.json", "{}")

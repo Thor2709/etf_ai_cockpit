@@ -887,6 +887,8 @@ def parse_esef_statement_facts(facts: pd.DataFrame, config: Mapping[str, Any], *
             continue
         if (concept, member) in verified_only and record.get("mapping_confidence") != PER_SHARE_VERIFIED:
             continue
+        if record.get("decode_status") == "unavailable":  # an undecodable number, unverified unit or conflicting duplicate
+            continue
         value = _number(record.get("value"))
         known = _esef_timestamp(record.get("known_at"))
         if value is None or known is None:
