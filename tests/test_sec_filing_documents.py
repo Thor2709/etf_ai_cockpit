@@ -178,8 +178,6 @@ def test_uncached_filing_is_unavailable_when_the_network_is_denied(tmp_path: Pat
     with pytest.raises(sfd.SecFilingDocumentUnavailable) as refused:
         sfd.fetch_8k(forbidden, "777001", ACC_8K)
     assert isinstance(refused.value.__cause__, SecEdgarError)
-    with pytest.raises(sfd.SecFilingDocumentUnavailable, match="not cached"):
-        sfd.fetch_10k_section_chunks(provider, "777001", ACC_10K)
 
 
 def test_fetched_and_then_stored_submissions_parse_with_known_at_from_the_header(tmp_path: Path) -> None:

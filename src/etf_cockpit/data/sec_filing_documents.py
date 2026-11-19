@@ -4,8 +4,9 @@ The input is the stored full-submission text of one filing; nothing here opens a
 object is built from that text and every document is read from it). ``edgartools`` is the optional
 ``sec`` extra, imported lazily: without it every parser raises :class:`SecFilingDocumentUnavailable`.
 
-Two times are never merged. ``sec_receipt_time`` is the acceptance time passed in from the submissions
-record. ``public_announcement_time`` is the release time printed in the EX-99.1 dateline, accepted only
+Two times are never merged. ``sec_receipt_time`` is the acceptance time passed to the parsers; the fetch
+callers pass the stored header's ACCEPTANCE-DATETIME, the real acceptance time.
+``public_announcement_time`` is the release time printed in the EX-99.1 dateline, accepted only
 when it names a full date, a clock time and a US time zone, sits in the dateline (before the first dash)
 or is labelled as the release time, resolves to exactly one real instant, is unique, is not a call or
 webcast time and is not later than the SEC receipt; otherwise it is ``"unavailable"`` with the reason.
@@ -41,7 +42,6 @@ _STAMP = re.compile(
     r"(?P<hour>\d{1,2})(?::(?P<minute>\d{2}))?\s*(?i:(?P<ampm>[ap])\.?m\.?)\s+(?P<zone>[ECMP])(?P<dst>[SD])?T\b"
 )
 _DASH = re.compile(r"\s[-\u2013\u2014]{1,2}\s|[\u2013\u2014]")
-_ACCEPTED_TAG = re.compile(r"<ACCEPTANCE-DATETIME>")
 _ACCEPTED = re.compile(r"<ACCEPTANCE-DATETIME>[ \t]*(\d{14})[ \t]*(?:\r?\n|$)")
 _RELEASE_LABEL = re.compile(r"(?:release[sd]?|announce[sd]?)(?:\s+(?:date|time)(?:\s+and\s+time)?)?\s*(?:[:\-]|on|at)?\s*$", re.IGNORECASE)
 _CALL_WORDS = re.compile(r"call|webcast|conference|dial|join", re.IGNORECASE)
@@ -115,7 +115,7 @@ def _acceptance_digits(source: bytes) -> str:
     """The 14 digits of the one ACCEPTANCE-DATETIME field of the SEC header (text before the first document)."""
     header = source.decode("utf-8", "replace").split("<DOCUMENT>", 1)[0]
     stamp = _ACCEPTED.search(header)
-    if stamp is None or len(_ACCEPTED_TAG.findall(header)) != 1:
+    if stamp is None or header.count("<ACCEPTANCE-DATETIME>") != 1:
         raise SecFilingDocumentUnavailable("filing header has no single complete ACCEPTANCE-DATETIME")
     return stamp[1]
 
