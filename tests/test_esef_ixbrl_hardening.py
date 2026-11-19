@@ -6,6 +6,7 @@ import zipfile
 from pathlib import Path
 
 import pandas as pd
+import pytest
 
 from etf_cockpit.data import stock_sources as src
 from etf_cockpit.parsers import esef_ixbrl
@@ -29,7 +30,19 @@ HEAD = f"""<?xml version='1.0'?>
       <xbrldi:explicitMember dimension='custom:SegmentAxis'>custom:AMember</xbrldi:explicitMember>
       <xbrldi:explicitMember dimension='ifrs-full:ComponentsOfEquityAxis'>ifrs-full:RetainedEarningsMember</xbrldi:explicitMember></xbrli:segment></xbrli:entity>
       <xbrli:period><xbrli:startDate>2025-01-01</xbrli:startDate><xbrli:endDate>2025-12-31</xbrli:endDate></xbrli:period></xbrli:context>
+    <xbrli:context id='s1'><xbrli:entity><xbrli:identifier>549300TESTLEI00000001</xbrli:identifier><xbrli:segment>
+      <xbrldi:explicitMember dimension='q:ConsolidatedAndSeparateFinancialStatementsAxis' xmlns:q='https://xbrl.ifrs.org/taxonomy/2024-03-27/ifrs-full'>q:SeparateMember</xbrldi:explicitMember>
+      </xbrli:segment></xbrli:entity>
+      <xbrli:period><xbrli:startDate>2025-01-01</xbrli:startDate><xbrli:endDate>2025-12-31</xbrli:endDate></xbrli:period></xbrli:context>
+    <xbrli:context id='t1'><xbrli:entity><xbrli:identifier>549300TESTLEI00000001</xbrli:identifier><xbrli:segment>
+      <xbrldi:typedMember dimension='custom:KeyAxis'><custom:key kind='a'>1</custom:key></xbrldi:typedMember></xbrli:segment></xbrli:entity>
+      <xbrli:period><xbrli:startDate>2025-01-01</xbrli:startDate><xbrli:endDate>2025-12-31</xbrli:endDate></xbrli:period></xbrli:context>
+    <xbrli:context id='t2'><xbrli:entity><xbrli:identifier>549300TESTLEI00000001</xbrli:identifier><xbrli:segment>
+      <xbrldi:typedMember dimension='custom:KeyAxis'><custom:key kind='b'>1</custom:key></xbrldi:typedMember></xbrli:segment></xbrli:entity>
+      <xbrli:period><xbrli:startDate>2025-01-01</xbrli:startDate><xbrli:endDate>2025-12-31</xbrli:endDate></xbrli:period></xbrli:context>
     <xbrli:unit id='EUR'><xbrli:measure>iso4217:EUR</xbrli:measure></xbrli:unit>
+    <xbrli:unit id='eur-shares'><xbrli:measure>iso4217:EUR</xbrli:measure><xbrli:measure>xbrli:shares</xbrli:measure></xbrli:unit>
+    <xbrli:unit id='shares-eur'><xbrli:measure>xbrli:shares</xbrli:measure><xbrli:measure>iso4217:EUR</xbrli:measure></xbrli:unit>
     <xbrli:unit id='shares'><xbrli:measure>xbrli:shares</xbrli:measure></xbrli:unit>
     <xbrli:unit id='bare'><xbrli:measure>shares</xbrli:measure></xbrli:unit>
     <xbrli:unit id='foreign'><xbrli:measure>ifrs-full:EUR</xbrli:measure></xbrli:unit>
@@ -152,3 +165,66 @@ def test_a_decoded_and_an_unavailable_fact_of_one_context_keep_distinct_stored_i
 
     assert good.source_id != bad.source_id and good.source_id.split(":")[:2] == bad.source_id.split(":")[:2]
     assert sorted(stored["decode_status"]) == ["decoded", "unavailable"]
+
+
+_IFRS_NS = "https://xbrl.ifrs.org/taxonomy/2024-03-27/ifrs-full"
+
+
+@pytest.mark.parametrize(
+    "body,expected",
+    [
+        pytest.param(  # same lexical name, two namespaces: neither is an exact duplicate of the other
+            _fact("Revenue", "100", prefix="p", extra=f"xmlns:p='{_IFRS_NS}'") + _fact("Revenue", "100", prefix="p", extra="xmlns:p='https://example.test/ext'"),
+            [("Revenue", "100", "decoded", "consolidated"), ("Revenue", "100", "decoded", "consolidated")],
+            id="exact-dedup-uses-the-expanded-concept",
+        ),
+        pytest.param(  # the IFRS prefix is declared only on the member
+            _fact("Revenue", "100", context="s1"),
+            [("Revenue", "100", "decoded", "separate")],
+            id="scope-from-the-members-own-bindings",
+        ),
+        pytest.param(  # an unprefixed name lives in the in-scope default namespace
+            _fact("Revenue", "5") + "<ix:nonFraction name='Revenue' contextRef='c' unitRef='EUR' decimals='0' xmlns='" + _IFRS_NS + "'>6</ix:nonFraction>",
+            [("Revenue", "5", "unavailable", "consolidated"), ("Revenue", "6", "unavailable", "consolidated")],
+            id="default-namespace-is-resolved",
+        ),
+        pytest.param(  # EUR*shares is shares*EUR
+            _fact("Revenue", "1", unit="eur-shares") + _fact("Revenue", "2", unit="shares-eur"),
+            [("Revenue", "1", "unavailable", "consolidated"), ("Revenue", "2", "unavailable", "consolidated")],
+            id="unit-measure-order",
+        ),
+        pytest.param(  # typed members that differ in an attribute are different dimension values
+            _fact("Revenue", "1", context="t1") + _fact("Revenue", "2", context="t2"),
+            [("Revenue", "1", "decoded", "consolidated"), ("Revenue", "2", "decoded", "consolidated")],
+            id="typed-dimension-keeps-its-xml-identity",
+        ),
+    ],
+)
+def test_expanded_identity_rules(tmp_path: Path, monkeypatch, body: str, expected: list) -> None:
+    monkeypatch.setattr(esef_ixbrl, "_arelle_available", lambda: False)
+    package = tmp_path / "identity.xbri"
+    with zipfile.ZipFile(package, "w") as archive:
+        archive.writestr("META-INF/reportPackage.json", "{}")
+        archive.writestr("reports/report.xhtml", HEAD + body + "</body></html>")
+    records = parse_esef_package(package).records
+
+    assert [(fact.concept, fact.value, fact.decode_status, fact.consolidation_scope) for fact in records] == expected
+
+
+def test_a_reimport_replaces_the_filings_earlier_rows_so_a_stale_decoded_fact_cannot_survive(tmp_path: Path) -> None:
+    ifrs = "https://xbrl.ifrs.org/taxonomy/ifrs-full"
+    base = ("L", "Assets", "5", "EUR", "0", "ctx", "2025-01-01", "2025-12-31", "report.xhtml", "mapped", (), ifrs, None, True, True)
+
+    def facts(status: str, sha: str = "a" * 64):
+        return statement_facts_from_esef((XbrlFact(*base, status),), instrument_id="X", source_sha256=sha)
+
+    destination = tmp_path / "facts.parquet"
+    other = facts("decoded", "b" * 64)
+    write_statement_facts(other, destination)  # another filing of the same instrument
+    write_statement_facts(facts("decoded"), destination)  # the older parse
+    write_statement_facts(facts("decoded"), destination)  # idempotent re-import
+    assert len(pd.read_parquet(destination)) == 2
+    write_statement_facts(facts("unavailable"), destination)  # the newer parse of the same filing
+    stored = pd.read_parquet(destination)
+
+    assert sorted(zip(stored["sha256"], stored["decode_status"])) == [("a" * 64, "unavailable"), ("b" * 64, "decoded")]

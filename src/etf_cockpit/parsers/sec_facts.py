@@ -423,6 +423,12 @@ def _statement_facts_write_frame(records: tuple[StatementFact, ...], destination
 
     frame = statement_facts_frame(records)
     existing = _existing_parquet(destination)
+    if not existing.empty and {"sha256", "instrument_id", "source_id"} <= set(existing.columns):
+        # A filing's rows are replaced by its latest parse: a fact an older parse decoded must not outlive it.
+        filings = {(record.sha256, record.instrument_id) for record in records if record.sha256}
+        current = {record.source_id for record in records}
+        replaced = [(sha, instrument) in filings and source_id not in current for sha, instrument, source_id in zip(existing["sha256"], existing["instrument_id"], existing["source_id"])]
+        existing = existing.loc[[not item for item in replaced]]
     if not existing.empty:
         frame = pd.concat([existing, frame], ignore_index=True, sort=False)
     if "source_id" in frame.columns and not frame.empty:
