@@ -114,6 +114,8 @@ def statement_facts_from_esef(
         if dimensions or decode_status == "unavailable" or mapping_status in {"unsupported_numeric", "non_numeric"} or not getattr(record, "is_numeric", True):
             canonical_metric = None
         source_anchor = f"{concept}:{unit}:{period_start}:{period_end}:{_record_value(record, 'context_id')}"
+        if decode_status == "unavailable":  # a distinct stable variant: storage dedup must never replace a decoded fact of the same context
+            source_anchor += f":unavailable:{hashlib.sha256(str(getattr(record, 'value', '')).encode('utf-8')).hexdigest()[:8]}"
         provider_id = str(source_provider or "filings_xbrl_org").strip() or "filings_xbrl_org"
         source_id = f"{provider_id}:{source_sha256[:16]}:{hashlib.sha256(source_anchor.encode('utf-8')).hexdigest()[:16]}"
         is_extension = mapping_status == "unmapped_extension" or (namespace and not is_ifrs_full_namespace(namespace))

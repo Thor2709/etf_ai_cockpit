@@ -8,6 +8,7 @@ and never promotes an extension concept to an IFRS canonical metric.
 from __future__ import annotations
 
 import importlib.util
+import io
 import json
 import logging
 import multiprocessing
@@ -185,13 +186,12 @@ def parse_esef_package(path: Path) -> ParseResult[XbrlFact]:
             xhtml_payload = archive.read(xhtml_name)
             if b"<!DOCTYPE" in xhtml_payload.upper() or b"<!ENTITY" in xhtml_payload.upper():
                 return _failure(source_sha, "unsafe_xml", "ESEF XHTML contains a disallowed document type or entity declaration")
-            namespace_map = _extract_namespaces(xhtml_payload)
-            root = ElementTree.fromstring(xhtml_payload)
+            root, scopes = _parse_with_scopes(xhtml_payload)
     except (OSError, zipfile.BadZipFile, KeyError, UnicodeDecodeError, ElementTree.ParseError) as exc:
         return _failure(source_sha, "malformed_archive", f"Could not parse ESEF package: {type(exc).__name__}")
 
-    contexts = _contexts(root)
-    units = _units(root, namespace_map)
+    contexts = _contexts(root, scopes)
+    units = _units(root, scopes)
     default_lei = _extract_lei(metadata, names) or next((item["entity_lei"] for item in contexts.values() if item["entity_lei"] != "unknown"), "unknown")
     period_hint = _extract_period(metadata, names)
     consolidation_scope = _extract_consolidation_scope(metadata)
@@ -210,23 +210,24 @@ def parse_esef_package(path: Path) -> ParseResult[XbrlFact]:
         if not concept or not value:
             continue
         numeric_problem: str | None = None
+        scope = scopes.get(element, {})  # the namespace bindings in scope on this element
         context_id = _optional_text(element.attrib.get("contextRef"))
         context = contexts.get(context_id or "", {})
         unit_ref = _optional_text(element.attrib.get("unitRef"))
         unit, unit_resolved = units.get(unit_ref or "", (unit_ref, False))
         if local_name == "nonFraction":
-            numeric_problem = _transformation_problem(element.attrib, namespace_map)
+            numeric_problem = _transformation_problem(element.attrib, scope)
             if numeric_problem is None:
                 value, numeric_problem = _decode_numeric_fact(value, element.attrib)
             if numeric_problem is None and not unit_resolved:
                 numeric_problem = f"unit {unit_ref or '(none)'} is undefined or has a measure outside iso4217/xbrli"
         decimals = _optional_text(element.attrib.get("decimals"))
-        duplicate_key = (raw_name, value, unit, decimals, context_id, context.get("period_start"), context.get("period_end"))
+        duplicate_key = (raw_name, value, numeric_problem is None, unit, decimals, context_id, context.get("period_start"), context.get("period_end"))
         if duplicate_key in seen:
             warnings.append(ParseWarning("duplicate_fact", f"Duplicate ESEF fact ignored: {raw_name}", "warning", xhtml_name))
             continue
         seen.add(duplicate_key)
-        namespace = namespace_map.get(prefix or "") or _namespace_for_prefix(prefix)
+        namespace = scope.get(prefix or "") or _namespace_for_prefix(prefix)
         mapping = map_ifrs_fact(raw_name, namespace)
         is_extension = bool(prefix and (prefix.lower() not in _IFRS_PREFIXES or (namespace is not None and not is_ifrs_full_namespace(namespace))))
         if numeric_problem is not None:
@@ -256,7 +257,7 @@ def parse_esef_package(path: Path) -> ParseResult[XbrlFact]:
                 mapping_status,
                 tuple(context.get("dimensions", ())),
                 namespace,
-                consolidation_scope if metadata_has_scope else _context_consolidation_scope(context, namespace_map),
+                consolidation_scope if metadata_has_scope else _context_consolidation_scope(context, context.get("scope", {})),
                 local_name == "nonFraction",
                 unit_resolved,
                 UNAVAILABLE if numeric_problem is not None else DECODED if local_name == "nonFraction" else NOT_APPLICABLE,
@@ -264,7 +265,9 @@ def parse_esef_package(path: Path) -> ParseResult[XbrlFact]:
         )
         facts.append(fact)
         if fact.decode_status == DECODED and fact.is_numeric:
-            by_identity.setdefault((raw_name, unit, fact.period_start, fact.period_end, fact.context_dimensions, fact.entity_lei), []).append(len(facts) - 1)
+            # the same fact however it is written: expanded concept QName, unit, period, entity and expanded dimensions in any order
+            identity = (_expand_qname(raw_name, scope), unit, fact.period_start, fact.period_end, tuple(sorted(context.get("dimensions_expanded", ()))), fact.entity_lei)
+            by_identity.setdefault(identity, []).append(len(facts) - 1)
 
     for indexes in by_identity.values():
         if len({Decimal(facts[index].value) for index in indexes}) > 1:  # one concept, context and unit, two numbers: nothing is guessed
@@ -425,12 +428,42 @@ def _namespace_for_prefix(prefix: str | None) -> str | None:
     return None
 
 
-def _extract_namespaces(payload: bytes) -> dict[str, str]:
-    text = payload.decode("utf-8", errors="ignore")
-    return {prefix: uri for prefix, uri in re.findall(r"xmlns:([A-Za-z_][\w.-]*)\s*=\s*['\"]([^'\"]+)['\"]", text)}
+_SCOPED_TAGS = frozenset({"context", "nonFraction", "nonNumeric", "measure", "explicitMember", "typedMember"})
 
 
-def _contexts(root: Any) -> dict[str, dict[str, Any]]:
+def _parse_with_scopes(payload: bytes) -> tuple[Any, dict[Any, dict[str, str]]]:
+    """Parse the instance and record, per element that holds a QName, the prefix bindings in scope on that element."""
+
+    scopes: dict[Any, dict[str, str]] = {}
+    stack: list[dict[str, str]] = [{}]
+    declared: list[tuple[str, str]] = []
+    root = None
+    for event, item in ElementTree.iterparse(io.BytesIO(payload), events=("start-ns", "start", "end")):
+        if event == "start-ns":
+            declared.append(item)
+        elif event == "start":
+            if declared:
+                stack.append({**stack[-1], **{prefix: uri for prefix, uri in declared if prefix}})
+                declared = []
+            else:
+                stack.append(stack[-1])
+            root = item if root is None else root
+            if _local_name(item.tag) in _SCOPED_TAGS:
+                scopes[item] = stack[-1]
+        else:
+            stack.pop()
+    return root, scopes
+
+
+def _expand_qname(value: str, scope: dict[str, str]) -> str:
+    """``prefix:local`` as ``{namespace}local`` when the prefix is bound in scope; otherwise the text unchanged."""
+
+    prefix, separator, local_name = value.partition(":")
+    namespace = scope.get(prefix) if separator else None
+    return f"{{{namespace}}}{local_name}" if namespace else value
+
+
+def _contexts(root: Any, scopes: dict[Any, dict[str, str]]) -> dict[str, dict[str, Any]]:
     contexts: dict[str, dict[str, Any]] = {}
     for element in root.iter():
         if _local_name(element.tag) != "context":
@@ -442,6 +475,7 @@ def _contexts(root: Any) -> dict[str, dict[str, Any]]:
         period_start: str | None = None
         period_end: str | None = None
         dimensions: list[tuple[str, str]] = []
+        expanded: list[tuple[str, str]] = []
         for child in element.iter():
             name = _local_name(child.tag)
             text = _optional_text("".join(child.itertext()))
@@ -452,12 +486,18 @@ def _contexts(root: Any) -> dict[str, dict[str, Any]]:
             elif name in {"endDate", "instant"}:
                 period_end = text
             elif name in {"explicitMember", "typedMember"} and text:
-                dimensions.append((_optional_text(child.attrib.get("dimension")) or "unknown", text))
-        contexts[context_id] = {"entity_lei": entity_lei, "period_start": period_start, "period_end": period_end, "dimensions": tuple(dimensions)}
+                axis = _optional_text(child.attrib.get("dimension")) or "unknown"
+                dimensions.append((axis, text))
+                member_scope = scopes.get(child, {})
+                expanded.append((_expand_qname(axis, member_scope), _expand_qname(text, member_scope) if name == "explicitMember" else text))
+        contexts[context_id] = {
+            "entity_lei": entity_lei, "period_start": period_start, "period_end": period_end,
+            "dimensions": tuple(dimensions), "dimensions_expanded": tuple(expanded), "scope": scopes.get(element, {}),
+        }
     return contexts
 
 
-def _units(root: Any, namespace_map: dict[str, str]) -> dict[str, tuple[str, bool]]:
+def _units(root: Any, scopes: dict[Any, dict[str, str]]) -> dict[str, tuple[str, bool]]:
     """unit id -> (display value, every measure verified by QName and namespace)."""
 
     units: dict[str, tuple[str, bool]] = {}
@@ -469,13 +509,13 @@ def _units(root: Any, namespace_map: dict[str, str]) -> dict[str, tuple[str, boo
             continue
         divide = next((child for child in element if _local_name(child.tag) == "divide"), None)
         if divide is None:
-            measures = [_unit_measure_name(child, namespace_map) for child in element.iter() if _local_name(child.tag) == "measure"]
+            measures = [_unit_measure_name(child, scopes) for child in element.iter() if _local_name(child.tag) == "measure"]
             value = "*".join(name for name, _ok in measures)
         else:
             numerator = next((child for child in divide if _local_name(child.tag) == "unitNumerator"), None)
             denominator = next((child for child in divide if _local_name(child.tag) == "unitDenominator"), None)
-            numerator_measures = [_unit_measure_name(child, namespace_map) for child in numerator.iter() if _local_name(child.tag) == "measure"] if numerator is not None else []
-            denominator_measures = [_unit_measure_name(child, namespace_map) for child in denominator.iter() if _local_name(child.tag) == "measure"] if denominator is not None else []
+            numerator_measures = [_unit_measure_name(child, scopes) for child in numerator.iter() if _local_name(child.tag) == "measure"] if numerator is not None else []
+            denominator_measures = [_unit_measure_name(child, scopes) for child in denominator.iter() if _local_name(child.tag) == "measure"] if denominator is not None else []
             value = (
                 f"{'*'.join(name for name, _ok in numerator_measures)}/{'*'.join(name for name, _ok in denominator_measures)}"
                 if numerator_measures and denominator_measures
@@ -487,14 +527,14 @@ def _units(root: Any, namespace_map: dict[str, str]) -> dict[str, tuple[str, boo
     return units
 
 
-def _unit_measure_name(element: Any, namespace_map: dict[str, str]) -> tuple[str, bool]:
+def _unit_measure_name(element: Any, scopes: dict[Any, dict[str, str]]) -> tuple[str, bool]:
     """(measure name, verified): verified only for an ISO 4217 code or an xbrli shares/pure/item QName in its own namespace."""
 
     value = _optional_text("".join(element.itertext())) or ""
     prefix, separator, local_name = value.partition(":")
     if not separator:
         return value, False
-    namespace = namespace_map.get(prefix)
+    namespace = scopes.get(element, {}).get(prefix)
     if namespace == "http://www.xbrl.org/2003/iso4217":
         return local_name, True
     if namespace == "http://www.xbrl.org/2003/instance" and local_name in {"shares", "pure", "item"}:
