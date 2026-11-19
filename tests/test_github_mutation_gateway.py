@@ -1355,6 +1355,46 @@ def test_rest_comment_snapshot_flattens_more_than_one_hundred_comments(
     assert "per_page=100" in observed[1][1]
 
 
+def test_gh_list_issues_uses_bulk_comments_and_falls_back_on_count_mismatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    marker = "<!-- etf-ai-cockpit:stable-id=ISSUE-%04d -->"
+    rows = [
+        {"number": 1, "body": marker % 1, "comments": 2},
+        {"number": 2, "body": marker % 2, "comments": 1},
+        {"number": 3, "body": "human issue", "comments": 0},
+    ]
+    bulk = [
+        {"id": 30, "issue_url": "https://api.github.com/repos/x/y/issues/1"},
+        {"id": 10, "issue_url": "https://api.github.com/repos/x/y/issues/1"},
+        {"id": 20, "issue_url": "https://api.github.com/repos/x/y/issues/9"},
+    ]
+    fetched: list[int] = []
+
+    class StubTransport:
+        def __init__(self, _repository: str) -> None:
+            pass
+
+        def list_issues(self) -> list[dict[str, Any]]:
+            return copy.deepcopy(rows)
+
+        def list_issue_comments(self) -> list[dict[str, Any]]:
+            return copy.deepcopy(bulk)
+
+        def fetch_issue(self, number: int) -> dict[str, Any]:
+            fetched.append(number)
+            return {"number": number, "body": marker % number, "comments": ["fresh"]}
+
+    monkeypatch.setattr(gateway, "GhMutationTransport", StubTransport)
+
+    result = {issue["number"]: issue for issue in sync.gh_list_issues()}
+
+    assert fetched == [2]
+    assert [row["id"] for row in result[1]["comments"]] == [10, 30]
+    assert result[2]["comments"] == ["fresh"]
+    assert result[3] == rows[2]
+
+
 def test_evidence_contains_hashes_and_lengths_not_remote_content() -> None:
     reviewed = issue()
     evidence = append(reviewed, MemoryTransport(reviewed))
