@@ -229,8 +229,7 @@
   "blocked_issue_ids": [],
   "counts": {
     "closed": 17,
-    "in_progress": 29,
-    "integrated": 183,
+    "integrated": 212,
     "planned": 2,
     "ready": 1,
     "research_only": 2
@@ -6051,5 +6050,5 @@
     "ISSUE-0205"
   ],
   "schema_version": "1.0",
-  "source_registry_sha256": "208e294ec52aa08b0555a9fcc80849d1605ab5a3c8063792a4607d4694c22c03"
+  "source_registry_sha256": "d4c4776ceb5ebc55b881cca3c7fc37a88b59e8b599859765a800a86a214add0b"
 }
