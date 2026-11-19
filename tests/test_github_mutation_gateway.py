@@ -1878,3 +1878,21 @@ def test_accepted_0186_receipt_projection_carries_the_recovery_push():
     acceptance = gateway.validate_create_acceptance(issue)
     assert acceptance["accepted"] and acceptance["authority_id"] == RECOVERY_0186["authority_id"]
     assert acceptance["head_sha"] == RECOVERY_0186["head_sha"] and acceptance["recovery_push"] == RECOVERY_ACTIVATION
+
+
+def test_git_blob_reader_edge_specs(tmp_path):
+    git = lambda *a: subprocess.run(["git", *a], cwd=tmp_path, check=True, capture_output=True)  # noqa: E731
+    git("init", "-q")
+    (tmp_path / "d").mkdir()
+    (tmp_path / "d" / "f.txt").write_bytes(b"data")
+    git("add", ".")
+    git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "c")
+    sha = git("rev-parse", "HEAD").stdout.decode().strip()
+    assert gateway._git_blob_bytes(tmp_path, sha, Path("absent file")) is None
+    assert gateway._git_blob_bytes(tmp_path, sha, Path("d/f.txt")) == b"data"
+    with pytest.raises(ValueError, match="git_blob_reader_not_a_blob"):
+        gateway._git_blob_bytes(tmp_path, sha, Path("d"))
+    with pytest.raises(ValueError, match="git_blob_reader_invalid_spec"):
+        gateway._git_blob_bytes(tmp_path, sha, Path("d/f.txt\nd"))
+    assert gateway._git_blob_bytes(tmp_path, sha, Path("d/f.txt")) == b"data"
+    gateway._GIT_BLOB_READERS.pop(str(tmp_path.resolve()))._proc.kill()
