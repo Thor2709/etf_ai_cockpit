@@ -63,5 +63,5 @@ Follow [`DELIVERY_WORKFLOW.md`](../../DELIVERY_WORKFLOW.md) for current E/O/H/C 
 | `ISSUE-0134` | `P1` | `integrated` | `trading-safety` | `ISSUE-0116`, `ISSUE-0131` | - | - | - |
 | `ISSUE-0135` | `P0` | `integrated` | `trading-safety` | `ISSUE-0131`, `ISSUE-0132` | - | - | - |
 | `ISSUE-0167` | `P0` | `integrated` | `trading-safety` | `ISSUE-0085`, `ISSUE-0114`, `ISSUE-0127`, `ISSUE-0130`, `ISSUE-0131` | - | `ISSUE-0169` | - |
-| `ISSUE-0196` | `P2` | `in_progress` | `backtest-and-paper` | `ISSUE-0184`, `ISSUE-0192` | - | `ISSUE-0197` | `ISSUE-0129`, `ISSUE-0130`, `ISSUE-0132` |
-| `ISSUE-0197` | `P2` | `in_progress` | `backtest-and-paper` | `ISSUE-0190`, `ISSUE-0196` | - | - | `ISSUE-0129`, `ISSUE-0130`, `ISSUE-0132` |
+| `ISSUE-0196` | `P2` | `integrated` | `backtest-and-paper` | `ISSUE-0184`, `ISSUE-0192` | - | `ISSUE-0197` | `ISSUE-0129`, `ISSUE-0130`, `ISSUE-0132` |
+| `ISSUE-0197` | `P2` | `integrated` | `backtest-and-paper` | `ISSUE-0190`, `ISSUE-0196` | - | - | `ISSUE-0129`, `ISSUE-0130`, `ISSUE-0132` |

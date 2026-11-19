@@ -56,5 +56,5 @@ Follow [`DELIVERY_WORKFLOW.md`](../../DELIVERY_WORKFLOW.md) for current E/O/H/C 
 | `ISSUE-0123` | `P0/P1` | `integrated` | `model-governance` | `ISSUE-0108`, `ISSUE-0120` | - | `ISSUE-0124`, `ISSUE-0157`, `ISSUE-0172`, `ISSUE-0174` | - |
 | `ISSUE-0124` | `P0/P1` | `integrated` | `model-governance` | `ISSUE-0117`, `ISSUE-0123` | - | - | - |
 | `ISSUE-0182` | `P0` | `integrated` | `model-governance` | - | - | `ISSUE-0186`, `ISSUE-0188`, `ISSUE-0190`, `ISSUE-0198` | `ISSUE-0119`, `ISSUE-0120`, `ISSUE-0126` |
-| `ISSUE-0190` | `P1` | `in_progress` | `model-governance` | `ISSUE-0182`, `ISSUE-0185` | - | `ISSUE-0197` | `ISSUE-0117`, `ISSUE-0119`, `ISSUE-0120`, `ISSUE-0121`, `ISSUE-0122` |
-| `ISSUE-0209` | `P3` | `in_progress` | `model-governance` | `ISSUE-0184`, `ISSUE-0185` | `external:approved-chronos-2-weights`, `external:chronos-forecasting-extra-approval` | - | `ISSUE-0108`, `ISSUE-0121`, `ISSUE-0123`, `ISSUE-0124` |
+| `ISSUE-0190` | `P1` | `integrated` | `model-governance` | `ISSUE-0182`, `ISSUE-0185` | - | `ISSUE-0197` | `ISSUE-0117`, `ISSUE-0119`, `ISSUE-0120`, `ISSUE-0121`, `ISSUE-0122` |
+| `ISSUE-0209` | `P3` | `integrated` | `model-governance` | `ISSUE-0184`, `ISSUE-0185` | `external:approved-chronos-2-weights`, `external:chronos-forecasting-extra-approval` | - | `ISSUE-0108`, `ISSUE-0121`, `ISSUE-0123`, `ISSUE-0124` |
