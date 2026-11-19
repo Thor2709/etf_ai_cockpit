@@ -38,7 +38,7 @@ def test_no_method_is_named_hrp_unless_canonical() -> None:
 
 
 @pytest.mark.parametrize("shrinkage", ["ledoit_wolf", "none"])
-def test_covariance_is_psd_after_shrinkage_and_flags_insufficient_sample(shrinkage: str) -> None:
+def test_covariance_is_psd_after_shrinkage(shrinkage: str) -> None:
     # More assets than the rank of the sample: the raw covariance is singular.
     wide = _returns(rows=30, assets=40)
     optimiser = PortfolioOptimiser(wide, covariance_shrinkage=shrinkage)
@@ -47,7 +47,10 @@ def test_covariance_is_psd_after_shrinkage_and_flags_insufficient_sample(shrinka
     assert optimiser.covariance_diagnostics["positive_semidefinite"] is True
     if shrinkage == "ledoit_wolf":
         assert 0.0 < float(optimiser.covariance_diagnostics["shrinkage_intensity"]) <= 1.0
-    daily, details = ledoit_wolf_covariance(wide)
+
+
+def test_ledoit_wolf_covariance_is_psd_and_a_short_sample_is_insufficient() -> None:
+    daily, details = ledoit_wolf_covariance(_returns(rows=30, assets=40))
     assert details["status"] == "available" and np.linalg.eigvalsh(daily.to_numpy(float)).min() > 0
 
     short = PortfolioOptimiser(_returns(rows=10))

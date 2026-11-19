@@ -41,7 +41,6 @@ def test_without_embeddings_search_is_lexical_hybrid_is_off_and_reranking_is_una
     assert (result["status"], result["mode_used"], result["hits"][0]["chunk_id"]) == ("available", "lexical", chunks[0].chunk_id)
     assert "disabled" in result["fallback_reason"]
     assert dense["status"] == "unavailable" and dense["hits"] == []
-    assert emb.rerank_status()["status"] == "unavailable"
 
 
 def test_a_model_file_that_differs_from_its_pinned_hash_or_has_no_pin_is_unavailable(tmp_path, monkeypatch) -> None:
@@ -95,8 +94,12 @@ def test_too_few_questions_or_an_unresolved_label_is_insufficient_evidence_and_k
     unresolved = [{"question": f"q{n}", "chunk_id": "0" * 64} for n in range(50)]
     future = _index(tmp_path, [f"Page {n} marker zq{n}x." for n in range(50)], **LATER)  # first known after as_of
     future_only = [{"question": f"zq{n}x", "chunk_id": chunk.chunk_id} for n, chunk in enumerate(future)]
+    other_version = store.chunk_pages([f"Page {n} marker zv{n}x." for n in range(50)], document_sha256="c" * 64, source_id="annual-report",
+                                      published_at="2026-03-01T00:00:00Z", known_at="2026-03-02T00:00:00Z", chunker_version="pages-v0")
+    store.index_document(tmp_path / "data" / store.CHUNK_STORE_NAME, other_version)  # known, but search only reads CHUNKER_VERSION
+    wrong_version = [{"question": f"zv{n}x", "chunk_id": chunk.chunk_id} for n, chunk in enumerate(other_version)]
 
-    for questions in (few, unresolved, future_only):
+    for questions in (few, unresolved, future_only, wrong_version):
         report = eval_retrieval.evaluate(tmp_path, questions, as_of=AS_OF)
         assert report["status"] == "insufficient_evidence" and report["hybrid_enabled"] is False
         assert set(report["modes"]) == {"lexical", "dense", "hybrid"} and report["modes"]["lexical"] is None

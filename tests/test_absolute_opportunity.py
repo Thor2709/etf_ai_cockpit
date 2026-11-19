@@ -543,7 +543,7 @@ def test_bridge_evidence_reaches_the_six_states_through_the_decision_shadow(
     published = (sessions[-1] + pd.Timedelta(hours=1)).tz_localize("UTC").timestamp()  # written before the cut-off
     os.utime(prior, (published, published))
     holdings = pd.DataFrame({"as_of_date": [sessions[-2].date()], "etf_id": ["UCG"], "units": [0.0]})
-    positions = absolute_merit.positions_from_holdings(holdings, list(forecasts))
+    positions = absolute_merit.positions_from_holdings(holdings, list(forecasts), decision_time=decision)
     stamp = f"{decision}T00:00:00Z"
     positions["UCG"] = {"status": "available", "held": True, "currency": "EUR", "friction_unit": "decimal_fraction",
                         "cost_basis": 100.0, "mark_price": 101.0, "friction": 0.001,
@@ -565,3 +565,42 @@ def test_bridge_evidence_reaches_the_six_states_through_the_decision_shadow(
         "EXX1": "ECONOMIC_RISK_VETO", "MSFT": "SOURCE_UNAVAILABLE", "UCG": "HOLD_NO_TRADE"}
     assert results["MSFT"]["decision_reason_code"] == "FX_CONVERSION_UNAVAILABLE"  # a USD forecast without fx evidence
     assert merit["UCG"]["absolute_merit_evidence"]["previous_decision"]["state"] == "HOLD_NO_TRADE"
+
+
+def test_positions_from_holdings_use_only_snapshots_known_by_the_decision() -> None:
+    from datetime import date
+
+    import pandas as pd
+
+    from etf_cockpit.application.absolute_merit import positions_from_holdings
+
+    holdings = pd.DataFrame({"as_of_date": [date(2026, 9, 1), date(2026, 10, 15)], "etf_id": ["AAA", "AAA"], "units": [5.0, 0.0]})
+    # The newest snapshot is after the decision: it must not leak, and the earlier valid evidence must stay.
+    assert positions_from_holdings(holdings, ["AAA"], decision_time=date(2026, 9, 30))["AAA"]["held"] is True
+    assert positions_from_holdings(holdings, ["AAA"], decision_time=date(2026, 10, 15))["AAA"]["held"] is False
+    # No snapshot by the decision: unavailable, not the later snapshot.
+    assert positions_from_holdings(holdings, ["AAA"], decision_time=date(2026, 8, 31)) == {}
+    # A snapshot imported after the decision is not known yet.
+    imported = holdings.assign(known_at=["2026-09-02T00:00:00Z", "2026-10-16T00:00:00Z"])
+    assert positions_from_holdings(imported.iloc[[1]], ["AAA"], decision_time=date(2026, 10, 15)) == {}
+    for column in ("imported_at", "available_at"):
+        late = holdings.assign(**{column: ["2026-09-02T00:00:00Z", "2026-10-16T00:00:00Z"]})
+        assert positions_from_holdings(late.iloc[[1]], ["AAA"], decision_time=date(2026, 10, 15)) == {}
+    # A snapshot counts as a whole: one known row must not turn the unknown AAA row into "not held".
+    partial = pd.DataFrame({
+        "as_of_date": [date(2026, 9, 1), date(2026, 9, 1), date(2026, 10, 15), date(2026, 10, 15)], "etf_id": ["AAA", "BBB", "AAA", "BBB"],
+        "units": [5.0, 1.0, 5.0, 0.0],
+        "known_at": ["2026-09-02T00:00:00Z", "2026-09-02T00:00:00Z", "2026-10-16T00:00:00Z", "2026-10-15T00:00:00Z"],
+    })
+    fallback = positions_from_holdings(partial, ["AAA", "BBB"], decision_time=date(2026, 10, 15))
+    assert fallback["AAA"]["held"] is True and fallback["BBB"]["held"] is True  # the complete September snapshot
+    assert positions_from_holdings(partial.iloc[2:], ["AAA", "BBB"], decision_time=date(2026, 10, 15)) == {}
+    # The record carries the real knowledge time, not the snapshot date; without such a column the date stays.
+    assert fallback["AAA"]["effective_at"] == "2026-09-01T00:00:00Z" and fallback["AAA"]["known_at"] == "2026-09-02T00:00:00Z"
+    assert positions_from_holdings(holdings, ["AAA"], decision_time=date(2026, 9, 30))["AAA"]["known_at"] == "2026-09-01T00:00:00Z"
+    # A row with an unparseable snapshot date is unknown evidence, not an absent row.
+    bad = pd.DataFrame({"as_of_date": ["2026-09-01", "2026-10-15", "bad"], "etf_id": ["AAA", "BBB", "AAA"], "units": [5.0, 1.0, 0.0]})
+    assert positions_from_holdings(bad, ["AAA", "BBB"], decision_time=date(2026, 10, 15)) == {}
+    # A timezone-aware snapshot date is compared like a plain one.
+    aware = holdings.assign(as_of_date=["2026-09-01T00:00:00Z", "2026-10-15T00:00:00Z"])
+    assert positions_from_holdings(aware, ["AAA"], decision_time=date(2026, 9, 30))["AAA"]["held"] is True

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import builtins
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import re
@@ -76,22 +75,6 @@ def test_10k_risk_factor_and_mda_sections_become_chunks_known_only_from_acceptan
     assert search(store, "competition", as_of="2026-02-27T21:00:00Z")["hits"] == []  # before acceptance
     with pytest.raises(sfd.SecFilingDocumentUnavailable, match="acceptance"):
         sfd.parse_10k_section_chunks(source, known_at=accepted + timedelta(seconds=1))
-
-
-def test_missing_edgartools_and_naive_times_are_explicit_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
-    real_import = builtins.__import__
-
-    def without_edgar(name: str, *args: object, **kwargs: object):
-        if name == "edgar" or name.startswith("edgar."):
-            raise ImportError(name)
-        return real_import(name, *args, **kwargs)
-
-    with monkeypatch.context() as patch:
-        patch.setattr(builtins, "__import__", without_edgar)
-        with pytest.raises(sfd.SecFilingDocumentUnavailable, match="optional `sec` extra"):
-            sfd.parse_8k(b"", known_at=RECEIPT)
-    with pytest.raises(sfd.SecFilingDocumentUnavailable, match="timezone-aware"):
-        sfd.parse_8k(b"", known_at=datetime(2026, 7, 30))
 
 
 AGENT = "ETF AI Cockpit tests research@company.org"

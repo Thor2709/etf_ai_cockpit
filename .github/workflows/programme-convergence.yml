@@ -38,8 +38,7 @@ jobs:
           if [[ "${{ github.event_name }}" == "push" ]] && \
              ! git diff --quiet "${{ github.event.before }}" "${{ github.sha }}" -- \
                .github/issue-transitions/post-merge-control-candidate.json \
-               .github/issue-transitions/github-mutation-authority.jsonl \
-               scripts/recover_issue_0186_create.py; then
+               .github/issue-transitions/github-mutation-authority.jsonl; then
             deferred=true
             echo "deferring to programme-status-completion zero-action readback"
           fi

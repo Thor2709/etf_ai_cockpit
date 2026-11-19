@@ -317,30 +317,7 @@ class ForecastService:
 
         adapter_class = TimesFM3Adapter if model_name == "timesfm3" else TimesFMAdapter
         adapter = adapter_class(self.config.models.runtime(model_name))
-        forecasts: list[ForecastResult] = []
-        try:
-            for etf_id in etf_ids:
-                try:
-                    canonical_decision_time = decision_time or pivot.attrs.get("decision_time")
-                    series = _baseline_price_series(pivot, etf_id, as_of_date, decision_time=canonical_decision_time)
-                except ValueError as exc:
-                    forecasts.extend(adapter._status_results(
-                        horizons, etf_id=etf_id, forecast_date=as_of_date,
-                        run_id=run_id, status="unavailable", message=str(exc),
-                    ))
-                    continue
-                forecasts.extend(
-                    adapter.forecast_series(
-                        series,
-                        horizons,
-                        etf_id=etf_id,
-                        forecast_date=as_of_date,
-                        run_id=run_id,
-                    )
-                )
-        finally:
-            adapter.unload_model()
-        return forecasts
+        return self._forecast_with_adapter(adapter, pivot, etf_ids, horizons, as_of_date, run_id, decision_time=decision_time)
 
     def _run_chronos2_forecasts(
         self,
@@ -355,23 +332,41 @@ class ForecastService:
         from etf_cockpit.models.chronos2_adapter import Chronos2Adapter
 
         adapter = Chronos2Adapter(self.config.models.runtime("chronos2"))
+        return self._forecast_with_adapter(
+            adapter, pivot, etf_ids, horizons, as_of_date, run_id,
+            past_covariates={"benchmark_return": benchmark_returns} if benchmark_returns is not None else None,
+            covariate_skip_id=benchmark_id,
+        )
+
+    def _forecast_with_adapter(
+        self,
+        adapter,
+        pivot: pd.DataFrame,
+        etf_ids: list[str],
+        horizons: list[int],
+        as_of_date: date,
+        run_id: str,
+        *,
+        decision_time: str | None = None,
+        past_covariates: dict[str, pd.Series] | None = None,
+        covariate_skip_id: str | None = None,
+    ) -> list[ForecastResult]:
+        """Run one adapter over every instrument; an instrument without a usable series gets an unavailable status."""
+
         forecasts: list[ForecastResult] = []
         try:
             for etf_id in etf_ids:
                 try:
-                    series = _baseline_price_series(pivot, etf_id, as_of_date, decision_time=pivot.attrs.get("decision_time"))
+                    series = _baseline_price_series(pivot, etf_id, as_of_date, decision_time=decision_time or pivot.attrs.get("decision_time"))
                 except ValueError as exc:
                     forecasts.extend(adapter._status_results(
                         horizons, etf_id=etf_id, forecast_date=as_of_date,
                         run_id=run_id, status="unavailable", message=str(exc),
                     ))
                     continue
+                covariates = {"past_covariates": past_covariates} if past_covariates is not None and etf_id != covariate_skip_id else {}
                 forecasts.extend(adapter.forecast_series(
-                    series, horizons, etf_id=etf_id, forecast_date=as_of_date, run_id=run_id,
-                    past_covariates=(
-                        {"benchmark_return": benchmark_returns}
-                        if benchmark_returns is not None and etf_id != benchmark_id else None
-                    ),
+                    series, horizons, etf_id=etf_id, forecast_date=as_of_date, run_id=run_id, **covariates,
                 ))
         finally:
             adapter.unload_model()

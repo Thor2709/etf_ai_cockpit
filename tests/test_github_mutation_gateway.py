@@ -1783,6 +1783,103 @@ def test_read_gh_fails_immediately_for_non_transient_errors(
     assert sleeps == []
 
 
+ISSUE_0186 = "ISSUE-0186"
+RECOVERY_ACTIVATION = "a" * 40
+RECOVERY_0186 = gateway.CREATE_RECEIPT_RECOVERIES[ISSUE_0186]
+RECOVERY_MARKER = gateway.CREATE_MARKER_TEMPLATE.format(RECOVERY_0186["authority_id"])
+
+
+def _recovery_issue(number, body, *, issue_id="1", node_id="I_1"):
+    return {
+        "id": issue_id, "node_id": node_id, "number": number, "title": "Other", "body": body,
+        "state": "open", "labels": [], "comments": [],
+        "url": f"https://api.github.com/repos/{gateway.REPO}/issues/{number}",
+    }
+
+
+def test_recovery_issue_identity_is_bound_by_the_receipt_only_for_the_entry_that_declares_it():
+    issue = _recovery_issue(1071, RECOVERY_MARKER, issue_id="6500000001", node_id="I_kwNEW")
+
+    def receipt(stable_id, authority_id, source_sha, head_sha, snapshot):
+        value, _body = gateway.build_create_receipt(
+            snapshot, mutation_id=authority_id, stable_id=stable_id, authority_id=authority_id,
+            source_sha=source_sha, head_sha=head_sha, event_before=head_sha, event_after=RECOVERY_ACTIVATION,
+        )
+        return value
+
+    assert RECOVERY_0186["issue_id"] is None and RECOVERY_0186["node_id"] is None
+    assert gateway._is_create_receipt_recovery(receipt("ISSUE-0186", RECOVERY_0186["authority_id"], RECOVERY_0186["source_sha"], RECOVERY_0186["head_sha"], issue))
+    assert not gateway._is_create_receipt_recovery(
+        receipt("ISSUE-0186", RECOVERY_0186["authority_id"], RECOVERY_0186["source_sha"], RECOVERY_0186["head_sha"], {**issue, "id": ""})
+    )
+    spent = gateway.CREATE_RECEIPT_RECOVERIES["ISSUE-0183"]
+    spent_args = ("ISSUE-0183", spent["authority_id"], spent["source_sha"], spent["head_sha"])
+    assert not gateway._is_create_receipt_recovery(receipt(*spent_args, issue))  # a pinned entry still pins its issue
+    assert gateway._is_create_receipt_recovery(
+        receipt(*spent_args, {**issue, "id": spent["issue_id"], "node_id": spent["node_id"]})
+    )
+
+
+def test_issue_0186_reviewed_candidate_can_have_multiple_commits_but_apply_requires_merge_parent(tmp_path, monkeypatch):
+    def git(*args):
+        return subprocess.check_output(["git", *args], cwd=tmp_path, text=True).strip()
+
+    git("init", "-q")
+    git("config", "user.name", "Test")
+    git("config", "user.email", "test@example.invalid")
+    ledger = tmp_path / gateway.AUTHORITY_PATH
+    ledger.parent.mkdir(parents=True)
+    ledger.write_bytes(b"original ledger\n")
+    git("add", ".")
+    git("commit", "-qm", "spent create")
+    base = git("rev-parse", "HEAD")
+    monkeypatch.setitem(RECOVERY_0186, "head_sha", base)
+    git("commit", "--allow-empty", "-qm", "early change")
+    path = tmp_path / RECOVERY_0186["path"]
+    path.parent.mkdir()
+    path.write_text("# recovery\n", encoding="utf-8")
+    git("add", ".")
+    git("commit", "-qm", "reviewed recovery")
+    candidate = git("rev-parse", "HEAD")
+    gateway.validate_create_receipt_recovery_push(tmp_path, base, candidate, stable_id=ISSUE_0186, validating_candidate=True)
+    with pytest.raises(ValueError, match="issue_0186_recovery_push_not_authorised"):
+        gateway.validate_create_receipt_recovery_push(tmp_path, base, candidate, stable_id=ISSUE_0186)
+    git("switch", "--detach", base)
+    git("merge", "--no-ff", "-qm", "reviewed merge", candidate)
+    gateway.validate_create_receipt_recovery_push(tmp_path, base, git("rev-parse", "HEAD"), stable_id=ISSUE_0186)
+
+
+def test_create_receipt_parser_rejects_other_issues_using_the_0186_recovery_push():
+    _, body = gateway.build_create_receipt(
+        _recovery_issue(1071, RECOVERY_MARKER, issue_id="6500000001", node_id="I_kwNEW"),
+        mutation_id="9" * 64, stable_id="ISSUE-0184", authority_id="9" * 64, authority_sequence=199,
+        source_sha=RECOVERY_0186["source_sha"], head_sha=RECOVERY_0186["head_sha"],
+        event_before=RECOVERY_0186["head_sha"], event_after=RECOVERY_ACTIVATION,
+    )
+    with pytest.raises(ValueError, match="invalid_create_receipt_workflow_binding"):
+        gateway.parse_create_receipt(body)
+
+
+def test_accepted_0186_receipt_projection_carries_the_recovery_push():
+    issue = _recovery_issue(
+        1071, RECOVERY_MARKER + chr(10) + "<!-- etf-ai-cockpit:stable-id=ISSUE-0186 -->", issue_id="6500000001", node_id="I_kwNEW"
+    )
+    _, receipt_body = gateway.build_create_receipt(
+        issue, mutation_id=RECOVERY_0186["authority_id"], stable_id=ISSUE_0186, authority_id=RECOVERY_0186["authority_id"],
+        authority_sequence=201, source_sha=RECOVERY_0186["source_sha"], head_sha=RECOVERY_0186["head_sha"],
+        event_before=RECOVERY_0186["head_sha"], event_after=RECOVERY_ACTIVATION,
+    )
+    issue["comments"] = [{
+        "id": 999, "node_id": "IC_test", "body": receipt_body,
+        "user": {"id": int(gateway.GITHUB_ACTIONS_BOT_USER_ID), "login": "github-actions[bot]", "type": "Bot"},
+        "performed_via_github_app": {"slug": "github-actions", "id": gateway.GITHUB_ACTIONS_APP_ID},
+        "created_at": "2026-11-18T14:00:00Z", "updated_at": "2026-11-18T14:00:00Z",
+    }]
+    acceptance = gateway.validate_create_acceptance(issue)
+    assert acceptance["accepted"] and acceptance["authority_id"] == RECOVERY_0186["authority_id"]
+    assert acceptance["head_sha"] == RECOVERY_0186["head_sha"] and acceptance["recovery_push"] == RECOVERY_ACTIVATION
+
+
 def test_git_blob_reader_edge_specs(tmp_path):
     git = lambda *a: subprocess.run(["git", *a], cwd=tmp_path, check=True, capture_output=True)  # noqa: E731
     git("init", "-q")

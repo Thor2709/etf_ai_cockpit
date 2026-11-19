@@ -289,7 +289,7 @@ def _absolute_merit(
             config=config,
             decision_time=decision_time,
             prior=latest_prior_decision(LOG_DIR, decision_time),
-            positions=positions_from_holdings(holdings, config.universe.enabled_ids) if holdings is not None else None,
+            positions=positions_from_holdings(holdings, config.universe.enabled_ids, decision_time=decision_time) if holdings is not None else None,
         ), []
     except Exception as exc:
         return None, [{"instrument": "universe", "reason_code": f"ABSOLUTE_MERIT_FAILED:{type(exc).__name__}"}]
