@@ -9,18 +9,17 @@ from urllib.parse import urlencode
 from zoneinfo import ZoneInfo
 
 from etf_cockpit.core.config import ProviderSection
-from etf_cockpit.core.http_fetch import get_checked, same_host_https
 from etf_cockpit.data.contracts import ProviderCapability, SourceAuthority
 from etf_cockpit.data.macro_warehouse import (
     FETCH_ERRORS,
     MacroFetchResult,
     MacroObservation,
+    fetch_bytes,
     fetch_time,
     legal_terms_block,
 )
 
 _URL = "https://api.stlouisfed.org/fred/series/observations"
-_MAX_BYTES = 50_000_000
 _MAX_PAGES = 20  # FRED returns at most 100,000 rows per request
 _EARLIEST_VINTAGE = "1776-07-04"
 _LATEST_VINTAGE = "9999-12-31"
@@ -137,7 +136,9 @@ class FredProvider:
         for _ in range(_MAX_PAGES):
             query = params | ({"offset": str(len(rows))} if rows else {})
             url = f"{_URL}?{urlencode(query)}"
-            page = self.transport(url) if self.transport else _get(url)
+            page = self.transport(url) if self.transport else fetch_bytes(
+                url, {"User-Agent": "ETF AI Evidence Cockpit/1.0"}
+            )
             document = json.loads(page)
             batch = document["observations"]
             total = int(document.get("count", len(rows) + len(batch)))
@@ -148,19 +149,6 @@ class FredProvider:
         if len(rows) < total:
             raise ValueError("truncated response")
         return rows, payloads
-
-
-def _get(url: str) -> bytes:
-    payload, _status, _headers = get_checked(
-        url,
-        allowed=same_host_https(url),
-        headers={"User-Agent": "ETF AI Evidence Cockpit/1.0"},
-        timeout=30.0,
-        max_bytes=_MAX_BYTES,
-    )
-    if len(payload) > _MAX_BYTES:
-        raise ValueError("response too large")
-    return payload
 
 
 def _observations(

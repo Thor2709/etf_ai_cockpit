@@ -12,18 +12,17 @@ from datetime import date, datetime
 import hashlib
 import io
 
-from etf_cockpit.core.http_fetch import get_checked, same_host_https
 from etf_cockpit.data.macro_warehouse import (
     FETCH_ERRORS,
     MacroFetchResult,
     MacroObservation,
     MacroWarehouseError,
+    fetch_bytes,
     fetch_time,
     legal_terms_block,
 )
 
 _BASE = "https://data-api.ecb.europa.eu/service/data"
-_MAX_BYTES = 50_000_000
 _FREQUENCY = {"D": "daily", "B": "daily", "M": "monthly", "A": "annual"}
 
 
@@ -41,7 +40,9 @@ class EcbProvider:
             return MacroFetchResult.unavailable(blocked)
         url = f"{_BASE}/{dataflow}/{key}?format=csvdata"
         try:
-            payload = self.transport(url) if self.transport else _get(url)
+            payload = self.transport(url) if self.transport else fetch_bytes(
+                url, {"User-Agent": "ETF AI Evidence Cockpit/1.0", "Accept": "text/csv"}
+            )
             known_at = fetch_time(fetched_at)  # taken after the response arrived, never before
             rows = parse_ecb_csv(payload, fetched_at=known_at)
         except FETCH_ERRORS as exc:
@@ -49,19 +50,6 @@ class EcbProvider:
         if not rows:
             return MacroFetchResult.unavailable("ECB returned no usable observations.")
         return MacroFetchResult("available", tuple(rows))
-
-
-def _get(url: str) -> bytes:
-    payload, _status, _headers = get_checked(
-        url,
-        allowed=same_host_https(url),
-        headers={"User-Agent": "ETF AI Evidence Cockpit/1.0", "Accept": "text/csv"},
-        timeout=30.0,
-        max_bytes=_MAX_BYTES,
-    )
-    if len(payload) > _MAX_BYTES:
-        raise ValueError("response too large")
-    return payload
 
 
 def _unit(row: dict[str, str]) -> str:

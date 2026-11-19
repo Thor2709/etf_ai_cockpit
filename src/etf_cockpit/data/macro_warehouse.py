@@ -26,6 +26,7 @@ import pandas as pd
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, model_validator
 
 from etf_cockpit.core.atomic_io import atomic_write_json
+from etf_cockpit.core.http_fetch import get_checked, same_host_https
 from etf_cockpit.core.paths import CONFIG_DIR
 from etf_cockpit.data.bitemporal import BitemporalError, BitemporalStore
 from etf_cockpit.data.legal_terms import LegalTermsError, load_legal_terms
@@ -1069,6 +1070,20 @@ class MacroFetchResult:
 FETCH_ERRORS = (OSError, ValueError, KeyError, TypeError, AttributeError, csv.Error, http.client.HTTPException)
 
 
+_MAX_FETCH_BYTES = 50_000_000
+
+
+def fetch_bytes(url: str, headers: Mapping[str, str]) -> bytes:
+    """Fetch one same-host HTTPS response, bounded in size."""
+
+    payload, _status, _headers = get_checked(
+        url, allowed=same_host_https(url), headers=dict(headers), timeout=30.0, max_bytes=_MAX_FETCH_BYTES
+    )
+    if len(payload) > _MAX_FETCH_BYTES:
+        raise ValueError("response too large")
+    return payload
+
+
 def fetch_time(value: datetime | None) -> datetime:
     """Return the explicit UTC time a fetch was made; it is the latest time the data was known."""
 
@@ -1779,6 +1794,7 @@ __all__ = [
     "CurvePoint",
     "CurveSnapshot",
     "FETCH_ERRORS",
+    "fetch_bytes",
     "MacroFetchResult",
     "MacroObservation",
     "MacroWarehouse",

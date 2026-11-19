@@ -106,6 +106,9 @@ def test_ecb_fixture_import_stores_rate_and_fx_series_with_units_terms_and_times
         # Known when fetched, not when observed; the API has no vintage history.
         assert pd.Timestamp(row.available_at) == pd.Timestamp(row.ingested_at) == pd.Timestamp(FETCHED_AT)
         assert row.availability_confidence == "inferred"
+    ecb_terms = registry.entry("ecb")
+    text = f"{ecb_terms.terms_reference} {ecb_terms.review_note}".lower()
+    assert "unmodified" in text and "third-part" in text and "permission" in text
     before_fetch = MacroWarehouse().as_of(
         root=tmp_path, dataset_id="ecb:EXR.D.USD.EUR.SP00.A", decision_time="2025-12-31T00:00:00+00:00"
     )
@@ -159,6 +162,13 @@ def test_each_indicator_is_computed_from_exact_vintages_known_at_the_cutoff() ->
     assert macro_indicator(gdp_other_quarter, "market_cap_to_gdp")["status"] == "unavailable"
     short_history = rows[~((rows["series_id"] == "UNRATE") & (rows["period_start"] < "2023-02-01"))]
     assert macro_indicator(short_history, "sahm_rule")["status"] == "unavailable"
+
+    # Preceding 3-month averages are all 3.5; the current one is (3.5 + 3.5 + 5.6) / 3 = 4.2.
+    flat = pd.DataFrame(_series("UNRATE", "percent", dict(zip(months, [3.5] * 14 + [5.6]))))
+    assert macro_indicator(flat, "sahm_rule")["value"] == pytest.approx(0.70)
+    # A new low is below every preceding average, so the rule is negative, never floored by the current month.
+    falling = pd.DataFrame(_series("UNRATE", "percent", dict(zip(months, [5.0 - 0.1 * n for n in range(15)]))))
+    assert macro_indicator(falling, "sahm_rule")["value"] == pytest.approx(-0.1)
 
 
 def test_indicators_use_only_vintages_known_at_the_cutoff(tmp_path) -> None:
@@ -241,12 +251,6 @@ def test_ecb_rate_effective_after_the_fetch_is_deferred_not_rejecting_the_batch(
     assert [row.period_start for row in later.observations] == ["2025-12-30", "2026-02-01"]
 
 
-def test_ecb_legal_terms_row_records_the_reuse_conditions() -> None:
-    entry = load_legal_terms().entry("ecb")
-    text = f"{entry.terms_reference} {entry.review_note}".lower()
-    assert "unmodified" in text and "third-part" in text and "permission" in text
-
-
 def test_fred_vintage_fetch_reads_every_page_before_assigning_revisions(tmp_path) -> None:
     rows = [
         ("2024-01-01", "3.7", "2024-02-02", "2024-03-07"),
@@ -269,13 +273,3 @@ def test_fred_vintage_fetch_reads_every_page_before_assigning_revisions(tmp_path
     ]
     short = FredProvider(api_key="test-key", transport=lambda url: json.dumps({"count": 5, "observations": []}).encode())
     assert short.fetch_vintages("UNRATE", fetched_at=FETCHED_AT).status == "unavailable"
-
-
-def test_sahm_rule_compares_with_the_preceding_twelve_averages_only() -> None:
-    months = pd.period_range("2023-01", "2024-03", freq="M").strftime("%Y-%m-01")
-    # Preceding 3-month averages are all 3.5; the current one is (3.5 + 3.5 + 5.6) / 3 = 4.2.
-    flat = pd.DataFrame(_series("UNRATE", "percent", dict(zip(months, [3.5] * 14 + [5.6]))))
-    assert macro_indicator(flat, "sahm_rule")["value"] == pytest.approx(0.70)
-    # A new low is below every preceding average, so the rule is negative, never floored by the current month.
-    falling = pd.DataFrame(_series("UNRATE", "percent", dict(zip(months, [5.0 - 0.1 * n for n in range(15)]))))
-    assert macro_indicator(falling, "sahm_rule")["value"] == pytest.approx(-0.1)
