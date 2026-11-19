@@ -39,7 +39,7 @@ STATUS_RE = re.compile(r"^- Programme status: `([^`]+)`$", re.MULTILINE)
 INFORMATIONAL_MARKER_RE = re.compile(
     r"^<!-- etf-ai-cockpit:fundamental-release-link=[1-9][0-9]* -->(?:\n|$)"
 )
-SINGLE_HOP_STATUS_TARGETS = frozenset({"ready", "in_progress", "integrated"})
+SINGLE_HOP_STATUS_TARGETS = frozenset({"ready", "in_progress", "integrated", "deferred"})
 STATUS_BATCH_AUTHORITY_TYPES = frozenset({"status", "status_replay"})
 RECOVERY_AUTHORITY_ID = (
     "db7622b54f8afd1ccdf24a6b356f3691aecb2e46b68c90136e8389aa2b9c08d8"
