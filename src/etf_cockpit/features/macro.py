@@ -463,6 +463,15 @@ def observation_summary_payload(rows: list[dict[str, object]], missing_jurisdict
     return {"status": "available" if rows else "unavailable", "rows": rows, "reason": reason}
 
 
+def _exact_rows(rows: pd.DataFrame, series_id: str) -> pd.DataFrame:
+    """The one gate for macro features: only exact-availability rows of the series."""
+
+    if rows.empty or "availability_confidence" not in rows.columns:
+        return rows.iloc[0:0]
+    exact = rows[(rows["series_id"] == series_id) & (rows["availability_confidence"] == "exact")]
+    return exact.sort_values(["period_start", "available_at"]).drop_duplicates("period_start", keep="last")
+
+
 def macro_feature_value(rows: pd.DataFrame, *, series_id: str) -> dict[str, object]:
     """Return the latest exact-availability value of one series from ``MacroWarehouse.as_of`` rows.
 
@@ -473,7 +482,7 @@ def macro_feature_value(rows: pd.DataFrame, *, series_id: str) -> dict[str, obje
     unavailable = {"status": "unavailable", "series_id": series_id, "value": None, "execution_allowed": False}
     if rows.empty or "availability_confidence" not in rows.columns:
         return {**unavailable, "reason": "no macro observations were available at the decision time"}
-    exact = rows[(rows["series_id"] == series_id) & (rows["availability_confidence"] == "exact")]
+    exact = _exact_rows(rows, series_id)
     if exact.empty:
         return {**unavailable, "reason": "no exact-availability observation for the series; inferred rows are barred"}
     latest = exact.sort_values("period_start").iloc[-1]
@@ -487,10 +496,137 @@ def macro_feature_value(rows: pd.DataFrame, *, series_id: str) -> dict[str, obje
     }
 
 
+# INT-19 indicators.  Inputs are ``MacroWarehouse.as_of`` rows, so only vintages known at the cut-off
+# are present; ``_exact_rows`` then bars rows whose availability is not exact.  A missing input
+# makes the indicator unavailable; nothing is filled.
+_LEVELS = {
+    "baa_10y_spread": "BAA10Y",
+    "hy_oas": "BAMLH0A0HYM2",
+    "nfci": "NFCI",
+    "vix": "VIXCLS",
+    "cape": "SHILLER_CAPE",  # user-imported Shiller file
+}
+# id -> (long leg, short leg); both legs must share one period.
+_SLOPES = {"slope_10y_2y": ("DGS10", "DGS2"), "slope_10y_3m": ("DGS10", "DGS3MO")}
+INDICATOR_IDS = (*_SLOPES, *_LEVELS, "sahm_rule", "equity_risk_premium", "market_cap_to_gdp")
+_SAHM_MONTHS = 14  # twelve 3-month averages need fourteen consecutive months
+_Outcome = tuple[float, str, dict[str, pd.Series]] | str
+
+
+def _indicator_result(indicator_id: str, outcome: _Outcome) -> dict[str, object]:
+    if isinstance(outcome, str):
+        return {"status": "unavailable", "indicator_id": indicator_id, "value": None, "reason": outcome, "execution_allowed": False}
+    value, unit, used = outcome
+    return {
+        "status": "available",
+        "indicator_id": indicator_id,
+        "value": float(value),
+        "unit": unit,
+        "inputs": {name: {"period_start": str(row["period_start"]), "available_at": str(row["available_at"])} for name, row in used.items()},
+        "execution_allowed": False,
+    }
+
+
+def _latest_inputs(rows: pd.DataFrame, series_ids: tuple[str, ...]) -> dict[str, pd.Series] | str:
+    found: dict[str, pd.Series] = {}
+    for series_id in series_ids:
+        exact = _exact_rows(rows, series_id)
+        if exact.empty:
+            return f"no exact-availability observation for {series_id} at the cut-off"
+        found[series_id] = exact.iloc[-1]
+    return found
+
+
+def _sahm_rule(rows: pd.DataFrame) -> _Outcome:
+    exact = _exact_rows(rows, "UNRATE")
+    if exact.empty:
+        return "no exact-availability observation for UNRATE at the cut-off"
+    if set(exact["unit"]) != {"percent"}:
+        return "UNRATE must be in percent"
+    series = pd.Series(exact["value"].to_numpy(float), index=pd.to_datetime(exact["period_start"]).dt.to_period("M"))
+    window = pd.period_range(end=series.index.max(), periods=_SAHM_MONTHS, freq="M")
+    if not window.isin(series.index).all():
+        return f"UNRATE needs {_SAHM_MONTHS} consecutive months at the cut-off"
+    averages = series.loc[window].rolling(3).mean().dropna()
+    # Latest 3-month average less the lowest 3-month average of the 12 months ending with it.
+    return float(averages.iloc[-1] - averages.min()), "percentage_points", {"UNRATE": exact.iloc[-1]}
+
+
+def _slope(rows: pd.DataFrame, first: str, second: str) -> _Outcome:
+    found = _latest_inputs(rows, (first, second))
+    if isinstance(found, str):
+        return found
+    if found[first]["unit"] != found[second]["unit"]:
+        return "the two series use different units"
+    if found[first]["period_start"] != found[second]["period_start"]:
+        return "the two series have different latest periods"
+    unit = "percentage_points" if found[first]["unit"] == "percent" else str(found[first]["unit"])
+    return float(found[first]["value"]) - float(found[second]["value"]), unit, found
+
+
+def _equity_risk_premium(rows: pd.DataFrame) -> _Outcome:
+    # Earnings yield from CAPE less the 10-year real yield, in percentage points.
+    found = _latest_inputs(rows, ("SHILLER_CAPE", "DFII10"))
+    if isinstance(found, str):
+        return found
+    cape, real_yield = float(found["SHILLER_CAPE"]["value"]), float(found["DFII10"]["value"])
+    if cape <= 0 or found["DFII10"]["unit"] != "percent":
+        return "CAPE must be positive and the real yield in percent"
+    return 100.0 / cape - real_yield, "percentage_points", found
+
+
+def _market_cap_to_gdp(rows: pd.DataFrame) -> _Outcome:
+    found = _latest_inputs(rows, ("BOGZ1LM893064105Q",))
+    if isinstance(found, str):
+        return found
+    market_cap = found["BOGZ1LM893064105Q"]
+    # GDP of the same quarter as the latest market value, never a different quarter.
+    same_quarter = _exact_rows(rows, "GDP")
+    same_quarter = same_quarter[same_quarter["period_start"] == market_cap["period_start"]]
+    if same_quarter.empty:
+        return "no exact-availability GDP observation for the market value's quarter"
+    gdp = same_quarter.iloc[-1]
+    found["GDP"] = gdp
+    if market_cap["unit"] != "millions_usd" or gdp["unit"] != "billions_usd" or float(gdp["value"]) <= 0:
+        return "market value must be in millions_usd and a positive GDP in billions_usd"
+    return float(market_cap["value"]) / (float(gdp["value"]) * 1000.0) * 100.0, "percent", found
+
+
+def macro_indicator(rows: pd.DataFrame, indicator_id: str) -> dict[str, object]:
+    """Compute one INT-19 indicator from the vintages in ``rows``, or return it as unavailable."""
+
+    if indicator_id not in INDICATOR_IDS:
+        raise ValueError(f"unknown macro indicator: {indicator_id}")
+    outcome: _Outcome
+    if indicator_id in _LEVELS:
+        found = _latest_inputs(rows, (_LEVELS[indicator_id],))
+        if isinstance(found, str):
+            outcome = found
+        else:
+            (row,) = found.values()
+            outcome = (float(row["value"]), str(row["unit"]), found)
+    elif indicator_id in _SLOPES:
+        outcome = _slope(rows, *_SLOPES[indicator_id])
+    elif indicator_id == "sahm_rule":
+        outcome = _sahm_rule(rows)
+    elif indicator_id == "equity_risk_premium":
+        outcome = _equity_risk_premium(rows)
+    else:
+        outcome = _market_cap_to_gdp(rows)
+    return _indicator_result(indicator_id, outcome)
+
+
+def macro_indicators(rows: pd.DataFrame) -> dict[str, dict[str, object]]:
+    return {indicator_id: macro_indicator(rows, indicator_id) for indicator_id in INDICATOR_IDS}
+
+
 __all__ = [
+    "INDICATOR_IDS",
     "build_macro_context",
     "finalize_observation_rows",
     "macro_feature_value",
+    "macro_indicator",
+    "macro_indicators",
     "macro_status",
     "observation_summary_payload",
 ]

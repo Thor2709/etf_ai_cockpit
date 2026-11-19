@@ -1,5 +1,5 @@
 schema_version: "legal-terms.v1"
-registry_version: "2026-07-17"
+registry_version: "2026-11-19"
 review_status: "hardening_required"
 professional_review_required: true
 mandatory_source_ids:
@@ -164,6 +164,15 @@ sources:
     audit_export: allowed_with_attribution
     attribution: "Retain FRED series identifier, source URL and checksum."
     review_note: "API keys and service limits remain external constraints."
+  - source_id: ecb
+    source_kind: official_public_api
+    terms_status: recorded
+    terms_reference: "ECB data API terms and the ECB statistics reuse policy: reuse is permitted with acknowledgement of the source."
+    permitted_cache: local_replay
+    redistribution: attribution_required
+    audit_export: allowed_with_attribution
+    attribution: "Source: ECB. Retain the series key, dataflow, fetch time and checksum."
+    review_note: "The API has no vintage history, so rows are known from the fetch time only; confirm the current ECB terms of use at acquisition."
   - source_id: rss
     source_kind: optional_feed
     terms_status: recorded_restricted

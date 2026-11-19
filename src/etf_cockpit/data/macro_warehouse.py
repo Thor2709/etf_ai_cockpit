@@ -9,8 +9,10 @@ that was not available on that date.
 from __future__ import annotations
 
 import csv
+from dataclasses import dataclass
 from datetime import date, datetime, time, timezone
 import hashlib
+import http.client
 import io
 import json
 import math
@@ -26,6 +28,7 @@ from pydantic import BaseModel, ConfigDict, Field, StrictBool, model_validator
 from etf_cockpit.core.atomic_io import atomic_write_json
 from etf_cockpit.core.paths import CONFIG_DIR
 from etf_cockpit.data.bitemporal import BitemporalError, BitemporalStore
+from etf_cockpit.data.legal_terms import LegalTermsError, load_legal_terms
 
 
 _TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%S+00:00"
@@ -1049,6 +1052,44 @@ def _project_manifest(path: Path, manifest: Mapping[str, object]) -> None:
         return
 
 
+@dataclass(frozen=True)
+class MacroFetchResult:
+    """Outcome of one remote macro fetch; a failure carries a reason and never zero-filled rows."""
+
+    status: str
+    observations: tuple[MacroObservation, ...] = ()
+    reason: str | None = None
+
+    @classmethod
+    def unavailable(cls, reason: str) -> MacroFetchResult:
+        return cls("unavailable", (), reason)
+
+
+# Failures of a remote fetch or of parsing its payload; each becomes an unavailable result.
+FETCH_ERRORS = (OSError, ValueError, KeyError, TypeError, AttributeError, csv.Error, http.client.HTTPException)
+
+
+def fetch_time(value: datetime | None) -> datetime:
+    """Return the explicit UTC time a fetch was made; it is the latest time the data was known."""
+
+    resolved = value or datetime.now(timezone.utc)
+    if resolved.tzinfo is None:
+        raise MacroWarehouseError("fetched_at must be timezone-aware")
+    return resolved.astimezone(timezone.utc)
+
+
+def legal_terms_block(entry_id: str) -> str | None:
+    """Return a reason when a source has no legal-terms row or its row forbids a local cache."""
+
+    try:
+        entry = load_legal_terms(CONFIG_DIR / "legal_terms_registry.yaml").entry(entry_id)
+    except LegalTermsError:
+        return "the legal-terms registry could not be loaded"
+    if entry is None or (entry.permitted_cache or "prohibited") == "prohibited":
+        return f"the legal-terms row for {entry_id} is missing or forbids a local cache"
+    return None
+
+
 class MacroWarehouse:
     """Adapter exposing macro observations and explicit unavailable summaries."""
 
@@ -1082,6 +1123,25 @@ class MacroWarehouse:
             raise MacroWarehouseError(str(exc)) from exc
         _project_manifest(self._manifest_path(Path(root)), manifest)
         return manifest
+
+    def ingest_vintages(self, observations: Iterable[MacroObservation], *, root: Path) -> dict[str, object] | None:
+        """Ingest only the revisions not stored yet, so refreshing a vintage history is repeatable.
+
+        A stored revision with another value or availability still reaches the append and is
+        rejected there; it is never overwritten.  Returns ``None`` when nothing is new.
+        """
+
+        rows = [_validate(row) for row in observations]
+        stored = {
+            (old.series_id, old.period_start, old.revision, old.value, _timestamp_value(old.available_at))
+            for dataset_id in {row.dataset_id for row in rows}
+            for old in self.observations(root=Path(root), dataset_id=dataset_id)
+        }
+        new = [
+            row for row in rows
+            if (row.series_id, row.period_start, row.revision, row.value, _timestamp_value(row.available_at)) not in stored
+        ]
+        return self.ingest(new, root=root) if new else None
 
     def observations(self, *, root: Path, dataset_id: str | None = None) -> list[MacroObservation]:
         with BitemporalStore(Path(root)) as store:
@@ -1718,12 +1778,16 @@ __all__ = [
     "BenchmarkMetadata",
     "CurvePoint",
     "CurveSnapshot",
+    "FETCH_ERRORS",
+    "MacroFetchResult",
     "MacroObservation",
     "MacroWarehouse",
     "MacroWarehouseError",
     "RiskFreeProxyMapping",
     "RISK_FREE_PROXY_CONFIG_PATH",
+    "fetch_time",
     "interpolate_curve",
+    "legal_terms_block",
     "load_risk_free_proxy_mappings",
     "parse_csv_records",
     "parse_world_bank_records",
