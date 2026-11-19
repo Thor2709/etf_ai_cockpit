@@ -198,15 +198,24 @@ def latest_prior_decision(directory: Path, decision_time: date) -> dict[str, obj
     return None
 
 
-def positions_from_holdings(holdings: pd.DataFrame, instruments: Iterable[str]) -> dict[str, dict[str, object]]:
-    """Held/not-held records from the newest holdings snapshot.
+def positions_from_holdings(holdings: pd.DataFrame, instruments: Iterable[str], *, decision_time: date) -> dict[str, dict[str, object]]:
+    """Held/not-held records from the newest holdings snapshot known at ``decision_time``.
 
+    A snapshot dated after the decision (or imported after it, when the rows carry ``known_at``) is ignored.
     The holdings carry no cost basis, so a held position stays fail-closed in the consumer."""
 
     if holdings.empty or holdings.attrs.get("status") == "unavailable":
         return {}
-    as_of = pd.to_datetime(holdings["as_of_date"]).max()
-    latest = holdings.loc[pd.to_datetime(holdings["as_of_date"]).eq(as_of)]
+    cutoff = _decision_timestamp(decision_time)
+    dated = pd.to_datetime(holdings["as_of_date"])
+    known = dated.le(pd.Timestamp(cutoff.date()))
+    if "known_at" in holdings:
+        known &= pd.to_datetime(holdings["known_at"], errors="coerce", utc=True, format="mixed").le(cutoff)
+    holdings, dated = holdings.loc[known], dated.loc[known]
+    if holdings.empty:
+        return {}
+    as_of = dated.max()
+    latest = holdings.loc[dated.eq(as_of)]
     numbers = pd.to_numeric(latest["units"], errors="coerce")
     names = latest["etf_id"].astype(str)
     units = numbers.groupby(names).sum()
