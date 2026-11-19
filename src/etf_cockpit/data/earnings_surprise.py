@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING
 import exchange_calendars as xcals
 import pandas as pd
 
-from etf_cockpit.analysis.decision.rank_validation import _date_value, _forward_return
+from etf_cockpit.analysis.decision.rank_validation import _aware_timestamp, _date_value, _forward_return
 from etf_cockpit.data.bitemporal import BitemporalStore
 from etf_cockpit.data.sec_pit_facts import acceptance_index, fact_known_at
 from etf_cockpit.features.feature_store import FeatureDefinition, LocalFeatureStore
@@ -121,14 +121,17 @@ def _reaction(instrument_id: str, receipt: datetime, exact_acceptance: bool, pri
         return {"status": "unavailable", "reason": "trading_window_unavailable"}
     first = int(after[0])
     entry_day, target_day = schedule.index[first - 1].date(), schedule.index[first + 1].date()
+    entry_close = schedule["close"].iloc[first - 1]
     available_at = schedule["open"].iloc[first + 2]
     benchmark = benchmark.assign(instrument_id="VWCE")
     returns = []
     for frame, name in ((prices, instrument_id), (benchmark, "VWCE")):
-        closes = pd.to_numeric(frame.loc[frame["instrument_id"].astype(str).eq(name) & frame["date"].map(_date_value).eq(entry_day), "adjusted_close"], errors="coerce")
-        if not (closes.map(math.isfinite) & closes.gt(0)).any():
+        entry = frame.loc[frame["instrument_id"].astype(str).eq(name) & frame["date"].map(_date_value).eq(entry_day)]
+        closes = pd.to_numeric(entry["adjusted_close"], errors="coerce")
+        known = entry["known_at"].map(_aware_timestamp)  # as in _forward_return: an entry close known after its session close is not used
+        if not (closes.map(math.isfinite) & closes.gt(0) & known.notna() & known.le(entry_close)).any():
             return {"status": "unavailable", "reason": f"{name}:entry_close_missing"}
-        value, status = _forward_return(frame, name, schedule["close"].iloc[first - 1], 2,
+        value, status = _forward_return(frame, name, entry_close, 2,
                                         target_session=target_day, outcome_known_by=available_at)
         if value is None:
             return {"status": "unavailable", "reason": f"{name}:{status}"}

@@ -116,6 +116,16 @@ def test_panel_sees_sec_receipt_features_only_when_available_and_never_a_late_qu
     assert row["june"]["earnings_information_available_at"] == "2022-05-05T14:00:00+00:00"
 
 
+def test_an_entry_close_known_after_its_session_close_is_missing_not_replaced_by_an_earlier_close():
+    facts, submissions = _case()
+    prices, benchmark = _prices()
+    prices.loc[prices["date"].eq("2022-04-28"), "known_at"] = "2022-04-29T07:00:00Z"  # after the XETR close of 04-28
+    events = compute_earnings_events("ZZA", facts, submissions, prices, benchmark, country="US")["events"]
+
+    reaction = {e["quarter_end"]: e["features"]["filing_reaction_3s"] for e in events}["2022-03-31"]
+    assert reaction == {"status": "unavailable", "reason": "ZZA:entry_close_missing"}
+
+
 @pytest.mark.parametrize("country, status, reason", [
     ("US", "available", "fewer_than_6_seasonal_differences"),
     ("Germany", "unavailable", "non_us_issuer"),

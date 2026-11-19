@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from etf_cockpit.data import sec_filing_documents as sfd
 from etf_cockpit.data import sec_ownership as so
 from etf_cockpit.data.sec_edgar_provider import SecEdgarProvider
 from etf_cockpit.plugins.registry import _network_probe
@@ -114,9 +115,12 @@ def test_13f_amendment_replaces_only_from_its_own_acceptance_and_is_never_curren
             so.parse_13f(p, i, accession="x", form="13F-HR", known_at=_utc(2026, 8, 1), **kwargs)
 
 
-def test_missing_edgartools_is_unavailable_and_filing_documents_are_bounded_fetches(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+@pytest.mark.parametrize("parse", [
+    lambda known_at: so.parse_ownership_xml(b"<ownershipDocument/>", accession="a", known_at=known_at),
+    lambda known_at: so.parse_13f(b"", None, accession="a", form="13F-HR", manager_cik="1", known_at=known_at),
+    lambda known_at: sfd.parse_8k(b"", known_at=known_at),
+], ids=["form4", "13f", "8k"])
+def test_missing_edgartools_and_naive_times_are_explicit_unavailable(parse, monkeypatch: pytest.MonkeyPatch) -> None:
     real_import = builtins.__import__
 
     def without_edgar(name: str, *args: object, **kwargs: object):
@@ -127,10 +131,12 @@ def test_missing_edgartools_is_unavailable_and_filing_documents_are_bounded_fetc
     with monkeypatch.context() as patch:
         patch.setattr(builtins, "__import__", without_edgar)
         with pytest.raises(so.SecOwnershipUnavailable, match="optional `sec` extra"):
-            so.parse_ownership_xml(b"<ownershipDocument/>", accession="a", known_at=ACCEPTED)
+            parse(ACCEPTED)
     with pytest.raises(so.SecOwnershipUnavailable, match="timezone-aware"):
-        so.parse_13f(b"", None, accession="a", form="13F-HR", manager_cik="1", known_at=datetime(2026, 1, 1))
+        parse(datetime(2026, 1, 1))
 
+
+def test_filing_documents_are_bounded_fetches(tmp_path: Path) -> None:
     payload = (FIXTURES / "sec_ownership" / "form4_mixed.xml").read_bytes()
     provider = SecEdgarProvider(
         "ETF AI Cockpit tests research@company.org", cache_dir=tmp_path, rate_limit_seconds=0,

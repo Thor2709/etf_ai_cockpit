@@ -23,6 +23,7 @@ import time
 
 import yaml
 
+from etf_cockpit.core.atomic_io import sha256_file
 from etf_cockpit.core.paths import CONFIG_DIR, MODEL_DIR
 
 WEIGHTS_CONFIG = CONFIG_DIR / "document_model_weights.yaml"
@@ -73,11 +74,7 @@ def verify_weights(model_dir: Path, config_path: Path = WEIGHTS_CONFIG, *, packa
         path = _base(str(row.get("package") or ""), model_dir) / row["path"]
         if not path.is_file():
             return f"weight_missing:{row['path']}"
-        digest = hashlib.sha256()
-        with path.open("rb") as handle:
-            for block in iter(lambda: handle.read(1 << 20), b""):
-                digest.update(block)
-        if digest.hexdigest() != row["sha256"]:
+        if sha256_file(path) != row["sha256"]:
             return f"weight_hash_mismatch:{row['path']}"
     return ""
 

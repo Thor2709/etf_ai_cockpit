@@ -26,6 +26,7 @@ from etf_cockpit.analysis.stock_metrics import (
     BALANCE_FIELDS, FLOW_FIELDS, LINE_ITEM_BALANCE_FIELDS, LINE_ITEM_FIELDS, LINE_ITEM_FLOW_FIELDS, LINE_ITEM_PER_SHARE_FIELDS,
 )
 from etf_cockpit.core.paths import STATEMENT_FACTS_PATH
+from etf_cockpit.core.values import finite_float_or_none as _number
 from etf_cockpit.data.yfinance_provider import classify_provider_error
 from etf_cockpit.parsers.esef_ixbrl import PER_SHARE_VERIFIED
 
@@ -60,14 +61,6 @@ class FetchResult:
     # statement name -> "<kind>: detail" for every statement that failed (kind: not_found | throttled | timeout | error | invalid);
     # a non-empty mapping with status "ok" means the statements that did arrive are partial.
     statement_errors: dict[str, str] = field(default_factory=dict)
-
-
-def _number(value: object) -> float | None:
-    try:
-        number = float(value)  # type: ignore[arg-type]
-    except (TypeError, ValueError):
-        return None
-    return number if math.isfinite(number) else None
 
 
 def _iso(value: object) -> str | None:
