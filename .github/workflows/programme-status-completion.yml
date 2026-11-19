@@ -5,7 +5,6 @@ on:
     branches: [main]
     paths:
       - .github/issue-transitions/github-mutation-authority.jsonl
-      - scripts/recover_issue_0186_create.py
   workflow_dispatch: {}
 
 permissions:
@@ -59,7 +58,6 @@ jobs:
       - name: Guard and apply reviewed status completion
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          EVENT_BEFORE: ${{ github.event.before }}
         run: |
           git fetch --no-tags origin main
           args=(
@@ -68,20 +66,10 @@ jobs:
             --evidence-out artifacts/programme-status-completion/evidence.json
             --apply
           )
-          recovery=scripts/recover_issue_0186_create.py
-          if [[ "${{ github.event_name }}" == "push" ]] \
-             && ! git cat-file -e "$EVENT_BEFORE:$recovery" 2>/dev/null \
-             && git cat-file -e "HEAD:$recovery"; then
-            python -m scripts.recover_issue_0186_create \
-              --root . \
-              --evidence-out artifacts/programme-status-completion/evidence.json \
-              --apply
-          else
-            if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-              args+=(--recover-issue-0018-status)
-            fi
-            python -m scripts.apply_reviewed_status_completion "${args[@]}"
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            args+=(--recover-issue-0018-status)
           fi
+          python -m scripts.apply_reviewed_status_completion "${args[@]}"
       - name: Upload status-completion evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
