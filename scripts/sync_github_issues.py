@@ -722,14 +722,34 @@ def gh_list_issues() -> list[dict[str, Any]]:
         or mutation_gateway.CREATE_MARKER_TEMPLATE.split("{")[0]
         in str(issue.get("body") or "")
     ]
+    # One repository-wide comment read replaces a comments request per issue.
+    # A list row whose comment counter disagrees with the bulk read is fetched
+    # alone, so comments added or deleted between the reads cannot be missed.
+    grouped: dict[int, list[dict[str, Any]]] = {}
+    for comment in transport.list_issue_comments():
+        number = int(str(comment["issue_url"]).rsplit("/", 1)[1])
+        grouped.setdefault(number, []).append(comment)
+    by_number: dict[int, dict[str, Any]] = {}
+    stale: list[dict[str, Any]] = []
+    for issue in managed:
+        number = int(issue["number"])
+        comments = sorted(grouped.get(number, []), key=lambda row: int(row["id"]))
+        count = issue.get("comments")
+        # A comment newer than the row means a page shift may have hid one.
+        row_updated = str(issue.get("updated_at") or "")
+        newer = any(str(row.get("updated_at") or "") > row_updated for row in comments)
+        if isinstance(count, int) and count == len(comments) and not newer:
+            by_number[number] = {**issue, "comments": comments}
+        else:
+            stale.append(issue)
     with ThreadPoolExecutor(max_workers=8) as executor:
         fetched = list(
             executor.map(
                 lambda issue: transport.fetch_issue(int(issue["number"])),
-                managed,
+                stale,
             )
         )
-    by_number = {int(issue["number"]): issue for issue in fetched}
+    by_number.update({int(issue["number"]): issue for issue in fetched})
     value = [by_number.get(int(issue["number"]), issue) for issue in value]
     return value
 
