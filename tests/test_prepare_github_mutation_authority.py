@@ -1034,3 +1034,12 @@ def test_control_state_loaders_reject_duplicate_nested_keys(tmp_path: Path) -> N
 def test_control_state_revision_rejects_symbolic_ref(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="full lowercase Git SHA"):
         load_control_state_at(tmp_path, "HEAD")
+
+
+def test_deferred_is_an_accepted_single_hop_status_target() -> None:
+    completion.validate_single_hop_status_transition("planned", "deferred")
+    gateway._validate_single_hop_status_transition("planned", "deferred")
+    with pytest.raises(ValueError, match="not a canonical direct transition"):
+        completion.validate_single_hop_status_transition("ready", "deferred")
+    with pytest.raises(ValueError, match="invalid_status_authority_transition"):
+        gateway._validate_single_hop_status_transition("ready", "deferred")
