@@ -13,6 +13,7 @@ import hashlib
 import json
 import re
 import subprocess
+import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -3576,6 +3577,10 @@ def _run_gh(args: list[str], *, input_text: str | None = None) -> str:
         encoding="utf-8",
     )
     if completed.returncode:
+        # Last line only: GH_DEBUG traces hold earlier response bodies.
+        lines = [line for line in completed.stderr.splitlines() if line.strip()]
+        if lines:
+            print(lines[-1].strip(), file=sys.stderr)
         raise subprocess.CalledProcessError(
             completed.returncode,
             ["gh", *args],
@@ -3659,6 +3664,9 @@ class GhMutationTransport:
             )
             if "pull_request" not in issue
         ]
+
+    def list_issue_comments(self) -> list[dict[str, Any]]:
+        return self._pages(f"repos/{self.repository}/issues/comments?per_page=100")
 
     def fetch_issue(self, number: int) -> dict[str, Any]:
         issue = json.loads(
