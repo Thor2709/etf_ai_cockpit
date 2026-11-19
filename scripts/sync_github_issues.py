@@ -735,7 +735,10 @@ def gh_list_issues() -> list[dict[str, Any]]:
         number = int(issue["number"])
         comments = sorted(grouped.get(number, []), key=lambda row: int(row["id"]))
         count = issue.get("comments")
-        if isinstance(count, int) and count == len(comments):
+        # A comment newer than the row means a page shift may have hid one.
+        row_updated = str(issue.get("updated_at") or "")
+        newer = any(str(row.get("updated_at") or "") > row_updated for row in comments)
+        if isinstance(count, int) and count == len(comments) and not newer:
             by_number[number] = {**issue, "comments": comments}
         else:
             stale.append(issue)

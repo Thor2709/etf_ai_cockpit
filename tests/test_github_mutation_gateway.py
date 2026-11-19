@@ -1360,13 +1360,18 @@ def test_gh_list_issues_uses_bulk_comments_and_falls_back_on_count_mismatch(
 ) -> None:
     marker = "<!-- etf-ai-cockpit:stable-id=ISSUE-%04d -->"
     rows = [
-        {"number": 1, "body": marker % 1, "comments": 2},
+        {"number": 1, "body": marker % 1, "comments": 2, "updated_at": "2026-01-02T00:00:00Z"},
         {"number": 2, "body": marker % 2, "comments": 1},
         {"number": 3, "body": "human issue", "comments": 0},
+        {"number": 4, "body": marker % 4, "comments": 1, "updated_at": "2026-01-01T00:00:00Z"},
     ]
     bulk = [
-        {"id": 30, "issue_url": "https://api.github.com/repos/x/y/issues/1"},
-        {"id": 10, "issue_url": "https://api.github.com/repos/x/y/issues/1"},
+        {"id": 30, "issue_url": "https://api.github.com/repos/x/y/issues/1",
+         "updated_at": "2026-01-02T00:00:00Z"},
+        {"id": 10, "issue_url": "https://api.github.com/repos/x/y/issues/1",
+         "updated_at": "2026-01-01T00:00:00Z"},
+        {"id": 40, "issue_url": "https://api.github.com/repos/x/y/issues/4",
+         "updated_at": "2026-01-02T00:00:00Z"},
         {"id": 20, "issue_url": "https://api.github.com/repos/x/y/issues/9"},
     ]
     fetched: list[int] = []
@@ -1389,7 +1394,7 @@ def test_gh_list_issues_uses_bulk_comments_and_falls_back_on_count_mismatch(
 
     result = {issue["number"]: issue for issue in sync.gh_list_issues()}
 
-    assert fetched == [2]
+    assert sorted(fetched) == [2, 4]
     assert [row["id"] for row in result[1]["comments"]] == [10, 30]
     assert result[2]["comments"] == ["fresh"]
     assert result[3] == rows[2]

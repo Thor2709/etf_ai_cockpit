@@ -3577,8 +3577,10 @@ def _run_gh(args: list[str], *, input_text: str | None = None) -> str:
         encoding="utf-8",
     )
     if completed.returncode:
-        if completed.stderr:
-            print(completed.stderr.strip(), file=sys.stderr)
+        # Last line only: GH_DEBUG traces hold earlier response bodies.
+        lines = [line for line in completed.stderr.splitlines() if line.strip()]
+        if lines:
+            print(lines[-1].strip(), file=sys.stderr)
         raise subprocess.CalledProcessError(
             completed.returncode,
             ["gh", *args],
