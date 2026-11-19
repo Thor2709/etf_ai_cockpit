@@ -273,8 +273,57 @@ def test_create_preparation_emits_one_safe_append_without_candidate(
     assert manifest["execution_allowed"] is False
 
 
+@pytest.mark.parametrize("mode", ["chained", "broken", "forged"])
+def test_intake_create_admitted_by_older_manifest_on_unbroken_chain(
+    tmp_path: Path, mode: str,
+) -> None:
+    root, _, bootstrap = _repo(tmp_path)
+    remote = _remote()
+    older, newer = "ISSUE-0180", "ISSUE-0181"
+
+    def commit_intake(ids: list[str], base: str | None, forged: bool = False) -> str:
+        records = [
+            {**_record("planned", stable_id=issue), "title": issue, "source_kind": "control_extension"}
+            for issue in ids
+        ]
+        registry = {"records": [_record("implemented_initially"), *records]}
+        (root / sync.REGISTRY_PATH).parent.mkdir(exist_ok=True)
+        (root / sync.REGISTRY_PATH).write_bytes(sync.deterministic_json(registry))
+        proposed = "f" * 64 if forged else hashlib.sha256(sync.deterministic_json(registry)).hexdigest()
+        (root / sync.STATUS_GUARD_MANIFEST).write_text(json.dumps({
+            "schema_version": "1.1",
+            "registry_migration": {
+                "mode": "canonical_schema_and_intake",
+                "added_issue_ids": ids[-1:],
+                "removed_issue_ids": [],
+                "base_registry_sha256": base,
+                "proposed_registry_sha256": proposed,
+            },
+        }), encoding="utf-8")
+        subprocess.run(["git", "add", "."], cwd=root, check=True)
+        subprocess.run(["git", "commit", "-qm", f"admit {ids[-1]}"], cwd=root, check=True)
+        return proposed
+
+    first_hash = commit_intake([older], None, forged=mode == "forged")
+    commit_intake([older, newer], "0" * 64 if mode == "broken" else first_hash)
+    source = prepare._git(root, "rev-parse", "HEAD")
+    registry = json.loads((root / sync.REGISTRY_PATH).read_bytes())
+    plan = sync.plan_actions(registry, remote, authority_records=[bootstrap], authority_root=root)
+
+    if mode != "chained":
+        with pytest.raises(ValueError, match="committed_registry_admission"):
+            prepare.prepare(root, plan, remote, source_sha=source, mode="create", intake_issue=older)
+        return
+    _, ledger, manifest = prepare.prepare(
+        root, plan, remote, source_sha=source, mode="create", intake_issue=older,
+    )
+    assert manifest["deferred_intake_ids"] == [newer]
+    assert gateway.parse_authority_ledger(ledger)[-1]["payload"]["stable_id"] == older
+
+
+@pytest.mark.parametrize("with_update", [False, True])
 def test_committed_intake_prepares_and_preflights_one_create(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, with_update: bool,
 ) -> None:
     root, _, bootstrap = _repo(tmp_path)
     remote = _remote()
@@ -283,7 +332,8 @@ def test_committed_intake_prepares_and_preflights_one_create(
         {**_record("planned", stable_id=issue), "title": issue, "source_kind": "control_extension"}
         for issue in (first, second)
     ]
-    registry = {"records": [_record("implemented_initially"), *pending]}
+    existing = {**_record("implemented_initially"), "downstream_issues": [first] if with_update else []}
+    registry = {"records": [existing, *pending]}
     (root / sync.REGISTRY_PATH).parent.mkdir()
     (root / sync.REGISTRY_PATH).write_bytes(sync.deterministic_json(registry))
     (root / sync.STATUS_GUARD_MANIFEST).write_text(json.dumps({
@@ -306,13 +356,14 @@ def test_committed_intake_prepares_and_preflights_one_create(
         root, plan, remote, source_sha=source, mode="create", intake_issue=first,
     )
     assert candidate is None
-    assert manifest["deferred_intake_ids"] == [second]
+    deferred_ids = (["ISSUE-0179"] if with_update else []) + [second]
+    assert manifest["deferred_intake_ids"] == deferred_ids
     authorities = gateway.parse_authority_ledger(ledger)
     assert len(authorities) == 2
     assert authorities[-1]["payload"]["stable_id"] == first
 
     amended = copy.deepcopy(plan)
-    amended["actions"][1]["stable_id"] = "ISSUE-0999"
+    amended["actions"][-1]["stable_id"] = "ISSUE-0999"
     amended["plan_sha256"] = sync.plan_sha256(amended)
     with pytest.raises(ValueError, match="committed_registry_admission"):
         prepare.prepare(root, amended, remote, source_sha=source, mode="create", intake_issue=first)
@@ -329,7 +380,7 @@ def test_committed_intake_prepares_and_preflights_one_create(
     validation = json.loads(evidence.read_text(encoding="utf-8"))
     assert validation["terminal_status"] == "validated"
     assert [row["stable_id"] for row in validation["action_scope"]] == [first]
-    assert validation["deferred_intake_ids"] == [second]
+    assert validation["deferred_intake_ids"] == deferred_ids
 
     authority = authorities[-1]
     _, _, binding = gateway.validate_authority_git_transition(

@@ -568,14 +568,61 @@ def plan_sha256(plan: dict[str, Any]) -> str:
     return hashlib.sha256(deterministic_json(value)).hexdigest()
 
 
+def _is_intake_manifest(manifest: Any) -> bool:
+    migration = manifest.get("registry_migration") if isinstance(manifest, dict) else None
+    return (
+        isinstance(migration, dict)
+        and manifest.get("schema_version") == "1.1"
+        and migration.get("mode") == "canonical_schema_and_intake"
+        and migration.get("removed_issue_ids") == []
+        and isinstance(migration.get("added_issue_ids"), list)
+    )
+
+
+def _intake_chain_admitted(root: Path, source_sha: str, manifest: dict[str, Any]) -> Any:
+    """Union added IDs over the unbroken first-parent chain of intake manifests."""
+    if not _is_intake_manifest(manifest):
+        return manifest.get("registry_migration", {}).get("added_issue_ids", [])
+    admitted = list(manifest["registry_migration"]["added_issue_ids"])
+    newer = manifest
+    history = subprocess.run(
+        ["git", "log", "--first-parent", "--format=%H", source_sha, "--", STATUS_GUARD_MANIFEST.as_posix()],
+        cwd=root, capture_output=True, text=True,
+    )
+    for commit in history.stdout.split()[1:] if not history.returncode else []:
+        data = mutation_gateway._git_blob_bytes(root, commit, STATUS_GUARD_MANIFEST)
+        try:
+            older = json.loads(data) if data else None
+        except ValueError:
+            break
+        base = newer["registry_migration"].get("base_registry_sha256")
+        if (
+            not isinstance(older, dict)
+            or not _is_intake_manifest(older)
+            or not base
+            or older["registry_migration"].get("proposed_registry_sha256") != base
+        ):
+            break
+        try:
+            registry_then, _ = mutation_gateway.managed_refresh_registry(root, commit)
+        except (ValueError, subprocess.CalledProcessError):
+            break
+        if hashlib.sha256(deterministic_json(registry_then)).hexdigest() != base:
+            break
+        admitted.extend(older["registry_migration"]["added_issue_ids"])
+        newer = older
+    return admitted
+
+
 def scope_admitted_intake_plan(
     root: Path, source_sha: str, plan: dict[str, Any], *, create_id: str | None,
 ) -> dict[str, Any]:
-    """Keep deferred creates in the checksum for one authorised intake step."""
+    """Keep deferred creates (and, for a create step, updates) in the checksum for one authorised intake step."""
     actions = mutation_gateway._validate_plan_authority(plan, str(plan.get("plan_sha256", "")))
     deferred = [
         action for action in actions
-        if action.get("kind") == "create" and action.get("stable_id") != create_id
+        if (action.get("kind") == "create" and action.get("stable_id") != create_id)
+        or (create_id is not None and action.get("kind") == "update")
     ]
     selected = [action for action in actions if action not in deferred]
     if create_id is not None:
@@ -590,7 +637,7 @@ def scope_admitted_intake_plan(
     registry, _ = mutation_gateway.managed_refresh_registry(root, source_sha)
     manifest = json.loads(manifest_bytes) if manifest_bytes else {}
     migration = manifest.get("registry_migration", {})
-    admitted = migration.get("added_issue_ids", [])
+    admitted = _intake_chain_admitted(root, source_sha, manifest)
     canonical = {record["canonical_id"]: record for record in registry_sync_records(registry)}
     creates = [action for action in actions if action.get("kind") == "create"]
     pending = [action["stable_id"] for action in creates]
@@ -613,7 +660,10 @@ def scope_admitted_intake_plan(
     scoped = {
         **plan,
         "actions": selected,
-        "summary": {**plan["summary"], "create": int(create_id is not None)},
+        "summary": {
+            **plan["summary"], "create": int(create_id is not None),
+            **({"update": 0} if create_id is not None else {}),
+        },
         "deferred_intake_creates": deferred,
     }
     scoped["plan_sha256"] = plan_sha256(scoped)
