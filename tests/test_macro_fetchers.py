@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import json
+import time
 
 import pandas as pd
 import pytest
@@ -143,7 +144,7 @@ def test_each_indicator_is_computed_from_exact_vintages_known_at_the_cutoff() ->
     assert result["baa_10y_spread"]["value"] == 1.8
     assert result["hy_oas"]["value"] == 3.1
     assert result["nfci"]["value"] == -0.5 and result["vix"]["value"] == 14.0
-    # Latest 3-month average (3.9) less the lowest 3-month average of the last 12 months (April 2023).
+    # Current 3-month average (3.9) less the lowest of the 12 preceding averages (March 2023).
     assert result["sahm_rule"]["value"] == pytest.approx(3.9 - (3.4 + 3.5 + 3.4) / 3)
     assert result["cape"]["value"] == 30.0
     assert result["equity_risk_premium"]["value"] == pytest.approx(100 / 30 - 2.0)
@@ -156,7 +157,7 @@ def test_each_indicator_is_computed_from_exact_vintages_known_at_the_cutoff() ->
     assert macro_indicator(stale_leg, "slope_10y_2y")["status"] == "unavailable"
     gdp_other_quarter = rows[~((rows["series_id"] == "GDP") & (rows["period_start"] == "2023-10-01"))]
     assert macro_indicator(gdp_other_quarter, "market_cap_to_gdp")["status"] == "unavailable"
-    short_history = rows[~((rows["series_id"] == "UNRATE") & (rows["period_start"] < "2023-03-01"))]
+    short_history = rows[~((rows["series_id"] == "UNRATE") & (rows["period_start"] < "2023-02-01"))]
     assert macro_indicator(short_history, "sahm_rule")["status"] == "unavailable"
 
 
@@ -201,3 +202,80 @@ def test_without_api_key_or_network_every_indicator_is_unavailable_not_zero(tmp_
     indicators = macro_indicators(pd.DataFrame([row.model_dump() for row in empty]))
     assert set(indicators) == set(INDICATOR_IDS)
     assert all(item["status"] == "unavailable" and item["value"] is None for item in indicators.values())
+
+
+def test_ice_series_get_a_stricter_legal_terms_row_than_generic_fred() -> None:
+    payload = _fred_payload([("2024-03-01", "3.1", "2024-03-02", _FOREVER)])
+    registry = load_legal_terms()
+    for series_id, terms_id in (("BAMLH0A0HYM2", "fred_ice_bofa"), ("DGS10", "fred")):
+        result = FredProvider(api_key="test-key", transport=lambda url: payload).fetch_vintages(series_id, fetched_at=FETCHED_AT)
+        assert {row.source_terms for row in result.observations} == {terms_id}
+    ice, generic = registry.entry("fred_ice_bofa"), registry.entry("fred")
+    assert not registry.can_export("fred_ice_bofa", "audit_export") and not registry.can_export("fred_ice_bofa", "redistribution")
+    assert ice.redistribution == "prohibited" and generic.redistribution != "prohibited"
+
+
+def test_default_fetch_time_is_taken_after_the_response_arrives() -> None:
+    returned: list[datetime] = []
+
+    def slow(url: str) -> bytes:
+        time.sleep(0.05)
+        returned.append(datetime.now(timezone.utc))
+        return _fred_payload([("2024-02-01", "3.9", "2026-01-01", "2026-01-01")]) if "fred" in url else _RATE_CSV.encode()
+
+    fred = FredProvider(api_key="test-key", transport=slow).fetch_latest("UNRATE")
+    ecb = EcbProvider(transport=slow).fetch("FM", "B.U2.EUR.4F.KR.DFR.LEV")
+    for result, arrived in ((fred, returned[0]), (ecb, returned[1])):
+        assert result.status == "available"
+        assert all(pd.Timestamp(row.available_at) >= arrived for row in result.observations)
+
+
+def test_ecb_rate_effective_after_the_fetch_is_deferred_not_rejecting_the_batch(tmp_path) -> None:
+    csv_text = _RATE_CSV + "FM.B.U2.EUR.4F.KR.DFR.LEV,B,U2,EUR,DFR,2026-02-01,1.75,A,PCPA,0\n"
+    result = EcbProvider(transport=lambda url: csv_text.encode()).fetch("FM", "B.U2.EUR.4F.KR.DFR.LEV", fetched_at=FETCHED_AT)
+    assert [row.period_start for row in result.observations] == ["2025-12-30"]
+    MacroWarehouse().ingest(list(result.observations), root=tmp_path)
+    later = EcbProvider(transport=lambda url: csv_text.encode()).fetch(
+        "FM", "B.U2.EUR.4F.KR.DFR.LEV", fetched_at=datetime(2026, 2, 2, tzinfo=timezone.utc)
+    )
+    assert [row.period_start for row in later.observations] == ["2025-12-30", "2026-02-01"]
+
+
+def test_ecb_legal_terms_row_records_the_reuse_conditions() -> None:
+    entry = load_legal_terms().entry("ecb")
+    text = f"{entry.terms_reference} {entry.review_note}".lower()
+    assert "unmodified" in text and "third-part" in text and "permission" in text
+
+
+def test_fred_vintage_fetch_reads_every_page_before_assigning_revisions(tmp_path) -> None:
+    rows = [
+        ("2024-01-01", "3.7", "2024-02-02", "2024-03-07"),
+        ("2024-01-01", "3.9", "2024-03-08", _FOREVER),
+        ("2024-02-01", "3.9", "2024-03-08", _FOREVER),
+    ]
+    offsets: list[int] = []
+
+    def paged(url: str) -> bytes:
+        offset = int(url.split("offset=")[1].split("&")[0]) if "offset=" in url else 0
+        offsets.append(offset)
+        page = json.loads(_fred_payload(rows[offset:offset + 2]))
+        page["count"] = len(rows)
+        return json.dumps(page).encode()
+
+    result = FredProvider(api_key="test-key", transport=paged).fetch_vintages("UNRATE", fetched_at=FETCHED_AT)
+    assert offsets == [0, 2] and result.status == "available"
+    assert sorted((row.period_start, row.revision, row.value) for row in result.observations) == [
+        ("2024-01-01", 1, 3.7), ("2024-01-01", 2, 3.9), ("2024-02-01", 1, 3.9)
+    ]
+    short = FredProvider(api_key="test-key", transport=lambda url: json.dumps({"count": 5, "observations": []}).encode())
+    assert short.fetch_vintages("UNRATE", fetched_at=FETCHED_AT).status == "unavailable"
+
+
+def test_sahm_rule_compares_with_the_preceding_twelve_averages_only() -> None:
+    months = pd.period_range("2023-01", "2024-03", freq="M").strftime("%Y-%m-01")
+    # Preceding 3-month averages are all 3.5; the current one is (3.5 + 3.5 + 5.6) / 3 = 4.2.
+    flat = pd.DataFrame(_series("UNRATE", "percent", dict(zip(months, [3.5] * 14 + [5.6]))))
+    assert macro_indicator(flat, "sahm_rule")["value"] == pytest.approx(0.70)
+    # A new low is below every preceding average, so the rule is negative, never floored by the current month.
+    falling = pd.DataFrame(_series("UNRATE", "percent", dict(zip(months, [5.0 - 0.1 * n for n in range(15)]))))
+    assert macro_indicator(falling, "sahm_rule")["value"] == pytest.approx(-0.1)

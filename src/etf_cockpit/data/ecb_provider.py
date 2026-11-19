@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 import csv
-from datetime import datetime
+from datetime import date, datetime
 import hashlib
 import io
 
@@ -41,8 +41,8 @@ class EcbProvider:
             return MacroFetchResult.unavailable(blocked)
         url = f"{_BASE}/{dataflow}/{key}?format=csvdata"
         try:
-            known_at = fetch_time(fetched_at)
             payload = self.transport(url) if self.transport else _get(url)
+            known_at = fetch_time(fetched_at)  # taken after the response arrived, never before
             rows = parse_ecb_csv(payload, fetched_at=known_at)
         except FETCH_ERRORS as exc:
             return MacroFetchResult.unavailable(f"ECB fetch failed: {type(exc).__name__}.")
@@ -83,7 +83,9 @@ def parse_ecb_csv(content: bytes, *, fetched_at: datetime) -> list[MacroObservat
             continue
         key = row["KEY"].strip()
         period = row["TIME_PERIOD"].strip()
-        period = f"{period}-01" if len(period) == 7 else period
+        period = {4: f"{period}-01-01", 7: f"{period}-01"}.get(len(period), period)
+        if date.fromisoformat(period) > fetched_at.date():
+            continue  # effective after the fetch (an announced rate); a later refresh picks it up
         observed.append(MacroObservation(
             dataset_id=f"ecb:{key}",
             series_id=key,

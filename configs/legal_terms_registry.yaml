@@ -167,12 +167,21 @@ sources:
   - source_id: ecb
     source_kind: official_public_api
     terms_status: recorded
-    terms_reference: "ECB data API terms and the ECB statistics reuse policy: reuse is permitted with acknowledgement of the source."
+    terms_reference: "ECB data API terms and the ESCB statistics reuse policy: reuse with acknowledgement of the source, statistics and metadata kept unmodified, and prior permission needed for data owned by third parties."
     permitted_cache: local_replay
     redistribution: attribution_required
     audit_export: allowed_with_attribution
     attribution: "Source: ECB. Retain the series key, dataflow, fetch time and checksum."
-    review_note: "The API has no vintage history, so rows are known from the fetch time only; confirm the current ECB terms of use at acquisition."
+    review_note: "Keep ECB statistics and metadata unmodified when shown or exported, and derived figures must not be presented as ECB statistics. Series with third-party data need that owner's prior permission before reuse. The API has no vintage history, so rows are known from the fetch time only; confirm the current ECB terms of use at acquisition."
+  - source_id: fred_ice_bofa
+    source_kind: optional_official_api
+    terms_status: recorded_restricted
+    terms_reference: "ICE Data Indices terms for ICE BofA indices published on FRED: third-party distribution requires ICE's prior written approval."
+    permitted_cache: local_user_only
+    redistribution: prohibited
+    audit_export: prohibited
+    attribution: "Source: ICE Data Indices, LLC, retrieved from FRED. Local analysis only."
+    review_note: "ICE BofA series (for example BAMLH0A0HYM2) stay on this machine; no export or redistribution without ICE's written approval."
   - source_id: rss
     source_kind: optional_feed
     terms_status: recorded_restricted

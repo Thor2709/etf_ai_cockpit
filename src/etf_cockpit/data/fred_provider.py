@@ -21,6 +21,7 @@ from etf_cockpit.data.macro_warehouse import (
 
 _URL = "https://api.stlouisfed.org/fred/series/observations"
 _MAX_BYTES = 50_000_000
+_MAX_PAGES = 20  # FRED returns at most 100,000 rows per request
 _EARLIEST_VINTAGE = "1776-07-04"
 _LATEST_VINTAGE = "9999-12-31"
 # Series behind the INT-19 indicators: series id -> (unit, frequency).
@@ -37,6 +38,8 @@ FRED_SERIES: dict[str, tuple[str, str]] = {
     "GDP": ("billions_usd", "quarterly"),
     "BOGZ1LM893064105Q": ("millions_usd", "quarterly"),
 }
+# Legal-terms row per series; ICE BofA indices carry stricter terms than the generic FRED row.
+_TERMS = {"BAMLH0A0HYM2": "fred_ice_bofa"}
 
 
 @dataclass(frozen=True)
@@ -104,7 +107,7 @@ class FredProvider:
     def _fetch(self, series_id: str, vintages: bool, fetched_at: datetime | None) -> MacroFetchResult:
         if not self.api_key.strip():
             return MacroFetchResult.unavailable("FRED API key is not configured.")
-        blocked = legal_terms_block("fred")
+        blocked = legal_terms_block(_TERMS.get(series_id, "fred"))
         if blocked:
             return MacroFetchResult.unavailable(blocked)
         if series_id not in FRED_SERIES:
@@ -113,17 +116,38 @@ class FredProvider:
         params = {"series_id": series_id, "api_key": self.api_key, "file_type": "json"}
         if vintages:
             params |= {"realtime_start": _EARLIEST_VINTAGE, "realtime_end": _LATEST_VINTAGE}
-        url = f"{_URL}?{urlencode(params)}"
         try:
-            known_at = fetch_time(fetched_at)
-            payload = self.transport(url) if self.transport else _get(url)
-            rows = _observations(payload, series_id, vintages, known_at, unit, frequency)
+            raw_rows, payloads = self._pages(params)
+            known_at = fetch_time(fetched_at)  # taken after the response arrived, never before
+            rows = _observations(raw_rows, payloads, series_id, vintages, known_at, unit, frequency)
         except FETCH_ERRORS as exc:
             # Only the exception type is reported: the request URL carries the API key.
             return MacroFetchResult.unavailable(f"FRED fetch failed: {type(exc).__name__}.")
         if not rows:
             return MacroFetchResult.unavailable("FRED returned no usable observations.")
         return MacroFetchResult("available", tuple(rows))
+
+
+    def _pages(self, params: dict[str, str]) -> tuple[list[dict[str, str]], bytes]:
+        """Read every page of the response (bounded), so a long vintage history is complete."""
+
+        rows: list[dict[str, str]] = []
+        payloads = b""
+        total = 0
+        for _ in range(_MAX_PAGES):
+            query = params | ({"offset": str(len(rows))} if rows else {})
+            url = f"{_URL}?{urlencode(query)}"
+            page = self.transport(url) if self.transport else _get(url)
+            document = json.loads(page)
+            batch = document["observations"]
+            total = int(document.get("count", len(rows) + len(batch)))
+            rows += batch
+            payloads += page
+            if len(rows) >= total or not batch:
+                break
+        if len(rows) < total:
+            raise ValueError("truncated response")
+        return rows, payloads
 
 
 def _get(url: str) -> bytes:
@@ -140,12 +164,8 @@ def _get(url: str) -> bytes:
 
 
 def _observations(
-    payload: bytes, series_id: str, vintages: bool, fetched_at: datetime, unit: str, frequency: str
+    rows: list[dict[str, str]], payload: bytes, series_id: str, vintages: bool, fetched_at: datetime, unit: str, frequency: str
 ) -> list[MacroObservation]:
-    document = json.loads(payload)
-    rows = document["observations"]
-    if int(document.get("count", len(rows))) > len(rows):
-        raise ValueError("truncated response")
     # "." is FRED's marker for a missing value; it is skipped, never filled.
     kept = sorted(
         (row for row in rows if str(row["value"]).strip() not in {"", "."}),
@@ -190,7 +210,7 @@ def _observations(
             source_id=source_id,
             source_authority="official_api",
             source_checksum=checksum,
-            source_terms="fred",
+            source_terms=_TERMS.get(series_id, "fred"),
             methodology=methodology,
             published_at=available_at.isoformat(),
             available_at=available_at.isoformat(),

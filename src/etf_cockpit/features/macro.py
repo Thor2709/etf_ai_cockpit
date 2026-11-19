@@ -509,7 +509,7 @@ _LEVELS = {
 # id -> (long leg, short leg); both legs must share one period.
 _SLOPES = {"slope_10y_2y": ("DGS10", "DGS2"), "slope_10y_3m": ("DGS10", "DGS3MO")}
 INDICATOR_IDS = (*_SLOPES, *_LEVELS, "sahm_rule", "equity_risk_premium", "market_cap_to_gdp")
-_SAHM_MONTHS = 14  # twelve 3-month averages need fourteen consecutive months
+_SAHM_MONTHS = 15  # the current and the 12 preceding 3-month averages need fifteen consecutive months
 _Outcome = tuple[float, str, dict[str, pd.Series]] | str
 
 
@@ -548,8 +548,8 @@ def _sahm_rule(rows: pd.DataFrame) -> _Outcome:
     if not window.isin(series.index).all():
         return f"UNRATE needs {_SAHM_MONTHS} consecutive months at the cut-off"
     averages = series.loc[window].rolling(3).mean().dropna()
-    # Latest 3-month average less the lowest 3-month average of the 12 months ending with it.
-    return float(averages.iloc[-1] - averages.min()), "percentage_points", {"UNRATE": exact.iloc[-1]}
+    # Current 3-month average less the lowest of the 12 preceding 3-month averages (current excluded).
+    return float(averages.iloc[-1] - averages.iloc[:-1].min()), "percentage_points", {"UNRATE": exact.iloc[-1]}
 
 
 def _slope(rows: pd.DataFrame, first: str, second: str) -> _Outcome:
