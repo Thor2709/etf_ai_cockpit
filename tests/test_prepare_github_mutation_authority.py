@@ -273,6 +273,54 @@ def test_create_preparation_emits_one_safe_append_without_candidate(
     assert manifest["execution_allowed"] is False
 
 
+@pytest.mark.parametrize("chained", [True, False])
+def test_intake_create_admitted_by_older_manifest_on_unbroken_chain(
+    tmp_path: Path, chained: bool,
+) -> None:
+    root, _, bootstrap = _repo(tmp_path)
+    remote = _remote()
+    older, newer = "ISSUE-0180", "ISSUE-0181"
+
+    def commit_intake(ids: list[str], base: str | None) -> str:
+        records = [
+            {**_record("planned", stable_id=issue), "title": issue, "source_kind": "control_extension"}
+            for issue in ids
+        ]
+        registry = {"records": [_record("implemented_initially"), *records]}
+        (root / sync.REGISTRY_PATH).parent.mkdir(exist_ok=True)
+        (root / sync.REGISTRY_PATH).write_bytes(sync.deterministic_json(registry))
+        proposed = hashlib.sha256(sync.deterministic_json(registry)).hexdigest()
+        (root / sync.STATUS_GUARD_MANIFEST).write_text(json.dumps({
+            "schema_version": "1.1",
+            "registry_migration": {
+                "mode": "canonical_schema_and_intake",
+                "added_issue_ids": ids[-1:],
+                "removed_issue_ids": [],
+                "base_registry_sha256": base,
+                "proposed_registry_sha256": proposed,
+            },
+        }), encoding="utf-8")
+        subprocess.run(["git", "add", "."], cwd=root, check=True)
+        subprocess.run(["git", "commit", "-qm", f"admit {ids[-1]}"], cwd=root, check=True)
+        return proposed
+
+    first_hash = commit_intake([older], None)
+    commit_intake([older, newer], first_hash if chained else "0" * 64)
+    source = prepare._git(root, "rev-parse", "HEAD")
+    registry = json.loads((root / sync.REGISTRY_PATH).read_bytes())
+    plan = sync.plan_actions(registry, remote, authority_records=[bootstrap], authority_root=root)
+
+    if not chained:
+        with pytest.raises(ValueError, match="committed_registry_admission"):
+            prepare.prepare(root, plan, remote, source_sha=source, mode="create", intake_issue=older)
+        return
+    _, ledger, manifest = prepare.prepare(
+        root, plan, remote, source_sha=source, mode="create", intake_issue=older,
+    )
+    assert manifest["deferred_intake_ids"] == [newer]
+    assert gateway.parse_authority_ledger(ledger)[-1]["payload"]["stable_id"] == older
+
+
 def test_committed_intake_prepares_and_preflights_one_create(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:

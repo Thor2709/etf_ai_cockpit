@@ -112,7 +112,10 @@ recovery cannot batch, the first rejected append stops further writes, and the
 zero-action readback still decides acceptance. A partial batch is treated like
 any other partial write: it stays unresolved and is never retried.
 
-A committed canonical intake can project one create at a time. The checksum
+A committed canonical intake can project one create at a time; the creates it may
+authorise are the added IDs of the manifest at the source SHA plus those of the
+unbroken first-parent chain of earlier intake manifests (each older proposed
+registry hash equals the newer base hash). The checksum
 covers the other reviewed creates, and readback requires that exact remainder.
 The existing managed refresh can separately project downstream metadata while
 preserving the accepted status anchor. Every create still needs its own fresh
