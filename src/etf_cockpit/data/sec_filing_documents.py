@@ -12,6 +12,11 @@ webcast time and is not later than the SEC receipt; otherwise it is ``"unavailab
 The passed receipt must equal the stored header's ACCEPTANCE-DATETIME (US Eastern local time) or the parse is refused. Earnings
 tables are unreviewed candidates and feed nothing. 10-K risk-factor and MD&A text becomes chunks for
 the INT-23 store, known from the acceptance time.
+
+``fetch_8k`` and ``fetch_10k_section_chunks`` are the callers: they take a filing already listed by the
+EDGAR path (CIK and accession), read its full-submission text through :class:`SecEdgarProvider` (cache
+first, then one request under the declared User-Agent and rate limit) and take ``known_at`` from the
+stored header's ACCEPTANCE-DATETIME. With the network denied an uncached filing is unavailable.
 """
 
 from __future__ import annotations
@@ -24,6 +29,7 @@ from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 from etf_cockpit.data.document_chunks import DocumentChunk, chunk_pages
+from etf_cockpit.data.sec_edgar_provider import SecEdgarProvider, SecEdgarUnavailable
 from etf_cockpit.data.sec_ownership import _number, prepare_edgar_environment
 
 UNAVAILABLE = "unavailable"
@@ -110,6 +116,39 @@ def _filing(ed: SimpleNamespace, source: bytes, forms: tuple[str, ...], known_at
     if filing.form not in forms:
         raise SecFilingDocumentUnavailable(f"filing form {filing.form} is not {' or '.join(forms)}")
     return filing
+
+
+def header_known_at(source: bytes) -> datetime:
+    """The one UTC instant of the stored header's ACCEPTANCE-DATETIME (US Eastern local time), else unavailable."""
+    stamp = _ACCEPTED.search(source.decode("utf-8", "replace"))
+    if stamp is None:
+        raise SecFilingDocumentUnavailable("filing header has no ACCEPTANCE-DATETIME")
+    instants = _header_instants(stamp[1])
+    if len(instants) != 1:  # the fall-back hour names two instants and the spring-forward gap none
+        raise SecFilingDocumentUnavailable("filing acceptance time is not one real instant")
+    return next(iter(instants))
+
+
+def _stored_submission(provider: SecEdgarProvider, cik: str, accession: str) -> tuple[bytes, datetime]:
+    try:
+        source = provider.fetch_full_submission(cik, accession).path.read_bytes()
+    except SecEdgarUnavailable as exc:
+        raise SecFilingDocumentUnavailable("full submission is not cached and the SEC is unreachable") from exc
+    except (ValueError, OSError) as exc:
+        raise SecFilingDocumentUnavailable(f"full submission could not be read: {exc}") from exc
+    return source, header_known_at(source)
+
+
+def fetch_8k(provider: SecEdgarProvider, cik: str, accession: str) -> EightKFiling:
+    """Fetch (or read the stored) full submission of a listed 8-K and parse it."""
+    source, known_at = _stored_submission(provider, cik, accession)
+    return parse_8k(source, known_at=known_at)
+
+
+def fetch_10k_section_chunks(provider: SecEdgarProvider, cik: str, accession: str) -> list[DocumentChunk]:
+    """Fetch (or read the stored) full submission of a listed 10-K and chunk its risk-factor and MD&A sections."""
+    source, known_at = _stored_submission(provider, cik, accession)
+    return parse_10k_section_chunks(source, known_at=known_at)
 
 
 def parse_8k(source: bytes, *, known_at: datetime) -> EightKFiling:
