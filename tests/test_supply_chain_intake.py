@@ -32,7 +32,7 @@ def test_supply_chain_intake_report_is_local_and_traceable() -> None:
     assert report["registry_sha256"]
     assert report["third_party_notices"] == "packaging/THIRD_PARTY_NOTICES.md"
     assert report["dependency_count"] > 0
-    assert report["review_status"] == "hardening_required"
+    assert report["review_status"] == "approved"
     assert report["signature_status"] in {"missing", "unverifiable"}
     assert all("licence_class" in row for row in report["dependencies"])
 
