@@ -42,6 +42,10 @@ def test_equity_component_members_feed_the_ownerless_and_equalisation_pools() ->
     # Two balances matching the same pool are ambiguous and are not guessed.
     ambiguous = equity_member_facts([*records, _record("spar:OtherEqualisationMember", 5)], PERIOD)
     assert "utjevningsfond" not in ambiguous
+    # A fact whose number the parser could not verify (decode_status unavailable) is never an EC pool value.
+    undecoded = _record("spar:Giftfoundationmember", 28)
+    undecoded.decode_status = "unavailable"
+    assert equity_member_facts([undecoded], PERIOD) == {}
 
 
 def test_issuer_extension_mapping_is_per_issuer_and_uses_the_namespace_the_filing_uses() -> None:

@@ -13,11 +13,12 @@ import hashlib
 import json
 import math
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Iterable, Mapping
 
 import pandas as pd
 
-from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_group, parquet_payload, validate_parquet_file
+from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_bytes, atomic_write_group, parquet_payload, validate_parquet_file
+from etf_cockpit.core.file_guard import persistent_file_guard
 from etf_cockpit.core.paths import CLEAN_DIR, RAW_DIR
 from etf_cockpit.data.contracts import SourceAuthority
 from etf_cockpit.data.provenance import sha256_dataframe
@@ -27,6 +28,17 @@ from etf_cockpit.data.source_conflicts import MetricClaim, MetricPolicy, resolve
 FUNDAMENTAL_SCHEMA_VERSION = "fundamental_evidence.v4"
 FUNDAMENTAL_CLEAN_PATH = CLEAN_DIR / "fundamentals.parquet"
 FUNDAMENTAL_RAW_DIR = RAW_DIR / "fundamentals"
+# Per-constituent metric vintages (ISSUE-0211) read by the look-through roll-up: one row per instrument and known_at.
+CONSTITUENT_METRICS_PATH = CLEAN_DIR / "constituent_metrics.parquet"
+# roll-up column -> stock-evidence metric key; every metric stays NaN (unavailable) unless the evidence build derived it
+CONSTITUENT_METRIC_KEYS = {
+    "pe_ratio": "pe",
+    "roic": "roic",
+    "ebit_margin": "ebit_margin",
+    "revenue_growth": "revenue_cagr",
+    "net_debt_to_ebitda": "net_debt_to_ebitda",
+    "dividend_yield": "dividend_yield",
+}
 _FIELDS = ("valuation", "profitability", "leverage", "growth", "shareholder_return")
 
 
@@ -517,6 +529,36 @@ def _fundamental_claim_key(
 
 def load_fundamental_evidence(path: Path = FUNDAMENTAL_CLEAN_PATH) -> pd.DataFrame:
     return sort_fundamental_evidence(_read_clean(Path(path)))
+
+
+def load_constituent_metrics(path: Path | None = None) -> pd.DataFrame:
+    """Constituent metric vintages for the roll-up; a missing or unreadable store is empty (unavailable), never zero."""
+
+    target = Path(path or CONSTITUENT_METRICS_PATH)
+    try:
+        return pd.read_parquet(target) if target.is_file() else pd.DataFrame()
+    except (OSError, ValueError, ImportError):
+        return pd.DataFrame()
+
+
+def write_constituent_metrics(
+    rows: list[dict[str, Any]], instrument_ids: Iterable[str], path: Path | None = None
+) -> None:
+    """Replace the stored vintages of ``instrument_ids`` with ``rows``; other instruments are kept.
+
+    One cross-process guard covers the whole read-merge-write, so concurrent refreshes of different
+    instruments cannot overwrite each other's vintages.
+    """
+
+    target = Path(path or CONSTITUENT_METRICS_PATH)
+    with persistent_file_guard(target.with_name(target.name + ".lock"), timeout_seconds=60.0):
+        if not target.is_file() and not rows:
+            return
+        existing = pd.read_parquet(target) if target.is_file() else pd.DataFrame(columns=["instrument_id", "known_at"])  # a corrupt store raises instead of being overwritten
+        kept = existing[~existing["instrument_id"].astype(str).isin({str(item) for item in instrument_ids})]
+        frames = [frame for frame in (kept, pd.DataFrame(rows)) if not frame.empty]
+        merged = pd.concat(frames, ignore_index=True).sort_values(["instrument_id", "known_at"]) if frames else kept
+        atomic_write_bytes(target, parquet_payload(merged.reset_index(drop=True)), validate_parquet_file)
 
 
 def assess_fundamental_row(

@@ -335,3 +335,12 @@ def test_date_only_cutoff_includes_same_day_decision_and_keeps_current_controls(
     assert not queue['read_only'] and queue['figures'][0]['unit'] == 'percent'
     assert [item['metric'] for item in pillar3_queue.confirmed_figures(queue, '2025-04-01')] == ['lcr_pct']
     assert pillar3_queue.confirmed_figures(queue, '2025-03-31') == []
+
+
+def test_unavailable_statement_rows_never_reach_the_bank_projection():
+    from etf_cockpit.application.financial_institution_views import _financial_rows_for_instrument
+
+    row = {'instrument_id': 'X', 'concept': 'BasicEarningsLossPerShare', 'value': 3.0, 'known_at': '2025-01-01', 'effective_at': '2024-12-31'}
+    frame = pd.DataFrame([{**row, 'decode_status': 'decoded'}, {**row, 'decode_status': 'unavailable'}, {**row}])
+    kept = _financial_rows_for_instrument(frame, 'X', pd.Timestamp('2025-06-01', tz='UTC'))
+    assert len(kept) == 2 and 'unavailable' not in {item['decode_status'] for item in kept}  # a row from before the column stays

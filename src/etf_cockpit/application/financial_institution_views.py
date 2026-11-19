@@ -456,6 +456,8 @@ def _financial_rows_for_instrument(
         effective = pd.to_datetime(effective_raw, errors="coerce", utc=True)
         if pd.isna(known) or known > cutoff or pd.isna(effective) or effective > cutoff:
             continue
+        if row.get("decode_status") == "unavailable":  # the parser could not verify the number, unit or duplicate
+            continue
         row["_known"] = known
         row["_effective"] = effective
         rows.append(row)

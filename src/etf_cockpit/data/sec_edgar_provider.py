@@ -124,6 +124,7 @@ class _SessionGeneration:
     revalidated: bool = False
 
 
+_SEC_MIN_INTERVAL = 0.1  # SEC fair access: at most 10 requests per second on live requests
 _RATE_LOCK = threading.RLock()
 _SHARED_LAST_REQUEST: dict[Callable[[], float], float] = {}
 
@@ -234,21 +235,7 @@ class SecEdgarProvider:
         match = _FILING_DOCUMENT_URL.fullmatch(str(url or ""))
         if match is None:
             raise ValueError("SEC filing document URL must be a www.sec.gov Archives XML document")
-        headers = {"User-Agent": self.user_agent, "Accept": "application/xml"}
-        for attempt in range(self.max_retries + 1):
-            self._respect_rate_limit()
-            try:
-                response = self._request(url, headers)
-                if response.status == 429 or response.status >= 500:
-                    raise SecEdgarUnavailable(f"SEC endpoint returned HTTP {response.status}")
-            except (HTTPError, URLError, TimeoutError, OSError, SecEdgarUnavailable) as exc:
-                if attempt >= self.max_retries:
-                    raise SecEdgarUnavailable(f"SEC request unavailable after {attempt + 1} attempt(s)") from exc
-                self._sleep(min(2.0, 0.25 * (2**attempt)))
-                continue
-            break
-        if response.status < 200 or response.status >= 300:
-            raise SecEdgarError(f"SEC endpoint returned HTTP {response.status}")
+        response = self._get_document(url, "application/xml")
         payload = response.payload
         if not payload.lstrip(b"\xef\xbb\xbf \t\r\n").startswith(b"<"):
             raise ValueError("SEC filing document is not XML")
@@ -264,6 +251,60 @@ class SecEdgarProvider:
             path, url, datetime.now(timezone.utc), payload_sha, "sec_edgar", "sec_filing_document",
             "application/xml", response.status,
         )
+
+    def _get_document(self, url: str, accept: str) -> _Response:
+        """One rate-limited, retried GET under the declared User-Agent; any non-2xx is an error."""
+        headers = {"User-Agent": self.user_agent, "Accept": accept}
+        for attempt in range(self.max_retries + 1):
+            self._respect_rate_limit()
+            try:
+                response = self._request(url, headers)
+                if response.status == 429 or response.status >= 500:
+                    raise SecEdgarUnavailable(f"SEC endpoint returned HTTP {response.status}")
+            except (HTTPError, URLError, TimeoutError, OSError, SecEdgarUnavailable) as exc:
+                if attempt >= self.max_retries:
+                    raise SecEdgarUnavailable(f"SEC request unavailable after {attempt + 1} attempt(s)") from exc
+                self._sleep(min(2.0, 0.25 * (2**attempt)))
+                continue
+            break
+        if response.status < 200 or response.status >= 300:
+            raise SecEdgarError(f"SEC endpoint returned HTTP {response.status}")
+        return response
+
+    def fetch_full_submission(
+        self,
+        cik: str,
+        accession: str,
+        *,
+        publish_guard: PublicationScopeFactory | None = None,
+    ) -> RawDocument:
+        """Return the SEC full-submission ``.txt`` of one filing, from the local cache first.
+
+        A stored submission is returned without any request, so it stays readable with the network
+        denied; an uncached one is fetched once (declared User-Agent, shared rate limit) and kept
+        immutably under its sha256. Identity is checked against the header's accession number.
+        """
+        cik_text = _normalise_cik(cik)
+        accession_text = str(accession or "")
+        if not _ACCESSION.fullmatch(accession_text):
+            raise ValueError("SEC accession must look like 0000000000-00-000000")
+        url = f"https://www.sec.gov/Archives/edgar/data/{int(cik_text)}/{accession_text}.txt"
+        stored = sorted((self.cache_dir / "filings").glob(f"{accession_text}_submission_*.txt"))
+        for path in stored:
+            payload = path.read_bytes()
+            if path.name == _submission_name(accession_text, _sha256(payload)):
+                return RawDocument(path, url, datetime.fromtimestamp(path.stat().st_mtime, timezone.utc),
+                                   _sha256(payload), "sec_edgar", "sec_full_submission", "text/plain", 200)
+        response = self._get_document(url, "text/plain")
+        payload = response.payload
+        if re.search(rb"ACCESSION NUMBER:\s*" + accession_text.encode(), payload[:4096]) is None:
+            raise ValueError("SEC full submission does not carry the requested accession number")
+        payload_sha = _sha256(payload)
+        path = self.cache_dir / "filings" / _submission_name(accession_text, payload_sha)
+        with publication_scope(publish_guard):
+            atomic_write_bytes(path, payload, lambda candidate: None)
+        return RawDocument(path, url, datetime.now(timezone.utc), payload_sha, "sec_edgar", "sec_full_submission",
+                           "text/plain", response.status)
 
     def import_submissions(
         self,
@@ -560,16 +601,24 @@ class SecEdgarProvider:
     def _respect_rate_limit(self) -> None:
         # SEC limits per client, not per provider object: every instance on the same clock shares
         # one last-request time, and the check-and-sleep is serialised across threads.
+        interval = self.rate_limit_seconds if self.transport is not None else max(self.rate_limit_seconds, _SEC_MIN_INTERVAL)
         with _RATE_LOCK:
             now = self._monotonic()
             last = _SHARED_LAST_REQUEST.get(self._monotonic, self._last_request_at)
             if last is not None:
-                remaining = self.rate_limit_seconds - (now - last)
+                remaining = interval - (now - last)
                 if remaining > 0:
                     self._sleep(remaining)
                     now = self._monotonic()
             self._last_request_at = now
             _SHARED_LAST_REQUEST[self._monotonic] = now
+
+
+_ACCESSION = re.compile(r"[0-9]{10}-[0-9]{2}-[0-9]{6}")
+
+
+def _submission_name(accession: str, payload_sha: str) -> str:
+    return f"{accession}_submission_{payload_sha[:16]}.txt"
 
 
 def _normalise_cik(value: object) -> str:

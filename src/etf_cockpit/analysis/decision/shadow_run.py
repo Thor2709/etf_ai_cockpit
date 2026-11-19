@@ -47,7 +47,7 @@ from etf_cockpit.data.etf_economics import (
     load_total_return_evidence,
     resolve_session_calendar,
 )
-from etf_cockpit.data.fundamentals import FUNDAMENTAL_CLEAN_PATH
+from etf_cockpit.data.fundamentals import load_constituent_metrics
 from etf_cockpit.data.fund_holdings import FUND_HOLDINGS_PATH
 from etf_cockpit.data.stock_research import (
     build_stock_research_report,
@@ -585,15 +585,11 @@ def _look_through(instrument: str, decision: datetime) -> object | None:
         from etf_cockpit.analysis.look_through import calculate_look_through
 
         holdings = pd.read_parquet(FUND_HOLDINGS_PATH)
-        try:
-            fundamentals = pd.read_parquet(FUNDAMENTAL_CLEAN_PATH)
-        except (FileNotFoundError, OSError, ValueError, ImportError):
-            fundamentals = pd.DataFrame()
         return calculate_look_through(
             holdings,
             instrument_id=instrument,
             decision_time=decision,
-            constituent_fundamentals=fundamentals,
+            constituent_fundamentals=load_constituent_metrics(),
         )
     except (FileNotFoundError, OSError, ValueError, TypeError, ImportError):
         return None
