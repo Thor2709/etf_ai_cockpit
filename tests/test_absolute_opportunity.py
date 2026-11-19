@@ -598,6 +598,9 @@ def test_positions_from_holdings_use_only_snapshots_known_by_the_decision() -> N
     # The record carries the real knowledge time, not the snapshot date; without such a column the date stays.
     assert fallback["AAA"]["effective_at"] == "2026-09-01T00:00:00Z" and fallback["AAA"]["known_at"] == "2026-09-02T00:00:00Z"
     assert positions_from_holdings(holdings, ["AAA"], decision_time=date(2026, 9, 30))["AAA"]["known_at"] == "2026-09-01T00:00:00Z"
+    # A row with an unparseable snapshot date is unknown evidence, not an absent row.
+    bad = pd.DataFrame({"as_of_date": ["2026-09-01", "2026-10-15", "bad"], "etf_id": ["AAA", "BBB", "AAA"], "units": [5.0, 1.0, 0.0]})
+    assert positions_from_holdings(bad, ["AAA", "BBB"], decision_time=date(2026, 10, 15)) == {}
     # A timezone-aware snapshot date is compared like a plain one.
     aware = holdings.assign(as_of_date=["2026-09-01T00:00:00Z", "2026-10-15T00:00:00Z"])
     assert positions_from_holdings(aware, ["AAA"], decision_time=date(2026, 9, 30))["AAA"]["held"] is True
