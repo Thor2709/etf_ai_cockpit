@@ -167,3 +167,17 @@ def test_workflow_does_not_treat_explicit_acquisition_known_at_as_publication(mo
     assert result.startswith("ESEF import complete"), result
     assert len(written) == 1 and written[0].filed == expected
     assert written[0].known_at == "2023-04-01T12:00:00.000000+00:00"
+
+
+def test_an_unavailable_outstanding_count_is_an_invalid_input_not_a_missing_one() -> None:
+    class _UnavailableOutstanding(_Record):
+        value, decode_status = "100", "unavailable"
+
+    class _Treasury(_TreasuryRecord):
+        value = "20"
+
+    facts = statement_facts_from_esef([_UnavailableOutstanding(), _Treasury()], instrument_id="XX", source_sha256="a" * 64, known_at="2023-03-30T00:00:00+00:00", published_on="2023-03-30")
+    rows = parse_reported_shares(pd.DataFrame([fact.__dict__ for fact in facts]), source_ref="x")
+
+    assert [row["shares_outstanding"] for row in rows] == [None]  # never 100 - 20
+    assert json.loads(rows[0]["value_status"]) == {"shares_outstanding": "conflicted"}

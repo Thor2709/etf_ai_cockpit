@@ -3,11 +3,14 @@ from __future__ import annotations
 import builtins
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+import re
+from urllib.error import URLError
 
 import pytest
 
 from etf_cockpit.data import sec_filing_documents as sfd
 from etf_cockpit.data.document_chunks import index_document, search
+from etf_cockpit.data.sec_edgar_provider import SecEdgarError, SecEdgarProvider
 from etf_cockpit.plugins.registry import _network_probe
 
 FIXTURES = Path(__file__).parent / "fixtures" / "sec_filing_documents"
@@ -89,3 +92,108 @@ def test_missing_edgartools_and_naive_times_are_explicit_unavailable(monkeypatch
             sfd.parse_8k(b"", known_at=RECEIPT)
     with pytest.raises(sfd.SecFilingDocumentUnavailable, match="timezone-aware"):
         sfd.parse_8k(b"", known_at=datetime(2026, 7, 30))
+
+
+AGENT = "ETF AI Cockpit tests research@company.org"
+ACC_8K, ACC_10K = "0000777001-26-000010", "0000777001-26-000004"
+
+
+def _provider(tmp_path: Path, transport, sleeps: list[float] | None = None) -> SecEdgarProvider:
+    now = [0.0]  # a frozen clock of its own, so the shared rate-limit state of other tests is untouched
+    return SecEdgarProvider(AGENT, cache_dir=tmp_path, transport=transport, rate_limit_seconds=0.1,
+                            monotonic=lambda: now[0], sleep=(sleeps if sleeps is not None else []).append)
+
+
+def test_full_submission_request_declares_the_user_agent_respects_the_rate_limit_and_is_cached(tmp_path: Path) -> None:
+    bodies = {ACC_8K: _8k(), ACC_10K: (FIXTURES / "10k_sections.txt").read_bytes()}
+    seen: list[tuple[str, dict[str, str]]] = []
+
+    def transport(url: str, headers: dict[str, str]) -> bytes:
+        seen.append((url, headers))
+        return bodies[url.rsplit("/", 1)[1].removesuffix(".txt")]
+
+    sleeps: list[float] = []
+    provider = _provider(tmp_path, transport, sleeps)
+    first = provider.fetch_full_submission("0000777001", ACC_8K)
+    provider.fetch_full_submission("777001", ACC_10K)
+    assert seen[0][0] == f"https://www.sec.gov/Archives/edgar/data/777001/{ACC_8K}.txt"
+    assert all(headers["User-Agent"] == AGENT for _, headers in seen)
+    assert sleeps == [0.1]  # the second request waited out the rate limit on the frozen clock
+    assert first.path.read_bytes() == bodies[ACC_8K] and first.document_type == "sec_full_submission"
+    assert provider.fetch_full_submission("777001", ACC_8K).path == first.path and len(seen) == 2  # stored: no request
+    with pytest.raises(ValueError, match="accession"):  # a body that is another filing is refused and not stored
+        _provider(tmp_path / "other", lambda *_: bodies[ACC_10K]).fetch_full_submission("777001", ACC_8K)
+    assert not (tmp_path / "other").exists()
+
+
+def test_live_requests_keep_the_sec_minimum_interval_even_when_a_faster_limit_is_configured(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Response:
+        status, headers = 200, {}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc):
+            return False
+
+        def read(self) -> bytes:
+            return _8k()
+
+    monkeypatch.setattr("etf_cockpit.data.sec_edgar_provider.urlopen", lambda *_a, **_k: Response())
+    now, sleeps = [0.0], []
+    live = SecEdgarProvider(AGENT, cache_dir=tmp_path, rate_limit_seconds=0, monotonic=lambda: now[0], sleep=sleeps.append)
+    live.fetch_full_submission("777001", ACC_8K)
+    live._get_document("https://www.sec.gov/Archives/edgar/data/777001/x.txt", "text/plain")
+    assert sleeps == [0.1]  # a stubbed transport may use 0 (the tests above); a real request never goes below 100 ms
+
+
+def test_header_known_at_is_the_eastern_acceptance_instant_and_refuses_ambiguous_hours() -> None:
+    assert sfd.header_known_at(_8k()) == RECEIPT
+    with pytest.raises(sfd.SecFilingDocumentUnavailable, match="ACCEPTANCE-DATETIME"):
+        sfd.header_known_at(b"<SEC-HEADER>")
+    with pytest.raises(sfd.SecFilingDocumentUnavailable, match="one real instant"):  # 01:30 occurs twice on 2026-11-01
+        sfd.header_known_at(_8k().replace(b"20260730161500", b"20261101013000"))
+    with pytest.raises(sfd.SecFilingDocumentUnavailable, match="valid date"):  # 14 digits, not a calendar date
+        sfd.header_known_at(_8k().replace(b"20260730161500", b"20261399161500"))
+    field = re.search(rb"<ACCEPTANCE-DATETIME>\d{14}\r?\n", _8k())[0]
+    body_only = re.sub(rb"(<DOCUMENT>)", lambda m: m[1] + b"\n" + field, _8k().replace(field, b""), count=1)
+    twice = _8k().replace(b"<SEC-HEADER>", b"<SEC-HEADER>" + field, 1)
+    for source in (body_only, twice):  # a timestamp in the filing body is never the acceptance time; two fields are ambiguous
+        with pytest.raises(sfd.SecFilingDocumentUnavailable, match="single complete ACCEPTANCE-DATETIME"):
+            sfd.header_known_at(source)
+        with pytest.raises(sfd.SecFilingDocumentUnavailable):  # the parse path reads the same header block
+            sfd.parse_8k(source, known_at=RECEIPT)
+
+
+def test_uncached_filing_is_unavailable_when_the_network_is_denied(tmp_path: Path) -> None:
+    def denied(_url: str, _headers: dict[str, str]) -> bytes:
+        raise URLError("network denied")
+
+    provider = _provider(tmp_path, denied)
+    with pytest.raises(sfd.SecFilingDocumentUnavailable, match="not cached"):
+        sfd.fetch_8k(provider, "777001", ACC_8K)
+    forbidden = _provider(tmp_path, lambda *_: (b"", 403, {}))  # any other SEC refusal is unavailable too, cause kept
+    with pytest.raises(sfd.SecFilingDocumentUnavailable) as refused:
+        sfd.fetch_8k(forbidden, "777001", ACC_8K)
+    assert isinstance(refused.value.__cause__, SecEdgarError)
+
+
+def test_fetched_and_then_stored_submissions_parse_with_known_at_from_the_header(tmp_path: Path) -> None:
+    pytest.importorskip("edgar")
+    sfd._edgar()
+    bodies = {ACC_8K: _8k(), ACC_10K: (FIXTURES / "10k_sections.txt").read_bytes()}
+    live = _provider(tmp_path, lambda url, _h: bodies[url.rsplit("/", 1)[1].removesuffix(".txt")])
+    filing = sfd.fetch_8k(live, "777001", ACC_8K)
+    assert filing.sec_receipt_time == RECEIPT and filing.items == ("2.02", "9.01")
+    assert filing.public_announcement_time == "2026-07-30T20:05:00+00:00"
+    chunks = sfd.fetch_10k_section_chunks(live, "777001", ACC_10K)
+    assert {datetime.fromisoformat(c.known_at) for c in chunks} == {datetime(2026, 2, 27, 21, 30, tzinfo=timezone.utc)}
+
+    def denied(_url: str, _headers: dict[str, str]) -> bytes:
+        raise URLError("network denied")
+
+    offline = _provider(tmp_path, denied)  # same cache, no network: the stored submissions still parse
+    assert sfd.fetch_8k(offline, "777001", ACC_8K) == filing
+    assert [c.source_id for c in sfd.fetch_10k_section_chunks(offline, "777001", ACC_10K)] == [c.source_id for c in chunks]

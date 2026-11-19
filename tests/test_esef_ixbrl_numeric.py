@@ -12,8 +12,11 @@ def _parse_fact(tmp_path: Path, monkeypatch, concept: str, text: str, attributes
     monkeypatch.setattr(esef_ixbrl, "_arelle_available", lambda: False)
     report = f"""<html xmlns="http://www.w3.org/1999/xhtml"
       xmlns:ix="http://www.xbrl.org/2013/inlineXBRL"
+      xmlns:xbrli="http://www.xbrl.org/2003/instance"
+      xmlns:ixt="http://www.xbrl.org/inlineXBRL/transformation/2020-02-12"
       xmlns:ifrs-full="https://xbrl.ifrs.org/taxonomy/2024-03-27/ifrs-full">
-      <body><ix:nonFraction name="ifrs-full:{concept}" {attributes}>
+      <body><xbrli:unit id="shares"><xbrli:measure>xbrli:shares</xbrli:measure></xbrli:unit>
+        <ix:nonFraction name="ifrs-full:{concept}" unitRef="shares" {attributes}>
         {text}</ix:nonFraction></body></html>"""
     package = tmp_path / "numeric.xbri"
     with zipfile.ZipFile(package, "w") as archive:

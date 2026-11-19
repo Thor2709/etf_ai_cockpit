@@ -36,17 +36,11 @@ def load_etf_look_through(
 
     from etf_cockpit.analysis.look_through import calculate_look_through
     from etf_cockpit.data.fund_holdings import FUND_HOLDINGS_PATH
-    from etf_cockpit.data.fundamentals import FUNDAMENTAL_CLEAN_PATH
+    from etf_cockpit.data.fundamentals import load_constituent_metrics
 
     try:
         holdings = pd.read_parquet(FUND_HOLDINGS_PATH) if holdings_frame is None else holdings_frame
-        if fundamentals_frame is None:
-            try:
-                fundamentals = pd.read_parquet(FUNDAMENTAL_CLEAN_PATH)
-            except (FileNotFoundError, OSError, ValueError, ImportError):
-                fundamentals = pd.DataFrame()
-        else:
-            fundamentals = fundamentals_frame
+        fundamentals = load_constituent_metrics() if fundamentals_frame is None else fundamentals_frame
         resolved_identity_map = dict(identity_map or {})
         identity_resolution: dict[str, object] = {
             "status": "provided" if resolved_identity_map else "listing_identity_only",
