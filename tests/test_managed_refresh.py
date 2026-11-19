@@ -159,6 +159,47 @@ def resign(plan: dict[str, Any]) -> None:
     plan["plan_sha256"] = sync.plan_sha256(plan)
 
 
+@pytest.mark.parametrize(
+    ("created", "number", "error"),
+    [
+        (True, 1, None),
+        (False, 1, "managed_refresh_unknown_or_changed_issue_identity"),
+        (True, 3, "managed_refresh_issue_identity_reused"),
+    ],
+)
+def test_refresh_identity_of_created_issue(
+    prepared: dict[str, Any], created: bool, number: int, error: str | None,
+) -> None:
+    bootstrap = gateway.build_authority_record(
+        "legacy_bootstrap",
+        {"legacy_issues": [
+            {"stable_id": f"ISSUE-{n:04d}", "issue_number": n, "database_id": str(100 + n),
+             "node_id": f"NODE_{n}", "initial_status": "planned"} for n in (2, 3)
+        ]},
+        sequence=0, previous_authority_id=None,
+    )
+    records = [bootstrap]
+    if created:
+        records.append(gateway.build_authority_record(
+            "create",
+            {"stable_id": "ISSUE-0001", "source_sha": prepared["source"], "title": "Issue 1",
+             "managed_body": "body", "claim_inventory_sha256": "a" * 64, "plan_sha256": "b" * 64},
+            sequence=1, previous_authority_id=bootstrap["authority_id"],
+        ))
+    row = {**prepared["authority"]["payload"]["updates"][0],
+           "issue_number": number, "database_id": str(100 + number), "node_id": f"NODE_{number}"}
+    records.append(gateway.build_authority_record(
+        "managed_refresh", {**prepared["authority"]["payload"], "updates": [row]},
+        sequence=len(records), previous_authority_id=records[-1]["authority_id"],
+    ))
+    ledger = gateway.authority_ledger_bytes(records)
+    if error is None:
+        assert gateway.parse_authority_ledger(ledger) == records
+    else:
+        with pytest.raises(ValueError, match=error):
+            gateway.parse_authority_ledger(ledger)
+
+
 def test_exact_batch_and_outside_bytes(prepared: dict[str, Any]) -> None:
     memory = Memory(prepared["remote"])
     assert apply(prepared, memory)["accepted"]
@@ -569,3 +610,84 @@ def test_preflight_transport_failure_also_carries_evidence(
     assert memory.writes == []
     assert caught.value.evidence["updates"] == []
     assert caught.value.evidence["failure_phase"] == "inventory_read"
+
+
+def test_created_issue_takes_its_first_refresh_then_a_status_receipt(prepared: dict[str, Any]) -> None:
+    root, source, registry = prepared["root"], prepared["source"], prepared["registry"]
+    legacy = gateway.build_authority_record(
+        "legacy_bootstrap",
+        {"legacy_issues": [
+            {"stable_id": f"ISSUE-{n:04d}", "issue_number": n, "database_id": str(100 + n),
+             "node_id": f"NODE_{n}", "initial_status": "planned"} for n in (2, 3)
+        ]},
+        sequence=0, previous_authority_id=None,
+    )
+    managed = sync.managed_block({**registry["records"][0], "blocking_dependencies": ["ISSUE-0999"]})
+    create = gateway.build_authority_record(
+        "create",
+        {"stable_id": "ISSUE-0001", "source_sha": source, "title": "Issue 1", "managed_body": managed,
+         "claim_inventory_sha256": "a" * 64, "plan_sha256": "b" * 64},
+        sequence=1, previous_authority_id=legacy["authority_id"],
+    )
+    bot = {
+        "author": {"login": "github-actions[bot]", "type": "Bot", "id": int(gateway.GITHUB_ACTIONS_BOT_USER_ID)},
+        "performed_via_github_app": {"slug": "github-actions", "id": int(gateway.GITHUB_ACTIONS_APP_ID)},
+        "created_at": "2026-07-31T00:00:01Z", "updated_at": "2026-07-31T00:00:01Z",
+    }
+    created = {
+        **prepared["remote"][0], "labels": [], "assignees": [], "milestone": None,
+        "body": f"{gateway.CREATE_MARKER_TEMPLATE.format(create['authority_id'])}\n{managed}",
+    }
+    _, receipt = gateway.build_create_receipt(
+        created, mutation_id=create["authority_id"], stable_id="ISSUE-0001",
+        authority_id=create["authority_id"], authority_sequence=1, source_sha=source, head_sha="9" * 40, plan_sha256="b" * 64,
+        event_before=source, event_after="9" * 40,
+    )
+    created["comments"] = [{"id": 1, "node_id": "C1", "body": receipt, **bot}]
+    remote = [created, *prepared["remote"][1:]]
+    plan = sync.plan_actions(registry, remote)
+    payload = {
+        "source_sha": source, "plan_sha256": plan["plan_sha256"],
+        "remote_inventory_sha256": plan["remote_inventory_sha256"],
+        "claim_inventory_sha256": plan["claim_inventory_sha256"],
+        **gateway.managed_refresh_registry(root, source)[1],
+        "updates": gateway.managed_refresh_updates(registry, plan, remote),
+    }
+    refresh = gateway.build_authority_record(
+        "managed_refresh", payload, sequence=2, previous_authority_id=create["authority_id"],
+    )
+
+    class Posting(Memory):
+        def append_comment(self, number: int, body: str) -> None:
+            count = len(self.remote[0]["comments"]) + 1
+            self.remote[0]["comments"].append({"id": count, "node_id": f"C{count}", "body": body, **bot})
+
+    memory = Posting(remote)
+    for action in plan["actions"]:
+        memory._refresh_managed_body(action["remote_number"], action["body"])
+    status_payload = {
+        "stable_id": "ISSUE-0001", "issue_number": 1, "database_id": "101", "node_id": "NODE_1",
+        "source_sha": "a" * 40, "from_status": "planned", "to_status": "ready",
+        "candidate_path": gateway.AUTHORITY_CANDIDATE_PATH, "candidate_blob_oid": "e" * 40,
+        "candidate_blob_sha256": "c" * 64, "candidate_authority_ref": "", "plan_sha256": "d" * 64,
+    }
+    status_payload["candidate_authority_ref"] = gateway.candidate_authority_ref(status_payload)
+    status = gateway.build_authority_record(
+        "status", status_payload, sequence=3, previous_authority_id=refresh["authority_id"],
+    )
+    records = [legacy, create, refresh, status]
+    assert gateway.parse_authority_ledger(gateway.authority_ledger_bytes(records)) == records
+    gateway.append_status_event(
+        memory.fetch_issue(1), stable_id="ISSUE-0001", from_status="planned", to_status="ready",
+        source_sha="a" * 40, head_sha="b" * 40, candidate_blob_sha256="c" * 64, plan_sha256="d" * 64,
+        event_name="push", event_ref="refs/heads/main", run_attempt="1",
+        event_before="a" * 40, event_after="b" * 40, actor="owner", pusher="owner",
+        run_id="1", run_number="1", workflow_ref=prepared["attestation"]["workflow_ref"],
+        repository=gateway.REPO, event_payload_sha256="e" * 64, authority_record=status,
+        git_binding={
+            "authority_id": status["authority_id"], "authority_sequence": 3, "head_sha": "b" * 40,
+            "ledger_blob_oid": "1" * 40, "ledger_blob_sha256": "2" * 64,
+        },
+        transport=memory,
+    )
+    assert gateway.reconcile_authority_ledger(records, memory.remote)["accepted"] is True

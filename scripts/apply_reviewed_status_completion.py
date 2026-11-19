@@ -2088,7 +2088,10 @@ def run(
         )
         if (
             not reconciliation.get("accepted")
-            or readback.get("summary") != {**ZERO_SUMMARY, "create": len(deferred)}
+            or readback.get("summary") != {
+                **ZERO_SUMMARY,
+                **{kind: sum(row.get("kind") == kind for row in deferred) for kind in ("create", "update")},
+            }
             or readback.get("actions") != deferred
         ):
             evidence["zero_action_readback"] = False
