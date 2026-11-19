@@ -1,24 +1,195 @@
 {
   "allow_downgrades": false,
   "allow_other_status_changes": false,
-  "allowed_status_transitions": [],
-  "base_commit": "4ae82e9ea684908ff12d2af53cae45552a536b75",
-  "branch": "int27/followup-intake",
-  "issue_ids": [],
+  "allowed_status_transitions": [
+    {
+      "from": "planned",
+      "issue_id": "ISSUE-0183",
+      "to": "in_progress"
+    },
+    {
+      "from": "planned",
+      "issue_id": "ISSUE-0184",
+      "to": "in_progress"
+    },
+    {
+      "from": "planned",
+      "issue_id": "ISSUE-0185",
+      "to": "in_progress"
+    },
+    {
+      "from": "planned",
+      "issue_id": "ISSUE-0186",
+      "to": "in_progress"
+    },
+    {
+      "from": "planned",
+      "issue_id": "ISSUE-0187",
+      "to": "in_progress"
+    },
+    {
+      "from": "planned",
+      "issue_id": "ISSUE-0188",
+      "to": "in_progress"
+    },
+    {
+      "from": "planned",
+      "issue_id": "ISSUE-0190",
+      "to": "in_progress"
+    },
+    {
+      "from": "planned",
+      "issue_id": "ISSUE-0191",
+      "to": "in_progress"
+    },
+    {
+      "from": "planned",
+      "issue_id": "ISSUE-0192",
+      "to": "in_progress"
+    },
+    {
+      "from": "planned",
+      "issue_id": "ISSUE-0193",
+      "to": "in_progress"
+    },
+    {
+      "from": "planned",
+      "issue_id": "ISSUE-0194",
+      "to": "in_progress"
+    },
+    {
+      "from": "planned",
+      "issue_id": "ISSUE-0195",
+      "to": "in_progress"
+    },
+    {
+      "from": "planned",
+      "issue_id": "ISSUE-0196",
+      "to": "in_progress"
+    },
+    {
+      "from": "planned",
+      "issue_id": "ISSUE-0197",
+      "to": "in_progress"
+    },
+    {
+      "from": "planned",
+      "issue_id": "ISSUE-0198",
+      "to": "in_progress"
+    },
+    {
+      "from": "planned",
+      "issue_id": "ISSUE-0199",
+      "to": "in_progress"
+    },
+    {
+      "from": "planned",
+      "issue_id": "ISSUE-0200",
+      "to": "in_progress"
+    },
+    {
+      "from": "planned",
+      "issue_id": "ISSUE-0201",
+      "to": "in_progress"
+    },
+    {
+      "from": "planned",
+      "issue_id": "ISSUE-0203",
+      "to": "in_progress"
+    },
+    {
+      "from": "planned",
+      "issue_id": "ISSUE-0204",
+      "to": "in_progress"
+    },
+    {
+      "from": "planned",
+      "issue_id": "ISSUE-0205",
+      "to": "in_progress"
+    },
+    {
+      "from": "planned",
+      "issue_id": "ISSUE-0206",
+      "to": "in_progress"
+    },
+    {
+      "from": "planned",
+      "issue_id": "ISSUE-0207",
+      "to": "in_progress"
+    },
+    {
+      "from": "planned",
+      "issue_id": "ISSUE-0208",
+      "to": "in_progress"
+    },
+    {
+      "from": "planned",
+      "issue_id": "ISSUE-0209",
+      "to": "in_progress"
+    },
+    {
+      "from": "planned",
+      "issue_id": "ISSUE-0210",
+      "to": "in_progress"
+    },
+    {
+      "from": "planned",
+      "issue_id": "ISSUE-0211",
+      "to": "in_progress"
+    },
+    {
+      "from": "planned",
+      "issue_id": "ISSUE-0212",
+      "to": "in_progress"
+    },
+    {
+      "from": "planned",
+      "issue_id": "ISSUE-0213",
+      "to": "in_progress"
+    }
+  ],
+  "base_commit": "54e2b1d83dbb3c3792e046dde5b5c61dd6c8d626",
+  "branch": "lc/int27-start-20261119",
+  "issue_ids": [
+    "ISSUE-0183",
+    "ISSUE-0184",
+    "ISSUE-0185",
+    "ISSUE-0186",
+    "ISSUE-0187",
+    "ISSUE-0188",
+    "ISSUE-0190",
+    "ISSUE-0191",
+    "ISSUE-0192",
+    "ISSUE-0193",
+    "ISSUE-0194",
+    "ISSUE-0195",
+    "ISSUE-0196",
+    "ISSUE-0197",
+    "ISSUE-0198",
+    "ISSUE-0199",
+    "ISSUE-0200",
+    "ISSUE-0201",
+    "ISSUE-0203",
+    "ISSUE-0204",
+    "ISSUE-0205",
+    "ISSUE-0206",
+    "ISSUE-0207",
+    "ISSUE-0208",
+    "ISSUE-0209",
+    "ISSUE-0210",
+    "ISSUE-0211",
+    "ISSUE-0212",
+    "ISSUE-0213"
+  ],
   "registry_migration": {
-    "added_issue_ids": [
-      "ISSUE-0210",
-      "ISSUE-0211",
-      "ISSUE-0212",
-      "ISSUE-0213"
-    ],
-    "base_registry_sha256": "c4db5db7cedf59b8211ac0aa455aa9e6537232f7c831f04ad0bf006f24a7d57b",
+    "added_issue_ids": [],
+    "base_registry_sha256": "f3c5fef952f0491110320fa668a6176a54d5cf7d4da324f994132291b5637967",
     "generator": "scripts/generate_issue_registry.py",
-    "mode": "canonical_schema_and_intake",
-    "proposed_registry_sha256": "f3c5fef952f0491110320fa668a6176a54d5cf7d4da324f994132291b5637967",
-    "reason": "Register four planned INT-27 execution follow-up issues (owner GO 2026-11-18); definition-only intake.",
+    "mode": "generation_base_and_status_transitions",
+    "proposed_registry_sha256": "208e294ec52aa08b0555a9fcc80849d1605ab5a3c8063792a4607d4694c22c03",
+    "reason": "Transition 29 INT-27 issues (start); preserve dependencies, GitHub issue open state, external authority and execution_allowed=false.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },
-  "schema_version": "1.1"
+  "schema_version": "1.2"
 }

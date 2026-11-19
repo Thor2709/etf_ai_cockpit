@@ -5429,7 +5429,7 @@
       "acceptance_evidence": [
         {
           "evidence_references": [
-            "PR #545 merged the sole ISSUE-0099→ISSUE-0098 dependency edge as complete in d149defcce3398c3cc463bc0d1cdbdf9a1e7cb4b with status guard and supply-chain validation passing",
+            "PR #545 merged the sole ISSUE-0099\u2192ISSUE-0098 dependency edge as complete in d149defcce3398c3cc463bc0d1cdbdf9a1e7cb4b with status guard and supply-chain validation passing",
             "ISSUE-0098 peer-cohort.v1 supplies the required adapter registration, point-in-time cohort, robust statistics, lineage and replay boundary while ISSUE-0099 retains financial-sector implementation"
           ],
           "review_reference": "B04 ISSUE-0099 readiness after complete ISSUE-0098 dependency review",
@@ -5522,7 +5522,7 @@
         {
           "allow_downgrade": false,
           "evidence_references": [
-            "PR #545 merged the sole ISSUE-0099→ISSUE-0098 dependency edge as complete in d149defcce3398c3cc463bc0d1cdbdf9a1e7cb4b with status guard and supply-chain validation passing",
+            "PR #545 merged the sole ISSUE-0099\u2192ISSUE-0098 dependency edge as complete in d149defcce3398c3cc463bc0d1cdbdf9a1e7cb4b with status guard and supply-chain validation passing",
             "ISSUE-0098 peer-cohort.v1 supplies the required adapter registration, point-in-time cohort, robust statistics, lineage and replay boundary while ISSUE-0099 retains financial-sector implementation"
           ],
           "from": "planned",
@@ -5581,7 +5581,7 @@
       "acceptance_evidence": [
         {
           "evidence_references": [
-            "PR #551 merged the sole ISSUE-0100→ISSUE-0098 dependency edge as complete in 65d35e21c397aaca77483cacc88babebdffd0014 with status guard and supply-chain validation passing",
+            "PR #551 merged the sole ISSUE-0100\u2192ISSUE-0098 dependency edge as complete in 65d35e21c397aaca77483cacc88babebdffd0014 with status guard and supply-chain validation passing",
             "ISSUE-0098 peer-cohort.v1 supplies adapter registration, point-in-time cohort hierarchy, robust statistics, lineage and replay while ISSUE-0100 retains all REIT, utility and infrastructure implementation scope",
             "Canonical readiness reports READY_BLOCKING_EDGES_RESOLVED and execution_allowed remains false"
           ],
@@ -5676,7 +5676,7 @@
         {
           "allow_downgrade": false,
           "evidence_references": [
-            "PR #551 merged the sole ISSUE-0100→ISSUE-0098 dependency edge as complete in 65d35e21c397aaca77483cacc88babebdffd0014 with status guard and supply-chain validation passing",
+            "PR #551 merged the sole ISSUE-0100\u2192ISSUE-0098 dependency edge as complete in 65d35e21c397aaca77483cacc88babebdffd0014 with status guard and supply-chain validation passing",
             "ISSUE-0098 peer-cohort.v1 supplies adapter registration, point-in-time cohort hierarchy, robust statistics, lineage and replay while ISSUE-0100 retains all REIT, utility and infrastructure implementation scope",
             "Canonical readiness reports READY_BLOCKING_EDGES_RESOLVED and execution_allowed remains false"
           ],
@@ -5737,7 +5737,7 @@
       "acceptance_evidence": [
         {
           "evidence_references": [
-            "PR #557 merged the sole ISSUE-0101→ISSUE-0098 dependency edge as complete in 4469b423e18cfb04a7150d38286645d06ea0af67 with status guard and supply-chain validation passing",
+            "PR #557 merged the sole ISSUE-0101\u2192ISSUE-0098 dependency edge as complete in 4469b423e18cfb04a7150d38286645d06ea0af67 with status guard and supply-chain validation passing",
             "ISSUE-0098 peer-cohort.v1 supplies adapter registration, point-in-time cohort hierarchy, robust statistics, lineage and replay while ISSUE-0101 retains all energy, materials and industrial implementation scope",
             "Canonical readiness reports READY_BLOCKING_EDGES_RESOLVED and execution_allowed remains false"
           ],
@@ -5832,7 +5832,7 @@
         {
           "allow_downgrade": false,
           "evidence_references": [
-            "PR #557 merged the sole ISSUE-0101→ISSUE-0098 dependency edge as complete in 4469b423e18cfb04a7150d38286645d06ea0af67 with status guard and supply-chain validation passing",
+            "PR #557 merged the sole ISSUE-0101\u2192ISSUE-0098 dependency edge as complete in 4469b423e18cfb04a7150d38286645d06ea0af67 with status guard and supply-chain validation passing",
             "ISSUE-0098 peer-cohort.v1 supplies adapter registration, point-in-time cohort hierarchy, robust statistics, lineage and replay while ISSUE-0101 retains all energy, materials and industrial implementation scope",
             "Canonical readiness reports READY_BLOCKING_EDGES_RESOLVED and execution_allowed remains false"
           ],
@@ -5893,7 +5893,7 @@
       "acceptance_evidence": [
         {
           "evidence_references": [
-            "PR #638 merged the sole ISSUE-0102→ISSUE-0098 dependency edge as complete in 179e16c71328c43a9475dce60743a2d1aeda5aa7 from exact reviewed head 871ea037c594844a0de9e72e7dbabd3405244b76",
+            "PR #638 merged the sole ISSUE-0102\u2192ISSUE-0098 dependency edge as complete in 179e16c71328c43a9475dce60743a2d1aeda5aa7 from exact reviewed head 871ea037c594844a0de9e72e7dbabd3405244b76",
             "Release run 30737461361 passed classifier, preflight, supply-chain, authoritative Linux and Windows package gates and terminal validation summary; standalone status guard 30737461338 passed",
             "ISSUE-0098 peer-cohort.v1 supplies adapter registration, point-in-time cohort hierarchy, robust statistics, lineage and replay while ISSUE-0102 retains all software, semiconductor, healthcare and biotechnology implementation scope; convergence run 30738361187 was zero action and execution_allowed remains false"
           ],
@@ -5988,7 +5988,7 @@
         {
           "allow_downgrade": false,
           "evidence_references": [
-            "PR #638 merged the sole ISSUE-0102→ISSUE-0098 dependency edge as complete in 179e16c71328c43a9475dce60743a2d1aeda5aa7 from exact reviewed head 871ea037c594844a0de9e72e7dbabd3405244b76",
+            "PR #638 merged the sole ISSUE-0102\u2192ISSUE-0098 dependency edge as complete in 179e16c71328c43a9475dce60743a2d1aeda5aa7 from exact reviewed head 871ea037c594844a0de9e72e7dbabd3405244b76",
             "Release run 30737461361 passed classifier, preflight, supply-chain, authoritative Linux and Windows package gates and terminal validation summary; standalone status guard 30737461338 passed",
             "ISSUE-0098 peer-cohort.v1 supplies adapter registration, point-in-time cohort hierarchy, robust statistics, lineage and replay while ISSUE-0102 retains all software, semiconductor, healthcare and biotechnology implementation scope; convergence run 30738361187 was zero action and execution_allowed remains false"
           ],
@@ -15732,7 +15732,19 @@
       "verified_date": "2026-11-17"
     },
     "ISSUE-0183": {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "Owner GO 2026-11-18 for the INT-27 execution plan (integration_plan_2026-11-13/EXECUTION_PLAN_2026-11-18.md), which approves the optional extras and downloads used here",
+            "PR #1079 (batch 1, merge df9a3689); release gate run 44328743932 passed validation-summary on its head a7cf2b8a",
+            "PR #1087 (ISSUE-0183 diluted per-share fields, merge 4ae82e9e); release gate run 44420809278 passed validation-summary on its head a0e9a59a"
+          ],
+          "review_reference": "Exact head 4ae82e9ea684908ff12d2af53cae45552a536b75: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+          "reviewed_date": "2026-11-19",
+          "reviewer": "Claude Code root orchestrator with Codex gpt-6.2-sol high one-shot review",
+          "status": "in_progress"
+        }
+      ],
       "canonical_definition": {
         "acceptance_criteria": [
           {
@@ -15770,17 +15782,45 @@
       },
       "dependency_edge_evidence": {},
       "phase": "phase-03-stock-research",
-      "programme_status": "planned",
+      "programme_status": "in_progress",
       "status_transition": {
         "from": "planned",
-        "review_reference": "Owner request for coordinated intake in tracker #1020. Draft pending review.",
-        "to": "planned"
+        "review_reference": "Exact head 4ae82e9ea684908ff12d2af53cae45552a536b75: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+        "to": "in_progress"
       },
-      "verified_commit": "78ef9d904288b3b3cf00ea3f995f36024655a4d6",
-      "verified_date": "2026-11-16"
+      "transition_history": [
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "Owner GO 2026-11-18 for the INT-27 execution plan (integration_plan_2026-11-13/EXECUTION_PLAN_2026-11-18.md), which approves the optional extras and downloads used here",
+            "PR #1079 (batch 1, merge df9a3689); release gate run 44328743932 passed validation-summary on its head a7cf2b8a",
+            "PR #1087 (ISSUE-0183 diluted per-share fields, merge 4ae82e9e); release gate run 44420809278 passed validation-summary on its head a0e9a59a"
+          ],
+          "from": "planned",
+          "review_reference": "Exact head 4ae82e9ea684908ff12d2af53cae45552a536b75: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+          "reviewed_date": "2026-11-19",
+          "reviewer": "Claude Code root orchestrator with Codex gpt-6.2-sol high one-shot review",
+          "to": "in_progress",
+          "verified_commit": "4ae82e9ea684908ff12d2af53cae45552a536b75"
+        }
+      ],
+      "verified_commit": "4ae82e9ea684908ff12d2af53cae45552a536b75",
+      "verified_date": "2026-11-19"
     },
     "ISSUE-0184": {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "Owner GO 2026-11-18 for the INT-27 execution plan (integration_plan_2026-11-13/EXECUTION_PLAN_2026-11-18.md), which approves the optional extras and downloads used here",
+            "PR #1079 (batch 1, merge df9a3689); release gate run 44328743932 passed validation-summary on its head a7cf2b8a",
+            "PR #1082 (batch 2, merge 12399d6e); release gate run 44413973135 passed validation-summary on its head c4662dd0 (VWCE anchor import)"
+          ],
+          "review_reference": "Exact head 12399d6e8dd546d6716741896139c0b1a4c0e278: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+          "reviewed_date": "2026-11-19",
+          "reviewer": "Claude Code root orchestrator with Codex gpt-6.2-sol high one-shot review",
+          "status": "in_progress"
+        }
+      ],
       "canonical_definition": {
         "acceptance_criteria": [
           {
@@ -15821,17 +15861,45 @@
       },
       "dependency_edge_evidence": {},
       "phase": "phase-05-returns-risk-portfolio",
-      "programme_status": "planned",
+      "programme_status": "in_progress",
       "status_transition": {
         "from": "planned",
-        "review_reference": "Owner request for coordinated intake in tracker #1020. Draft pending review.",
-        "to": "planned"
+        "review_reference": "Exact head 12399d6e8dd546d6716741896139c0b1a4c0e278: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+        "to": "in_progress"
       },
-      "verified_commit": "78ef9d904288b3b3cf00ea3f995f36024655a4d6",
-      "verified_date": "2026-11-16"
+      "transition_history": [
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "Owner GO 2026-11-18 for the INT-27 execution plan (integration_plan_2026-11-13/EXECUTION_PLAN_2026-11-18.md), which approves the optional extras and downloads used here",
+            "PR #1079 (batch 1, merge df9a3689); release gate run 44328743932 passed validation-summary on its head a7cf2b8a",
+            "PR #1082 (batch 2, merge 12399d6e); release gate run 44413973135 passed validation-summary on its head c4662dd0 (VWCE anchor import)"
+          ],
+          "from": "planned",
+          "review_reference": "Exact head 12399d6e8dd546d6716741896139c0b1a4c0e278: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+          "reviewed_date": "2026-11-19",
+          "reviewer": "Claude Code root orchestrator with Codex gpt-6.2-sol high one-shot review",
+          "to": "in_progress",
+          "verified_commit": "12399d6e8dd546d6716741896139c0b1a4c0e278"
+        }
+      ],
+      "verified_commit": "12399d6e8dd546d6716741896139c0b1a4c0e278",
+      "verified_date": "2026-11-19"
     },
     "ISSUE-0185": {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "Owner GO 2026-11-18 for the INT-27 execution plan (integration_plan_2026-11-13/EXECUTION_PLAN_2026-11-18.md), which approves the optional extras and downloads used here",
+            "PR #1068 (INT-01 quant extra, merge c175298d)",
+            "PR #1079 (batch 1, merge df9a3689); release gate run 44328743932 passed validation-summary on its head a7cf2b8a"
+          ],
+          "review_reference": "Exact head df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+          "reviewed_date": "2026-11-19",
+          "reviewer": "Claude Code root orchestrator with Codex gpt-6.2-sol high one-shot review",
+          "status": "in_progress"
+        }
+      ],
       "canonical_definition": {
         "acceptance_criteria": [
           {
@@ -15869,17 +15937,44 @@
       },
       "dependency_edge_evidence": {},
       "phase": "phase-01-governance-scope",
-      "programme_status": "planned",
+      "programme_status": "in_progress",
       "status_transition": {
         "from": "planned",
-        "review_reference": "Owner request for coordinated intake in tracker #1020. Draft pending review.",
-        "to": "planned"
+        "review_reference": "Exact head df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+        "to": "in_progress"
       },
-      "verified_commit": "78ef9d904288b3b3cf00ea3f995f36024655a4d6",
-      "verified_date": "2026-11-16"
+      "transition_history": [
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "Owner GO 2026-11-18 for the INT-27 execution plan (integration_plan_2026-11-13/EXECUTION_PLAN_2026-11-18.md), which approves the optional extras and downloads used here",
+            "PR #1068 (INT-01 quant extra, merge c175298d)",
+            "PR #1079 (batch 1, merge df9a3689); release gate run 44328743932 passed validation-summary on its head a7cf2b8a"
+          ],
+          "from": "planned",
+          "review_reference": "Exact head df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+          "reviewed_date": "2026-11-19",
+          "reviewer": "Claude Code root orchestrator with Codex gpt-6.2-sol high one-shot review",
+          "to": "in_progress",
+          "verified_commit": "df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a"
+        }
+      ],
+      "verified_commit": "df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a",
+      "verified_date": "2026-11-19"
     },
     "ISSUE-0186": {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "Owner GO 2026-11-18 for the INT-27 execution plan (integration_plan_2026-11-13/EXECUTION_PLAN_2026-11-18.md), which approves the optional extras and downloads used here",
+            "PR #1079 (batch 1, merge df9a3689); release gate run 44328743932 passed validation-summary on its head a7cf2b8a"
+          ],
+          "review_reference": "Exact head df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+          "reviewed_date": "2026-11-19",
+          "reviewer": "Claude Code root orchestrator with Codex gpt-6.2-sol high one-shot review",
+          "status": "in_progress"
+        }
+      ],
       "canonical_definition": {
         "acceptance_criteria": [
           {
@@ -15942,17 +16037,43 @@
         }
       },
       "phase": "phase-03-stock-research",
-      "programme_status": "planned",
+      "programme_status": "in_progress",
       "status_transition": {
         "from": "planned",
-        "review_reference": "Owner request for coordinated intake in tracker #1020. Draft pending review.",
-        "to": "planned"
+        "review_reference": "Exact head df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+        "to": "in_progress"
       },
-      "verified_commit": "78ef9d904288b3b3cf00ea3f995f36024655a4d6",
-      "verified_date": "2026-11-16"
+      "transition_history": [
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "Owner GO 2026-11-18 for the INT-27 execution plan (integration_plan_2026-11-13/EXECUTION_PLAN_2026-11-18.md), which approves the optional extras and downloads used here",
+            "PR #1079 (batch 1, merge df9a3689); release gate run 44328743932 passed validation-summary on its head a7cf2b8a"
+          ],
+          "from": "planned",
+          "review_reference": "Exact head df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+          "reviewed_date": "2026-11-19",
+          "reviewer": "Claude Code root orchestrator with Codex gpt-6.2-sol high one-shot review",
+          "to": "in_progress",
+          "verified_commit": "df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a"
+        }
+      ],
+      "verified_commit": "df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a",
+      "verified_date": "2026-11-19"
     },
     "ISSUE-0187": {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "Owner GO 2026-11-18 for the INT-27 execution plan (integration_plan_2026-11-13/EXECUTION_PLAN_2026-11-18.md), which approves the optional extras and downloads used here",
+            "PR #1079 (batch 1, merge df9a3689); release gate run 44328743932 passed validation-summary on its head a7cf2b8a"
+          ],
+          "review_reference": "Exact head df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+          "reviewed_date": "2026-11-19",
+          "reviewer": "Claude Code root orchestrator with Codex gpt-6.2-sol high one-shot review",
+          "status": "in_progress"
+        }
+      ],
       "canonical_definition": {
         "acceptance_criteria": [
           {
@@ -16002,17 +16123,43 @@
         }
       },
       "phase": "phase-03-stock-research",
-      "programme_status": "planned",
+      "programme_status": "in_progress",
       "status_transition": {
         "from": "planned",
-        "review_reference": "Owner request for coordinated intake in tracker #1020. Draft pending review.",
-        "to": "planned"
+        "review_reference": "Exact head df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+        "to": "in_progress"
       },
-      "verified_commit": "78ef9d904288b3b3cf00ea3f995f36024655a4d6",
-      "verified_date": "2026-11-16"
+      "transition_history": [
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "Owner GO 2026-11-18 for the INT-27 execution plan (integration_plan_2026-11-13/EXECUTION_PLAN_2026-11-18.md), which approves the optional extras and downloads used here",
+            "PR #1079 (batch 1, merge df9a3689); release gate run 44328743932 passed validation-summary on its head a7cf2b8a"
+          ],
+          "from": "planned",
+          "review_reference": "Exact head df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+          "reviewed_date": "2026-11-19",
+          "reviewer": "Claude Code root orchestrator with Codex gpt-6.2-sol high one-shot review",
+          "to": "in_progress",
+          "verified_commit": "df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a"
+        }
+      ],
+      "verified_commit": "df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a",
+      "verified_date": "2026-11-19"
     },
     "ISSUE-0188": {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "Owner GO 2026-11-18 for the INT-27 execution plan (integration_plan_2026-11-13/EXECUTION_PLAN_2026-11-18.md), which approves the optional extras and downloads used here",
+            "PR #1079 (batch 1, merge df9a3689); release gate run 44328743932 passed validation-summary on its head a7cf2b8a"
+          ],
+          "review_reference": "Exact head df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+          "reviewed_date": "2026-11-19",
+          "reviewer": "Claude Code root orchestrator with Codex gpt-6.2-sol high one-shot review",
+          "status": "in_progress"
+        }
+      ],
       "canonical_definition": {
         "acceptance_criteria": [
           {
@@ -16072,14 +16219,29 @@
         }
       },
       "phase": "phase-03-stock-research",
-      "programme_status": "planned",
+      "programme_status": "in_progress",
       "status_transition": {
         "from": "planned",
-        "review_reference": "Owner request for coordinated intake in tracker #1020. Draft pending review.",
-        "to": "planned"
+        "review_reference": "Exact head df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+        "to": "in_progress"
       },
-      "verified_commit": "78ef9d904288b3b3cf00ea3f995f36024655a4d6",
-      "verified_date": "2026-11-16"
+      "transition_history": [
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "Owner GO 2026-11-18 for the INT-27 execution plan (integration_plan_2026-11-13/EXECUTION_PLAN_2026-11-18.md), which approves the optional extras and downloads used here",
+            "PR #1079 (batch 1, merge df9a3689); release gate run 44328743932 passed validation-summary on its head a7cf2b8a"
+          ],
+          "from": "planned",
+          "review_reference": "Exact head df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+          "reviewed_date": "2026-11-19",
+          "reviewer": "Claude Code root orchestrator with Codex gpt-6.2-sol high one-shot review",
+          "to": "in_progress",
+          "verified_commit": "df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a"
+        }
+      ],
+      "verified_commit": "df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a",
+      "verified_date": "2026-11-19"
     },
     "ISSUE-0189": {
       "acceptance_evidence": [],
@@ -16144,7 +16306,18 @@
       "verified_date": "2026-11-16"
     },
     "ISSUE-0190": {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "Owner GO 2026-11-18 for the INT-27 execution plan (integration_plan_2026-11-13/EXECUTION_PLAN_2026-11-18.md), which approves the optional extras and downloads used here",
+            "PR #1079 (batch 1, merge df9a3689); release gate run 44328743932 passed validation-summary on its head a7cf2b8a"
+          ],
+          "review_reference": "Exact head df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+          "reviewed_date": "2026-11-19",
+          "reviewer": "Claude Code root orchestrator with Codex gpt-6.2-sol high one-shot review",
+          "status": "in_progress"
+        }
+      ],
       "canonical_definition": {
         "acceptance_criteria": [
           {
@@ -16205,17 +16378,43 @@
         }
       },
       "phase": "phase-06-model-research",
-      "programme_status": "planned",
+      "programme_status": "in_progress",
       "status_transition": {
         "from": "planned",
-        "review_reference": "Owner request for coordinated intake in tracker #1020. Draft pending review.",
-        "to": "planned"
+        "review_reference": "Exact head df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+        "to": "in_progress"
       },
-      "verified_commit": "78ef9d904288b3b3cf00ea3f995f36024655a4d6",
-      "verified_date": "2026-11-16"
+      "transition_history": [
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "Owner GO 2026-11-18 for the INT-27 execution plan (integration_plan_2026-11-13/EXECUTION_PLAN_2026-11-18.md), which approves the optional extras and downloads used here",
+            "PR #1079 (batch 1, merge df9a3689); release gate run 44328743932 passed validation-summary on its head a7cf2b8a"
+          ],
+          "from": "planned",
+          "review_reference": "Exact head df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+          "reviewed_date": "2026-11-19",
+          "reviewer": "Claude Code root orchestrator with Codex gpt-6.2-sol high one-shot review",
+          "to": "in_progress",
+          "verified_commit": "df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a"
+        }
+      ],
+      "verified_commit": "df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a",
+      "verified_date": "2026-11-19"
     },
     "ISSUE-0191": {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "Owner GO 2026-11-18 for the INT-27 execution plan (integration_plan_2026-11-13/EXECUTION_PLAN_2026-11-18.md), which approves the optional extras and downloads used here",
+            "PR #1079 (batch 1, merge df9a3689); release gate run 44328743932 passed validation-summary on its head a7cf2b8a"
+          ],
+          "review_reference": "Exact head df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+          "reviewed_date": "2026-11-19",
+          "reviewer": "Claude Code root orchestrator with Codex gpt-6.2-sol high one-shot review",
+          "status": "in_progress"
+        }
+      ],
       "canonical_definition": {
         "acceptance_criteria": [
           {
@@ -16264,17 +16463,43 @@
         }
       },
       "phase": "phase-03-stock-research",
-      "programme_status": "planned",
+      "programme_status": "in_progress",
       "status_transition": {
         "from": "planned",
-        "review_reference": "Owner request for coordinated intake in tracker #1020. Draft pending review.",
-        "to": "planned"
+        "review_reference": "Exact head df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+        "to": "in_progress"
       },
-      "verified_commit": "78ef9d904288b3b3cf00ea3f995f36024655a4d6",
-      "verified_date": "2026-11-16"
+      "transition_history": [
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "Owner GO 2026-11-18 for the INT-27 execution plan (integration_plan_2026-11-13/EXECUTION_PLAN_2026-11-18.md), which approves the optional extras and downloads used here",
+            "PR #1079 (batch 1, merge df9a3689); release gate run 44328743932 passed validation-summary on its head a7cf2b8a"
+          ],
+          "from": "planned",
+          "review_reference": "Exact head df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+          "reviewed_date": "2026-11-19",
+          "reviewer": "Claude Code root orchestrator with Codex gpt-6.2-sol high one-shot review",
+          "to": "in_progress",
+          "verified_commit": "df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a"
+        }
+      ],
+      "verified_commit": "df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a",
+      "verified_date": "2026-11-19"
     },
     "ISSUE-0192": {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "Owner GO 2026-11-18 for the INT-27 execution plan (integration_plan_2026-11-13/EXECUTION_PLAN_2026-11-18.md), which approves the optional extras and downloads used here",
+            "PR #1079 (batch 1, merge df9a3689); release gate run 44328743932 passed validation-summary on its head a7cf2b8a"
+          ],
+          "review_reference": "Exact head df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+          "reviewed_date": "2026-11-19",
+          "reviewer": "Claude Code root orchestrator with Codex gpt-6.2-sol high one-shot review",
+          "status": "in_progress"
+        }
+      ],
       "canonical_definition": {
         "acceptance_criteria": [
           {
@@ -16322,17 +16547,43 @@
         }
       },
       "phase": "phase-05-returns-risk-portfolio",
-      "programme_status": "planned",
+      "programme_status": "in_progress",
       "status_transition": {
         "from": "planned",
-        "review_reference": "Owner request for coordinated intake in tracker #1020. Draft pending review.",
-        "to": "planned"
+        "review_reference": "Exact head df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+        "to": "in_progress"
       },
-      "verified_commit": "78ef9d904288b3b3cf00ea3f995f36024655a4d6",
-      "verified_date": "2026-11-16"
+      "transition_history": [
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "Owner GO 2026-11-18 for the INT-27 execution plan (integration_plan_2026-11-13/EXECUTION_PLAN_2026-11-18.md), which approves the optional extras and downloads used here",
+            "PR #1079 (batch 1, merge df9a3689); release gate run 44328743932 passed validation-summary on its head a7cf2b8a"
+          ],
+          "from": "planned",
+          "review_reference": "Exact head df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+          "reviewed_date": "2026-11-19",
+          "reviewer": "Claude Code root orchestrator with Codex gpt-6.2-sol high one-shot review",
+          "to": "in_progress",
+          "verified_commit": "df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a"
+        }
+      ],
+      "verified_commit": "df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a",
+      "verified_date": "2026-11-19"
     },
     "ISSUE-0193": {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "Owner GO 2026-11-18 for the INT-27 execution plan (integration_plan_2026-11-13/EXECUTION_PLAN_2026-11-18.md), which approves the optional extras and downloads used here",
+            "PR #1079 (batch 1, merge df9a3689); release gate run 44328743932 passed validation-summary on its head a7cf2b8a"
+          ],
+          "review_reference": "Exact head df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+          "reviewed_date": "2026-11-19",
+          "reviewer": "Claude Code root orchestrator with Codex gpt-6.2-sol high one-shot review",
+          "status": "in_progress"
+        }
+      ],
       "canonical_definition": {
         "acceptance_criteria": [
           {
@@ -16381,17 +16632,43 @@
         }
       },
       "phase": "phase-05-returns-risk-portfolio",
-      "programme_status": "planned",
+      "programme_status": "in_progress",
       "status_transition": {
         "from": "planned",
-        "review_reference": "Owner request for coordinated intake in tracker #1020. Draft pending review.",
-        "to": "planned"
+        "review_reference": "Exact head df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+        "to": "in_progress"
       },
-      "verified_commit": "78ef9d904288b3b3cf00ea3f995f36024655a4d6",
-      "verified_date": "2026-11-16"
+      "transition_history": [
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "Owner GO 2026-11-18 for the INT-27 execution plan (integration_plan_2026-11-13/EXECUTION_PLAN_2026-11-18.md), which approves the optional extras and downloads used here",
+            "PR #1079 (batch 1, merge df9a3689); release gate run 44328743932 passed validation-summary on its head a7cf2b8a"
+          ],
+          "from": "planned",
+          "review_reference": "Exact head df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+          "reviewed_date": "2026-11-19",
+          "reviewer": "Claude Code root orchestrator with Codex gpt-6.2-sol high one-shot review",
+          "to": "in_progress",
+          "verified_commit": "df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a"
+        }
+      ],
+      "verified_commit": "df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a",
+      "verified_date": "2026-11-19"
     },
     "ISSUE-0194": {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "Owner GO 2026-11-18 for the INT-27 execution plan (integration_plan_2026-11-13/EXECUTION_PLAN_2026-11-18.md), which approves the optional extras and downloads used here",
+            "PR #1079 (batch 1, merge df9a3689); release gate run 44328743932 passed validation-summary on its head a7cf2b8a"
+          ],
+          "review_reference": "Exact head df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+          "reviewed_date": "2026-11-19",
+          "reviewer": "Claude Code root orchestrator with Codex gpt-6.2-sol high one-shot review",
+          "status": "in_progress"
+        }
+      ],
       "canonical_definition": {
         "acceptance_criteria": [
           {
@@ -16451,17 +16728,43 @@
         }
       },
       "phase": "phase-05-returns-risk-portfolio",
-      "programme_status": "planned",
+      "programme_status": "in_progress",
       "status_transition": {
         "from": "planned",
-        "review_reference": "Owner request for coordinated intake in tracker #1020. Draft pending review.",
-        "to": "planned"
+        "review_reference": "Exact head df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+        "to": "in_progress"
       },
-      "verified_commit": "78ef9d904288b3b3cf00ea3f995f36024655a4d6",
-      "verified_date": "2026-11-16"
+      "transition_history": [
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "Owner GO 2026-11-18 for the INT-27 execution plan (integration_plan_2026-11-13/EXECUTION_PLAN_2026-11-18.md), which approves the optional extras and downloads used here",
+            "PR #1079 (batch 1, merge df9a3689); release gate run 44328743932 passed validation-summary on its head a7cf2b8a"
+          ],
+          "from": "planned",
+          "review_reference": "Exact head df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+          "reviewed_date": "2026-11-19",
+          "reviewer": "Claude Code root orchestrator with Codex gpt-6.2-sol high one-shot review",
+          "to": "in_progress",
+          "verified_commit": "df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a"
+        }
+      ],
+      "verified_commit": "df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a",
+      "verified_date": "2026-11-19"
     },
     "ISSUE-0195": {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "Owner GO 2026-11-18 for the INT-27 execution plan (integration_plan_2026-11-13/EXECUTION_PLAN_2026-11-18.md), which approves the optional extras and downloads used here",
+            "PR #1079 (batch 1, merge df9a3689); release gate run 44328743932 passed validation-summary on its head a7cf2b8a"
+          ],
+          "review_reference": "Exact head df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+          "reviewed_date": "2026-11-19",
+          "reviewer": "Claude Code root orchestrator with Codex gpt-6.2-sol high one-shot review",
+          "status": "in_progress"
+        }
+      ],
       "canonical_definition": {
         "acceptance_criteria": [
           {
@@ -16512,17 +16815,43 @@
         }
       },
       "phase": "phase-05-returns-risk-portfolio",
-      "programme_status": "planned",
+      "programme_status": "in_progress",
       "status_transition": {
         "from": "planned",
-        "review_reference": "Owner request for coordinated intake in tracker #1020. Draft pending review.",
-        "to": "planned"
+        "review_reference": "Exact head df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+        "to": "in_progress"
       },
-      "verified_commit": "78ef9d904288b3b3cf00ea3f995f36024655a4d6",
-      "verified_date": "2026-11-16"
+      "transition_history": [
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "Owner GO 2026-11-18 for the INT-27 execution plan (integration_plan_2026-11-13/EXECUTION_PLAN_2026-11-18.md), which approves the optional extras and downloads used here",
+            "PR #1079 (batch 1, merge df9a3689); release gate run 44328743932 passed validation-summary on its head a7cf2b8a"
+          ],
+          "from": "planned",
+          "review_reference": "Exact head df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+          "reviewed_date": "2026-11-19",
+          "reviewer": "Claude Code root orchestrator with Codex gpt-6.2-sol high one-shot review",
+          "to": "in_progress",
+          "verified_commit": "df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a"
+        }
+      ],
+      "verified_commit": "df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a",
+      "verified_date": "2026-11-19"
     },
     "ISSUE-0196": {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "Owner GO 2026-11-18 for the INT-27 execution plan (integration_plan_2026-11-13/EXECUTION_PLAN_2026-11-18.md), which approves the optional extras and downloads used here",
+            "PR #1079 (batch 1, merge df9a3689); release gate run 44328743932 passed validation-summary on its head a7cf2b8a"
+          ],
+          "review_reference": "Exact head df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+          "reviewed_date": "2026-11-19",
+          "reviewer": "Claude Code root orchestrator with Codex gpt-6.2-sol high one-shot review",
+          "status": "in_progress"
+        }
+      ],
       "canonical_definition": {
         "acceptance_criteria": [
           {
@@ -16581,17 +16910,43 @@
         }
       },
       "phase": "phase-07-backtest-paper-execution",
-      "programme_status": "planned",
+      "programme_status": "in_progress",
       "status_transition": {
         "from": "planned",
-        "review_reference": "Owner request for coordinated intake in tracker #1020. Draft pending review.",
-        "to": "planned"
+        "review_reference": "Exact head df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+        "to": "in_progress"
       },
-      "verified_commit": "78ef9d904288b3b3cf00ea3f995f36024655a4d6",
-      "verified_date": "2026-11-16"
+      "transition_history": [
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "Owner GO 2026-11-18 for the INT-27 execution plan (integration_plan_2026-11-13/EXECUTION_PLAN_2026-11-18.md), which approves the optional extras and downloads used here",
+            "PR #1079 (batch 1, merge df9a3689); release gate run 44328743932 passed validation-summary on its head a7cf2b8a"
+          ],
+          "from": "planned",
+          "review_reference": "Exact head df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+          "reviewed_date": "2026-11-19",
+          "reviewer": "Claude Code root orchestrator with Codex gpt-6.2-sol high one-shot review",
+          "to": "in_progress",
+          "verified_commit": "df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a"
+        }
+      ],
+      "verified_commit": "df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a",
+      "verified_date": "2026-11-19"
     },
     "ISSUE-0197": {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "Owner GO 2026-11-18 for the INT-27 execution plan (integration_plan_2026-11-13/EXECUTION_PLAN_2026-11-18.md), which approves the optional extras and downloads used here",
+            "PR #1079 (batch 1, merge df9a3689); release gate run 44328743932 passed validation-summary on its head a7cf2b8a"
+          ],
+          "review_reference": "Exact head df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+          "reviewed_date": "2026-11-19",
+          "reviewer": "Claude Code root orchestrator with Codex gpt-6.2-sol high one-shot review",
+          "status": "in_progress"
+        }
+      ],
       "canonical_definition": {
         "acceptance_criteria": [
           {
@@ -16654,17 +17009,43 @@
         }
       },
       "phase": "phase-07-backtest-paper-execution",
-      "programme_status": "planned",
+      "programme_status": "in_progress",
       "status_transition": {
         "from": "planned",
-        "review_reference": "Owner request for coordinated intake in tracker #1020. Draft pending review.",
-        "to": "planned"
+        "review_reference": "Exact head df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+        "to": "in_progress"
       },
-      "verified_commit": "78ef9d904288b3b3cf00ea3f995f36024655a4d6",
-      "verified_date": "2026-11-16"
+      "transition_history": [
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "Owner GO 2026-11-18 for the INT-27 execution plan (integration_plan_2026-11-13/EXECUTION_PLAN_2026-11-18.md), which approves the optional extras and downloads used here",
+            "PR #1079 (batch 1, merge df9a3689); release gate run 44328743932 passed validation-summary on its head a7cf2b8a"
+          ],
+          "from": "planned",
+          "review_reference": "Exact head df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+          "reviewed_date": "2026-11-19",
+          "reviewer": "Claude Code root orchestrator with Codex gpt-6.2-sol high one-shot review",
+          "to": "in_progress",
+          "verified_commit": "df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a"
+        }
+      ],
+      "verified_commit": "df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a",
+      "verified_date": "2026-11-19"
     },
     "ISSUE-0198": {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "Owner GO 2026-11-18 for the INT-27 execution plan (integration_plan_2026-11-13/EXECUTION_PLAN_2026-11-18.md), which approves the optional extras and downloads used here",
+            "PR #1079 (batch 1, merge df9a3689); release gate run 44328743932 passed validation-summary on its head a7cf2b8a"
+          ],
+          "review_reference": "Exact head df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+          "reviewed_date": "2026-11-19",
+          "reviewer": "Claude Code root orchestrator with Codex gpt-6.2-sol high one-shot review",
+          "status": "in_progress"
+        }
+      ],
       "canonical_definition": {
         "acceptance_criteria": [
           {
@@ -16714,17 +17095,44 @@
         }
       },
       "phase": "phase-05-returns-risk-portfolio",
-      "programme_status": "planned",
+      "programme_status": "in_progress",
       "status_transition": {
         "from": "planned",
-        "review_reference": "Owner request for coordinated intake in tracker #1020. Draft pending review.",
-        "to": "planned"
+        "review_reference": "Exact head df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+        "to": "in_progress"
       },
-      "verified_commit": "78ef9d904288b3b3cf00ea3f995f36024655a4d6",
-      "verified_date": "2026-11-16"
+      "transition_history": [
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "Owner GO 2026-11-18 for the INT-27 execution plan (integration_plan_2026-11-13/EXECUTION_PLAN_2026-11-18.md), which approves the optional extras and downloads used here",
+            "PR #1079 (batch 1, merge df9a3689); release gate run 44328743932 passed validation-summary on its head a7cf2b8a"
+          ],
+          "from": "planned",
+          "review_reference": "Exact head df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+          "reviewed_date": "2026-11-19",
+          "reviewer": "Claude Code root orchestrator with Codex gpt-6.2-sol high one-shot review",
+          "to": "in_progress",
+          "verified_commit": "df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a"
+        }
+      ],
+      "verified_commit": "df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a",
+      "verified_date": "2026-11-19"
     },
     "ISSUE-0199": {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "Owner GO 2026-11-18 for the INT-27 execution plan (integration_plan_2026-11-13/EXECUTION_PLAN_2026-11-18.md), which approves the optional extras and downloads used here",
+            "PR #1079 (batch 1, merge df9a3689); release gate run 44328743932 passed validation-summary on its head a7cf2b8a",
+            "Input external:sec-extra-approval met by the owner GO 2026-11-18 (sec extra)"
+          ],
+          "review_reference": "Exact head df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+          "reviewed_date": "2026-11-19",
+          "reviewer": "Claude Code root orchestrator with Codex gpt-6.2-sol high one-shot review",
+          "status": "in_progress"
+        }
+      ],
       "canonical_definition": {
         "acceptance_criteria": [
           {
@@ -16777,17 +17185,45 @@
         }
       },
       "phase": "phase-02-data-policy-identity",
-      "programme_status": "planned",
+      "programme_status": "in_progress",
       "status_transition": {
         "from": "planned",
-        "review_reference": "Owner request for coordinated intake in tracker #1020. Draft pending review.",
-        "to": "planned"
+        "review_reference": "Exact head df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+        "to": "in_progress"
       },
-      "verified_commit": "78ef9d904288b3b3cf00ea3f995f36024655a4d6",
-      "verified_date": "2026-11-16"
+      "transition_history": [
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "Owner GO 2026-11-18 for the INT-27 execution plan (integration_plan_2026-11-13/EXECUTION_PLAN_2026-11-18.md), which approves the optional extras and downloads used here",
+            "PR #1079 (batch 1, merge df9a3689); release gate run 44328743932 passed validation-summary on its head a7cf2b8a",
+            "Input external:sec-extra-approval met by the owner GO 2026-11-18 (sec extra)"
+          ],
+          "from": "planned",
+          "review_reference": "Exact head df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+          "reviewed_date": "2026-11-19",
+          "reviewer": "Claude Code root orchestrator with Codex gpt-6.2-sol high one-shot review",
+          "to": "in_progress",
+          "verified_commit": "df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a"
+        }
+      ],
+      "verified_commit": "df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a",
+      "verified_date": "2026-11-19"
     },
     "ISSUE-0200": {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "Owner GO 2026-11-18 for the INT-27 execution plan (integration_plan_2026-11-13/EXECUTION_PLAN_2026-11-18.md), which approves the optional extras and downloads used here",
+            "PR #1082 (batch 2, merge 12399d6e); release gate run 44413973135 passed validation-summary on its head c4662dd0",
+            "Input external:sec-extra-approval met by the owner GO 2026-11-18 (sec extra)"
+          ],
+          "review_reference": "Exact head 12399d6e8dd546d6716741896139c0b1a4c0e278: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+          "reviewed_date": "2026-11-19",
+          "reviewer": "Claude Code root orchestrator with Codex gpt-6.2-sol high one-shot review",
+          "status": "in_progress"
+        }
+      ],
       "canonical_definition": {
         "acceptance_criteria": [
           {
@@ -16848,17 +17284,44 @@
         }
       },
       "phase": "phase-02-data-policy-identity",
-      "programme_status": "planned",
+      "programme_status": "in_progress",
       "status_transition": {
         "from": "planned",
-        "review_reference": "Owner request for coordinated intake in tracker #1020. Draft pending review.",
-        "to": "planned"
+        "review_reference": "Exact head 12399d6e8dd546d6716741896139c0b1a4c0e278: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+        "to": "in_progress"
       },
-      "verified_commit": "78ef9d904288b3b3cf00ea3f995f36024655a4d6",
-      "verified_date": "2026-11-16"
+      "transition_history": [
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "Owner GO 2026-11-18 for the INT-27 execution plan (integration_plan_2026-11-13/EXECUTION_PLAN_2026-11-18.md), which approves the optional extras and downloads used here",
+            "PR #1082 (batch 2, merge 12399d6e); release gate run 44413973135 passed validation-summary on its head c4662dd0",
+            "Input external:sec-extra-approval met by the owner GO 2026-11-18 (sec extra)"
+          ],
+          "from": "planned",
+          "review_reference": "Exact head 12399d6e8dd546d6716741896139c0b1a4c0e278: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+          "reviewed_date": "2026-11-19",
+          "reviewer": "Claude Code root orchestrator with Codex gpt-6.2-sol high one-shot review",
+          "to": "in_progress",
+          "verified_commit": "12399d6e8dd546d6716741896139c0b1a4c0e278"
+        }
+      ],
+      "verified_commit": "12399d6e8dd546d6716741896139c0b1a4c0e278",
+      "verified_date": "2026-11-19"
     },
     "ISSUE-0201": {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "Owner GO 2026-11-18 for the INT-27 execution plan (integration_plan_2026-11-13/EXECUTION_PLAN_2026-11-18.md), which approves the optional extras and downloads used here",
+            "PR #1079 (batch 1, merge df9a3689); release gate run 44328743932 passed validation-summary on its head a7cf2b8a"
+          ],
+          "review_reference": "Exact head df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+          "reviewed_date": "2026-11-19",
+          "reviewer": "Claude Code root orchestrator with Codex gpt-6.2-sol high one-shot review",
+          "status": "in_progress"
+        }
+      ],
       "canonical_definition": {
         "acceptance_criteria": [
           {
@@ -16908,14 +17371,29 @@
         }
       },
       "phase": "phase-02-data-policy-identity",
-      "programme_status": "planned",
+      "programme_status": "in_progress",
       "status_transition": {
         "from": "planned",
-        "review_reference": "Owner request for coordinated intake in tracker #1020. Draft pending review.",
-        "to": "planned"
+        "review_reference": "Exact head df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+        "to": "in_progress"
       },
-      "verified_commit": "78ef9d904288b3b3cf00ea3f995f36024655a4d6",
-      "verified_date": "2026-11-16"
+      "transition_history": [
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "Owner GO 2026-11-18 for the INT-27 execution plan (integration_plan_2026-11-13/EXECUTION_PLAN_2026-11-18.md), which approves the optional extras and downloads used here",
+            "PR #1079 (batch 1, merge df9a3689); release gate run 44328743932 passed validation-summary on its head a7cf2b8a"
+          ],
+          "from": "planned",
+          "review_reference": "Exact head df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+          "reviewed_date": "2026-11-19",
+          "reviewer": "Claude Code root orchestrator with Codex gpt-6.2-sol high one-shot review",
+          "to": "in_progress",
+          "verified_commit": "df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a"
+        }
+      ],
+      "verified_commit": "df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a",
+      "verified_date": "2026-11-19"
     },
     "ISSUE-0202": {
       "acceptance_evidence": [],
@@ -16983,7 +17461,18 @@
       "verified_date": "2026-11-16"
     },
     "ISSUE-0203": {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "Owner GO 2026-11-18 for the INT-27 execution plan (integration_plan_2026-11-13/EXECUTION_PLAN_2026-11-18.md), which approves the optional extras and downloads used here",
+            "PR #1079 (batch 1, merge df9a3689); release gate run 44328743932 passed validation-summary on its head a7cf2b8a"
+          ],
+          "review_reference": "Exact head df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+          "reviewed_date": "2026-11-19",
+          "reviewer": "Claude Code root orchestrator with Codex gpt-6.2-sol high one-shot review",
+          "status": "in_progress"
+        }
+      ],
       "canonical_definition": {
         "acceptance_criteria": [
           {
@@ -17042,17 +17531,44 @@
         }
       },
       "phase": "phase-04-etf-research",
-      "programme_status": "planned",
+      "programme_status": "in_progress",
       "status_transition": {
         "from": "planned",
-        "review_reference": "Owner request for coordinated intake in tracker #1020. Draft pending review.",
-        "to": "planned"
+        "review_reference": "Exact head df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+        "to": "in_progress"
       },
-      "verified_commit": "78ef9d904288b3b3cf00ea3f995f36024655a4d6",
-      "verified_date": "2026-11-16"
+      "transition_history": [
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "Owner GO 2026-11-18 for the INT-27 execution plan (integration_plan_2026-11-13/EXECUTION_PLAN_2026-11-18.md), which approves the optional extras and downloads used here",
+            "PR #1079 (batch 1, merge df9a3689); release gate run 44328743932 passed validation-summary on its head a7cf2b8a"
+          ],
+          "from": "planned",
+          "review_reference": "Exact head df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+          "reviewed_date": "2026-11-19",
+          "reviewer": "Claude Code root orchestrator with Codex gpt-6.2-sol high one-shot review",
+          "to": "in_progress",
+          "verified_commit": "df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a"
+        }
+      ],
+      "verified_commit": "df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a",
+      "verified_date": "2026-11-19"
     },
     "ISSUE-0204": {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "Owner GO 2026-11-18 for the INT-27 execution plan (integration_plan_2026-11-13/EXECUTION_PLAN_2026-11-18.md), which approves the optional extras and downloads used here",
+            "PR #1079 (batch 1, merge df9a3689); release gate run 44328743932 passed validation-summary on its head a7cf2b8a",
+            "Input external:user-downloaded-financedatabase-csv met by data/imports/financedatabase/2.5.1-91c22642/SOURCE.json (JerBouma/FinanceDatabase 2.5.1 revision 91c2264299d4742db2775ed029bec055f0c780ff, licence and per-file sha256 recorded)"
+          ],
+          "review_reference": "Exact head df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+          "reviewed_date": "2026-11-19",
+          "reviewer": "Claude Code root orchestrator with Codex gpt-6.2-sol high one-shot review",
+          "status": "in_progress"
+        }
+      ],
       "canonical_definition": {
         "acceptance_criteria": [
           {
@@ -17094,17 +17610,44 @@
       },
       "dependency_edge_evidence": {},
       "phase": "phase-02-data-policy-identity",
-      "programme_status": "planned",
+      "programme_status": "in_progress",
       "status_transition": {
         "from": "planned",
-        "review_reference": "Owner request for coordinated intake in tracker #1020. Draft pending review.",
-        "to": "planned"
+        "review_reference": "Exact head df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+        "to": "in_progress"
       },
-      "verified_commit": "78ef9d904288b3b3cf00ea3f995f36024655a4d6",
-      "verified_date": "2026-11-16"
+      "transition_history": [
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "Owner GO 2026-11-18 for the INT-27 execution plan (integration_plan_2026-11-13/EXECUTION_PLAN_2026-11-18.md), which approves the optional extras and downloads used here",
+            "PR #1079 (batch 1, merge df9a3689); release gate run 44328743932 passed validation-summary on its head a7cf2b8a",
+            "Input external:user-downloaded-financedatabase-csv met by data/imports/financedatabase/2.5.1-91c22642/SOURCE.json (JerBouma/FinanceDatabase 2.5.1 revision 91c2264299d4742db2775ed029bec055f0c780ff, licence and per-file sha256 recorded)"
+          ],
+          "from": "planned",
+          "review_reference": "Exact head df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+          "reviewed_date": "2026-11-19",
+          "reviewer": "Claude Code root orchestrator with Codex gpt-6.2-sol high one-shot review",
+          "to": "in_progress",
+          "verified_commit": "df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a"
+        }
+      ],
+      "verified_commit": "df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a",
+      "verified_date": "2026-11-19"
     },
     "ISSUE-0205": {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "Owner GO 2026-11-18 for the INT-27 execution plan (integration_plan_2026-11-13/EXECUTION_PLAN_2026-11-18.md), which approves the optional extras and downloads used here",
+            "PR #1079 (batch 1, merge df9a3689); release gate run 44328743932 passed validation-summary on its head a7cf2b8a"
+          ],
+          "review_reference": "Exact head df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+          "reviewed_date": "2026-11-19",
+          "reviewer": "Claude Code root orchestrator with Codex gpt-6.2-sol high one-shot review",
+          "status": "in_progress"
+        }
+      ],
       "canonical_definition": {
         "acceptance_criteria": [
           {
@@ -17144,17 +17687,46 @@
       },
       "dependency_edge_evidence": {},
       "phase": "phase-02-data-policy-identity",
-      "programme_status": "planned",
+      "programme_status": "in_progress",
       "status_transition": {
         "from": "planned",
-        "review_reference": "Owner request for coordinated intake in tracker #1020. Draft pending review.",
-        "to": "planned"
+        "review_reference": "Exact head df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+        "to": "in_progress"
       },
-      "verified_commit": "78ef9d904288b3b3cf00ea3f995f36024655a4d6",
-      "verified_date": "2026-11-16"
+      "transition_history": [
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "Owner GO 2026-11-18 for the INT-27 execution plan (integration_plan_2026-11-13/EXECUTION_PLAN_2026-11-18.md), which approves the optional extras and downloads used here",
+            "PR #1079 (batch 1, merge df9a3689); release gate run 44328743932 passed validation-summary on its head a7cf2b8a"
+          ],
+          "from": "planned",
+          "review_reference": "Exact head df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+          "reviewed_date": "2026-11-19",
+          "reviewer": "Claude Code root orchestrator with Codex gpt-6.2-sol high one-shot review",
+          "to": "in_progress",
+          "verified_commit": "df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a"
+        }
+      ],
+      "verified_commit": "df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a",
+      "verified_date": "2026-11-19"
     },
     "ISSUE-0206": {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "Owner GO 2026-11-18 for the INT-27 execution plan (integration_plan_2026-11-13/EXECUTION_PLAN_2026-11-18.md), which approves the optional extras and downloads used here",
+            "PR #1082 (batch 2, merge 12399d6e); release gate run 44413973135 passed validation-summary on its head c4662dd0",
+            "Input external:documents-extra-approval met by the owner GO 2026-11-18 (documents extra, docling-slim==2.150.0)",
+            "Input docling weights met by models/docling/docling-layout-heron/SOURCE.json (docling-project/docling-layout-heron revision 8f39ad3c0b4c58e9c2d2c84a38465abf757272d8, licence and per-file sha256 recorded)",
+            "Input docling weights met by models/docling/docling-models/SOURCE.json (docling-project/docling-models revision 2199320848bb9a8a519d22e4b528185a4f9a6f64, licence and per-file sha256 recorded)"
+          ],
+          "review_reference": "Exact head 12399d6e8dd546d6716741896139c0b1a4c0e278: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+          "reviewed_date": "2026-11-19",
+          "reviewer": "Claude Code root orchestrator with Codex gpt-6.2-sol high one-shot review",
+          "status": "in_progress"
+        }
+      ],
       "canonical_definition": {
         "acceptance_criteria": [
           {
@@ -17216,17 +17788,48 @@
         }
       },
       "phase": "phase-02-data-policy-identity",
-      "programme_status": "planned",
+      "programme_status": "in_progress",
       "status_transition": {
         "from": "planned",
-        "review_reference": "Owner request for coordinated intake in tracker #1020. Draft pending review.",
-        "to": "planned"
+        "review_reference": "Exact head 12399d6e8dd546d6716741896139c0b1a4c0e278: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+        "to": "in_progress"
       },
-      "verified_commit": "78ef9d904288b3b3cf00ea3f995f36024655a4d6",
-      "verified_date": "2026-11-16"
+      "transition_history": [
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "Owner GO 2026-11-18 for the INT-27 execution plan (integration_plan_2026-11-13/EXECUTION_PLAN_2026-11-18.md), which approves the optional extras and downloads used here",
+            "PR #1082 (batch 2, merge 12399d6e); release gate run 44413973135 passed validation-summary on its head c4662dd0",
+            "Input external:documents-extra-approval met by the owner GO 2026-11-18 (documents extra, docling-slim==2.150.0)",
+            "Input docling weights met by models/docling/docling-layout-heron/SOURCE.json (docling-project/docling-layout-heron revision 8f39ad3c0b4c58e9c2d2c84a38465abf757272d8, licence and per-file sha256 recorded)",
+            "Input docling weights met by models/docling/docling-models/SOURCE.json (docling-project/docling-models revision 2199320848bb9a8a519d22e4b528185a4f9a6f64, licence and per-file sha256 recorded)"
+          ],
+          "from": "planned",
+          "review_reference": "Exact head 12399d6e8dd546d6716741896139c0b1a4c0e278: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+          "reviewed_date": "2026-11-19",
+          "reviewer": "Claude Code root orchestrator with Codex gpt-6.2-sol high one-shot review",
+          "to": "in_progress",
+          "verified_commit": "12399d6e8dd546d6716741896139c0b1a4c0e278"
+        }
+      ],
+      "verified_commit": "12399d6e8dd546d6716741896139c0b1a4c0e278",
+      "verified_date": "2026-11-19"
     },
     "ISSUE-0207": {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "Owner GO 2026-11-18 for the INT-27 execution plan (integration_plan_2026-11-13/EXECUTION_PLAN_2026-11-18.md), which approves the optional extras and downloads used here",
+            "PR #1082 (batch 2, merge 12399d6e); release gate run 44413973135 passed validation-summary on its head c4662dd0",
+            "Input external:retrieval-extra-approval met by the owner GO 2026-11-18 (retrieval extra, fastembed==0.9.1)",
+            "Input embedding weights met by models/fastembed/bge-small-en-v1.5-onnx-Q/SOURCE.json (Qdrant/bge-small-en-v1.5-onnx-Q revision aa8f8b060edb00e03bfdd08813a2949946c8ba55, licence and per-file sha256 recorded)"
+          ],
+          "review_reference": "Exact head 12399d6e8dd546d6716741896139c0b1a4c0e278: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+          "reviewed_date": "2026-11-19",
+          "reviewer": "Claude Code root orchestrator with Codex gpt-6.2-sol high one-shot review",
+          "status": "in_progress"
+        }
+      ],
       "canonical_definition": {
         "acceptance_criteria": [
           {
@@ -17289,17 +17892,45 @@
         }
       },
       "phase": "phase-02-data-policy-identity",
-      "programme_status": "planned",
+      "programme_status": "in_progress",
       "status_transition": {
         "from": "planned",
-        "review_reference": "Owner request for coordinated intake in tracker #1020. Draft pending review.",
-        "to": "planned"
+        "review_reference": "Exact head 12399d6e8dd546d6716741896139c0b1a4c0e278: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+        "to": "in_progress"
       },
-      "verified_commit": "78ef9d904288b3b3cf00ea3f995f36024655a4d6",
-      "verified_date": "2026-11-16"
+      "transition_history": [
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "Owner GO 2026-11-18 for the INT-27 execution plan (integration_plan_2026-11-13/EXECUTION_PLAN_2026-11-18.md), which approves the optional extras and downloads used here",
+            "PR #1082 (batch 2, merge 12399d6e); release gate run 44413973135 passed validation-summary on its head c4662dd0",
+            "Input external:retrieval-extra-approval met by the owner GO 2026-11-18 (retrieval extra, fastembed==0.9.1)",
+            "Input embedding weights met by models/fastembed/bge-small-en-v1.5-onnx-Q/SOURCE.json (Qdrant/bge-small-en-v1.5-onnx-Q revision aa8f8b060edb00e03bfdd08813a2949946c8ba55, licence and per-file sha256 recorded)"
+          ],
+          "from": "planned",
+          "review_reference": "Exact head 12399d6e8dd546d6716741896139c0b1a4c0e278: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+          "reviewed_date": "2026-11-19",
+          "reviewer": "Claude Code root orchestrator with Codex gpt-6.2-sol high one-shot review",
+          "to": "in_progress",
+          "verified_commit": "12399d6e8dd546d6716741896139c0b1a4c0e278"
+        }
+      ],
+      "verified_commit": "12399d6e8dd546d6716741896139c0b1a4c0e278",
+      "verified_date": "2026-11-19"
     },
     "ISSUE-0208": {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "Owner GO 2026-11-18 for the INT-27 execution plan (integration_plan_2026-11-13/EXECUTION_PLAN_2026-11-18.md), which approves the optional extras and downloads used here",
+            "PR #1079 (batch 1, merge df9a3689); release gate run 44328743932 passed validation-summary on its head a7cf2b8a"
+          ],
+          "review_reference": "Exact head df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+          "reviewed_date": "2026-11-19",
+          "reviewer": "Claude Code root orchestrator with Codex gpt-6.2-sol high one-shot review",
+          "status": "in_progress"
+        }
+      ],
       "canonical_definition": {
         "acceptance_criteria": [
           {
@@ -17349,17 +17980,45 @@
         }
       },
       "phase": "phase-02-data-policy-identity",
-      "programme_status": "planned",
+      "programme_status": "in_progress",
       "status_transition": {
         "from": "planned",
-        "review_reference": "Owner request for coordinated intake in tracker #1020. Draft pending review.",
-        "to": "planned"
+        "review_reference": "Exact head df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+        "to": "in_progress"
       },
-      "verified_commit": "78ef9d904288b3b3cf00ea3f995f36024655a4d6",
-      "verified_date": "2026-11-16"
+      "transition_history": [
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "Owner GO 2026-11-18 for the INT-27 execution plan (integration_plan_2026-11-13/EXECUTION_PLAN_2026-11-18.md), which approves the optional extras and downloads used here",
+            "PR #1079 (batch 1, merge df9a3689); release gate run 44328743932 passed validation-summary on its head a7cf2b8a"
+          ],
+          "from": "planned",
+          "review_reference": "Exact head df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+          "reviewed_date": "2026-11-19",
+          "reviewer": "Claude Code root orchestrator with Codex gpt-6.2-sol high one-shot review",
+          "to": "in_progress",
+          "verified_commit": "df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a"
+        }
+      ],
+      "verified_commit": "df9a3689c1f60bcbdf4dd6eeff2644a9aa8bed3a",
+      "verified_date": "2026-11-19"
     },
     "ISSUE-0209": {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "Owner GO 2026-11-18 for the INT-27 execution plan (integration_plan_2026-11-13/EXECUTION_PLAN_2026-11-18.md), which approves the optional extras and downloads used here",
+            "PR #1082 (batch 2, merge 12399d6e); release gate run 44413973135 passed validation-summary on its head c4662dd0",
+            "Input external:chronos-forecasting-extra-approval met by the owner GO 2026-11-18 (chronos-forecasting==2.3.2 in the models extra)",
+            "Input external:approved-chronos-2-weights met by models/chronos/chronos-2/SOURCE.json (amazon/chronos-2 revision 29ec3766d36d6f73f0696f85560a422f50e8498c, licence and per-file sha256 recorded)"
+          ],
+          "review_reference": "Exact head 12399d6e8dd546d6716741896139c0b1a4c0e278: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+          "reviewed_date": "2026-11-19",
+          "reviewer": "Claude Code root orchestrator with Codex gpt-6.2-sol high one-shot review",
+          "status": "in_progress"
+        }
+      ],
       "canonical_definition": {
         "acceptance_criteria": [
           {
@@ -17423,17 +18082,45 @@
         }
       },
       "phase": "phase-06-model-research",
-      "programme_status": "planned",
+      "programme_status": "in_progress",
       "status_transition": {
         "from": "planned",
-        "review_reference": "Owner request for coordinated intake in tracker #1020. Draft pending review.",
-        "to": "planned"
+        "review_reference": "Exact head 12399d6e8dd546d6716741896139c0b1a4c0e278: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+        "to": "in_progress"
       },
-      "verified_commit": "78ef9d904288b3b3cf00ea3f995f36024655a4d6",
-      "verified_date": "2026-11-16"
+      "transition_history": [
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "Owner GO 2026-11-18 for the INT-27 execution plan (integration_plan_2026-11-13/EXECUTION_PLAN_2026-11-18.md), which approves the optional extras and downloads used here",
+            "PR #1082 (batch 2, merge 12399d6e); release gate run 44413973135 passed validation-summary on its head c4662dd0",
+            "Input external:chronos-forecasting-extra-approval met by the owner GO 2026-11-18 (chronos-forecasting==2.3.2 in the models extra)",
+            "Input external:approved-chronos-2-weights met by models/chronos/chronos-2/SOURCE.json (amazon/chronos-2 revision 29ec3766d36d6f73f0696f85560a422f50e8498c, licence and per-file sha256 recorded)"
+          ],
+          "from": "planned",
+          "review_reference": "Exact head 12399d6e8dd546d6716741896139c0b1a4c0e278: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+          "reviewed_date": "2026-11-19",
+          "reviewer": "Claude Code root orchestrator with Codex gpt-6.2-sol high one-shot review",
+          "to": "in_progress",
+          "verified_commit": "12399d6e8dd546d6716741896139c0b1a4c0e278"
+        }
+      ],
+      "verified_commit": "12399d6e8dd546d6716741896139c0b1a4c0e278",
+      "verified_date": "2026-11-19"
     },
     "ISSUE-0210": {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "Owner GO 2026-11-18 for the INT-27 execution plan (integration_plan_2026-11-13/EXECUTION_PLAN_2026-11-18.md), which approves the optional extras and downloads used here",
+            "PR #1098 (ISSUE-0210..0213 follow-ups from intake PR #1088, merge f025bee7); release gate run 44446165350 passed validation-summary on its head fa8828f0; Codex gpt-6.2-sol high review per branch, findings fixed with tests"
+          ],
+          "review_reference": "Exact head f025bee7e907d252d72f8fa7b59f1813b4da86af: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+          "reviewed_date": "2026-11-19",
+          "reviewer": "Claude Code root orchestrator with Codex gpt-6.2-sol high one-shot review",
+          "status": "in_progress"
+        }
+      ],
       "canonical_definition": {
         "acceptance_criteria": [
           {
@@ -17482,17 +18169,43 @@
         }
       },
       "phase": "phase-02-data-policy-identity",
-      "programme_status": "planned",
+      "programme_status": "in_progress",
       "status_transition": {
         "from": "planned",
-        "review_reference": "Owner GO 2026-11-18 for the INT-27 execution plan follow-ups; Claude Code root intake.",
-        "to": "planned"
+        "review_reference": "Exact head f025bee7e907d252d72f8fa7b59f1813b4da86af: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+        "to": "in_progress"
       },
-      "verified_commit": "4ae82e9ea684908ff12d2af53cae45552a536b75",
+      "transition_history": [
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "Owner GO 2026-11-18 for the INT-27 execution plan (integration_plan_2026-11-13/EXECUTION_PLAN_2026-11-18.md), which approves the optional extras and downloads used here",
+            "PR #1098 (ISSUE-0210..0213 follow-ups from intake PR #1088, merge f025bee7); release gate run 44446165350 passed validation-summary on its head fa8828f0; Codex gpt-6.2-sol high review per branch, findings fixed with tests"
+          ],
+          "from": "planned",
+          "review_reference": "Exact head f025bee7e907d252d72f8fa7b59f1813b4da86af: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+          "reviewed_date": "2026-11-19",
+          "reviewer": "Claude Code root orchestrator with Codex gpt-6.2-sol high one-shot review",
+          "to": "in_progress",
+          "verified_commit": "f025bee7e907d252d72f8fa7b59f1813b4da86af"
+        }
+      ],
+      "verified_commit": "f025bee7e907d252d72f8fa7b59f1813b4da86af",
       "verified_date": "2026-11-19"
     },
     "ISSUE-0211": {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "Owner GO 2026-11-18 for the INT-27 execution plan (integration_plan_2026-11-13/EXECUTION_PLAN_2026-11-18.md), which approves the optional extras and downloads used here",
+            "PR #1098 (ISSUE-0210..0213 follow-ups from intake PR #1088, merge f025bee7); release gate run 44446165350 passed validation-summary on its head fa8828f0; Codex gpt-6.2-sol high review per branch, findings fixed with tests"
+          ],
+          "review_reference": "Exact head f025bee7e907d252d72f8fa7b59f1813b4da86af: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+          "reviewed_date": "2026-11-19",
+          "reviewer": "Claude Code root orchestrator with Codex gpt-6.2-sol high one-shot review",
+          "status": "in_progress"
+        }
+      ],
       "canonical_definition": {
         "acceptance_criteria": [
           {
@@ -17541,17 +18254,43 @@
         }
       },
       "phase": "phase-04-etf-research",
-      "programme_status": "planned",
+      "programme_status": "in_progress",
       "status_transition": {
         "from": "planned",
-        "review_reference": "Owner GO 2026-11-18 for the INT-27 execution plan follow-ups; Claude Code root intake.",
-        "to": "planned"
+        "review_reference": "Exact head f025bee7e907d252d72f8fa7b59f1813b4da86af: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+        "to": "in_progress"
       },
-      "verified_commit": "4ae82e9ea684908ff12d2af53cae45552a536b75",
+      "transition_history": [
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "Owner GO 2026-11-18 for the INT-27 execution plan (integration_plan_2026-11-13/EXECUTION_PLAN_2026-11-18.md), which approves the optional extras and downloads used here",
+            "PR #1098 (ISSUE-0210..0213 follow-ups from intake PR #1088, merge f025bee7); release gate run 44446165350 passed validation-summary on its head fa8828f0; Codex gpt-6.2-sol high review per branch, findings fixed with tests"
+          ],
+          "from": "planned",
+          "review_reference": "Exact head f025bee7e907d252d72f8fa7b59f1813b4da86af: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+          "reviewed_date": "2026-11-19",
+          "reviewer": "Claude Code root orchestrator with Codex gpt-6.2-sol high one-shot review",
+          "to": "in_progress",
+          "verified_commit": "f025bee7e907d252d72f8fa7b59f1813b4da86af"
+        }
+      ],
+      "verified_commit": "f025bee7e907d252d72f8fa7b59f1813b4da86af",
       "verified_date": "2026-11-19"
     },
     "ISSUE-0212": {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "Owner GO 2026-11-18 for the INT-27 execution plan (integration_plan_2026-11-13/EXECUTION_PLAN_2026-11-18.md), which approves the optional extras and downloads used here",
+            "PR #1098 (ISSUE-0210..0213 follow-ups from intake PR #1088, merge f025bee7); release gate run 44446165350 passed validation-summary on its head fa8828f0; Codex gpt-6.2-sol high review per branch, findings fixed with tests"
+          ],
+          "review_reference": "Exact head f025bee7e907d252d72f8fa7b59f1813b4da86af: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+          "reviewed_date": "2026-11-19",
+          "reviewer": "Claude Code root orchestrator with Codex gpt-6.2-sol high one-shot review",
+          "status": "in_progress"
+        }
+      ],
       "canonical_definition": {
         "acceptance_criteria": [
           {
@@ -17600,17 +18339,43 @@
         }
       },
       "phase": "phase-02-data-policy-identity",
-      "programme_status": "planned",
+      "programme_status": "in_progress",
       "status_transition": {
         "from": "planned",
-        "review_reference": "Owner GO 2026-11-18 for the INT-27 execution plan follow-ups; Claude Code root intake.",
-        "to": "planned"
+        "review_reference": "Exact head f025bee7e907d252d72f8fa7b59f1813b4da86af: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+        "to": "in_progress"
       },
-      "verified_commit": "4ae82e9ea684908ff12d2af53cae45552a536b75",
+      "transition_history": [
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "Owner GO 2026-11-18 for the INT-27 execution plan (integration_plan_2026-11-13/EXECUTION_PLAN_2026-11-18.md), which approves the optional extras and downloads used here",
+            "PR #1098 (ISSUE-0210..0213 follow-ups from intake PR #1088, merge f025bee7); release gate run 44446165350 passed validation-summary on its head fa8828f0; Codex gpt-6.2-sol high review per branch, findings fixed with tests"
+          ],
+          "from": "planned",
+          "review_reference": "Exact head f025bee7e907d252d72f8fa7b59f1813b4da86af: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+          "reviewed_date": "2026-11-19",
+          "reviewer": "Claude Code root orchestrator with Codex gpt-6.2-sol high one-shot review",
+          "to": "in_progress",
+          "verified_commit": "f025bee7e907d252d72f8fa7b59f1813b4da86af"
+        }
+      ],
+      "verified_commit": "f025bee7e907d252d72f8fa7b59f1813b4da86af",
       "verified_date": "2026-11-19"
     },
     "ISSUE-0213": {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "Owner GO 2026-11-18 for the INT-27 execution plan (integration_plan_2026-11-13/EXECUTION_PLAN_2026-11-18.md), which approves the optional extras and downloads used here",
+            "PR #1098 (ISSUE-0210..0213 follow-ups from intake PR #1088, merge f025bee7); release gate run 44446165350 passed validation-summary on its head fa8828f0; Codex gpt-6.2-sol high review per branch, findings fixed with tests"
+          ],
+          "review_reference": "Exact head f025bee7e907d252d72f8fa7b59f1813b4da86af: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+          "reviewed_date": "2026-11-19",
+          "reviewer": "Claude Code root orchestrator with Codex gpt-6.2-sol high one-shot review",
+          "status": "in_progress"
+        }
+      ],
       "canonical_definition": {
         "acceptance_criteria": [
           {
@@ -17659,13 +18424,28 @@
         }
       },
       "phase": "phase-03-stock-research",
-      "programme_status": "planned",
+      "programme_status": "in_progress",
       "status_transition": {
         "from": "planned",
-        "review_reference": "Owner GO 2026-11-18 for the INT-27 execution plan follow-ups; Claude Code root intake.",
-        "to": "planned"
+        "review_reference": "Exact head f025bee7e907d252d72f8fa7b59f1813b4da86af: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+        "to": "in_progress"
       },
-      "verified_commit": "4ae82e9ea684908ff12d2af53cae45552a536b75",
+      "transition_history": [
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "Owner GO 2026-11-18 for the INT-27 execution plan (integration_plan_2026-11-13/EXECUTION_PLAN_2026-11-18.md), which approves the optional extras and downloads used here",
+            "PR #1098 (ISSUE-0210..0213 follow-ups from intake PR #1088, merge f025bee7); release gate run 44446165350 passed validation-summary on its head fa8828f0; Codex gpt-6.2-sol high review per branch, findings fixed with tests"
+          ],
+          "from": "planned",
+          "review_reference": "Exact head f025bee7e907d252d72f8fa7b59f1813b4da86af: Claude Code (claude-opus-5-5) root review with Codex gpt-6.2-sol high one-shot review (owner GO 2026-11-18).",
+          "reviewed_date": "2026-11-19",
+          "reviewer": "Claude Code root orchestrator with Codex gpt-6.2-sol high one-shot review",
+          "to": "in_progress",
+          "verified_commit": "f025bee7e907d252d72f8fa7b59f1813b4da86af"
+        }
+      ],
+      "verified_commit": "f025bee7e907d252d72f8fa7b59f1813b4da86af",
       "verified_date": "2026-11-19"
     },
     "UPDATEV2-0010": {
