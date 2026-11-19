@@ -127,7 +127,7 @@ def large_root(tmp_path):
     ("activity_log", {}),
 ])
 def test_large_data_tools_fit_budget_and_preserve_full_overflow(monkeypatch, large_root, name, arguments):
-    from etf_cockpit.application import decision_views, etf_economics_view, overlap, score_views, screening_data
+    from etf_cockpit.application import decision_views, etf_economics_view, overlap, score_explain, score_views, screening_data
     from etf_cockpit.core import session_log
 
     root = large_root
@@ -137,6 +137,7 @@ def test_large_data_tools_fit_budget_and_preserve_full_overflow(monkeypatch, lar
     session = SimpleNamespace(root=root, snapshot=snapshot)
     monkeypatch.setattr(tools_scores, "_snapshot", lambda: (session, snapshot))
     monkeypatch.setattr(score_views, "published_scores", lambda *_a: [])
+    monkeypatch.setattr(score_explain, "published_scores", lambda *_a: [])
     monkeypatch.setattr(etf_economics_view, "build_etf_economics_panel", lambda *_a: {})
     monkeypatch.setattr(overlap, "build_direct_overlap_view", lambda *_a, **_kw: (_ for _ in ()).throw(ValueError("no holdings")))
     screen_rows = json.loads((derived / "screen.json").read_text(encoding="utf-8"))
