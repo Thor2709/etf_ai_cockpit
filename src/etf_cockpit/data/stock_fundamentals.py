@@ -23,12 +23,14 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
+import pyarrow.parquet as pq
 import yaml
 
 from etf_cockpit.analysis.stock_metrics import PERIOD_FIELDS, USABLE_STATUSES, VALUE_STATUSES, Period, as_utc
 from etf_cockpit.core.atomic_io import atomic_write_bytes, parquet_payload, validate_parquet_file
 from etf_cockpit.core.paths import ROOT
 from etf_cockpit.data import stock_sources as src
+from etf_cockpit.data.fundamentals import CONSTITUENT_METRIC_KEYS, CONSTITUENT_METRICS_PATH, write_constituent_metrics
 from etf_cockpit.data.esef_provider import fetch_stock_fundamentals as fetch_esef_fundamentals
 from etf_cockpit.data.fx_data import load_fx_rates
 from etf_cockpit.data.sec_edgar_provider import fetch_stock_fundamentals as fetch_sec_fundamentals
@@ -747,7 +749,84 @@ def refresh_stock_fundamentals(
     if fx_rows:
         merged = _concat([fx, pd.DataFrame(fx_rows, columns=FX_COLUMNS)], FX_COLUMNS)
         _write(paths["fx"], merged.drop_duplicates(["pair", "date"], keep="first"))
+    skipped = produce_constituent_metrics([target.instrument_id for target in targets], root=root, config=cfg)
+    if skipped:
+        for instrument_id in report.per_instrument:
+            report.per_instrument[instrument_id] += f"; constituent metrics unavailable: {skipped}"
     return report
+
+
+def produce_constituent_metrics(
+    instrument_ids: Iterable[str],
+    *,
+    root: Path | None = None,
+    config: Mapping[str, Any] | None = None,
+) -> str | None:
+    """Write one metric vintage per instrument and statement ``known_at`` for the ISSUE-0203 look-through roll-up.
+
+    Each vintage runs the canonical stock-evidence build at that ``known_at``, so it holds only facts and
+    prices (by their ``available_at``) known then. A metric the build cannot derive is written as NaN with
+    its ``<metric>_as_of`` date: an explicit "unavailable" that the roll-up never zero-fills and that
+    invalidates an older finite vintage. Each metric's ``_as_of`` is its effective date (for P/E also the
+    price date).
+
+    Returns None, or the reason nothing was rewritten: an unreadable input store leaves the metric store as is.
+    """
+
+    # imported here: stock_universe and stock_evidence import this module
+    from etf_cockpit.analysis import stock_metrics as sm
+    from etf_cockpit.analysis.stock_evidence import build_stock_evidence
+    from etf_cockpit.analysis.stock_universe import _price_frame, market_inputs, with_as_traded_factors
+
+    cfg = dict(config) if config is not None else load_stock_config(root)
+    chain = list((cfg.get("sources", {}) or {}).get("chain", ["sec_edgar", "esef", "yfinance"]))
+    base = Path(root or ROOT)
+    price_path = base / "data" / "validated" / "prices" / "prices_daily.parquet"
+    metrics_path = base / "data" / "clean" / CONSTITUENT_METRICS_PATH.name
+    # The readers below treat an unreadable store as empty; here that would erase stored vintages, so check first.
+    for path in (*store_paths(root).values(), base / "data" / "clean" / "fx.parquet", price_path, metrics_path):
+        if path.is_file():
+            try:
+                pq.read_metadata(path)
+            except Exception as exc:
+                return f"{path.name} is unreadable ({type(exc).__name__})"
+    frame, snapshots, fx = read_periods(root), read_snapshots(root), read_fx(root)
+    prices = with_as_traded_factors(pd.read_parquet(price_path)) if price_path.is_file() else pd.DataFrame()
+    wanted = sorted({str(item) for item in instrument_ids})
+    rows: list[dict[str, Any]] = []
+    for instrument in sorted(set(wanted) & set(frame["instrument_id"].astype(str))):
+        periods = periods_for(instrument, frame, chain)
+        history = _price_frame(prices, instrument)
+        # a price bar is usable once its availability stamp is reached; no stamp means unusable
+        available = pd.to_datetime(history["available_at"], errors="coerce", utc=True) if "available_at" in history else None
+        for known in sorted({period.known_at for period in periods}):
+            visible = sm.known_periods(periods, known)
+            if not visible:
+                continue
+            bars = history[available <= known] if available is not None else history.iloc[0:0]
+            market = market_inputs(bars, latest_snapshot(instrument, snapshots, known), visible[-1].currency, known, fx, cfg)
+            evidence = build_stock_evidence(instrument, periods, known, market, None, cfg)
+            as_of_date = visible[-1].period_end.isoformat()
+            row: dict[str, Any] = {
+                "instrument_id": instrument,
+                "as_of_date": as_of_date,
+                "known_at": known.isoformat(),
+                "source_id": "stock_evidence:" + "+".join(evidence.sources or ("unattributed",)),
+            }
+            for column, key in CONSTITUENT_METRIC_KEYS.items():
+                metric = evidence.metrics.get(key)
+                if metric is not None and metric.available and metric.value is not None and math.isfinite(metric.value):
+                    row[column] = float(metric.value)
+                    effective = str(metric.as_of or as_of_date)
+                    if column == "pe_ratio" and market.price_date:
+                        effective = max(effective, market.price_date.isoformat())  # the price is part of the P/E
+                else:
+                    row[column] = math.nan
+                    effective = as_of_date
+                row[f"{column}_as_of"] = effective
+            rows.append(row)
+    write_constituent_metrics(rows, wanted, metrics_path)
+    return None
 
 
 def _needed_fx(snapshot: Mapping[str, Any], fx_fetch: Callable[..., list[tuple[str, float]]], stamp: datetime, config: Mapping[str, Any]) -> list[dict[str, Any]]:
