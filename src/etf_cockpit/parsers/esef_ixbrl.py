@@ -579,7 +579,7 @@ def _is_ifrs_full_qname(expanded: str, local_name: str) -> bool:
 
     if expanded.startswith("{"):
         namespace, _, actual_local_name = expanded[1:].partition("}")
-        return actual_local_name == local_name and namespace.rstrip("/").endswith("/ifrs-full")
+        return actual_local_name == local_name and is_ifrs_full_namespace(namespace)
     prefix, separator, actual_local_name = expanded.partition(":")
     return bool(separator) and actual_local_name == local_name and prefix.lower() in _IFRS_PREFIXES
 

@@ -203,7 +203,7 @@ def extract_issuer_shares(facts, *, lei: str, filing: Mapping[str, Any],
             continue
         try:
             value = Decimal(fact.value)
-            if (fact.mapping_status == "unsupported_numeric" or getattr(fact, "decode_status", "decoded") == "unavailable" or not value.is_finite()
+            if (fact.mapping_status == "unsupported_numeric" or not value.is_finite()
                     or value < 0 or value != value.to_integral_value()):
                 raise InvalidOperation
         except (InvalidOperation, ValueError):

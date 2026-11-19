@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import zipfile
+from dataclasses import replace
 from pathlib import Path
 
 import pandas as pd
@@ -34,6 +35,10 @@ HEAD = f"""<?xml version='1.0'?>
       <xbrldi:explicitMember dimension='q:ConsolidatedAndSeparateFinancialStatementsAxis' xmlns:q='https://xbrl.ifrs.org/taxonomy/2024-03-27/ifrs-full'>q:SeparateMember</xbrldi:explicitMember>
       </xbrli:segment></xbrli:entity>
       <xbrli:period><xbrli:startDate>2025-01-01</xbrli:startDate><xbrli:endDate>2025-12-31</xbrli:endDate></xbrli:period></xbrli:context>
+    <xbrli:context id='s2'><xbrli:entity><xbrli:identifier>549300TESTLEI00000001</xbrli:identifier><xbrli:segment>
+      <xbrldi:explicitMember dimension='q:ConsolidatedAndSeparateFinancialStatementsAxis' xmlns:q='https://issuer.example/ifrs-full'>q:SeparateMember</xbrldi:explicitMember>
+      </xbrli:segment></xbrli:entity>
+      <xbrli:period><xbrli:startDate>2025-01-01</xbrli:startDate><xbrli:endDate>2025-12-31</xbrli:endDate></xbrli:period></xbrli:context>
     <xbrli:context id='t1'><xbrli:entity><xbrli:identifier>549300TESTLEI00000001</xbrli:identifier><xbrli:segment>
       <xbrldi:typedMember dimension='custom:KeyAxis'><custom:key kind='a'>1</custom:key></xbrldi:typedMember></xbrli:segment></xbrli:entity>
       <xbrli:period><xbrli:startDate>2025-01-01</xbrli:startDate><xbrli:endDate>2025-12-31</xbrli:endDate></xbrli:period></xbrli:context>
@@ -51,13 +56,21 @@ HEAD = f"""<?xml version='1.0'?>
 """
 
 
-def _parse(tmp_path: Path, monkeypatch, facts: str):
+def _records(tmp_path: Path, monkeypatch, facts: str) -> tuple[XbrlFact, ...]:
     monkeypatch.setattr(esef_ixbrl, "_arelle_available", lambda: False)
     package = tmp_path / "hardening.xbri"
     with zipfile.ZipFile(package, "w") as archive:
         archive.writestr("META-INF/reportPackage.json", "{}")
         archive.writestr("reports/report.xhtml", HEAD + facts + "</body></html>")
-    return {fact.concept: fact for fact in parse_esef_package(package).records}
+    return parse_esef_package(package).records
+
+
+def _parse(tmp_path: Path, monkeypatch, facts: str) -> dict[str, XbrlFact]:
+    return {fact.concept: fact for fact in _records(tmp_path, monkeypatch, facts)}
+
+
+_FACT = XbrlFact("L", "Assets", "5", "EUR", "0", "ctx", "2025-01-01", "2025-12-31", "report.xhtml", "mapped", (), "https://xbrl.ifrs.org/taxonomy/ifrs-full", None, True, True)
+_PER_SHARE = replace(_FACT, concept="DilutedEarningsLossPerShare", value="0.5", unit="EUR/shares", mapping_status="unmapped")
 
 
 def _fact(concept: str, value: str, unit: str = "EUR", extra: str = "", context: str = "c", prefix: str = "ifrs-full") -> str:
@@ -101,8 +114,6 @@ def test_undefined_or_foreign_namespace_unit_is_unavailable(tmp_path: Path, monk
 
 
 def test_inconsistent_duplicate_facts_are_unavailable_but_exact_duplicates_are_not(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setattr(esef_ixbrl, "_arelle_available", lambda: False)
-    package = tmp_path / "duplicates.xbri"
     body = (
         _fact("Revenue", "100") + _fact("Revenue", "100")  # exact duplicate: ignored
         + _fact("Assets", "5") + _fact("Assets", "6")  # same context and unit, two values: a conflict
@@ -111,10 +122,7 @@ def test_inconsistent_duplicate_facts_are_unavailable_but_exact_duplicates_are_n
         + _fact("Revenue", "1", context="d1") + _fact("Revenue", "2", context="d2")  # the same dimensions listed in another order
         + _fact("OtherReserves", "5", extra="format='custom:num-comma-decimal'") + _fact("OtherReserves", "5")  # same text, different status
     )
-    with zipfile.ZipFile(package, "w") as archive:
-        archive.writestr("META-INF/reportPackage.json", "{}")
-        archive.writestr("reports/report.xhtml", HEAD + body + "</body></html>")
-    records = parse_esef_package(package).records
+    records = _records(tmp_path, monkeypatch, body)
 
     by_concept = {name: [fact for fact in records if fact.concept == name] for name in ("Revenue", "Assets", "Equity", "Liabilities", "OtherReserves")}
     assert [(fact.decode_status, fact.mapping_status) for fact in by_concept["Revenue"] if not fact.context_dimensions] == [("decoded", "mapped")]
@@ -132,10 +140,8 @@ def test_non_numeric_fact_carries_a_not_applicable_decode_status(tmp_path: Path,
 
 
 def test_every_stored_statement_fact_carries_its_decode_status() -> None:
-    ifrs = "https://xbrl.ifrs.org/taxonomy/ifrs-full"
-    base = ("L", "DilutedEarningsLossPerShare", "0.5", "EUR/shares", "0", "ctx", "2025-01-01", "2025-12-31", "report.xhtml", "unmapped", (), ifrs, None, True, True)
-    good = statement_facts_from_esef((XbrlFact(*base, "decoded"),), instrument_id="X", source_sha256="a" * 64)[0]
-    bad = statement_facts_from_esef((XbrlFact(*base, "unavailable"),), instrument_id="X", source_sha256="a" * 64)[0]
+    good = statement_facts_from_esef((_PER_SHARE,), instrument_id="X", source_sha256="a" * 64)[0]
+    bad = statement_facts_from_esef((replace(_PER_SHARE, decode_status="unavailable"),), instrument_id="X", source_sha256="a" * 64)[0]
 
     assert (good.decode_status, good.mapping_confidence) == ("decoded", "numeric_decoded_unit_resolved")
     assert (bad.decode_status, bad.canonical_metric, bad.mapping_confidence) == ("unavailable", None, "manual_review")
@@ -155,9 +161,7 @@ def test_a_stored_fact_with_unavailable_decode_status_never_reaches_the_period_r
 
 
 def test_a_decoded_and_an_unavailable_fact_of_one_context_keep_distinct_stored_ids(tmp_path: Path) -> None:
-    ifrs = "https://xbrl.ifrs.org/taxonomy/ifrs-full"
-    base = ("L", "Assets", "5", "EUR", "0", "ctx", "2025-01-01", "2025-12-31", "report.xhtml", "mapped", (), ifrs, None, True, True)
-    good, bad = (statement_facts_from_esef((XbrlFact(*base, status),), instrument_id="X", source_sha256="a" * 64)[0] for status in ("decoded", "unavailable"))
+    good, bad = (statement_facts_from_esef((replace(_FACT, decode_status=status),), instrument_id="X", source_sha256="a" * 64)[0] for status in ("decoded", "unavailable"))
     destination = tmp_path / "facts.parquet"
     for _ in range(2):  # a re-import changes nothing
         write_statement_facts((bad, good), destination)
@@ -183,6 +187,11 @@ _IFRS_NS = "https://xbrl.ifrs.org/taxonomy/2024-03-27/ifrs-full"
             [("Revenue", "100", "decoded", "separate")],
             id="scope-from-the-members-own-bindings",
         ),
+        pytest.param(  # a namespace that merely ends in /ifrs-full is an extension, not IFRS
+            _fact("Revenue", "100", context="s2"),
+            [("Revenue", "100", "decoded", "consolidated")],
+            id="scope-needs-the-exact-ifrs-namespace",
+        ),
         pytest.param(  # an unprefixed name lives in the in-scope default namespace
             _fact("Revenue", "5") + "<ix:nonFraction name='Revenue' contextRef='c' unitRef='EUR' decimals='0' xmlns='" + _IFRS_NS + "'>6</ix:nonFraction>",
             [("Revenue", "5", "unavailable", "consolidated"), ("Revenue", "6", "unavailable", "consolidated")],
@@ -201,22 +210,14 @@ _IFRS_NS = "https://xbrl.ifrs.org/taxonomy/2024-03-27/ifrs-full"
     ],
 )
 def test_expanded_identity_rules(tmp_path: Path, monkeypatch, body: str, expected: list) -> None:
-    monkeypatch.setattr(esef_ixbrl, "_arelle_available", lambda: False)
-    package = tmp_path / "identity.xbri"
-    with zipfile.ZipFile(package, "w") as archive:
-        archive.writestr("META-INF/reportPackage.json", "{}")
-        archive.writestr("reports/report.xhtml", HEAD + body + "</body></html>")
-    records = parse_esef_package(package).records
+    records = _records(tmp_path, monkeypatch, body)
 
     assert [(fact.concept, fact.value, fact.decode_status, fact.consolidation_scope) for fact in records] == expected
 
 
 def test_a_reimport_replaces_the_filings_earlier_rows_so_a_stale_decoded_fact_cannot_survive(tmp_path: Path) -> None:
-    ifrs = "https://xbrl.ifrs.org/taxonomy/ifrs-full"
-    base = ("L", "Assets", "5", "EUR", "0", "ctx", "2025-01-01", "2025-12-31", "report.xhtml", "mapped", (), ifrs, None, True, True)
-
     def facts(status: str, sha: str = "a" * 64):
-        return statement_facts_from_esef((XbrlFact(*base, status),), instrument_id="X", source_sha256=sha)
+        return statement_facts_from_esef((replace(_FACT, decode_status=status),), instrument_id="X", source_sha256=sha)
 
     destination = tmp_path / "facts.parquet"
     other = facts("decoded", "b" * 64)
