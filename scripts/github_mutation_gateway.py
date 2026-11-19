@@ -681,32 +681,41 @@ class _GitBlobReader:
     def read(self, spec: str) -> tuple[str, bytes] | None:
         """Return (oid, content) of a blob spec, None when missing; raise when unreadable."""
 
+        if "\n" in spec or "\r" in spec:
+            raise ValueError("git_blob_reader_invalid_spec")
         with self._lock:
-            if self._proc is None:
-                self._proc = subprocess.Popen(
-                    ["git", "cat-file", "--batch"],
-                    cwd=self._root,
-                    stdin=subprocess.PIPE,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.DEVNULL,
-                )
-            proc = self._proc
-            assert proc.stdin is not None and proc.stdout is not None
             try:
+                if self._proc is None:
+                    self._proc = subprocess.Popen(
+                        ["git", "cat-file", "--batch"],
+                        cwd=self._root,
+                        stdin=subprocess.PIPE,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.DEVNULL,
+                    )
+                proc = self._proc
+                assert proc.stdin is not None and proc.stdout is not None
                 proc.stdin.write(spec.encode() + b"\n")
                 proc.stdin.flush()
-                header = proc.stdout.readline().split()
-                if len(header) == 2 and header[1] in (b"missing", b"ambiguous"):
+                line = proc.stdout.readline().rstrip(b"\n")
+                if line.endswith((b" missing", b" ambiguous")):
                     return None
+                header = line.split()
                 if len(header) != 3 or not header[2].isdigit():
                     raise ValueError("git_blob_reader_malformed_header")
                 body = proc.stdout.read(int(header[2]) + 1)
-            except OSError as error:
-                raise ValueError("git_blob_reader_unavailable") from error
-            if len(body) != int(header[2]) + 1 or not body.endswith(b"\n"):
-                raise ValueError("git_blob_reader_truncated")
+                if len(body) != int(header[2]) + 1 or not body.endswith(b"\n"):
+                    raise ValueError("git_blob_reader_truncated")
+            except Exception as error:
+                if self._proc is not None:
+                    self._proc.kill()
+                    self._proc.wait()
+                    self._proc = None
+                if isinstance(error, OSError):
+                    raise ValueError("git_blob_reader_unavailable") from error
+                raise
             if header[1] != b"blob":
-                return None
+                raise ValueError("git_blob_reader_not_a_blob")
             return header[0].decode(), body[:-1]
 
 
