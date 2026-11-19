@@ -47,4 +47,4 @@ Follow [`DELIVERY_WORKFLOW.md`](../../DELIVERY_WORKFLOW.md) for current E/O/H/C 
 
 | ID | Priority | Programme state | Owner | Blocking dependencies | Required inputs | Downstream issues | Related issues |
 |---|---|---|---|---|---|---|---|
-| `ISSUE-0152` | `P0` | `in_progress` | `programme-governance` | - | - | `ISSUE-0133` | - |
+| `ISSUE-0152` | `P0` | `integrated` | `programme-governance` | - | - | `ISSUE-0133` | - |

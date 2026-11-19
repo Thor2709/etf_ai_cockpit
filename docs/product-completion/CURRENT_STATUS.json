@@ -230,8 +230,7 @@
   "counts": {
     "closed": 17,
     "deferred": 2,
-    "in_progress": 1,
-    "integrated": 212,
+    "integrated": 213,
     "research_only": 2
   },
   "execution_allowed": false,
@@ -6050,5 +6049,5 @@
     "ISSUE-0205"
   ],
   "schema_version": "1.0",
-  "source_registry_sha256": "495428756897f3a5522cad0019b843cca37ee46c0906ac9189bc0faf1142130b"
+  "source_registry_sha256": "0077cfe3fbb9e1516c83305ea67040932e9b85820ab25855e6f645323c8ebdf2"
 }
