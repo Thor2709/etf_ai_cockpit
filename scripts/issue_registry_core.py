@@ -1807,7 +1807,7 @@ def validate_status_replay_prefix_shape(
             "review_reference": "B00 canonical import from audited programme state",
         }:
             raise ValueError(f"{issue_id}: declaration correction changed imported status")
-    elif not ordinary_events or ordinary_events[0].get("from") != "planned":
+    elif not ordinary_events or ordinary_events[0].get("from") not in {"planned", "blocked"}:
         raise ValueError(f"{issue_id}: status replay transition history lacks its planned origin")
     if not isinstance(acceptance_evidence, list):
         raise ValueError(f"{issue_id}: status replay acceptance evidence prefix must be a list")

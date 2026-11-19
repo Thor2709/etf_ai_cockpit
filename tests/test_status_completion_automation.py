@@ -1497,6 +1497,24 @@ def test_two_hop_replay_rejects_identically_inconsistent_prefixes(
         )
 
 
+def test_replay_prefix_accepts_blocked_import_origin() -> None:
+    from scripts.issue_registry_core import validate_status_replay_prefix_shape
+
+    _, _, _, source, _ = _replay_canonical()
+    history = copy.deepcopy(source["transition_history"])
+    history[0]["from"] = "blocked"  # type: ignore[index]
+    validate_status_replay_prefix_shape(
+        "ISSUE-0152",
+        history,
+        copy.deepcopy(source["acceptance_evidence"]),
+        programme_status="in_progress",
+        dependency_edge_evidence=source["dependency_edge_evidence"],
+        verified_commit=source["verified_commit"],
+        verified_date=source["verified_date"],
+        status_transition=source["status_transition"],
+    )
+
+
 def test_status_replay_run_binds_source_and_requires_zero_action_readback(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
