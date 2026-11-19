@@ -19,6 +19,7 @@ import pandas as pd
 
 from etf_cockpit.analysis.decision.opportunity import _opportunity_benchmark_anchor, load_opportunity_policy
 from etf_cockpit.analysis.decision.shadow_run import _config_hashes, _decision_timestamp
+from etf_cockpit.application.portfolio_sandbox import _temporal_claims
 from etf_cockpit.core.config import AppConfig
 from etf_cockpit.models.calibration import calibrate_forecast_distribution, log_to_simple_return, realised_horizon_return
 from etf_cockpit.core.atomic_io import atomic_write_json
@@ -208,12 +209,12 @@ def positions_from_holdings(holdings: pd.DataFrame, instruments: Iterable[str], 
     (``known_at``, ``imported_at``, ``available_at``, when present); otherwise there is no position evidence.
     The holdings carry no cost basis, so a held position stays fail-closed in the consumer."""
 
-    from etf_cockpit.application.portfolio_sandbox import _temporal_claims
-
     if holdings.empty or holdings.attrs.get("status") == "unavailable":
         return {}
     cutoff = _decision_timestamp(decision_time)
     dated = pd.to_datetime(holdings["as_of_date"], errors="coerce", utc=True, format="mixed").dt.normalize()
+    if dated.isna().any():  # an unparseable snapshot date is unknown evidence, never an absent row
+        return {}
     claims = [pd.to_datetime(_temporal_claims(holdings[name]), errors="coerce", utc=True) for name in _KNOWLEDGE_COLUMNS if name in holdings]
     row_known = pd.concat(claims, axis=1).max(axis=1, skipna=False) if claims else None  # a malformed claim is NaT: unknown
     usable = dated.le(pd.Timestamp(cutoff.date(), tz="UTC"))
