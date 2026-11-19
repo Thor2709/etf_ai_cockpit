@@ -583,3 +583,21 @@ def test_positions_from_holdings_use_only_snapshots_known_by_the_decision() -> N
     # A snapshot imported after the decision is not known yet.
     imported = holdings.assign(known_at=["2026-09-02T00:00:00Z", "2026-10-16T00:00:00Z"])
     assert positions_from_holdings(imported.iloc[[1]], ["AAA"], decision_time=date(2026, 10, 15)) == {}
+    for column in ("imported_at", "available_at"):
+        late = holdings.assign(**{column: ["2026-09-02T00:00:00Z", "2026-10-16T00:00:00Z"]})
+        assert positions_from_holdings(late.iloc[[1]], ["AAA"], decision_time=date(2026, 10, 15)) == {}
+    # A snapshot counts as a whole: one known row must not turn the unknown AAA row into "not held".
+    partial = pd.DataFrame({
+        "as_of_date": [date(2026, 9, 1), date(2026, 9, 1), date(2026, 10, 15), date(2026, 10, 15)], "etf_id": ["AAA", "BBB", "AAA", "BBB"],
+        "units": [5.0, 1.0, 5.0, 0.0],
+        "known_at": ["2026-09-02T00:00:00Z", "2026-09-02T00:00:00Z", "2026-10-16T00:00:00Z", "2026-10-15T00:00:00Z"],
+    })
+    fallback = positions_from_holdings(partial, ["AAA", "BBB"], decision_time=date(2026, 10, 15))
+    assert fallback["AAA"]["held"] is True and fallback["BBB"]["held"] is True  # the complete September snapshot
+    assert positions_from_holdings(partial.iloc[2:], ["AAA", "BBB"], decision_time=date(2026, 10, 15)) == {}
+    # The record carries the real knowledge time, not the snapshot date; without such a column the date stays.
+    assert fallback["AAA"]["effective_at"] == "2026-09-01T00:00:00Z" and fallback["AAA"]["known_at"] == "2026-09-02T00:00:00Z"
+    assert positions_from_holdings(holdings, ["AAA"], decision_time=date(2026, 9, 30))["AAA"]["known_at"] == "2026-09-01T00:00:00Z"
+    # A timezone-aware snapshot date is compared like a plain one.
+    aware = holdings.assign(as_of_date=["2026-09-01T00:00:00Z", "2026-10-15T00:00:00Z"])
+    assert positions_from_holdings(aware, ["AAA"], decision_time=date(2026, 9, 30))["AAA"]["held"] is True
