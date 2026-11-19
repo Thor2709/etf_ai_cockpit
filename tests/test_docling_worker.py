@@ -91,38 +91,30 @@ def test_timeout_gives_a_clean_status_and_kills_the_child(tmp_path: Path) -> Non
     assert result.status == "timeout" and time.monotonic() - started < 30
 
 
-def test_memory_watchdog_stops_the_child_with_memory_limit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("code, status, reason", [
+    ("from etf_cockpit.application.docling_worker import start_memory_watchdog\nstart_memory_watchdog(1)\ntime.sleep(30)", "memory_limit", "exceeded_"),
+    ("import etf_cockpit.application.docling_worker as w\nw._rss_mb = lambda: 1 / 0\nw.start_memory_watchdog(100)\ntime.sleep(30)", "error", "memory_probe_failed"),
+], ids=["over_limit", "failing_probe"])
+def test_memory_watchdog_stops_the_child_with_a_clean_status(code: str, status: str, reason: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     pdf = tmp_path / "a.pdf"
     pdf.write_bytes(b"%PDF-1.4")
     monkeypatch.setenv("PYTHONPATH", _env()["PYTHONPATH"])
-    code = "import time\nfrom etf_cockpit.application.docling_worker import start_memory_watchdog\nstart_memory_watchdog(1)\ntime.sleep(30)"
 
-    result = dw.run_docling(pdf, model_dir=tmp_path, timeout_seconds=60, argv=[sys.executable, "-c", code])
+    result = dw.run_docling(pdf, model_dir=tmp_path, timeout_seconds=60, argv=[sys.executable, "-c", "import time\n" + code])
 
-    assert result.status == "memory_limit"
+    assert result.status == status and result.reason.startswith(reason)
 
 
-def test_table_enters_the_review_queue_as_pending_with_page_provenance(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_tables_enter_the_review_queue_as_pending_with_page_provenance_and_identical_tables_stay_distinct(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     table = {"page": 3, "rows": 2, "columns": 2, "markdown": "| a | b |\n| 1 | 2 |"}
-    monkeypatch.setattr(dw, "run_docling", lambda *_a, **_k: dw.DoclingResult("ok", pages=("", "", "text"), tables=(table,)))
+    monkeypatch.setattr(dw, "run_docling", lambda *_a, **_k: dw.DoclingResult("ok", pages=("", "", "text"), tables=(table, dict(table))))
     pdf = tmp_path / "a.pdf"
     pdf.write_bytes(b"%PDF-1.4")
 
-    assert dw.queue_tables(tmp_path, "X", pdf, source_url="https://example.com/a.pdf")["proposed"] == 1
-    figure = load_queue(tmp_path, "X")["figures"][0]
-
-    assert (figure["metric"], figure["status"], figure["page"], figure["printed_text"]) == (dw.TABLE_METRIC, "pending", 3, table["markdown"])
-
-
-def test_identical_tables_on_one_page_keep_distinct_queue_entries(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    table = {"page": 1, "rows": 1, "columns": 1, "markdown": "| a |"}
-    monkeypatch.setattr(dw, "run_docling", lambda *_a, **_k: dw.DoclingResult("ok", pages=("t",), tables=(table, dict(table))))
-    pdf = tmp_path / "a.pdf"
-    pdf.write_bytes(b"%PDF-1.4")
-
-    dw.queue_tables(tmp_path, "X", pdf, source_url="https://example.com/a.pdf")
+    assert dw.queue_tables(tmp_path, "X", pdf, source_url="https://example.com/a.pdf")["proposed"] == 2
     figures = load_queue(tmp_path, "X")["figures"]
 
+    assert all((f["metric"], f["status"], f["page"], f["printed_text"]) == (dw.TABLE_METRIC, "pending", 3, table["markdown"]) for f in figures)
     assert len(figures) == 2 and len({item["figure_id"] for item in figures}) == 2 and len({item["period"] for item in figures}) == 2
 
 
@@ -149,17 +141,6 @@ def test_an_interrupted_parent_never_leaves_the_child_running(monkeypatch: pytes
         assert started[0].poll() is not None
     finally:
         started[0].kill()
-
-
-def test_a_failing_memory_probe_stops_the_child_and_reports_an_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    pdf = tmp_path / "a.pdf"
-    pdf.write_bytes(b"%PDF-1.4")
-    monkeypatch.setenv("PYTHONPATH", _env()["PYTHONPATH"])
-    code = "import time; import etf_cockpit.application.docling_worker as w; w._rss_mb = lambda: 1 / 0; w.start_memory_watchdog(100); time.sleep(30)"
-
-    result = dw.run_docling(pdf, model_dir=tmp_path, timeout_seconds=60, argv=[sys.executable, "-c", code])
-
-    assert (result.status, result.reason) == ("error", "memory_probe_failed")
 
 
 def test_fixture_table_reaches_the_review_queue_with_page_provenance_offline(tmp_path: Path) -> None:

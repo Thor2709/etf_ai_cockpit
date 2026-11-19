@@ -89,7 +89,8 @@ def _insufficient_reason(path: Path, questions: Sequence[Mapping[str, Any]], as_
     if not path.is_file():
         return "no document chunk store"
     with closing(connect_local_database(path)) as connection:
-        known = {row[0] for row in connection.execute("SELECT chunk_id FROM chunks WHERE known_at <= ?", (chunk_store._utc(as_of),))}
+        known = {row[0] for row in connection.execute(
+            "SELECT chunk_id FROM chunks WHERE known_at <= ? AND chunker_version = ?", (chunk_store._utc(as_of), chunk_store.CHUNKER_VERSION))}
     missing = sum(str(item.get("chunk_id")) not in known for item in questions)
     return f"{missing} labels do not resolve to a chunk known at as_of" if missing else None
 

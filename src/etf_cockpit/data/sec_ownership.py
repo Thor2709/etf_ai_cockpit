@@ -17,13 +17,14 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 import hashlib
-import math
 import os
 from pathlib import Path
 import re
 import tempfile
 from types import SimpleNamespace
 from typing import Any
+
+from etf_cockpit.core.values import finite_float_or_none as _number
 
 POSITIONS_LABEL = "positions at period_end as reported by known_at; not current exposure"
 _SIGNAL_CODES = {"P": "purchase", "S": "sale"}
@@ -70,14 +71,6 @@ def _cik(value: object) -> str:
     if not text.isdigit() or int(text) <= 0 or len(text) > 10:
         raise SecOwnershipUnavailable("filing identity CIK is missing or invalid")
     return text.zfill(10)
-
-
-def _number(value: object) -> float | None:
-    try:
-        number = float(value)  # type: ignore[arg-type]
-    except (TypeError, ValueError):
-        return None
-    return number if math.isfinite(number) else None
 
 
 @dataclass(frozen=True)

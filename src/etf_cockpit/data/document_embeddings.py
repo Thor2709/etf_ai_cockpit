@@ -12,9 +12,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
 from contextlib import closing
-from dataclasses import fields
 from functools import lru_cache
-import hashlib
 import os
 from pathlib import Path
 import re
@@ -23,6 +21,7 @@ from typing import Any
 
 import numpy as np
 
+from etf_cockpit.core.atomic_io import sha256_file
 from etf_cockpit.core.paths import CODE_CONFIG_DIR, MODEL_DIR
 from etf_cockpit.data import document_chunks as chunk_store
 from etf_cockpit.data.local_storage import connect_local_database
@@ -35,7 +34,7 @@ INDEX_VERSION = "dense-v1"
 HYBRID_ENABLED = False  # set to True only from an evaluation report with hybrid_enabled=true
 RRF_K = 60
 CANDIDATES = 50
-_HIT_FIELDS = tuple(field.name for field in fields(chunk_store.DocumentChunk))
+_HIT_FIELDS = chunk_store._COLUMNS
 
 
 class EmbeddingUnavailable(RuntimeError):
@@ -65,10 +64,6 @@ def embedding_status() -> dict[str, object]:
     return {"status": "available", "reason": None, "model_revision": _model_revision()}
 
 
-def rerank_status() -> dict[str, object]:
-    return {"status": "unavailable", "reason": "no reranker weights are approved or downloaded"}
-
-
 @lru_cache(maxsize=2)
 def _embedder(model_dir: Path) -> Any:
     pins = pinned_files()
@@ -85,9 +80,8 @@ def _embedder(model_dir: Path) -> Any:
         path = model_dir / name
         if not path.is_file():
             raise EmbeddingUnavailable(f"embedding weight file is missing: {path}")
-        with path.open("rb") as handle:
-            if hashlib.file_digest(handle, "sha256").hexdigest() != expected:
-                raise EmbeddingUnavailable(f"embedding weight file does not match its pinned sha256: {name}")
+        if sha256_file(path) != expected:
+            raise EmbeddingUnavailable(f"embedding weight file does not match its pinned sha256: {name}")
     os.environ["HF_HUB_OFFLINE"] = "1"
     os.environ["TRANSFORMERS_OFFLINE"] = "1"
     try:

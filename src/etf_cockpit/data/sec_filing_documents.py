@@ -29,9 +29,10 @@ import re
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
+from etf_cockpit.core.values import finite_float_or_none as _number
 from etf_cockpit.data.document_chunks import DocumentChunk, chunk_pages
 from etf_cockpit.data.sec_edgar_provider import SecEdgarError, SecEdgarProvider, SecEdgarUnavailable
-from etf_cockpit.data.sec_ownership import _number, prepare_edgar_environment
+from etf_cockpit.data.sec_ownership import SecOwnershipUnavailable, _aware, prepare_edgar_environment
 
 UNAVAILABLE = "unavailable"
 _DATELINE_CHARS = 400
@@ -48,8 +49,7 @@ _CALL_WORDS = re.compile(r"call|webcast|conference|dial|join", re.IGNORECASE)
 _MONTHS = "january february march april may june july august september october november december".split()
 
 
-class SecFilingDocumentUnavailable(RuntimeError):
-    """The evidence cannot be produced; the message is the explicit reason."""
+SecFilingDocumentUnavailable = SecOwnershipUnavailable  # one "evidence cannot be produced" error for both SEC parsers
 
 
 @dataclass(frozen=True)
@@ -92,12 +92,6 @@ def _edgar() -> SimpleNamespace:
         raise SecFilingDocumentUnavailable("edgartools is not installed (optional `sec` extra)") from exc
     return SimpleNamespace(Filing=Filing, CurrentReport=CurrentReport, TenK=TenK,
                            find_earnings_exhibit=find_earnings_exhibit, get_earnings_tables=get_earnings_tables)
-
-
-def _aware(value: object) -> datetime:
-    if not isinstance(value, datetime) or value.tzinfo is None or value.utcoffset() is None:
-        raise SecFilingDocumentUnavailable("known_at must be a timezone-aware datetime")
-    return value
 
 
 def _header_instants(digits: str) -> set[datetime]:
@@ -162,7 +156,7 @@ def fetch_10k_section_chunks(provider: SecEdgarProvider, cik: str, accession: st
 
 def parse_8k(source: bytes, *, known_at: datetime) -> EightKFiling:
     """Parse one stored 8-K: its items, earnings-release tables and the explicit release time."""
-    known_at = _aware(known_at)
+    known_at = _aware(known_at, "known_at")
     try:
         ed = _edgar()
         filing = _filing(ed, source, ("8-K", "8-K/A"), known_at)
@@ -189,7 +183,7 @@ def parse_8k(source: bytes, *, known_at: datetime) -> EightKFiling:
 
 def parse_10k_section_chunks(source: bytes, *, known_at: datetime) -> list[DocumentChunk]:
     """Risk-factor (page 1) and MD&A (page 2) chunks of one stored 10-K; a missing section adds none."""
-    known_at = _aware(known_at)
+    known_at = _aware(known_at, "known_at")
     try:
         ed = _edgar()
         filing = _filing(ed, source, ("10-K", "10-K/A"), known_at)
