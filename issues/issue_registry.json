@@ -24654,6 +24654,16 @@
           "reviewed_date": "2026-10-03",
           "reviewer": "Claude Code root orchestrator with independent Opus Agent one-shot review (owner-authorised substitute)",
           "status": "ready"
+        },
+        {
+          "evidence_references": [
+            "Owner GO 2026-11-19 (chat) for the ISSUE-0152 certification plan: checker fix, deferral of 0189/0202, signed local release gate on the frozen head, then lifecycle completion; tag and release stay owner-only",
+            "PR #1147 (merge 5025ba40) lets release certification exclude ISSUE-0152 itself, accept deferred records as explicit limitations, and lets the reviewed status gateway carry planned -> deferred"
+          ],
+          "review_reference": "Exact head 5025ba4052aa83032a0101c269b66657e6ba9a53: Claude Code (claude-opus-5-5) root review with independent Claude Haiku one-shot review (owner GO 2026-11-19 for ISSUE-0152).",
+          "reviewed_date": "2026-11-19",
+          "reviewer": "Claude Code root orchestrator with independent Claude Haiku one-shot review",
+          "status": "in_progress"
         }
       ],
       "activation_dependencies": [],
@@ -24702,7 +24712,7 @@
       "package_status": "",
       "phase": "phase-11-certification",
       "priority": "P0",
-      "programme_status": "ready",
+      "programme_status": "in_progress",
       "provenance": {
         "amendment_references": [
           "docs/product-completion/sources/2026-07-21/ETF_AI_Cockpit_Final_Release_Implementation_Spec_2026-07-21.md#amend-issue-0152-final-release-certification-and-completion-programme-closure",
@@ -24735,8 +24745,8 @@
       ],
       "title": "Run final release certification and close the completion programme",
       "ui_requirement": "Release Readiness dashboard with signed evidence and accepted limitations.",
-      "verified_commit": "6bafbdaf4975f2001d9692e5ba5c1133ab9d94f2",
-      "verified_date": "2026-10-03",
+      "verified_commit": "5025ba4052aa83032a0101c269b66657e6ba9a53",
+      "verified_date": "2026-11-19",
       "why": "A finite certification issue is required so “done” means release-complete against a frozen specification rather than an endless backlog.",
       "write_conflict_group": "programme-governance"
     },
@@ -30289,7 +30299,20 @@
           "text": "a snapshot captured after the decision time is not used; `approximated` rows produce no feature; with no data every feature is `unavailable` and the weight stays 0."
         }
       ],
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "Owner decision 2026-11-19 (chat): defer ISSUE-0189 and ISSUE-0202 so ISSUE-0152 can certify; a successor issue opens when the data or an entitled key arrives",
+            "Required input not met: no entitled analyst-estimates source (no EODHD, FMP or Finnhub key in the environment, integration_plan_2026-11-13/EXECUTION_PLAN_2026-11-18.md); the frozen requirements stay in INT-07 at f92d888d",
+            "ISSUE-0152 contract: no paid, keyed or quota-limited provider is required for mandatory completion",
+            "PR #1147 (merge 5025ba40) lets release certification exclude ISSUE-0152 itself, accept deferred records as explicit limitations, and lets the reviewed status gateway carry planned -> deferred"
+          ],
+          "review_reference": "Exact head 5025ba4052aa83032a0101c269b66657e6ba9a53: Claude Code (claude-opus-5-5) root review with independent Claude Haiku one-shot review (owner GO 2026-11-19 for ISSUE-0152).",
+          "reviewed_date": "2026-11-19",
+          "reviewer": "Claude Code root orchestrator with independent Claude Haiku one-shot review",
+          "status": "deferred"
+        }
+      ],
       "activation_dependencies": [],
       "blocking_dependencies": [
         "ISSUE-0186"
@@ -30326,7 +30349,7 @@
       "package_status": "",
       "phase": "phase-03-stock-research",
       "priority": "P1",
-      "programme_status": "planned",
+      "programme_status": "deferred",
       "provenance": {
         "amendment_references": [],
         "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
@@ -30360,8 +30383,8 @@
           "Focused tests for the intake acceptance criteria and the validation tier required by the product diff."
         ]
       },
-      "verified_commit": "78ef9d904288b3b3cf00ea3f995f36024655a4d6",
-      "verified_date": "2026-11-16",
+      "verified_commit": "5025ba4052aa83032a0101c269b66657e6ba9a53",
+      "verified_date": "2026-11-19",
       "write_conflict_group": "stock-research"
     },
     {
@@ -31836,7 +31859,20 @@
           "text": "no import runs without steps 1-3 recorded; each row has provenance, `available_at` and `pit_grade`; a conflict with an official fact is recorded, not selected."
         }
       ],
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "Owner decision 2026-11-19 (chat): defer ISSUE-0189 and ISSUE-0202 so ISSUE-0152 can certify; a successor issue opens when the data or an entitled key arrives",
+            "Required input not met: the EODHD dataset dump is not delivered; the frozen requirements stay in INT-20 at f92d888d",
+            "ISSUE-0152 contract: no paid, keyed or quota-limited provider is required for mandatory completion",
+            "PR #1147 (merge 5025ba40) lets release certification exclude ISSUE-0152 itself, accept deferred records as explicit limitations, and lets the reviewed status gateway carry planned -> deferred"
+          ],
+          "review_reference": "Exact head 5025ba4052aa83032a0101c269b66657e6ba9a53: Claude Code (claude-opus-5-5) root review with independent Claude Haiku one-shot review (owner GO 2026-11-19 for ISSUE-0152).",
+          "reviewed_date": "2026-11-19",
+          "reviewer": "Claude Code root orchestrator with independent Claude Haiku one-shot review",
+          "status": "deferred"
+        }
+      ],
       "activation_dependencies": [],
       "blocking_dependencies": [
         "ISSUE-0183"
@@ -31873,7 +31909,7 @@
       "package_status": "",
       "phase": "phase-02-data-policy-identity",
       "priority": "P1",
-      "programme_status": "planned",
+      "programme_status": "deferred",
       "provenance": {
         "amendment_references": [],
         "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
@@ -31910,8 +31946,8 @@
           "Focused tests for the intake acceptance criteria and the validation tier required by the product diff."
         ]
       },
-      "verified_commit": "78ef9d904288b3b3cf00ea3f995f36024655a4d6",
-      "verified_date": "2026-11-16",
+      "verified_commit": "5025ba4052aa83032a0101c269b66657e6ba9a53",
+      "verified_date": "2026-11-19",
       "write_conflict_group": "data-platform"
     },
     {
@@ -35296,7 +35332,7 @@
     "package_registry_sha256": "42f401c32d2fddb17af97333303f4aeea0f2d2f8384e2b8da382529c0c7d107c",
     "package_reviewed_commit": "e149db50945401fb014955f0f79794a909796a75",
     "package_sha256": "39e30adc22c34a2f80640fa895caa21473457cea5bd0de872927051f8f99839b",
-    "programme_control_state_sha256": "0ed34fab9921797f78c1fcb69f8be327ae0de6884fec8b1907286f49f3b4a6b9",
+    "programme_control_state_sha256": "2292c3e51797aa9a6517712c9f0ea4a27a76a3afcb5c64eca07f9be6c11ae114",
     "repository": "Thor2709/etf_ai_cockpit",
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   }

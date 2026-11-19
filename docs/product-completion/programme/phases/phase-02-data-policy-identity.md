@@ -76,7 +76,7 @@ Follow [`DELIVERY_WORKFLOW.md`](../../DELIVERY_WORKFLOW.md) for current E/O/H/C 
 | `ISSUE-0199` | `P2` | `integrated` | `data-platform` | `ISSUE-0185` | `external:sec-extra-approval` | `ISSUE-0200` | `ISSUE-0080`, `ISSUE-0082`, `ISSUE-0087` |
 | `ISSUE-0200` | `P3` | `integrated` | `data-platform` | `ISSUE-0186`, `ISSUE-0199` | `external:sec-extra-approval` | `ISSUE-0212` | `ISSUE-0087`, `ISSUE-0095` |
 | `ISSUE-0201` | `P2` | `integrated` | `data-platform` | `ISSUE-0185` | - | `ISSUE-0210` | `ISSUE-0026`, `ISSUE-0055`, `ISSUE-0088` |
-| `ISSUE-0202` | `P1` | `planned` | `data-platform` | `ISSUE-0183` | `external:eodhd-dataset` | - | `ISSUE-0080`, `ISSUE-0086`, `ISSUE-0089`, `ISSUE-0090`, `ISSUE-0091` |
+| `ISSUE-0202` | `P1` | `deferred` | `data-platform` | `ISSUE-0183` | `external:eodhd-dataset` | - | `ISSUE-0080`, `ISSUE-0086`, `ISSUE-0089`, `ISSUE-0090`, `ISSUE-0091` |
 | `ISSUE-0204` | `P3` | `integrated` | `data-platform` | - | `external:user-downloaded-financedatabase-csv` | - | `ISSUE-0082`, `ISSUE-0083`, `ISSUE-0089` |
 | `ISSUE-0205` | `P3` | `integrated` | `data-platform` | - | - | `ISSUE-0206`, `ISSUE-0207`, `ISSUE-0208` | `ISSUE-0087`, `ISSUE-0090`, `ISSUE-0138`, `ISSUE-0140` |
 | `ISSUE-0206` | `P3` | `integrated` | `data-platform` | `ISSUE-0185`, `ISSUE-0205` | `external:documents-extra-approval` | - | `ISSUE-0087`, `ISSUE-0090`, `ISSUE-0144` |
