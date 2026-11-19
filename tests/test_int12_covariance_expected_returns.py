@@ -24,16 +24,13 @@ def _returns(rows: int = 160, assets: int = 4, seed: int = 11) -> pd.DataFrame:
     return pd.DataFrame(data, index=index, columns=[f"E{i}" for i in range(assets)])
 
 
-def test_oos_selected_covariance_names_the_selected_estimator_and_ignores_rows_after_the_cutoff() -> None:
+def test_oos_selected_covariance_names_the_selected_estimator_and_is_not_annualised_twice() -> None:
     assert "oos_selected" in COVARIANCE_SHRINKAGE_MODES
     returns = _returns()
     cutoff = returns.index[119]
     window = returns.loc[:cutoff]
-    # Rows after the decision date are wild; they must not move the selection or the matrix.
-    future = returns.loc[returns.index > cutoff] * 50.0
-    with_future = pd.concat([window, future])
 
-    optimiser = PortfolioOptimiser(with_future.loc[:cutoff], covariance_shrinkage="oos_selected")
+    optimiser = PortfolioOptimiser(window, covariance_shrinkage="oos_selected")
     expected_name = _out_of_sample_selection(window, None, ewma_lambda=0.97, shrinkage_alpha=0.10)[1]
     assert optimiser.covariance_diagnostics["status"] == "available"
     assert optimiser.covariance_diagnostics["estimator"] == expected_name
@@ -42,9 +39,6 @@ def test_oos_selected_covariance_names_the_selected_estimator_and_ignores_rows_a
     np.testing.assert_allclose(optimiser.covariance.to_numpy(float), chosen.to_numpy(float), rtol=1e-8)
     # Already annualised: the 252 factor is not applied a second time.
     assert float(np.trace(optimiser.covariance)) < ANNUALISATION_FACTOR * 0.05 * len(window.columns)
-
-    reference = PortfolioOptimiser(window, covariance_shrinkage="oos_selected")
-    assert reference.covariance_diagnostics["estimator"] == optimiser.covariance_diagnostics["estimator"]
 
     short = PortfolioOptimiser(returns.iloc[:25], covariance_shrinkage="oos_selected")
     assert short.covariance.empty and short.covariance_diagnostics["status"] != "available"

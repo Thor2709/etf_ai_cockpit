@@ -287,7 +287,9 @@ def ledoit_wolf_covariance(returns: pd.DataFrame) -> tuple[pd.DataFrame, dict[st
     }
 
 
-def _return_matrix(prices: pd.DataFrame, *, window: int) -> pd.DataFrame:
+def _return_matrix(prices: pd.DataFrame, *, window: int, log: bool = True) -> pd.DataFrame:
+    """Adjusted-close returns (log by default, simple when ``log`` is False); the one builder for both."""
+
     if prices is None or prices.empty or not {"date", "etf_id", "adjusted_close"}.issubset(prices.columns):
         return pd.DataFrame()
     frame = prices[["date", "etf_id", "adjusted_close"]].copy()
@@ -298,7 +300,8 @@ def _return_matrix(prices: pd.DataFrame, *, window: int) -> pd.DataFrame:
     if frame.empty:
         return pd.DataFrame()
     pivot = frame.pivot_table(index="date", columns="etf_id", values="adjusted_close", aggfunc="last").sort_index()
-    result = np.log(pivot / pivot.shift(1)).replace([np.inf, -np.inf], np.nan).dropna(how="all")
+    ratio = pivot / pivot.shift(1)
+    result = (np.log(ratio) if log else ratio - 1.0).replace([np.inf, -np.inf], np.nan).dropna(how="all")
     return result.tail(int(window)) if window > 0 else result
 
 
@@ -313,7 +316,6 @@ def _covariance_estimators(
     complete = returns.dropna(how="any")
     if len(complete) < 2:
         unavailable = {name: pd.DataFrame() for name in ESTIMATOR_NAMES}
-        unavailable["factor_model"] = pd.DataFrame()
         return unavailable, {
             "sample": {"status": "unavailable", "reason_code": "shared_return_history_unavailable"}
         }
@@ -625,6 +627,10 @@ def _liquidity_adjusted_risk(prices: pd.DataFrame, allocation: pd.DataFrame | No
     return {"status": "available", "method": "sqrt(1 + mean(abs(weight) / average_traded_value * 10000))", "mean_pressure": float(np.mean(pressure)), "multiplier": multiplier, "portfolio_vol_multiplier": multiplier}
 
 
+def _weight_column(allocation: pd.DataFrame) -> str | None:
+    return "current_weight" if "current_weight" in allocation.columns else "target_weight" if "target_weight" in allocation.columns else None
+
+
 def _weights(allocation: pd.DataFrame | None, ids: list[str]) -> tuple[pd.Series, str]:
     """Return portfolio weights and their basis.
 
@@ -636,7 +642,7 @@ def _weights(allocation: pd.DataFrame | None, ids: list[str]) -> tuple[pd.Series
     equal = pd.Series(1.0 / max(1, len(ids)), index=ids, dtype=float)
     if allocation is None or allocation.empty or "etf_id" not in allocation.columns:
         return equal, EQUAL_WEIGHT_FALLBACK_BASIS
-    column = "current_weight" if "current_weight" in allocation.columns else "target_weight" if "target_weight" in allocation.columns else None
+    column = _weight_column(allocation)
     if column is None:
         return equal, EQUAL_WEIGHT_FALLBACK_BASIS
     frame = allocation[["etf_id", column]].copy()
@@ -650,7 +656,7 @@ def _invalid_weight_ids(allocation: pd.DataFrame | None) -> list[str]:
 
     if allocation is None or allocation.empty or "etf_id" not in allocation.columns:
         return []
-    column = "current_weight" if "current_weight" in allocation.columns else "target_weight" if "target_weight" in allocation.columns else None
+    column = _weight_column(allocation)
     if column is None:
         return []
     values = pd.to_numeric(allocation[column], errors="coerce")
@@ -664,7 +670,7 @@ def _weight_coverage(allocation: pd.DataFrame | None, ids: list[str], weights_ba
     empty: dict[str, object] = {"weight_coverage": 1.0, "unpriced_instruments": [], "unpriced_weight": 0.0}
     if weights_basis != "allocation_weights" or allocation is None:
         return empty
-    column = "current_weight" if "current_weight" in allocation.columns else "target_weight"
+    column = _weight_column(allocation)
     held = pd.to_numeric(allocation[column], errors="coerce").groupby(allocation["etf_id"].astype(str)).sum()
     held = held[held.abs() > 0]
     gross = float(held.abs().sum())

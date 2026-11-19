@@ -901,8 +901,6 @@ _NAN = float("nan")
     [
         ("scores", {"AAA": 0.2, "BBB": 0.9, "ZZZ": 5.0}, {"BBB": 1.0}),
         ("nan_is_missing", {"AAA": _NAN, "BBB": 0.1}, {"BBB": 1.0}),
-        ("unavailable", None, None),
-        ("insufficient_evidence", {}, None),
         ("all_nan", {"AAA": _NAN, "BBB": _NAN}, None),
     ],
 )

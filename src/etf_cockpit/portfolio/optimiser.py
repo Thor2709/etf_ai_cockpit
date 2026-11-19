@@ -17,7 +17,7 @@ import numpy as np
 import pandas as pd
 
 from etf_cockpit.portfolio.optimiser_skfolio import SKFOLIO_METHODS, SkfolioUnavailable, solve_skfolio
-from etf_cockpit.portfolio.robust_risk import _covariance_estimators, _out_of_sample_selection, ledoit_wolf_covariance
+from etf_cockpit.portfolio.robust_risk import _covariance_estimators, _out_of_sample_selection, _psd_repair, _return_matrix, ledoit_wolf_covariance
 
 OPTIMISER_MODEL_VERSION = "portfolio-optimiser.v2"
 METHODS = (
@@ -94,19 +94,7 @@ def returns_from_adjusted_prices(prices: pd.DataFrame, *, window: int = 252) -> 
     visible unavailable state rather than a silent change in methodology.
     """
 
-    required = {"date", "etf_id", "adjusted_close"}
-    if prices is None or prices.empty or not required.issubset(prices.columns):
-        return pd.DataFrame()
-    frame = prices[["date", "etf_id", "adjusted_close"]].copy()
-    frame["date"] = pd.to_datetime(frame["date"], errors="coerce")
-    frame["adjusted_close"] = pd.to_numeric(frame["adjusted_close"], errors="coerce")
-    frame = frame.dropna(subset=["date", "etf_id", "adjusted_close"])
-    frame = frame[frame["adjusted_close"] > 0]
-    if frame.empty:
-        return pd.DataFrame()
-    pivot = frame.pivot_table(index="date", columns="etf_id", values="adjusted_close", aggfunc="last").sort_index()
-    result = pivot.pct_change(fill_method=None).replace([np.inf, -np.inf], np.nan).dropna(how="all")
-    return result.tail(int(window)) if window > 0 else result
+    return _return_matrix(prices, window=window, log=False)
 
 
 class PortfolioOptimiser:
@@ -531,12 +519,8 @@ def _covariance(returns: pd.DataFrame, shrinkage: str = "ledoit_wolf") -> tuple[
         matrix = daily * ANNUALISATION if not daily.empty else daily
     if matrix.empty or matrix.isna().to_numpy().any() or not np.isfinite(matrix.to_numpy(float)).all():
         return pd.DataFrame(), {"status": "unavailable", "reason_code": "covariance_inputs_incomplete", "observations": int(len(returns))}
-    values = matrix.to_numpy(float)
-    values = (values + values.T) / 2.0
-    eigenvalues, eigenvectors = np.linalg.eigh(values)
-    floor = max(float(np.max(np.diag(values))) * 1e-10, 1e-12)
-    repaired_values = np.maximum(eigenvalues, floor)
-    repaired = eigenvectors @ np.diag(repaired_values) @ eigenvectors.T
+    repaired_frame, repair = _psd_repair(matrix, list(matrix.columns))
+    repaired = repaired_frame.to_numpy(float)
     repaired = (repaired + repaired.T) / 2.0
     diagnostics = {
         "status": "available",
@@ -545,9 +529,9 @@ def _covariance(returns: pd.DataFrame, shrinkage: str = "ledoit_wolf") -> tuple[
         "observations": int(len(returns)),
         "annualisation": ANNUALISATION,
         "positive_semidefinite": bool(np.linalg.eigvalsh(repaired).min() >= -1e-10),
-        "minimum_eigenvalue_before_repair": float(eigenvalues.min()),
-        "minimum_eigenvalue": float(repaired_values.min()),
-        "psd_repaired": bool(np.any(eigenvalues < floor)),
+        "minimum_eigenvalue_before_repair": repair["minimum_eigenvalue_before"],
+        "minimum_eigenvalue": repair["minimum_eigenvalue_after"],
+        "psd_repaired": repair["regularised"],
     }
     if shrinkage == "oos_selected":
         diagnostics["covariance_mode"] = shrinkage
