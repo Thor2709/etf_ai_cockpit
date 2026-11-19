@@ -311,8 +311,9 @@ def test_non_numeric_inline_fact_is_never_mapped_numeric(tmp_path, monkeypatch) 
     xhtml = """<?xml version='1.0'?>
     <html xmlns='http://www.w3.org/1999/xhtml' xmlns:ix='http://www.xbrl.org/2013/inlineXBRL'
       xmlns:xbrli='http://www.xbrl.org/2003/instance' xmlns:ifrs-full='https://xbrl.ifrs.org/taxonomy/2024-03-27/ifrs-full'
-      xmlns:ifrs='https://example.test/not-the-ifrs-taxonomy'>
-      <body><xbrli:context id='c1'><xbrli:entity><xbrli:identifier scheme='http://standards.iso.org/iso/17442'>549300TESTLEI00000001</xbrli:identifier></xbrli:entity>
+      xmlns:ifrs='https://example.test/not-the-ifrs-taxonomy' xmlns:iso4217='http://www.xbrl.org/2003/iso4217'>
+      <body><xbrli:unit id='EUR'><xbrli:measure>iso4217:EUR</xbrli:measure></xbrli:unit>
+      <xbrli:context id='c1'><xbrli:entity><xbrli:identifier scheme='http://standards.iso.org/iso/17442'>549300TESTLEI00000001</xbrli:identifier></xbrli:entity>
       <xbrli:period><xbrli:instant>2025-12-31</xbrli:instant></xbrli:period></xbrli:context>
       <ix:nonNumeric name='ifrs-full:Assets' contextRef='c1'>Total assets, see note</ix:nonNumeric>
       <ix:nonFraction name='ifrs-full:Assets' contextRef='c1' unitRef='EUR' decimals='0'>5</ix:nonFraction>

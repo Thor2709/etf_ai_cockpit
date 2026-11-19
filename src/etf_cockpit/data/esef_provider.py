@@ -86,6 +86,7 @@ def parse_reported_shares(facts: pd.DataFrame, *, source_ref: str) -> list[dict[
                 and Decimal(0) <= value <= Decimal(2 ** 53)
                 and value == value.to_integral_value()
                 and (share_group == "TreasuryShares" or value > 0)
+                and fact.get("decode_status") != "unavailable"
             )
         except (InvalidOperation, ValueError):
             valid, value = False, None

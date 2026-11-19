@@ -384,7 +384,7 @@ def _extract_ec_facts(
             qname = f"ifrs-full:{concept}"
         else:
             continue
-        if not ec_name or not getattr(record, "is_numeric", True):
+        if not ec_name or not getattr(record, "is_numeric", True) or getattr(record, "decode_status", "decoded") == "unavailable":
             continue
         if str(getattr(record, "period_end", "") or "") != period:
             continue

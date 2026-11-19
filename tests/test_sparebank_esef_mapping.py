@@ -92,6 +92,9 @@ def test_ec_pool_facts_are_written_with_provenance(tmp_path: Path) -> None:
     )
     extracted = _extract_ec_facts(records, instrument_id="MING", period=PERIOD, sha256=SHA256)
     payload = _write(tmp_path / "ec_facts.json", extracted)
+    undecoded = _record("DividendEqualizationFund", "8721000000")
+    undecoded.decode_status = "unavailable"  # an unverified number is never an EC fact
+    assert _extract_ec_facts((undecoded,), instrument_id="MING", period=PERIOD, sha256=SHA256) == {}
 
     fact = payload["facts"]["utjevningsfond"]
     assert fact["available"] is True

@@ -59,7 +59,7 @@ def equity_member_facts(records: Iterable[object], period: str, *, path: Path | 
     compiled = {str(name): re.compile(str(pattern)) for name, pattern in rules.items()}
     found: dict[str, list[tuple[object, str]]] = {}
     for record in records:
-        if getattr(record, "concept", "") != "Equity" or not getattr(record, "is_numeric", True):
+        if getattr(record, "concept", "") != "Equity" or not getattr(record, "is_numeric", True) or getattr(record, "decode_status", "decoded") == "unavailable":
             continue
         if str(getattr(record, "period_end", "") or "") != period or getattr(record, "period_start", None):
             continue
