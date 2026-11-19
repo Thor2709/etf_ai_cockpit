@@ -115,7 +115,7 @@ any other partial write: it stays unresolved and is never retried.
 A committed canonical intake can project one create at a time; the creates it may
 authorise are the added IDs of the manifest at the source SHA plus those of the
 unbroken first-parent chain of earlier intake manifests (each older proposed
-registry hash equals the newer base hash). The checksum
+registry hash equals the newer base hash, and also equals the hash of the registry committed with that older manifest). The checksum
 covers the other reviewed creates, and readback requires that exact remainder.
 The existing managed refresh can separately project downstream metadata while
 preserving the accepted status anchor. A created issue that has no status

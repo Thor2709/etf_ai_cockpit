@@ -273,15 +273,15 @@ def test_create_preparation_emits_one_safe_append_without_candidate(
     assert manifest["execution_allowed"] is False
 
 
-@pytest.mark.parametrize("chained", [True, False])
+@pytest.mark.parametrize("mode", ["chained", "broken", "forged"])
 def test_intake_create_admitted_by_older_manifest_on_unbroken_chain(
-    tmp_path: Path, chained: bool,
+    tmp_path: Path, mode: str,
 ) -> None:
     root, _, bootstrap = _repo(tmp_path)
     remote = _remote()
     older, newer = "ISSUE-0180", "ISSUE-0181"
 
-    def commit_intake(ids: list[str], base: str | None) -> str:
+    def commit_intake(ids: list[str], base: str | None, forged: bool = False) -> str:
         records = [
             {**_record("planned", stable_id=issue), "title": issue, "source_kind": "control_extension"}
             for issue in ids
@@ -289,7 +289,7 @@ def test_intake_create_admitted_by_older_manifest_on_unbroken_chain(
         registry = {"records": [_record("implemented_initially"), *records]}
         (root / sync.REGISTRY_PATH).parent.mkdir(exist_ok=True)
         (root / sync.REGISTRY_PATH).write_bytes(sync.deterministic_json(registry))
-        proposed = hashlib.sha256(sync.deterministic_json(registry)).hexdigest()
+        proposed = "f" * 64 if forged else hashlib.sha256(sync.deterministic_json(registry)).hexdigest()
         (root / sync.STATUS_GUARD_MANIFEST).write_text(json.dumps({
             "schema_version": "1.1",
             "registry_migration": {
@@ -304,13 +304,13 @@ def test_intake_create_admitted_by_older_manifest_on_unbroken_chain(
         subprocess.run(["git", "commit", "-qm", f"admit {ids[-1]}"], cwd=root, check=True)
         return proposed
 
-    first_hash = commit_intake([older], None)
-    commit_intake([older, newer], first_hash if chained else "0" * 64)
+    first_hash = commit_intake([older], None, forged=mode == "forged")
+    commit_intake([older, newer], "0" * 64 if mode == "broken" else first_hash)
     source = prepare._git(root, "rev-parse", "HEAD")
     registry = json.loads((root / sync.REGISTRY_PATH).read_bytes())
     plan = sync.plan_actions(registry, remote, authority_records=[bootstrap], authority_root=root)
 
-    if not chained:
+    if mode != "chained":
         with pytest.raises(ValueError, match="committed_registry_admission"):
             prepare.prepare(root, plan, remote, source_sha=source, mode="create", intake_issue=older)
         return

@@ -597,10 +597,17 @@ def _intake_chain_admitted(root: Path, source_sha: str, manifest: dict[str, Any]
             break
         base = newer["registry_migration"].get("base_registry_sha256")
         if (
-            not _is_intake_manifest(older)
+            not isinstance(older, dict)
+            or not _is_intake_manifest(older)
             or not base
             or older["registry_migration"].get("proposed_registry_sha256") != base
         ):
+            break
+        try:
+            registry_then, _ = mutation_gateway.managed_refresh_registry(root, commit)
+        except (ValueError, subprocess.CalledProcessError):
+            break
+        if hashlib.sha256(deterministic_json(registry_then)).hexdigest() != base:
             break
         admitted.extend(older["registry_migration"]["added_issue_ids"])
         newer = older

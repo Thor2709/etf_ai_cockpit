@@ -109,10 +109,8 @@ def _readback(
 ) -> dict[str, bool]:
     """Only the reviewed, still-deferred creates may remain pending (as in the normal create path)."""
     plan = _plan(root, records, remote)
-    rows = plan["actions"] if deferred is None else deferred
-    counts = {kind: sum(a.get("kind") == kind for a in rows) for kind in ("create", "update")}
-    pending = sum(counts.values())
-    if plan["summary"] != {**ZERO_SUMMARY, **counts} or (
+    pending = len(deferred) if deferred is not None else sum(a.get("kind") == "create" for a in plan["actions"])
+    if plan["summary"] != {**ZERO_SUMMARY, "create": pending} or (
         deferred is not None and plan["actions"] != deferred
     ):
         raise ValueError("issue_0186_recovery_readback_failed")
