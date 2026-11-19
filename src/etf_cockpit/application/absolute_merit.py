@@ -198,32 +198,41 @@ def latest_prior_decision(directory: Path, decision_time: date) -> dict[str, obj
     return None
 
 
+_KNOWLEDGE_COLUMNS = ("known_at", "imported_at", "available_at")
+
+
 def positions_from_holdings(holdings: pd.DataFrame, instruments: Iterable[str], *, decision_time: date) -> dict[str, dict[str, object]]:
     """Held/not-held records from the newest holdings snapshot known at ``decision_time``.
 
-    A snapshot dated after the decision (or imported after it, when the rows carry ``known_at``) is ignored.
+    A snapshot counts only when it is dated by the decision and every one of its rows is known by the cut-off
+    (``known_at``, ``imported_at``, ``available_at``, when present); otherwise there is no position evidence.
     The holdings carry no cost basis, so a held position stays fail-closed in the consumer."""
+
+    from etf_cockpit.application.portfolio_sandbox import _temporal_claims
 
     if holdings.empty or holdings.attrs.get("status") == "unavailable":
         return {}
     cutoff = _decision_timestamp(decision_time)
-    dated = pd.to_datetime(holdings["as_of_date"])
-    known = dated.le(pd.Timestamp(cutoff.date()))
-    if "known_at" in holdings:
-        known &= pd.to_datetime(holdings["known_at"], errors="coerce", utc=True, format="mixed").le(cutoff)
-    holdings, dated = holdings.loc[known], dated.loc[known]
-    if holdings.empty:
+    dated = pd.to_datetime(holdings["as_of_date"], errors="coerce", utc=True, format="mixed").dt.normalize()
+    claims = [pd.to_datetime(_temporal_claims(holdings[name]), errors="coerce", utc=True) for name in _KNOWLEDGE_COLUMNS if name in holdings]
+    row_known = pd.concat(claims, axis=1).max(axis=1, skipna=False) if claims else None  # a malformed claim is NaT: unknown
+    usable = dated.le(pd.Timestamp(cutoff.date(), tz="UTC"))
+    if row_known is not None:
+        usable &= row_known.le(cutoff)
+    complete = usable.groupby(dated).all()
+    if not complete.any():
         return {}
-    as_of = dated.max()
+    as_of = complete[complete].index.max()
     latest = holdings.loc[dated.eq(as_of)]
     numbers = pd.to_numeric(latest["units"], errors="coerce")
     names = latest["etf_id"].astype(str)
     units = numbers.groupby(names).sum()
     invalid = set(names[~np.isfinite(numbers)]) | set(units.index[~np.isfinite(units)])
-    stamp = _iso(as_of.to_pydatetime().replace(tzinfo=timezone.utc))
+    stamp = _iso(as_of.to_pydatetime())
+    known_stamp = _iso(row_known.loc[latest.index].max().to_pydatetime()) if row_known is not None else None  # real knowledge time
     return {
         name: _record({"status": "unavailable" if name in invalid else "available", "held": bool(units.get(name, 0.0) > 0.0),
-                       "currency": "EUR", "friction_unit": "decimal_fraction"}, stamp)
+                       "currency": "EUR", "friction_unit": "decimal_fraction"}, stamp, known_at=known_stamp)
         for name in instruments
     }
 
@@ -303,8 +312,8 @@ def _members(distribution: Mapping[str, object]) -> list[Mapping[str, object]]:
     return [distribution]
 
 
-def _record(block: Mapping[str, object], stamp: str, *, source_hash: str | None = None) -> dict[str, object]:
-    record = {**block, "effective_at": stamp, "known_at": stamp, "execution_allowed": False}
+def _record(block: Mapping[str, object], stamp: str, *, source_hash: str | None = None, known_at: str | None = None) -> dict[str, object]:
+    record = {**block, "effective_at": stamp, "known_at": known_at or stamp, "execution_allowed": False}
     content = json.dumps(record, sort_keys=True, default=str).encode("utf-8")
     return {**record, "source_hash": source_hash or hashlib.sha256(content).hexdigest()}
 
