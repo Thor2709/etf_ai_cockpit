@@ -460,6 +460,7 @@ def parse_authority_ledger(data: bytes) -> list[dict[str, Any]]:
     bootstrap_database_ids: set[str] = set()
     bootstrap_node_ids: set[str] = set()
     issue_identities: dict[str, tuple[int, str, str]] = {}
+    created_ids: set[str] = set()
     for index, raw in enumerate(data.splitlines(keepends=True)):
         try:
             record = json.loads(raw)
@@ -598,7 +599,13 @@ def parse_authority_ledger(data: bytes) -> list[dict[str, Any]]:
             validate_managed_refresh_payload(payload)
             for update in payload["updates"]:
                 identity = (update["issue_number"], update["database_id"], update["node_id"])
-                if issue_identities.get(update["stable_id"]) != identity:
+                prior_identity = issue_identities.get(update["stable_id"])
+                if prior_identity is None and update["stable_id"] in created_ids:
+                    # A created issue has no status anchor yet: the first refresh introduces its identity.
+                    if identity in issue_identities.values():
+                        raise ValueError("managed_refresh_issue_identity_reused")
+                    issue_identities[update["stable_id"]] = identity
+                elif prior_identity != identity:
                     raise ValueError("managed_refresh_unknown_or_changed_issue_identity")
             remainder = payload.get("remainder_of_authority_id")
             if remainder is not None:
@@ -627,6 +634,7 @@ def parse_authority_ledger(data: bytes) -> list[dict[str, Any]]:
             ):
                 raise ValueError("invalid_create_authority")
             bootstrap_ids.add(str(payload["stable_id"]))
+            created_ids.add(str(payload["stable_id"]))
         else:
             raise ValueError("invalid_authority_type")
         previous = str(record["authority_id"])

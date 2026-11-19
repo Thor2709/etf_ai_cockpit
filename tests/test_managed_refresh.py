@@ -159,6 +159,47 @@ def resign(plan: dict[str, Any]) -> None:
     plan["plan_sha256"] = sync.plan_sha256(plan)
 
 
+@pytest.mark.parametrize(
+    ("created", "number", "error"),
+    [
+        (True, 1, None),
+        (False, 1, "managed_refresh_unknown_or_changed_issue_identity"),
+        (True, 3, "managed_refresh_issue_identity_reused"),
+    ],
+)
+def test_refresh_identity_of_created_issue(
+    prepared: dict[str, Any], created: bool, number: int, error: str | None,
+) -> None:
+    bootstrap = gateway.build_authority_record(
+        "legacy_bootstrap",
+        {"legacy_issues": [
+            {"stable_id": f"ISSUE-{n:04d}", "issue_number": n, "database_id": str(100 + n),
+             "node_id": f"NODE_{n}", "initial_status": "planned"} for n in (2, 3)
+        ]},
+        sequence=0, previous_authority_id=None,
+    )
+    records = [bootstrap]
+    if created:
+        records.append(gateway.build_authority_record(
+            "create",
+            {"stable_id": "ISSUE-0001", "source_sha": prepared["source"], "title": "Issue 1",
+             "managed_body": "body", "claim_inventory_sha256": "a" * 64, "plan_sha256": "b" * 64},
+            sequence=1, previous_authority_id=bootstrap["authority_id"],
+        ))
+    row = {**prepared["authority"]["payload"]["updates"][0],
+           "issue_number": number, "database_id": str(100 + number), "node_id": f"NODE_{number}"}
+    records.append(gateway.build_authority_record(
+        "managed_refresh", {**prepared["authority"]["payload"], "updates": [row]},
+        sequence=len(records), previous_authority_id=records[-1]["authority_id"],
+    ))
+    ledger = gateway.authority_ledger_bytes(records)
+    if error is None:
+        assert gateway.parse_authority_ledger(ledger) == records
+    else:
+        with pytest.raises(ValueError, match=error):
+            gateway.parse_authority_ledger(ledger)
+
+
 def test_exact_batch_and_outside_bytes(prepared: dict[str, Any]) -> None:
     memory = Memory(prepared["remote"])
     assert apply(prepared, memory)["accepted"]
