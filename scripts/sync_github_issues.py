@@ -610,11 +610,12 @@ def _intake_chain_admitted(root: Path, source_sha: str, manifest: dict[str, Any]
 def scope_admitted_intake_plan(
     root: Path, source_sha: str, plan: dict[str, Any], *, create_id: str | None,
 ) -> dict[str, Any]:
-    """Keep deferred creates in the checksum for one authorised intake step."""
+    """Keep deferred creates (and, for a create step, updates) in the checksum for one authorised intake step."""
     actions = mutation_gateway._validate_plan_authority(plan, str(plan.get("plan_sha256", "")))
     deferred = [
         action for action in actions
-        if action.get("kind") == "create" and action.get("stable_id") != create_id
+        if (action.get("kind") == "create" and action.get("stable_id") != create_id)
+        or (create_id is not None and action.get("kind") == "update")
     ]
     selected = [action for action in actions if action not in deferred]
     if create_id is not None:
@@ -652,7 +653,10 @@ def scope_admitted_intake_plan(
     scoped = {
         **plan,
         "actions": selected,
-        "summary": {**plan["summary"], "create": int(create_id is not None)},
+        "summary": {
+            **plan["summary"], "create": int(create_id is not None),
+            **({"update": 0} if create_id is not None else {}),
+        },
         "deferred_intake_creates": deferred,
     }
     scoped["plan_sha256"] = plan_sha256(scoped)
