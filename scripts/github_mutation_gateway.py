@@ -14,6 +14,7 @@ import json
 import re
 import subprocess
 import sys
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -669,7 +670,79 @@ def load_authority_ledger(root: Path) -> list[dict[str, Any]]:
     return parse_authority_ledger((root / AUTHORITY_PATH).read_bytes())
 
 
+class _GitBlobReader:
+    """One long-lived `git cat-file --batch` per repository (spawn cost dominates)."""
+
+    def __init__(self, root: Path) -> None:
+        self._root = root
+        self._lock = threading.Lock()
+        self._proc: subprocess.Popen[bytes] | None = None
+
+    def read(self, spec: str) -> tuple[str, bytes] | None:
+        """Return (oid, content) of a blob spec, None when missing; raise when unreadable."""
+
+        if "\n" in spec or "\r" in spec:
+            raise ValueError("git_blob_reader_invalid_spec")
+        with self._lock:
+            try:
+                if self._proc is None:
+                    self._proc = subprocess.Popen(
+                        ["git", "cat-file", "--batch"],
+                        cwd=self._root,
+                        stdin=subprocess.PIPE,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.DEVNULL,
+                    )
+                proc = self._proc
+                assert proc.stdin is not None and proc.stdout is not None
+                proc.stdin.write(spec.encode() + b"\n")
+                proc.stdin.flush()
+                line = proc.stdout.readline().rstrip(b"\n")
+                if line.endswith((b" missing", b" ambiguous")):
+                    return None
+                header = line.split()
+                if len(header) != 3 or not header[2].isdigit():
+                    raise ValueError("git_blob_reader_malformed_header")
+                body = proc.stdout.read(int(header[2]) + 1)
+                if len(body) != int(header[2]) + 1 or not body.endswith(b"\n"):
+                    raise ValueError("git_blob_reader_truncated")
+            except Exception as error:
+                if self._proc is not None:
+                    self._proc.kill()
+                    self._proc.wait()
+                    self._proc = None
+                if isinstance(error, OSError):
+                    raise ValueError("git_blob_reader_unavailable") from error
+                raise
+            if header[1] != b"blob":
+                raise ValueError("git_blob_reader_not_a_blob")
+            return header[0].decode(), body[:-1]
+
+
+_GIT_BLOB_READERS: dict[str, _GitBlobReader] = {}
+_GIT_BLOB_READERS_LOCK = threading.Lock()
+
+
+def _git_blob_read(root: Path, revision: str, path: str) -> tuple[str, bytes] | None:
+    key = str(Path(root).resolve())
+    with _GIT_BLOB_READERS_LOCK:
+        reader = _GIT_BLOB_READERS.setdefault(key, _GitBlobReader(Path(root)))
+    return reader.read(f"{revision}:{path}")
+
+
+def _git_blob_oid(root: Path, revision: str, path: str) -> str:
+    """Blob oid of `revision:path` (like `git rev-parse`); raise when missing."""
+
+    found = _git_blob_read(root, revision, path)
+    if found is None:
+        raise subprocess.CalledProcessError(128, ["git", "rev-parse", f"{revision}:{path}"])
+    return found[0]
+
+
 def _git_blob_bytes(root: Path, revision: str, path: Path) -> bytes | None:
+    if SHA_RE.fullmatch(revision):
+        found = _git_blob_read(root, revision, path.as_posix())
+        return None if found is None else found[1]
     completed = subprocess.run(
         ["git", "show", f"{revision}:{path.as_posix()}"],
         cwd=root,
@@ -2085,11 +2158,7 @@ def validate_projected_git_binding(
         or projected.get("ledger_blob_sha256") != _sha256(after)
     ):
         raise ValueError("projected_authority_ledger_transition_mismatch")
-    ledger_oid = subprocess.check_output(
-        ["git", "rev-parse", f"{head}:{AUTHORITY_PATH.as_posix()}"],
-        cwd=root,
-        text=True,
-    ).strip()
+    ledger_oid = _git_blob_oid(root, head, AUTHORITY_PATH.as_posix())
     if projected.get("ledger_blob_oid") != ledger_oid:
         raise ValueError("projected_authority_ledger_oid_mismatch")
     if record["authority_type"] in {"status", "status_replay"}:
@@ -2097,11 +2166,7 @@ def validate_projected_git_binding(
         candidate_bytes = _git_blob_bytes(root, head, Path(candidate_path))
         if candidate_bytes is None:
             raise ValueError("projected_candidate_blob_unrecoverable")
-        candidate_oid = subprocess.check_output(
-            ["git", "rev-parse", f"{head}:{candidate_path}"],
-            cwd=root,
-            text=True,
-        ).strip()
+        candidate_oid = _git_blob_oid(root, head, candidate_path)
         if (
             candidate_oid != payload["candidate_blob_oid"]
             or projected.get("candidate_blob_oid") != candidate_oid
