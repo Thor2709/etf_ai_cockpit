@@ -760,11 +760,11 @@ def _aggregate_fundamentals(
             # P/E and ROIC are dimensionless; reporting/listing currencies do
             # not exclude them. Keep listing identity in contributor lineage.
             listing = holding.identity
-            pe_row, pe_conflict = _latest_metric_row(matches, "pe_ratio")
+            pe_row, pe_conflict = _latest_metric_row(matches, "pe_ratio", analysis)
             if pe_conflict:
                 limitations.append(f"Conflicting same-vintage constituent P/E evidence was excluded for {listing}.")
             for name, label in _WEIGHTED_MEAN_METRICS.items():
-                metric_row, conflict = _latest_metric_row(matches, name)
+                metric_row, conflict = _latest_metric_row(matches, name, analysis)
                 if conflict:
                     limitations.append(f"Conflicting same-vintage constituent {label} evidence was excluded for {listing}.")
                 value = _finite_number(metric_row.get(name)) if metric_row is not None else None
@@ -1162,10 +1162,21 @@ def _fundamental_matches(
 
 
 def _latest_metric_row(
-    matches: list[Mapping[str, object]], field: str
+    matches: list[Mapping[str, object]], field: str, analysis: date
 ) -> tuple[Mapping[str, object] | None, bool]:
-    """Latest vintage reporting ``field``; conflicting same-vintage values return (None, True)."""
-    candidates = [row for row in matches if _finite_number(row.get(field)) is not None]
+    """Latest vintage declaring ``field``; conflicting same-vintage values return (None, True).
+
+    A vintage declares a metric with a finite value or a ``<field>_as_of`` date; a declared NaN invalidates
+    the metric, so an older finite value is not carried across it. A declared metric dated after the
+    analysis date is skipped. The returned row may carry a NaN value (unavailable).
+    """
+    candidates = []
+    for row in matches:
+        effective = _as_date(row.get(f"{field}_as_of"))
+        if effective is not None and effective > analysis:
+            continue
+        if effective is not None or _finite_number(row.get(field)) is not None:
+            candidates.append(row)
     if not candidates:
         return None, False
     latest_key = _vintage_key(candidates[-1])

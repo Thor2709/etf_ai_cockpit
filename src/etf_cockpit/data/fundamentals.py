@@ -18,6 +18,7 @@ from typing import Any, Iterable, Mapping
 import pandas as pd
 
 from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_bytes, atomic_write_group, parquet_payload, validate_parquet_file
+from etf_cockpit.core.file_guard import persistent_file_guard
 from etf_cockpit.core.paths import CLEAN_DIR, RAW_DIR
 from etf_cockpit.data.contracts import SourceAuthority
 from etf_cockpit.data.provenance import sha256_dataframe
@@ -543,16 +544,21 @@ def load_constituent_metrics(path: Path | None = None) -> pd.DataFrame:
 def write_constituent_metrics(
     rows: list[dict[str, Any]], instrument_ids: Iterable[str], path: Path | None = None
 ) -> None:
-    """Replace the stored vintages of ``instrument_ids`` with ``rows``; other instruments are kept."""
+    """Replace the stored vintages of ``instrument_ids`` with ``rows``; other instruments are kept.
+
+    One cross-process guard covers the whole read-merge-write, so concurrent refreshes of different
+    instruments cannot overwrite each other's vintages.
+    """
 
     target = Path(path or CONSTITUENT_METRICS_PATH)
-    if not target.is_file() and not rows:
-        return
-    existing = pd.read_parquet(target) if target.is_file() else pd.DataFrame(columns=["instrument_id", "known_at"])  # a corrupt store raises instead of being overwritten
-    kept = existing[~existing["instrument_id"].astype(str).isin({str(item) for item in instrument_ids})]
-    frames = [frame for frame in (kept, pd.DataFrame(rows)) if not frame.empty]
-    merged = pd.concat(frames, ignore_index=True).sort_values(["instrument_id", "known_at"]) if frames else kept
-    atomic_write_bytes(target, parquet_payload(merged.reset_index(drop=True)), validate_parquet_file)
+    with persistent_file_guard(target.with_name(target.name + ".lock"), timeout_seconds=60.0):
+        if not target.is_file() and not rows:
+            return
+        existing = pd.read_parquet(target) if target.is_file() else pd.DataFrame(columns=["instrument_id", "known_at"])  # a corrupt store raises instead of being overwritten
+        kept = existing[~existing["instrument_id"].astype(str).isin({str(item) for item in instrument_ids})]
+        frames = [frame for frame in (kept, pd.DataFrame(rows)) if not frame.empty]
+        merged = pd.concat(frames, ignore_index=True).sort_values(["instrument_id", "known_at"]) if frames else kept
+        atomic_write_bytes(target, parquet_payload(merged.reset_index(drop=True)), validate_parquet_file)
 
 
 def assess_fundamental_row(

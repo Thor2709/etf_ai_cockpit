@@ -11,6 +11,7 @@ from etf_cockpit.analysis.look_through import calculate_look_through
 from etf_cockpit.data import fundamentals as fundamentals_module
 from etf_cockpit.data import stock_fundamentals as store
 from etf_cockpit.data import stock_sources as src
+from etf_cockpit.core.file_guard import persistent_file_guard
 from etf_cockpit.data.fundamentals import load_constituent_metrics
 
 UTC = timezone.utc
@@ -52,11 +53,12 @@ def _run_import(root, prices: pd.DataFrame | None = None) -> None:
     )
 
 
-def _prices() -> pd.DataFrame:
+def _prices(last_available: str = "2026-02-28T00:00:00+00:00") -> pd.DataFrame:
     dates = pd.to_datetime(["2025-01-02", "2025-06-30", "2026-02-27"])
     return pd.DataFrame({
         "etf_id": "AAA", "date": dates, "close": 20.0, "currency": "EUR",
         "stock_splits": 0.0, "dividends": [0.0, 0.5, 0.5], "actions_evidenced": True,
+        "available_at": ["2025-01-03T00:00:00+00:00", "2025-07-01T00:00:00+00:00", last_available],
     })
 
 
@@ -100,7 +102,8 @@ def test_roll_up_reads_only_the_vintages_known_at_the_cut_off(tmp_path) -> None:
 def test_constituents_without_metrics_lower_coverage_and_are_never_zero_filled(tmp_path) -> None:
     _run_import(tmp_path)
     frame = load_constituent_metrics(tmp_path / "data" / "clean" / "constituent_metrics.parquet")
-    assert set(frame["instrument_id"]) == {"AAA"}  # no row, not a zero row, for BBB (never fetched) and CCC (no EBIT)
+    assert set(frame["instrument_id"]) == {"AAA", "CCC"}  # BBB was never fetched: no row at all
+    assert frame[frame["instrument_id"] == "CCC"]["ebit_margin"].isna().all()  # CCC has no EBIT: NaN, not a zero
     summary = _roll_up(frame, "2026-03-15T00:00:00Z")
     coverage = summary.fundamental_data_coverage["ebit_margin"]
     assert coverage["covered_weight"] == pytest.approx(0.5) and coverage["coverage_fraction"] == pytest.approx(0.5)
@@ -116,6 +119,66 @@ def test_look_through_loader_reads_the_constituent_metric_store(tmp_path, monkey
         "TESTETF", decision_time="2026-03-15T00:00:00Z", holdings_frame=_holdings(), minimum_aggregate_coverage=0.4
     )
     assert result["fundamental_data_coverage"]["ebit_margin"]["covered_weight"] == pytest.approx(0.5)
+
+
+def test_a_price_available_after_the_vintage_does_not_enter_it(tmp_path) -> None:
+    _run_import(tmp_path, _prices(last_available="2026-03-02T00:00:00+00:00"))  # the Feb 27 bar was backfilled after LATE
+    frame = load_constituent_metrics(tmp_path / "data" / "clean" / "constituent_metrics.parquet")
+    late = frame[(frame["instrument_id"] == "AAA") & (frame["known_at"] == LATE)].iloc[0]
+    assert pd.isna(late["dividend_yield"])
+
+
+def test_a_newer_unavailable_vintage_is_not_replaced_by_an_older_finite_value(tmp_path) -> None:
+    path = tmp_path / "constituent_metrics.parquet"
+    base = {"instrument_id": "AAA", "as_of_date": "2025-12-31", "source_id": "s"}
+    rows = [
+        {**base, "known_at": EARLY, "ebit_margin": 0.10, "ebit_margin_as_of": "2025-12-31"},
+        {**base, "known_at": LATE, "ebit_margin": float("nan"), "ebit_margin_as_of": "2025-12-31"},  # revised: no longer derivable
+    ]
+    fundamentals_module.write_constituent_metrics(rows, ["AAA"], path)
+    summary = _roll_up(load_constituent_metrics(path), "2026-03-15T00:00:00Z")
+    assert summary.fundamental_data_coverage["ebit_margin"]["covered_weight"] == 0.0
+    assert _roll_up(load_constituent_metrics(path), "2026-02-15T00:00:00Z").calculated_metrics["ebit_margin"]["value"] == pytest.approx(0.10)
+
+
+def test_a_metric_dated_after_the_analysis_date_is_not_used(tmp_path) -> None:
+    path = tmp_path / "constituent_metrics.parquet"
+    base = {"instrument_id": "AAA", "as_of_date": "2025-12-31", "source_id": "s"}
+    rows = [
+        {**base, "known_at": EARLY, "ebit_margin": 0.10, "ebit_margin_as_of": "2025-12-31"},
+        {**base, "known_at": "2026-02-10T00:00:00+00:00", "ebit_margin": 0.20, "ebit_margin_as_of": "2026-02-27"},
+    ]
+    fundamentals_module.write_constituent_metrics(rows, ["AAA"], path)
+    summary = calculate_look_through(
+        _holdings(), instrument_id="TESTETF", decision_time="2026-03-15T00:00:00Z", analysis_date="2026-02-15",
+        constituent_fundamentals=load_constituent_metrics(path), minimum_aggregate_coverage=0.4,
+    )
+    assert summary.calculated_metrics["ebit_margin"]["value"] == pytest.approx(0.10)
+
+
+def test_the_metric_store_write_holds_a_cross_process_guard(tmp_path, monkeypatch) -> None:
+    path = tmp_path / "constituent_metrics.parquet"
+    seen = []
+
+    def probe(target, *args, **kwargs):
+        with pytest.raises(TimeoutError):  # a second holder cannot enter while the first merge is writing
+            with persistent_file_guard(path.with_name(path.name + ".lock"), timeout_seconds=0.0):
+                pass
+        seen.append(target)
+
+    monkeypatch.setattr(fundamentals_module, "atomic_write_bytes", probe)
+    fundamentals_module.write_constituent_metrics([{"instrument_id": "AAA", "known_at": EARLY}], ["AAA"], path)
+    assert seen == [path]
+
+
+def test_an_unreadable_input_store_leaves_the_metric_store_unchanged(tmp_path) -> None:
+    _run_import(tmp_path, _prices())
+    path = tmp_path / "data" / "clean" / "constituent_metrics.parquet"
+    before = path.read_bytes()
+    (tmp_path / "data" / "validated" / "prices" / "prices_daily.parquet").write_bytes(b"not parquet")
+    reason = store.produce_constituent_metrics(ISINS, root=tmp_path, config=CONFIG)
+    assert reason is not None and "prices_daily.parquet" in reason
+    assert path.read_bytes() == before
 
 
 def test_rewriting_an_instrument_drops_a_vintage_that_is_no_longer_derivable(tmp_path) -> None:
