@@ -76,10 +76,10 @@ Follow [`DELIVERY_WORKFLOW.md`](../../DELIVERY_WORKFLOW.md) for current E/O/H/C 
 | `ISSUE-0168` | `P1` | `integrated` | `returns-and-risk` | `ISSUE-0108`, `ISSUE-0109`, `ISSUE-0110`, `ISSUE-0111`, `ISSUE-0115`, `ISSUE-0127`, `ISSUE-0161` | - | - | - |
 | `ISSUE-0173` | `P0` | `integrated` | `returns-and-risk` | `ISSUE-0076`, `ISSUE-0084`, `ISSUE-0088`, `ISSUE-0089`, `ISSUE-0149`, `ISSUE-0176` | - | `ISSUE-0172`, `ISSUE-0174` | - |
 | `ISSUE-0174` | `P0` | `integrated` | `programme-governance` | `ISSUE-0074`, `ISSUE-0108`, `ISSUE-0109`, `ISSUE-0110`, `ISSUE-0111`, `ISSUE-0112`, `ISSUE-0123`, `ISSUE-0128`, `ISSUE-0173` | - | `ISSUE-0172` | - |
-| `ISSUE-0184` | `P1` | `planned` | `returns-and-risk` | - | - | `ISSUE-0196`, `ISSUE-0209` | `ISSUE-0108`, `ISSUE-0112`, `ISSUE-0123`, `ISSUE-0128`, `ISSUE-0130` |
-| `ISSUE-0192` | `P2` | `planned` | `portfolio-construction` | `ISSUE-0185` | - | `ISSUE-0193`, `ISSUE-0194`, `ISSUE-0196` | `ISSUE-0113` |
-| `ISSUE-0193` | `P2` | `planned` | `portfolio-construction` | `ISSUE-0192` | - | `ISSUE-0194` | `ISSUE-0111`, `ISSUE-0113` |
-| `ISSUE-0194` | `P2` | `planned` | `portfolio-construction` | `ISSUE-0192`, `ISSUE-0193` | - | - | `ISSUE-0111`, `ISSUE-0113`, `ISSUE-0114`, `ISSUE-0166` |
-| `ISSUE-0195` | `P2` | `planned` | `returns-and-risk` | `ISSUE-0185` | - | - | `ISSUE-0111`, `ISSUE-0115`, `ISSUE-0120`, `ISSUE-0121` |
-| `ISSUE-0198` | `P2` | `planned` | `returns-and-risk` | `ISSUE-0182` | - | - | `ISSUE-0088`, `ISSUE-0110`, `ISSUE-0116` |
+| `ISSUE-0184` | `P1` | `in_progress` | `returns-and-risk` | - | - | `ISSUE-0196`, `ISSUE-0209` | `ISSUE-0108`, `ISSUE-0112`, `ISSUE-0123`, `ISSUE-0128`, `ISSUE-0130` |
+| `ISSUE-0192` | `P2` | `in_progress` | `portfolio-construction` | `ISSUE-0185` | - | `ISSUE-0193`, `ISSUE-0194`, `ISSUE-0196` | `ISSUE-0113` |
+| `ISSUE-0193` | `P2` | `in_progress` | `portfolio-construction` | `ISSUE-0192` | - | `ISSUE-0194` | `ISSUE-0111`, `ISSUE-0113` |
+| `ISSUE-0194` | `P2` | `in_progress` | `portfolio-construction` | `ISSUE-0192`, `ISSUE-0193` | - | - | `ISSUE-0111`, `ISSUE-0113`, `ISSUE-0114`, `ISSUE-0166` |
+| `ISSUE-0195` | `P2` | `in_progress` | `returns-and-risk` | `ISSUE-0185` | - | - | `ISSUE-0111`, `ISSUE-0115`, `ISSUE-0120`, `ISSUE-0121` |
+| `ISSUE-0198` | `P2` | `in_progress` | `returns-and-risk` | `ISSUE-0182` | - | - | `ISSUE-0088`, `ISSUE-0110`, `ISSUE-0116` |
 | `UPDATEV2-0026` | `P1` | `integrated` | `analysis-and-validation` | - | - | - | `ISSUE-0084`, `ISSUE-0125`, `ISSUE-0128` |

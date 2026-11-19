@@ -59,10 +59,10 @@ Follow [`DELIVERY_WORKFLOW.md`](../../DELIVERY_WORKFLOW.md) for current E/O/H/C 
 | `ISSUE-0100` | `P1` | `integrated` | `stock-research` | `ISSUE-0098` | - | - | - |
 | `ISSUE-0101` | `P1` | `integrated` | `stock-research` | `ISSUE-0098` | - | - | - |
 | `ISSUE-0102` | `P1` | `integrated` | `stock-research` | `ISSUE-0098` | - | - | - |
-| `ISSUE-0183` | `P1` | `planned` | `stock-research` | - | - | `ISSUE-0187`, `ISSUE-0191`, `ISSUE-0202`, `ISSUE-0203`, `ISSUE-0213` | `ISSUE-0087`, `ISSUE-0091` |
-| `ISSUE-0186` | `P1` | `planned` | `stock-research` | `ISSUE-0182` | - | `ISSUE-0189`, `ISSUE-0200` | `ISSUE-0024`, `ISSUE-0087`, `ISSUE-0095`, `ISSUE-0126` |
-| `ISSUE-0187` | `P1` | `planned` | `stock-research` | `ISSUE-0183` | - | `ISSUE-0188`, `ISSUE-0203` | `ISSUE-0092`, `ISSUE-0093`, `ISSUE-0094` |
-| `ISSUE-0188` | `P1` | `planned` | `stock-research` | `ISSUE-0182`, `ISSUE-0187` | - | - | `ISSUE-0075`, `ISSUE-0092`, `ISSUE-0096`, `ISSUE-0120` |
+| `ISSUE-0183` | `P1` | `in_progress` | `stock-research` | - | - | `ISSUE-0187`, `ISSUE-0191`, `ISSUE-0202`, `ISSUE-0203`, `ISSUE-0213` | `ISSUE-0087`, `ISSUE-0091` |
+| `ISSUE-0186` | `P1` | `in_progress` | `stock-research` | `ISSUE-0182` | - | `ISSUE-0189`, `ISSUE-0200` | `ISSUE-0024`, `ISSUE-0087`, `ISSUE-0095`, `ISSUE-0126` |
+| `ISSUE-0187` | `P1` | `in_progress` | `stock-research` | `ISSUE-0183` | - | `ISSUE-0188`, `ISSUE-0203` | `ISSUE-0092`, `ISSUE-0093`, `ISSUE-0094` |
+| `ISSUE-0188` | `P1` | `in_progress` | `stock-research` | `ISSUE-0182`, `ISSUE-0187` | - | - | `ISSUE-0075`, `ISSUE-0092`, `ISSUE-0096`, `ISSUE-0120` |
 | `ISSUE-0189` | `P1` | `planned` | `stock-research` | `ISSUE-0186` | `external:entitled-estimates-source` | - | `ISSUE-0080`, `ISSUE-0095` |
-| `ISSUE-0191` | `P2` | `planned` | `stock-research` | `ISSUE-0183` | - | - | `ISSUE-0096`, `ISSUE-0097` |
-| `ISSUE-0213` | `P3` | `planned` | `stock-research` | `ISSUE-0183` | - | - | `ISSUE-0183` |
+| `ISSUE-0191` | `P2` | `in_progress` | `stock-research` | `ISSUE-0183` | - | - | `ISSUE-0096`, `ISSUE-0097` |
+| `ISSUE-0213` | `P3` | `in_progress` | `stock-research` | `ISSUE-0183` | - | - | `ISSUE-0183` |
