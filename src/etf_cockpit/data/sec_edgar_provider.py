@@ -124,6 +124,7 @@ class _SessionGeneration:
     revalidated: bool = False
 
 
+_SEC_MIN_INTERVAL = 0.1  # SEC fair access: at most 10 requests per second on live requests
 _RATE_LOCK = threading.RLock()
 _SHARED_LAST_REQUEST: dict[Callable[[], float], float] = {}
 
@@ -600,11 +601,12 @@ class SecEdgarProvider:
     def _respect_rate_limit(self) -> None:
         # SEC limits per client, not per provider object: every instance on the same clock shares
         # one last-request time, and the check-and-sleep is serialised across threads.
+        interval = self.rate_limit_seconds if self.transport is not None else max(self.rate_limit_seconds, _SEC_MIN_INTERVAL)
         with _RATE_LOCK:
             now = self._monotonic()
             last = _SHARED_LAST_REQUEST.get(self._monotonic, self._last_request_at)
             if last is not None:
-                remaining = self.rate_limit_seconds - (now - last)
+                remaining = interval - (now - last)
                 if remaining > 0:
                     self._sleep(remaining)
                     now = self._monotonic()

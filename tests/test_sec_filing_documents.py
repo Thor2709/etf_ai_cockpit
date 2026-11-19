@@ -3,13 +3,14 @@ from __future__ import annotations
 import builtins
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+import re
 from urllib.error import URLError
 
 import pytest
 
 from etf_cockpit.data import sec_filing_documents as sfd
 from etf_cockpit.data.document_chunks import index_document, search
-from etf_cockpit.data.sec_edgar_provider import SecEdgarProvider
+from etf_cockpit.data.sec_edgar_provider import SecEdgarError, SecEdgarProvider
 from etf_cockpit.plugins.registry import _network_probe
 
 FIXTURES = Path(__file__).parent / "fixtures" / "sec_filing_documents"
@@ -125,12 +126,45 @@ def test_full_submission_request_declares_the_user_agent_respects_the_rate_limit
     assert not (tmp_path / "other").exists()
 
 
+def test_live_requests_keep_the_sec_minimum_interval_even_when_a_faster_limit_is_configured(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Response:
+        status, headers = 200, {}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc):
+            return False
+
+        def read(self) -> bytes:
+            return _8k()
+
+    monkeypatch.setattr("etf_cockpit.data.sec_edgar_provider.urlopen", lambda *_a, **_k: Response())
+    now, sleeps = [0.0], []
+    live = SecEdgarProvider(AGENT, cache_dir=tmp_path, rate_limit_seconds=0, monotonic=lambda: now[0], sleep=sleeps.append)
+    live.fetch_full_submission("777001", ACC_8K)
+    live._get_document("https://www.sec.gov/Archives/edgar/data/777001/x.txt", "text/plain")
+    assert sleeps == [0.1]  # a stubbed transport may use 0 (the tests above); a real request never goes below 100 ms
+
+
 def test_header_known_at_is_the_eastern_acceptance_instant_and_refuses_ambiguous_hours() -> None:
     assert sfd.header_known_at(_8k()) == RECEIPT
     with pytest.raises(sfd.SecFilingDocumentUnavailable, match="ACCEPTANCE-DATETIME"):
         sfd.header_known_at(b"<SEC-HEADER>")
     with pytest.raises(sfd.SecFilingDocumentUnavailable, match="one real instant"):  # 01:30 occurs twice on 2026-11-01
         sfd.header_known_at(_8k().replace(b"20260730161500", b"20261101013000"))
+    with pytest.raises(sfd.SecFilingDocumentUnavailable, match="valid date"):  # 14 digits, not a calendar date
+        sfd.header_known_at(_8k().replace(b"20260730161500", b"20261399161500"))
+    field = re.search(rb"<ACCEPTANCE-DATETIME>\d{14}\r?\n", _8k())[0]
+    body_only = re.sub(rb"(<DOCUMENT>)", lambda m: m[1] + b"\n" + field, _8k().replace(field, b""), count=1)
+    twice = _8k().replace(b"<SEC-HEADER>", b"<SEC-HEADER>" + field, 1)
+    for source in (body_only, twice):  # a timestamp in the filing body is never the acceptance time; two fields are ambiguous
+        with pytest.raises(sfd.SecFilingDocumentUnavailable, match="single complete ACCEPTANCE-DATETIME"):
+            sfd.header_known_at(source)
+        with pytest.raises(sfd.SecFilingDocumentUnavailable):  # the parse path reads the same header block
+            sfd.parse_8k(source, known_at=RECEIPT)
 
 
 def test_uncached_filing_is_unavailable_when_the_network_is_denied(tmp_path: Path) -> None:
@@ -140,6 +174,10 @@ def test_uncached_filing_is_unavailable_when_the_network_is_denied(tmp_path: Pat
     provider = _provider(tmp_path, denied)
     with pytest.raises(sfd.SecFilingDocumentUnavailable, match="not cached"):
         sfd.fetch_8k(provider, "777001", ACC_8K)
+    forbidden = _provider(tmp_path, lambda *_: (b"", 403, {}))  # any other SEC refusal is unavailable too, cause kept
+    with pytest.raises(sfd.SecFilingDocumentUnavailable) as refused:
+        sfd.fetch_8k(forbidden, "777001", ACC_8K)
+    assert isinstance(refused.value.__cause__, SecEdgarError)
     with pytest.raises(sfd.SecFilingDocumentUnavailable, match="not cached"):
         sfd.fetch_10k_section_chunks(provider, "777001", ACC_10K)
 

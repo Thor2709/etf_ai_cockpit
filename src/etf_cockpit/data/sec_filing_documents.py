@@ -29,7 +29,7 @@ from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 from etf_cockpit.data.document_chunks import DocumentChunk, chunk_pages
-from etf_cockpit.data.sec_edgar_provider import SecEdgarProvider, SecEdgarUnavailable
+from etf_cockpit.data.sec_edgar_provider import SecEdgarError, SecEdgarProvider, SecEdgarUnavailable
 from etf_cockpit.data.sec_ownership import _number, prepare_edgar_environment
 
 UNAVAILABLE = "unavailable"
@@ -41,7 +41,8 @@ _STAMP = re.compile(
     r"(?P<hour>\d{1,2})(?::(?P<minute>\d{2}))?\s*(?i:(?P<ampm>[ap])\.?m\.?)\s+(?P<zone>[ECMP])(?P<dst>[SD])?T\b"
 )
 _DASH = re.compile(r"\s[-\u2013\u2014]{1,2}\s|[\u2013\u2014]")
-_ACCEPTED = re.compile(r"<ACCEPTANCE-DATETIME>\s*(\d{14})")
+_ACCEPTED_TAG = re.compile(r"<ACCEPTANCE-DATETIME>")
+_ACCEPTED = re.compile(r"<ACCEPTANCE-DATETIME>[ \t]*(\d{14})[ \t]*(?:\r?\n|$)")
 _RELEASE_LABEL = re.compile(r"(?:release[sd]?|announce[sd]?)(?:\s+(?:date|time)(?:\s+and\s+time)?)?\s*(?:[:\-]|on|at)?\s*$", re.IGNORECASE)
 _CALL_WORDS = re.compile(r"call|webcast|conference|dial|join", re.IGNORECASE)
 _MONTHS = "january february march april may june july august september october november december".split()
@@ -101,16 +102,27 @@ def _aware(value: object) -> datetime:
 
 def _header_instants(digits: str) -> set[datetime]:
     """UTC instants a header stamp (US Eastern local time) can name: one, two in the fall-back hour, none in the gap."""
-    naive = datetime.strptime(digits, "%Y%m%d%H%M%S")
+    try:
+        naive = datetime.strptime(digits, "%Y%m%d%H%M%S")
+    except ValueError as exc:  # fourteen digits that are not a calendar date and time
+        raise SecFilingDocumentUnavailable("filing acceptance time is not a valid date and time") from exc
     zone = ZoneInfo("America/New_York")
     instants = {naive.replace(tzinfo=zone, fold=fold).astimezone(timezone.utc) for fold in (0, 1)}
     return {i for i in instants if i.astimezone(zone).replace(tzinfo=None) == naive}
 
 
+def _acceptance_digits(source: bytes) -> str:
+    """The 14 digits of the one ACCEPTANCE-DATETIME field of the SEC header (text before the first document)."""
+    header = source.decode("utf-8", "replace").split("<DOCUMENT>", 1)[0]
+    stamp = _ACCEPTED.search(header)
+    if stamp is None or len(_ACCEPTED_TAG.findall(header)) != 1:
+        raise SecFilingDocumentUnavailable("filing header has no single complete ACCEPTANCE-DATETIME")
+    return stamp[1]
+
+
 def _filing(ed: SimpleNamespace, source: bytes, forms: tuple[str, ...], known_at: datetime):
     text = source.decode("utf-8")
-    stamp = _ACCEPTED.search(text)
-    if stamp is None or known_at.astimezone(timezone.utc) not in _header_instants(stamp[1]):
+    if known_at.astimezone(timezone.utc) not in _header_instants(_acceptance_digits(source)):
         raise SecFilingDocumentUnavailable("known_at does not match the filing's stored acceptance time")
     filing = ed.Filing.from_sgml_text(text)
     if filing.form not in forms:
@@ -120,10 +132,7 @@ def _filing(ed: SimpleNamespace, source: bytes, forms: tuple[str, ...], known_at
 
 def header_known_at(source: bytes) -> datetime:
     """The one UTC instant of the stored header's ACCEPTANCE-DATETIME (US Eastern local time), else unavailable."""
-    stamp = _ACCEPTED.search(source.decode("utf-8", "replace"))
-    if stamp is None:
-        raise SecFilingDocumentUnavailable("filing header has no ACCEPTANCE-DATETIME")
-    instants = _header_instants(stamp[1])
+    instants = _header_instants(_acceptance_digits(source))
     if len(instants) != 1:  # the fall-back hour names two instants and the spring-forward gap none
         raise SecFilingDocumentUnavailable("filing acceptance time is not one real instant")
     return next(iter(instants))
@@ -134,7 +143,7 @@ def _stored_submission(provider: SecEdgarProvider, cik: str, accession: str) -> 
         source = provider.fetch_full_submission(cik, accession).path.read_bytes()
     except SecEdgarUnavailable as exc:
         raise SecFilingDocumentUnavailable("full submission is not cached and the SEC is unreachable") from exc
-    except (ValueError, OSError) as exc:
+    except (SecEdgarError, ValueError, OSError) as exc:
         raise SecFilingDocumentUnavailable(f"full submission could not be read: {exc}") from exc
     return source, header_known_at(source)
 
