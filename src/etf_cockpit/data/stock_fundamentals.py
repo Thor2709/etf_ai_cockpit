@@ -782,7 +782,7 @@ def produce_constituent_metrics(
     chain = list((cfg.get("sources", {}) or {}).get("chain", ["sec_edgar", "esef", "yfinance"]))
     base = Path(root or ROOT)
     price_path = base / "data" / "validated" / "prices" / "prices_daily.parquet"
-    metrics_path = Path(root) / "data" / "clean" / CONSTITUENT_METRICS_PATH.name if root else CONSTITUENT_METRICS_PATH
+    metrics_path = base / "data" / "clean" / CONSTITUENT_METRICS_PATH.name
     # The readers below treat an unreadable store as empty; here that would erase stored vintages, so check first.
     for path in (*store_paths(root).values(), base / "data" / "clean" / "fx.parquet", price_path, metrics_path):
         if path.is_file():

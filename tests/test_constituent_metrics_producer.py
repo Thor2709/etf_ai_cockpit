@@ -41,7 +41,7 @@ def _fetch(symbol: str, _cfg: dict, now: datetime) -> src.FetchResult:
     return src.FetchResult("yfinance", rows=rows, snapshot={"known_at": EARLY, "quote_currency": "EUR", "financial_currency": "EUR", "status": "ok"})
 
 
-def _run_import(root, prices: pd.DataFrame | None = None) -> None:
+def _run_import(root, prices: pd.DataFrame | None = None) -> pd.DataFrame:
     (root / "data" / "clean").mkdir(parents=True)
     if prices is not None:
         (root / "data" / "validated" / "prices").mkdir(parents=True)
@@ -51,6 +51,7 @@ def _run_import(root, prices: pd.DataFrame | None = None) -> None:
         root=root, now=datetime(2026, 3, 2, tzinfo=UTC), config=CONFIG, environ={}, yfinance_fetch=_fetch,
         fx_fetch=lambda _base, _quote: [],
     )
+    return load_constituent_metrics(root / "data" / "clean" / "constituent_metrics.parquet")
 
 
 def _prices(last_available: str = "2026-02-28T00:00:00+00:00") -> pd.DataFrame:
@@ -82,8 +83,7 @@ def _roll_up(metrics: pd.DataFrame, decision_time: str):
 
 def test_statement_import_from_an_empty_store_writes_one_vintage_per_known_at(tmp_path) -> None:
     assert load_constituent_metrics(tmp_path / "data" / "clean" / "constituent_metrics.parquet").empty
-    _run_import(tmp_path, _prices())
-    frame = load_constituent_metrics(tmp_path / "data" / "clean" / "constituent_metrics.parquet")
+    frame = _run_import(tmp_path, _prices())
     aaa = frame[frame["instrument_id"] == "AAA"].sort_values("known_at")
     assert list(aaa["known_at"]) == [EARLY, LATE]
     assert list(aaa["as_of_date"]) == ["2024-12-31", "2025-12-31"]
@@ -92,16 +92,9 @@ def test_statement_import_from_an_empty_store_writes_one_vintage_per_known_at(tm
     assert pd.isna(aaa.iloc[0]["dividend_yield"]) and aaa.iloc[1]["dividend_yield"] == pytest.approx(1.0 / 20.0)
 
 
-def test_roll_up_reads_only_the_vintages_known_at_the_cut_off(tmp_path) -> None:
-    _run_import(tmp_path)
-    frame = load_constituent_metrics(tmp_path / "data" / "clean" / "constituent_metrics.parquet")
+def test_roll_up_reads_only_known_vintages_and_never_zero_fills_constituents_without_metrics(tmp_path) -> None:
+    frame = _run_import(tmp_path)
     assert _roll_up(frame, "2026-02-15T00:00:00Z").calculated_metrics["ebit_margin"]["value"] == pytest.approx(0.10)
-    assert _roll_up(frame, "2026-03-15T00:00:00Z").calculated_metrics["ebit_margin"]["value"] == pytest.approx(0.20)
-
-
-def test_constituents_without_metrics_lower_coverage_and_are_never_zero_filled(tmp_path) -> None:
-    _run_import(tmp_path)
-    frame = load_constituent_metrics(tmp_path / "data" / "clean" / "constituent_metrics.parquet")
     assert set(frame["instrument_id"]) == {"AAA", "CCC"}  # BBB was never fetched: no row at all
     assert frame[frame["instrument_id"] == "CCC"]["ebit_margin"].isna().all()  # CCC has no EBIT: NaN, not a zero
     summary = _roll_up(frame, "2026-03-15T00:00:00Z")
@@ -122,8 +115,7 @@ def test_look_through_loader_reads_the_constituent_metric_store(tmp_path, monkey
 
 
 def test_a_price_available_after_the_vintage_does_not_enter_it(tmp_path) -> None:
-    _run_import(tmp_path, _prices(last_available="2026-03-02T00:00:00+00:00"))  # the Feb 27 bar was backfilled after LATE
-    frame = load_constituent_metrics(tmp_path / "data" / "clean" / "constituent_metrics.parquet")
+    frame = _run_import(tmp_path, _prices(last_available="2026-03-02T00:00:00+00:00"))  # the Feb 27 bar was backfilled after LATE
     late = frame[(frame["instrument_id"] == "AAA") & (frame["known_at"] == LATE)].iloc[0]
     assert pd.isna(late["dividend_yield"])
 
