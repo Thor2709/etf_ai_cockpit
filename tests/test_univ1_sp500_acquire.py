@@ -165,17 +165,19 @@ def test_reverse_baseline_round_trips_through_build_intervals_with_conservative_
     assert acq.reverse_baseline({"ZZC"}, [event("2020-03-01", "add", "ZZQ")], "2019-12-31")[1]
 
 
-def record(instrument_id, ticker, isin, status="verified", kind="stock"):
-    return SimpleNamespace(instrument_id=instrument_id, ticker=ticker, isin=isin, isin_status=status, asset_type=kind)
+def record(instrument_id, ticker, isin, status="verified", kind="stock", currency="USD"):
+    return SimpleNamespace(instrument_id=instrument_id, ticker=ticker, isin=isin, isin_status=status, asset_type=kind,
+                           currency=currency)
 
 
-def test_instrument_bindings_come_only_from_verified_us_stock_records_with_exact_ticker():
-    members = {t: {"current": True, "open_from": "2010-02-16"} for t in ("BRK.B", "LR", "BA", "XXX")}
+def test_instrument_bindings_come_only_from_verified_usd_stock_records_with_exact_ticker():
+    members = {t: {"current": True, "open_from": "2010-02-16"} for t in ("ACN", "BRK.B", "LR", "BA", "XXX")}
     ciks = {t: {"cik": "0000000001"} for t in members}
-    records = [record("BRK_B", "BRK-B", "US0846707026"), record("LEGRAND", "LR", "FR0010307819"),
+    records = [record("ACCENTURE", "ACN", "IE00B4BNMY34"), record("BRK_B", "BRK-B", "US0846707026"),
+               record("LEGRAND", "LR", "FR0010307819", currency="EUR"),
                record("BOEING", "BA", "US0970231058", status="needs_verification"), record("MSFT", "MSFT", "US5949181045")]
     bindings, rejected = acq.select_instrument_bindings(members, records, ciks, known_at="2026-10-22T00:00:00+00:00", revision="r1")
-    assert [(b["ticker"], b["instrument_id"]) for b in bindings] == [("BRK.B", "BRK_B")]
+    assert [(b["ticker"], b["instrument_id"]) for b in bindings] == [("ACN", "ACCENTURE"), ("BRK.B", "BRK_B")]
     assert bindings[0]["valid_to"] is None and bindings[0]["source"] and rejected == []
 
 
