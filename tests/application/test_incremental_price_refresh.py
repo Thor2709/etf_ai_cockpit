@@ -773,48 +773,56 @@ def test_invalid_adjusted_full_refetch_discards_window_and_keeps_history(monkeyp
     assert provider.calls[1][0] == ("B",)
 
 
-def _run_real_validation(provider: _FakeProvider, monkeypatch, tmp_path: Path, stored: pd.DataFrame):
+def _run_real_validation(
+    provider: _FakeProvider, monkeypatch, tmp_path: Path, stored: pd.DataFrame, *, incremental: bool = True
+):
     real_validate = data_service.validate_prices
     clean_path = _prepare(monkeypatch, tmp_path, provider, stored)
     monkeypatch.setattr(data_service, "validate_prices", real_validate)
     message = DataService(config=None).refresh_yfinance_data(
-        include_reference_data=False, include_fundamentals=False, incremental=True,
+        include_reference_data=False, include_fundamentals=False, incremental=incremental,
     )
     return clean_path, message
 
 
-@pytest.mark.parametrize("returned_again", [True, False])
-def test_stale_instrument_without_new_bar_does_not_block_other_instruments(monkeypatch, tmp_path, returned_again):
+@pytest.mark.parametrize("case", ["returned_with_gap_fill", "not_returned", "full_refresh", "utc_timestamp_store"])
+def test_stale_instrument_without_new_bar_commits_others_and_keeps_its_stored_rows(monkeypatch, tmp_path, case):
     floor = years_before(_TODAY, 5)
     shared = date(2026, 10, 30)
     last_dead_bar = date(2026, 10, 19)  # inside the 14-day overlap window, too old at 2026-11-08
     stored_dead = _price_frame("DEAD", [_bar(floor), _bar(last_dead_bar)])
     stored = pd.concat([_price_frame("LIVE", [_bar(floor), _bar(shared)]), stored_dead], ignore_index=True)
-    window = _price_frame("LIVE", [_bar(shared), _bar(_TODAY)])
-    if returned_again:
-        window = pd.concat([window, _price_frame("DEAD", [_bar(last_dead_bar)])], ignore_index=True)
+    if case == "utc_timestamp_store":
+        stored["date"] = pd.to_datetime(stored["date"]).dt.tz_localize("UTC")
+    live = _price_frame("LIVE", [_bar(floor), _bar(shared), _bar(_TODAY)] if case == "full_refresh" else [_bar(shared), _bar(_TODAY)])
+    dead = {
+        "returned_with_gap_fill": _price_frame("DEAD", [_bar(date(2026, 10, 16)), _bar(last_dead_bar)]),
+        "full_refresh": _price_frame("DEAD", [_bar(last_dead_bar)]),  # the full fetch omits the older stored row
+        "utc_timestamp_store": _price_frame("DEAD", [_bar(last_dead_bar)]),
+    }.get(case)
+    window = live if dead is None else pd.concat([live, dead], ignore_index=True)
     provider = _FakeProvider(("LIVE", "DEAD"), [_result(window)])
 
-    clean_path, message = _run_real_validation(provider, monkeypatch, tmp_path, stored)
+    clean_path, message = _run_real_validation(
+        provider, monkeypatch, tmp_path, stored, incremental=case != "full_refresh"
+    )
 
     final = _stored(clean_path)
     assert _TODAY in set(final.loc[final.etf_id.eq("LIVE"), "date"])
-    pd.testing.assert_frame_equal(
-        final.loc[final.etf_id.eq("DEAD")].reset_index(drop=True), _stored_from_frame(stored_dead), check_dtype=False,
-    )
+    assert sorted(final.loc[final.etf_id.eq("DEAD"), "date"]) == [floor, last_dead_bar]
     assert "Validated and committed" in message
     assert "No new bar, stored history kept (stale): DEAD." in message
 
 
-def test_stale_new_bar_still_blocks_the_commit(monkeypatch, tmp_path):
+@pytest.mark.parametrize("future_stored_bar", [False, True])
+def test_stale_new_bar_still_blocks_the_commit(monkeypatch, tmp_path, future_stored_bar):
     floor = years_before(_TODAY, 5)
     shared = date(2026, 10, 30)
+    late_rows = [_bar(floor), _bar(date(2026, 10, 16))]
+    if future_stored_bar:
+        late_rows.append(_bar(_TODAY + timedelta(days=1)))  # after the run date: must not count as known
     stored = pd.concat(
-        [
-            _price_frame("LIVE", [_bar(floor), _bar(shared)]),
-            _price_frame("LATE", [_bar(floor), _bar(date(2026, 10, 16))]),
-        ],
-        ignore_index=True,
+        [_price_frame("LIVE", [_bar(floor), _bar(shared)]), _price_frame("LATE", late_rows)], ignore_index=True,
     )
     window = pd.concat(
         [
@@ -827,6 +835,6 @@ def test_stale_new_bar_still_blocks_the_commit(monkeypatch, tmp_path):
 
     clean_path, message = _run_real_validation(provider, monkeypatch, tmp_path, stored)
 
-    assert _TODAY not in set(_stored(clean_path)["date"])
+    assert _TODAY not in set(_stored(clean_path).loc[lambda frame: frame.etf_id.eq("LIVE"), "date"])
     assert "not committed because validation blocked them" in message
     assert "LATE" in message

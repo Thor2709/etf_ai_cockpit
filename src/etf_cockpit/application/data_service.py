@@ -166,12 +166,18 @@ def _read_clean_price_store() -> pd.DataFrame:
         return pd.DataFrame()
 
 
-def _ids_without_new_bar(data: pd.DataFrame, stored: pd.DataFrame) -> set[str]:
-    """Stored instruments whose latest bar in `data` is not newer than their latest stored bar."""
+def _latest_sessions(frame: pd.DataFrame, as_of: date) -> pd.Series:
+    sessions = _normalised_price_dates(frame).dropna()
+    sessions = sessions[sessions <= as_of]
+    return sessions.groupby(frame.loc[sessions.index, "etf_id"].astype(str)).max()
+
+
+def _ids_without_new_bar(data: pd.DataFrame, stored: pd.DataFrame, *, as_of: date) -> set[str]:
+    """Stored instruments whose latest session in `data` up to `as_of` is not newer than the stored one."""
     if not {"etf_id", "date"}.issubset(stored.columns) or not {"etf_id", "date"}.issubset(data.columns):
         return set()
-    stored_latest = pd.to_datetime(stored["date"], errors="coerce").groupby(stored["etf_id"].astype(str)).max()
-    data_latest = pd.to_datetime(data["date"], errors="coerce").groupby(data["etf_id"].astype(str)).max()
+    stored_latest = _latest_sessions(stored, as_of)
+    data_latest = _latest_sessions(data, as_of)
     common = data_latest.index.intersection(stored_latest.index)
     return {str(instrument_id) for instrument_id in common if data_latest[instrument_id] <= stored_latest[instrument_id]}
 
@@ -659,7 +665,8 @@ class DataService:
             # The same holds for an instrument that got no new bar this run: its stored history is kept
             # unchanged and the downstream staleness gates exclude it. Stale new bars still block.
             commit_tolerated = {"insufficient_history"}
-            no_new_bar_ids = _ids_without_new_bar(result.data, _read_clean_price_store())
+            stored_now = _read_clean_price_store()
+            no_new_bar_ids = _ids_without_new_bar(result.data, stored_now, as_of=end_date)
             stale_kept = sorted({
                 str(issue.etf_id) for issue in report.issues
                 if issue.severity == "block" and issue.code == "stale_data" and str(issue.etf_id) in no_new_bar_ids
@@ -669,6 +676,14 @@ class DataService:
                 if issue.severity == "block" and issue.code not in commit_tolerated
                 and not (issue.code == "stale_data" and str(issue.etf_id) in stale_kept)
             ]
+            if stale_kept:
+                # A tolerated instrument commits exactly its stored rows: no gap fill, revision or deletion.
+                tolerated = result.data["etf_id"].astype(str).isin(stale_kept)
+                kept = stored_now.loc[stored_now["etf_id"].astype(str).isin(stale_kept)]
+                kept = kept.assign(date=_normalised_price_dates(kept))
+                data = pd.concat([result.data.loc[~tolerated], kept], ignore_index=True)
+                metadata = dataclasses.replace(result.metadata, checksum=sha256_dataframe(data)) if result.metadata else None
+                result = dataclasses.replace(result, data=data, metadata=metadata)
             if block_issues and not rejected_ids:
                 return "Yahoo Finance prices fetched but not committed because validation blocked them: " + "; ".join(block_issues)
             quarantine_parts = [frame for frame in (adjusted_quarantined, quarantined) if frame is not None and not frame.empty]
