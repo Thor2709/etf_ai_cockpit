@@ -28,7 +28,7 @@ def _canonical(**changes):
     return SimpleNamespace(**{**values, **changes})
 
 
-def _generate(monkeypatch, *, caps=None, changes=None):
+def _generate(monkeypatch, *, caps=None, changes=None, drift=-0.2, report=None, **kwargs):
     row = {
         "etf_id": "AAA", "total_score": 0.8, "confidence": 0.8,
         "current_weight": 0.0, "target_weight": 0.2, "hard_band": 0.05,
@@ -39,7 +39,7 @@ def _generate(monkeypatch, *, caps=None, changes=None):
     row.update(changes or {})
     monkeypatch.setattr(pipeline, "component_scores", lambda *a, **k: pd.DataFrame([row]))
     monkeypatch.setattr(pipeline, "allocation_frame", lambda *a: pd.DataFrame([
-        {"etf_id": "AAA", "drift": -0.2, "role": "core", "name": "AAA"},
+        {"etf_id": "AAA", "drift": drift, "role": "core", "name": "AAA"},
     ]))
     monkeypatch.setattr(pipeline, "canonical_score_from_signal_row", lambda *a, **k: _canonical())
     monkeypatch.setattr(pipeline, "portfolio_value", lambda *a: 100_000.0)
@@ -54,9 +54,40 @@ def _generate(monkeypatch, *, caps=None, changes=None):
     })
     return pipeline.generate_signals(
         load_config(), pd.DataFrame([{"etf_id": "AAA"}]),
-        pd.DataFrame([{"etf_id": "AAA", "current_weight": 0.0}]), _report(_metadata()),
-        as_of_date=SIGNAL_DATE, run_id="fix-gate", publish=False, structure_confidence_caps=caps,
+        pd.DataFrame([{"etf_id": "AAA", "current_weight": 0.0}]), report or _report(_metadata()),
+        as_of_date=SIGNAL_DATE, run_id="fix-gate", publish=False, structure_confidence_caps=caps, **kwargs,
     )[0]
+
+
+def _gate_map(signal):
+    return {gate.gate_id: gate for gate in signal.authority_decision.gates}
+
+
+def test_portfolio_only_inputs_fail_portfolio_fit_not_the_research_gates(monkeypatch):
+    # target_total_invalid is an ALL-level portfolio-target warning; it is not a signal warning of every instrument.
+    report = _report(_metadata(), issues=[DataQualityIssue("ALL", "warning", "target_total_invalid", "targets")])
+    signal = _generate(monkeypatch, report=report)
+    gates = _gate_map(signal)
+    assert "target_total_invalid" not in signal.warnings
+    assert gates["signal"].passed and not gates["portfolio_fit"].passed
+    # A non-target instrument has no target, band or drift; that is portfolio context, not missing research input.
+    signal = _generate(monkeypatch, changes={"current_weight": None, "target_weight": None, "hard_band": None}, drift=None)
+    gates = _gate_map(signal)
+    assert "signal_inputs_unavailable" not in signal.blocked_by
+    assert gates["risk"].passed and gates["signal"].passed and not gates["portfolio_fit"].passed
+    assert signal.action == "hold" and signal.suggested_new_weight is None
+    assert signal.authority_decision.portfolio_review_allowed is False
+
+
+def test_nan_narrative_warning_ignores_absent_optional_models_and_portfolio_drift(monkeypatch):
+    nan = float("nan")
+    absent = {"score_momentum": 0.5, "score_trend": 0.5, "score_risk": 0.5, "score_baseline_ml": 0.5,
+              "score_toto": nan, "score_timesfm": nan}
+    signal = _generate(monkeypatch, changes=absent, drift=nan, preserve_snapshot_narrative_warning=True)
+    assert "nonfinite_score_narrative_suppressed" not in signal.warnings
+    for key, value, available in (("score_risk", nan, {}), ("score_toto", nan, {"toto_available": True})):
+        signal = _generate(monkeypatch, changes={**absent, key: value}, preserve_snapshot_narrative_warning=True, **available)
+        assert "nonfinite_score_narrative_suppressed" in signal.warnings, key
 
 
 def test_valuation_uses_fresh_stock_value_and_is_not_applicable_to_etfs():

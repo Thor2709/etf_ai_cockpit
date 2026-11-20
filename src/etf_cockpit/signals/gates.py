@@ -7,6 +7,9 @@ from etf_cockpit.core.types import DataQualityReport
 from etf_cockpit.core.values import finite_float_or_none as _finite_float
 from etf_cockpit.portfolio.risk import projected_weight_allowed
 
+# Data-quality codes that describe the owner's portfolio targets, not an instrument's research evidence.
+PORTFOLIO_ONLY_ISSUE_CODES = frozenset({"target_total_invalid"})
+
 
 def evaluate_risk_gates(
     config: AppConfig,
@@ -29,6 +32,8 @@ def evaluate_risk_gates(
         blocked.append("portfolio_validation_block")
 
     for issue in data_report.issues:
+        if issue.code in PORTFOLIO_ONLY_ISSUE_CODES:
+            continue  # portfolio-target context: routed to the portfolio_fit gate, not to every instrument's signal
         if issue.etf_id in {etf_id, "ALL"}:
             if issue.severity == "block":
                 blocked.append(issue.code)

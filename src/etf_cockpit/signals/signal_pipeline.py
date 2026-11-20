@@ -22,7 +22,7 @@ from etf_cockpit.portfolio.rebalancing import proposed_new_weight, suggested_tra
 from etf_cockpit.signals.actions import advisory_action, apply_gate_result, preliminary_action
 from etf_cockpit.signals.canonical_scoring import _is_sparebank_ec_asset_type, canonical_score_from_signal_row
 from etf_cockpit.signals.explanations import explain_signal
-from etf_cockpit.signals.gates import evaluate_risk_gates
+from etf_cockpit.signals.gates import PORTFOLIO_ONLY_ISSUE_CODES, evaluate_risk_gates
 from etf_cockpit.signals.scoring import component_scores, row_components
 from etf_cockpit.core.research_states import GateResult, research_state_for_legacy_action
 from etf_cockpit.models.uncertainty import (
@@ -192,9 +192,11 @@ def generate_signals(
         # Apply a supplied cap once, to both action policy and published confidence.
         if structure_cap is not None and action_confidence is not None:
             action_confidence *= structure_cap
-        action_inputs_available = all(value is not None for value in (
-            total_score, current_weight, target_weight, hard_band, drift, trend_200, action_confidence,
-        ))
+        # Weight, target, band and drift exist only for target positions. Their absence is portfolio context (the
+        # portfolio_fit gate); it keeps the action at hold but is not missing research input.
+        research_inputs_available = all(value is not None for value in (total_score, trend_200, action_confidence))
+        portfolio_inputs_available = all(value is not None for value in (current_weight, target_weight, hard_band, drift))
+        action_inputs_available = research_inputs_available and portfolio_inputs_available
         candidate = preliminary_action(
             config,
             total_score=total_score,
@@ -222,7 +224,7 @@ def generate_signals(
             cash_weight=cash_available,
             model_disagreement=0.0,
         )
-        if not action_inputs_available:
+        if not research_inputs_available:
             blocked_by = sorted(set([*blocked_by, "signal_inputs_unavailable"]))
         if forecast_distributions is not None:
             uncertainty_reasons = uncertainty_gate_reasons(
@@ -257,9 +259,13 @@ def generate_signals(
         # quality. Preserve its raw NaN provenance before component cleaning;
         # safer wording must not silently increase decision authority. Missing
         # (None) and infinity were not NaN narratives and gain no new warning.
+        # Owner decision 2026-11-20: only core score keys count. An absent optional model (Toto, TimesFM) is NaN by
+        # design (disabled-safe), and drift is NaN for every non-target instrument (portfolio context), so neither is
+        # an evidence-quality defect.
         narrative_keys = (
-            "total_score", "confidence", "score_momentum", "score_trend", "score_risk",
-            "score_baseline_ml", "score_toto", "score_timesfm", "drift",
+            "total_score", "confidence", "score_momentum", "score_trend", "score_risk", "score_baseline_ml",
+            *(("score_toto",) if toto_available else ()),
+            *(("score_timesfm",) if timesfm_available else ()),
         )
         if preserve_snapshot_narrative_warning and any(_is_nan_narrative_value(row.get(key)) for key in narrative_keys):
             warnings = list(dict.fromkeys([*warnings, "nonfinite_score_narrative_suppressed"]))
@@ -394,7 +400,7 @@ def generate_signals(
             timestamp=_signal_timestamp(decision_timestamp),
             canonical_score=canonical_score,
         )
-        signals.append(_attach_authority(signal, data_report))
+        signals.append(_attach_authority(signal, data_report, portfolio_inputs_available=portfolio_inputs_available))
 
     if publish:
         append_jsonl(
@@ -448,7 +454,9 @@ def _signal_to_json(signal: SignalResult) -> dict[str, object]:
     return data
 
 
-def _attach_authority(signal: SignalResult, data_report: DataQualityReport) -> SignalResult:
+def _attach_authority(
+    signal: SignalResult, data_report: DataQualityReport, *, portfolio_inputs_available: bool = True
+) -> SignalResult:
     """Resolve and attach the typed gate decision before release serialisation.
 
     Signal generation does not have a portfolio-review snapshot, so that
@@ -466,7 +474,9 @@ def _attach_authority(signal: SignalResult, data_report: DataQualityReport) -> S
         code for code in blocked_codes
         if code in {"portfolio_validation_block", "cash_minimum_breached", "portfolio_inputs_unavailable", "minimum_trade_size"}
         or code.startswith("projected_weight_above_cap:")
-    }
+    } | {issue.code for issue in etf_issues if issue.code in PORTFOLIO_ONLY_ISSUE_CODES}
+    if not portfolio_inputs_available:
+        portfolio_failure_codes.add("portfolio_inputs_unavailable")
     # Every active block must have an authority gate. Cost-only failures are
     # warnings under policy; deadband/conservative holds are not risk failures.
     # Unknown block codes conservatively fail risk instead of silently passing.

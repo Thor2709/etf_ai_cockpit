@@ -365,7 +365,14 @@ def _require_publishable_snapshot(snapshot: object) -> None:
         and bool(blocking_issues)
         and all(getattr(issue, "code", None) == "empty_prices" for issue in blocking_issues)
     )
-    if not unavailable_only and (analysis_allowed is False or report_status in {"blocked", "failed"} or blocking_issues):
+    # A block scoped to one instrument makes only that row not scoreable; the row is still published as blocked.
+    # Only a dataset-level block (etf_id "ALL", or no instrument scope) refuses the whole board.
+    instrument_scoped_only = bool(blocking_issues) and all(
+        str(getattr(issue, "etf_id", "") or "").strip() not in {"", "ALL"} for issue in blocking_issues
+    )
+    if not unavailable_only and not instrument_scoped_only and (
+        analysis_allowed is False or report_status in {"blocked", "failed"} or blocking_issues
+    ):
         raise ScoreboardPublicationBlockedError(
             "Scoreboard publication is blocked because a required data-quality gate failed."
         )

@@ -366,6 +366,35 @@ def test_empty_inputs_do_not_hide_another_failed_gate(failure) -> None:
         scoreboard_publication._require_publishable_snapshot(snapshot)
 
 
+def test_per_instrument_block_does_not_refuse_the_board_and_its_row_stays_unpromotable() -> None:
+    from dataclasses import replace
+    from datetime import date
+    from etf_cockpit.core.research_states import ResearchState
+    from etf_cockpit.core.types import DataQualityIssue, DataQualityReport
+    from etf_cockpit.signals import simple_scores
+    from tests.test_fix_score_20261023 import _score
+
+    issues = [
+        DataQualityIssue("ETF2", "block", "stale_data", "Stale prices."),
+        DataQualityIssue("ETF3", "block", "insufficient_history", "Short history."),
+    ]
+    snapshot = _snapshot()
+    snapshot.data_report = DataQualityReport(date(2026, 11, 2), issues)
+
+    scoreboard_publication._require_publishable_snapshot(snapshot)
+
+    # The blocked instrument's own row carries its code and is never promotable.
+    for issue in issues:
+        row = simple_scores._attach_authority(replace(_score(), warnings=[issue.code]))
+        assert row.research_promotion_allowed is False
+        assert row.research_state is not ResearchState.RESEARCH_CANDIDATE
+    snapshot.data_report = DataQualityReport(
+        date(2026, 11, 2), [*issues, DataQualityIssue("ALL", "block", "unknown_block", "Dataset gate failed.")]
+    )
+    with pytest.raises(scoreboard_publication.ScoreboardPublicationBlockedError):
+        scoreboard_publication._require_publishable_snapshot(snapshot)
+
+
 def test_empty_price_gate_cannot_publish_signals_as_available() -> None:
     snapshot = _snapshot(blocked=True)
     snapshot.prices = pd.DataFrame()
