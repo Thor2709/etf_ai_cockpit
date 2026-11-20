@@ -73,8 +73,10 @@ class YFinanceProvider(DataProvider, PriceProvider):
         instrument_metadata: dict[str, dict[str, object]] | None = None,
         retrieval_root: Path | None = None,
         session: Any = None,
+        retry_cooldown_seconds: float = 60.0,
     ):
         self.section = section or ProviderSection()
+        self.retry_cooldown_seconds = retry_cooldown_seconds
         self.default_currency = default_currency
         self.instrument_metadata = instrument_metadata or {}
         self.retrieval_root = Path(retrieval_root) if retrieval_root is not None else None
@@ -144,6 +146,9 @@ class YFinanceProvider(DataProvider, PriceProvider):
             encode=encode_frame,
             decode=decode_frame,
             is_available=lambda frame: frame is not None and not frame.empty,
+            # yf.download turns throttling and transport errors into an empty frame.
+            unavailable_retry_passes=2,
+            retry_cooldown_seconds=self.retry_cooldown_seconds,
         )
         retrieval = retriever.retrieve(
             list(dict.fromkeys(symbol_map.values())),

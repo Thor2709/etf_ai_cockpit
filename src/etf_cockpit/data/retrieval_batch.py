@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
 import json
+import logging
 from pathlib import Path
 import threading
 import time
@@ -16,6 +17,7 @@ from etf_cockpit.core.values import is_lowercase_sha256_hex as _valid_sha256
 from etf_cockpit.data.contracts import redact_text
 
 T = TypeVar("T")
+_LOG = logging.getLogger(__name__)
 _SCHEMA_VERSION = 1
 _RUN_STATUSES = {"pending", "done", "failed", "unavailable"}
 # An "unavailable" answer (empty / no data) is a statement about one moment, not a permanent fact.
@@ -143,6 +145,8 @@ class BatchRetriever(Generic[T]):
         decode: Callable[[bytes], T] | None = None,
         is_available: Callable[[T], bool] | None = None,
         unavailable_ttl_seconds: float = DEFAULT_UNAVAILABLE_TTL_SECONDS,
+        unavailable_retry_passes: int = 0,
+        retry_cooldown_seconds: float = 60.0,
     ) -> None:
         if not str(provider).strip():
             raise ValueError("provider must be non-empty")
@@ -173,6 +177,8 @@ class BatchRetriever(Generic[T]):
         self.decode = decode or _json_decode
         self.is_available = is_available or (lambda value: value is not None)
         self.unavailable_ttl_seconds = float(unavailable_ttl_seconds)
+        self.unavailable_retry_passes = unavailable_retry_passes
+        self.retry_cooldown_seconds = retry_cooldown_seconds
         self._memory_cache: dict[bytes, tuple[bytes, str]] = {}
         self._memory_manifest: dict[str, object] | None = None
 
@@ -223,6 +229,7 @@ class BatchRetriever(Generic[T]):
             self._write_manifest(manifest)
 
         values: dict[str, SymbolRetrieval[T]] = {}
+        fetched: list[str] = []
         for batch in self.batches(ordered_symbols):
             for symbol in batch:
                 record = records[symbol]
@@ -240,66 +247,89 @@ class BatchRetriever(Generic[T]):
                     self._write_manifest(manifest)
                     values[symbol] = self._result(symbol, status, attempts, value, retrieved_at)
                     continue
-                if status == "done" or status == "unavailable":
-                    # The checkpoint was already changed to failed above; retain a
-                    # defensive failure if its schema changes unexpectedly.
-                    status = "failed"
-                error: str | None = None
-                attempts_this_run = 0
-                while attempts_this_run < self.max_retries + 1:
-                    attempts_this_run += 1
-                    attempts += 1
-                    record.update(status="pending", attempts=attempts, error_fingerprint=None)
-                    self._write_manifest(manifest)
-                    try:
-                        self.limiter.acquire()
-                        value = downloader(symbol)
-                        payload = self.encode(value)
-                        retrieved_at = self._retrieved_at()
-                    except Exception as exc:
-                        error = redact_text(f"{type(exc).__name__}: {exc}")
-                        record.update(
-                            status="failed",
-                            error_fingerprint=_error_fingerprint(error),
-                        )
-                        self._write_manifest(manifest)
-                        if attempts_this_run < self.max_retries + 1:
-                            self.sleep(self.backoff_seconds * (2 ** (attempts_this_run - 1)))
-                        continue
-                    # The download succeeded: a cache or checkpoint write failure is a local persistence
-                    # fault, classified separately and never retried as a provider failure.
-                    status = "done" if self.is_available(value) else "unavailable"
-                    try:
-                        self._write_cache(self._cache_key(symbol, request), payload, retrieved_at)
-                        record.update(status=status, error_fingerprint=None)
-                        self._write_manifest(manifest)
-                    except Exception as exc:
-                        error = redact_text(f"checkpoint_failure: {type(exc).__name__}: {exc}")
-                        record.update(status="failed", error_fingerprint=_error_fingerprint(error))
-                        values[symbol] = SymbolRetrieval(
-                            symbol=symbol,
-                            status="failed",
-                            attempts=attempts,
-                            error=error,
-                            error_fingerprint=_error_fingerprint(error),
-                        )
-                        break
-                    values[symbol] = self._result(symbol, status, attempts, value, retrieved_at)
-                    break
-                else:
-                    record["status"] = "failed"
-                if symbol not in values:
-                    error_fingerprint = record.get("error_fingerprint")
-                    values[symbol] = SymbolRetrieval(
-                        symbol=symbol,
-                        status="failed",
-                        attempts=attempts,
-                        error=error,
-                        error_fingerprint=(str(error_fingerprint) if error_fingerprint else None),
-                    )
+                values[symbol] = self._fetch(symbol, record, manifest, request, downloader)
+                fetched.append(symbol)
+
+        # An empty answer can be transient (provider throttling): after a cool-down, retry the
+        # symbols this run fetched as unavailable; stop when a pass recovers nothing.
+        retried: set[str] = set()
+        recovered = 0
+        for _ in range(self.unavailable_retry_passes):
+            pending = [symbol for symbol in fetched if values[symbol].status == "unavailable"]
+            if not pending:
+                break
+            self.sleep(self.retry_cooldown_seconds)
+            retried.update(pending)
+            for symbol in pending:
+                values[symbol] = self._fetch(symbol, records[symbol], manifest, request, downloader)
+            gained = sum(values[symbol].status == "done" for symbol in pending)
+            recovered += gained
+            if not gained:
+                break
+        if retried:
+            _LOG.info("%s: retried %d unavailable symbols, recovered %d", self.provider, len(retried), recovered)
 
         self._write_manifest(manifest)
         return RetrievalBatchResult(run_id, fingerprint, values)
+
+    def _fetch(
+        self,
+        symbol: str,
+        record: dict[str, object],
+        manifest: dict[str, object],
+        request: dict[str, object],
+        downloader: Callable[[str], T],
+    ) -> SymbolRetrieval[T]:
+        attempts = int(record["attempts"])
+        error: str | None = None
+        attempts_this_run = 0
+        while attempts_this_run < self.max_retries + 1:
+            attempts_this_run += 1
+            attempts += 1
+            record.update(status="pending", attempts=attempts, error_fingerprint=None)
+            self._write_manifest(manifest)
+            try:
+                self.limiter.acquire()
+                value = downloader(symbol)
+                payload = self.encode(value)
+                retrieved_at = self._retrieved_at()
+            except Exception as exc:
+                error = redact_text(f"{type(exc).__name__}: {exc}")
+                record.update(
+                    status="failed",
+                    error_fingerprint=_error_fingerprint(error),
+                )
+                self._write_manifest(manifest)
+                if attempts_this_run < self.max_retries + 1:
+                    self.sleep(self.backoff_seconds * (2 ** (attempts_this_run - 1)))
+                continue
+            # The download succeeded: a cache or checkpoint write failure is a local persistence
+            # fault, classified separately and never retried as a provider failure.
+            status = "done" if self.is_available(value) else "unavailable"
+            try:
+                self._write_cache(self._cache_key(symbol, request), payload, retrieved_at)
+                record.update(status=status, error_fingerprint=None)
+                self._write_manifest(manifest)
+            except Exception as exc:
+                error = redact_text(f"checkpoint_failure: {type(exc).__name__}: {exc}")
+                record.update(status="failed", error_fingerprint=_error_fingerprint(error))
+                return SymbolRetrieval(
+                    symbol=symbol,
+                    status="failed",
+                    attempts=attempts,
+                    error=error,
+                    error_fingerprint=_error_fingerprint(error),
+                )
+            return self._result(symbol, status, attempts, value, retrieved_at)
+        record["status"] = "failed"
+        error_fingerprint = record.get("error_fingerprint")
+        return SymbolRetrieval(
+            symbol=symbol,
+            status="failed",
+            attempts=attempts,
+            error=error,
+            error_fingerprint=(str(error_fingerprint) if error_fingerprint else None),
+        )
 
     def batches(self, symbols: list[str]) -> list[list[str]]:
         """Split a symbol sequence into the configured bounded batches."""
