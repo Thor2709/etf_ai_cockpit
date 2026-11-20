@@ -68,11 +68,20 @@ def test_stamping_uses_only_the_import_log_date_added_of_the_matching_package() 
 @pytest.mark.parametrize("suffix,calendar", [
     (".HE", "XHEL"), (".CO", "XCSE"), (".SW", "XSWX"),
     (".VI", "XWBO"), (".LS", "XLIS"), (".IR", "XDUB"),
-    (".T", "XTKS"), (".HK", "XHKG"), (".SS", "XSHG"), (".TO", "XTSE"),
 ])
 def test_additional_listing_suffixes_use_certified_calendars(suffix, calendar) -> None:
     assert resolve_listing_calendar("unknown venue", "TEST" + suffix) == calendar
     assert resolve_listing_calendar("XETRA", "TEST" + suffix) == "XETR"
+
+
+def test_every_listing_suffix_maps_to_an_installed_calendar() -> None:
+    import exchange_calendars as xcals
+
+    from etf_cockpit.data.etf_economics import _TICKER_SUFFIX_CALENDARS
+
+    assert set(_TICKER_SUFFIX_CALENDARS.values()) <= set(xcals.get_calendar_names(include_aliases=False))
+    for suffix, calendar in _TICKER_SUFFIX_CALENDARS.items():
+        assert resolve_listing_calendar("unknown venue", "TEST" + suffix) == calendar
 
 
 def test_an_uncertified_calendar_stays_unmapped(monkeypatch) -> None:

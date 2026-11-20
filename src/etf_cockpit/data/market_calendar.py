@@ -1133,6 +1133,7 @@ class MarketCalendarService:
             # The lookback must be covered; never truncate it to the default window.
             start_year = min(start_year, earliest.year)
         # Some calendars (XSHG, XBOM) record holidays only to the current year; then the window ends at `around`.
+        # exchange_calendars 4.13.2 records them only to 2026: upgrade it before 2027, else both windows fail.
         for end_year in (around.year + 3, around.year):
             try:
                 return _exchange_calendar(calendar_id.upper(), start_year, end_year)

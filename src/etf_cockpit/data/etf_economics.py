@@ -1401,6 +1401,7 @@ _TICKER_SUFFIX_CALENDARS = {
     ".T": "XTKS", ".SS": "XSHG", ".HK": "XHKG", ".AX": "XASX", ".TO": "XTSE", ".KS": "XKRX", ".TW": "XTAI", ".BO": "XBOM",
     ".SA": "BVMF", ".WA": "XWAR", ".SG": "XSTU", ".JO": "XJSE", ".TA": "XTAE", ".JK": "XIDX", ".MX": "XMEX", ".SN": "XSGO",
     ".AT": "ASEX", ".NZ": "XNZE", ".IS": "XIST", ".PR": "XPRA", ".CL": "XBOG",
+    ".V": "XTSE", ".KQ": "XKRX", ".TWO": "XTAI",
 }
 
 
