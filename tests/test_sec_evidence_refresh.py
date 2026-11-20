@@ -314,3 +314,24 @@ def test_weekly_fundamentals_script_runs_the_sec_evidence_refresh_after_the_fund
     monkeypatch.setattr(ser, "refresh_sec_evidence", broken)
     assert script.main() == 0  # the weekly job keeps its exit code
     assert "SEC evidence refresh unavailable: OSError: store locked" in capsys.readouterr().out
+
+
+def test_full_weekly_fundamentals_run_refreshes_etf_reference_data(monkeypatch, capsys) -> None:
+    import sys
+
+    from etf_cockpit.application import stock_service
+    from etf_cockpit.application.data_service import DataService
+    from etf_cockpit.core import config as config_module
+    from scripts import refresh_stock_fundamentals as script
+
+    monkeypatch.setattr(sys, "argv", ["refresh_stock_fundamentals.py"])
+    monkeypatch.setattr(config_module, "load_config", lambda: "cfg")
+    monkeypatch.setattr(stock_service, "refresh_universe_stock_fundamentals", lambda *a, **k: SimpleNamespace(rows_added=0, failures={}))
+    monkeypatch.setattr(ser, "refresh_sec_evidence", lambda *a, **k: {"earnings_rows": 0, "insider_rows": 0, "ten_k_chunks": 0, "reasons": {}})
+    monkeypatch.setattr(DataService, "refresh_reference_data", lambda self: [f"reference refreshed with {self.config}"])
+    assert script.main() == 0
+    assert "reference refreshed with cfg" in capsys.readouterr().out
+
+    monkeypatch.setattr(DataService, "refresh_reference_data", lambda self: (_ for _ in ()).throw(OSError("yahoo down")))
+    assert script.main() == 0  # the weekly job keeps its exit code
+    assert "ETF reference data refresh unavailable: OSError: yahoo down" in capsys.readouterr().out

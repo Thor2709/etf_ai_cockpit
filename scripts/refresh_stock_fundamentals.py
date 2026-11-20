@@ -3,6 +3,7 @@
 Usage: python scripts/refresh_stock_fundamentals.py [--root PATH] [--ids A,B]
 Read-only fetches; writes data/clean/stock_*.parquet under the chosen root, then the SEC evidence
 (bitemporal store, raw SEC cache, document chunk store); an SEC evidence error never changes the exit code.
+A full run (no --ids, no --sources) then refreshes the ETF reference data; its errors never change the exit code.
 """
 
 from __future__ import annotations
@@ -47,6 +48,14 @@ def main() -> int:
         )
     except Exception as exc:  # the stock refresh above already ran: keep its exit code
         print(f"SEC evidence refresh unavailable: {type(exc).__name__}: {exc}")
+    if only is None and chain is None:
+        try:
+            from etf_cockpit.application.data_service import DataService
+
+            for message in DataService(config).refresh_reference_data():
+                print(message)
+        except Exception as exc:  # the stock refresh above already ran: keep its exit code
+            print(f"ETF reference data refresh unavailable: {type(exc).__name__}: {exc}")
     return 0
 
 

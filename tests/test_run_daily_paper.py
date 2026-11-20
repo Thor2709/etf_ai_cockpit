@@ -428,3 +428,20 @@ def test_cli_refresh_fx_flag_reaches_refresh(monkeypatch, tmp_path: Path, capsys
             {"incremental": False, "include_fundamentals": True, "include_fx": True},
         )
     ]
+
+
+@pytest.mark.parametrize("include_fundamentals", [False, True])
+def test_nightly_refresh_skips_reference_data_only_with_fundamentals(monkeypatch, tmp_path: Path, include_fundamentals) -> None:
+    calls: list[dict[str, object]] = []
+    service = SimpleNamespace(refresh_yfinance_data=lambda **kwargs: calls.append(kwargs) or "ok")
+    session = SimpleNamespace(
+        snapshot=SimpleNamespace(config=None),
+        data_service_factory=lambda _config: service,
+        activity_publication=None,
+        refresh_snapshot=lambda: None,
+    )
+    monkeypatch.setattr(daily_paper, "_new_session", lambda _root: session)
+
+    daily_paper._refresh(tmp_path, incremental=True, include_fundamentals=include_fundamentals)
+
+    assert calls[0]["include_reference_data"] is include_fundamentals
