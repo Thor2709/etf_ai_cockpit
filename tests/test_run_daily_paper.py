@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal
 import json
 from pathlib import Path
@@ -158,16 +158,58 @@ def test_capture_is_stamped_after_the_page_is_in_hand_and_a_failure_is_only_logg
     assert daily_paper._capture(tmp_path, clock) == {"status": "failed", "reason": "capture failed: guard"}
 
 
-def test_a_new_session_is_one_without_a_forward_run_from_an_earlier_night() -> None:
+def test_a_new_session_is_one_later_than_the_latest_forward_run() -> None:
     import pandas as pd
 
     saturday = datetime(2026, 10, 31, 21, 32, tzinfo=timezone.utc)
     friday = date(2026, 10, 30)
     history = pd.DataFrame({"as_of_date": [friday.isoformat()], "provenance": ["forward_nightly"], "run_completed_at": [saturday.isoformat()]})
-    assert daily_paper._is_new_session(pd.DataFrame(), friday, saturday)
-    assert daily_paper._is_new_session(history, friday, saturday + timedelta(hours=1))  # a rerun on the same night reuses H
-    assert not daily_paper._is_new_session(history, friday, saturday + timedelta(days=1))  # Sunday: no_new_session
-    assert daily_paper._is_new_session(history, date(2026, 11, 2), saturday + timedelta(days=3))
+    assert daily_paper._is_new_session(pd.DataFrame(), friday)
+    assert not daily_paper._is_new_session(history, friday)  # S <= the latest forward session: no_new_session (SDD C8)
+    assert not daily_paper._is_new_session(history, date(2026, 10, 29))
+    assert daily_paper._is_new_session(history, date(2026, 11, 2))
+
+
+def test_an_unexpected_error_in_the_paper_stages_blocks_the_run_and_still_refreshes(monkeypatch, tmp_path: Path) -> None:
+    events: list[str] = []
+    _wire_pipeline(monkeypatch, events)
+    monkeypatch.setattr(daily_paper, "_check_recorder", lambda *_args: (_ for _ in ()).throw(KeyError("bot_family")))
+
+    result = daily_paper.run_daily_paper(tmp_path, now=_NOW)
+
+    assert result.exit_code == 1 and result.stage == "paper_stages"
+    assert "KeyError" in result.details["error"]
+    assert events[-3:] == ["refresh", "rescore", "publish"]
+
+
+def _real_gate(monkeypatch, events: list[str], controls: dict) -> None:
+    paper_gate = daily_paper._paper_gate
+    _wire_pipeline(monkeypatch, events)
+    monkeypatch.setattr(daily_paper, "_paper_gate", paper_gate)
+    settings = SimpleNamespace(controls=SimpleNamespace(paper=SimpleNamespace(enabled=True)))
+    monkeypatch.setattr(daily_paper, "load_settings_bundle", lambda _root: settings)
+    monkeypatch.setattr(daily_paper, "load_paper_controls_status", lambda _root, _account: controls)
+
+
+def test_an_active_kill_switch_skips_the_recorder_and_exits_zero(monkeypatch, tmp_path: Path) -> None:
+    events: list[str] = []
+    _real_gate(monkeypatch, events, {"status": "available", "kill_switch_active": True})
+
+    result = daily_paper.run_daily_paper(tmp_path, now=_NOW)
+
+    assert result.exit_code == 0 and result.stage == "paper_kill_switch_active"
+    assert result.details["paper_enabled"] is True  # paper is enabled; the kill switch is not "disabled"
+    assert "paper_bots" not in events and events[-3:] == ["refresh", "rescore", "publish"]
+
+
+def test_unreadable_paper_controls_block_the_run_and_still_refresh(monkeypatch, tmp_path: Path) -> None:
+    events: list[str] = []
+    _real_gate(monkeypatch, events, {"status": "unavailable", "kill_switch_active": None})
+
+    result = daily_paper.run_daily_paper(tmp_path, now=_NOW)
+
+    assert result.exit_code == 1 and result.stage == "paper_gate"
+    assert "paper_bots" not in events and events[-3:] == ["refresh", "rescore", "publish"]
 
 
 def test_ai_account_is_idempotent_and_does_not_add_cash_on_second_run(monkeypatch, tmp_path: Path) -> None:

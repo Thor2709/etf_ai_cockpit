@@ -145,7 +145,7 @@ def headless_workflow_handlers(
         handlers["report_export"] = report_export
 
         def paper_bots_run(_context: JobContext) -> dict[str, object]:
-            # SDD N4: forward decisions bind to the nightly score run; the UI/MCP workflow records nothing.
+            # SDD C8 (docs/architecture/forward-paper-path.md): paper decisions come only from the nightly driver.
             return {
                 "status": "unavailable",
                 "reason": "forward decisions run only in the nightly job",

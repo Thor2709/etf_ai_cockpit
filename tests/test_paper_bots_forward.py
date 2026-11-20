@@ -82,6 +82,16 @@ def test_a_stored_run_whose_content_differs_from_its_hash_is_not_used(tmp_path: 
     assert "content hash" in str(result.reason)
 
 
+def test_the_hash_is_reverified_when_older_historical_rows_lack_the_new_columns(tmp_path: Path) -> None:
+    older = _run_frame(date(2026, 11, 12), MONDAY_NIGHT - timedelta(days=2)).drop(columns=["current_price", "instrument_currency"])
+    older["provenance"] = store.BACKFILL_PROVENANCE
+    snapshot, _older = _store(tmp_path, _run_frame(FRIDAY, MONDAY_NIGHT - timedelta(minutes=4)), older)
+
+    result = _record(tmp_path, MONDAY_NIGHT, FRIDAY, snapshot)
+
+    assert result.candidate_snapshot == snapshot, result.reason
+
+
 @pytest.mark.parametrize(("age", "fresh"), [(timedelta(minutes=4), True), (timedelta(hours=25), False)])
 def test_a_monday_run_for_the_friday_session_is_aged_from_its_completion_time(tmp_path: Path, age, fresh) -> None:
     snapshot, = _store(tmp_path, _run_frame(FRIDAY, MONDAY_NIGHT - age))

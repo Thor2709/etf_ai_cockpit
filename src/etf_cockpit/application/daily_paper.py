@@ -182,24 +182,13 @@ def _latest_completed_session(inputs: data_readiness.ReadinessInputs, snapshot: 
     return max(completed)
 
 
-def _is_new_session(history: pd.DataFrame, session: date, now: datetime) -> bool:
-    """False when an earlier night already stored the forward run of ``session`` or of a later session.
+def _is_new_session(history: pd.DataFrame, session: date) -> bool:
+    """False when S <= the session of the latest stored forward run (SDD §3 step b, C8: ``no_new_session``)."""
 
-    A rerun on the same night as the stored run is a new session again; it reuses the stored run (same H).
-    """
-
-    if history.empty or not {"provenance", "as_of_date", "run_completed_at"}.issubset(history.columns):
+    if history.empty or not {"provenance", "as_of_date"}.issubset(history.columns):
         return True
-    forward = history.loc[history["provenance"].astype(str).eq(FORWARD_PROVENANCE)]
-    if forward.empty:
-        return True
-    latest = str(forward["as_of_date"].astype(str).max())
-    if session.isoformat() != latest:
-        return session.isoformat() > latest
-    completed = pd.to_datetime(
-        forward.loc[forward["as_of_date"].astype(str).eq(latest), "run_completed_at"], utc=True, errors="coerce", format="mixed"
-    )
-    return bool(completed.notna().all() and completed.dt.date.eq(now.astimezone(timezone.utc).date()).all())
+    forward = history.loc[history["provenance"].astype(str).eq(FORWARD_PROVENANCE), "as_of_date"].astype(str)
+    return forward.empty or session.isoformat() > str(forward.max())
 
 
 def _decision_session(root: Path, clock: Callable[[], datetime]) -> tuple[date, bool]:
@@ -209,7 +198,7 @@ def _decision_session(root: Path, clock: Callable[[], datetime]) -> tuple[date, 
     session.refresh_snapshot()
     now = clock()
     day = _latest_completed_session(data_readiness.load_inputs(root), session.snapshot, now)
-    return day, _is_new_session(load_backfill_score_history(root, STORE_PROVENANCES), day, now)
+    return day, _is_new_session(load_backfill_score_history(root, STORE_PROVENANCES), day)
 
 
 def _score_run(root: Path, session: date, completed_at: datetime) -> dict[str, Any]:
@@ -327,8 +316,9 @@ def run_daily_paper(
             failure: _StageFailure | None = None
             try:
                 stage = _paper_stages(resolved_root, clock, details, dry_run, ai_account, float(initial_cash_eur))
-            except _StageFailure as exc:
-                failure, stage = exc, exc.stage
+            except Exception as exc:  # any paper-stage error still lets step g run
+                failure = exc if isinstance(exc, _StageFailure) else _failure("paper_stages", exc)
+                stage = failure.stage
             try:  # step g runs whatever the paper stages did (SDD C8)
                 session, details["refresh"] = _call("refresh", lambda: _refresh(resolved_root, **refresh_options))
                 details["rescore"] = _call("rescore", lambda: _rescore(session))
@@ -374,7 +364,7 @@ def _paper_stages(
     if dry_run:
         return "dry_run"
     gate = _call("paper_gate", lambda: _paper_gate(root))
-    details["paper_enabled"] = gate is None
+    details["paper_enabled"] = gate != "paper_disabled"
     if gate is not None:
         return gate
     cutoff = clock()

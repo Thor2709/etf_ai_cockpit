@@ -168,6 +168,7 @@ No `availability_basis` column for prices: no price reader exists (it stays an F
 - The refresh runs whatever the paper stages do (finally-style). Today the `_StageFailure` handler (`daily_paper.py:345-346`) returns the run as blocked; with the new order it would return before the refresh. A paper-stage failure keeps a non-zero exit code.
 - `--dry-run` leaves `scheduled_refresh.ps1:39` and its header line 3.
 - A `partial` run is accepted only if every cadence-due B0-B3 bot has an `available` record and every unavailable record is B1-r or B2-o with a `NO_NEW_TRADE` reason. The run JSON lists each bot outcome. Otherwise the run raises. This is a bounded relaxation of today's rule (`daily_paper.py:308-309` raises on any non-`available` status), taken from the activation plan of 2026-11-19, §5.3 step 6.
+- Paper decisions come only from this nightly driver. The UI/MCP `paper_bots_run` workflow records nothing and returns `unavailable` ("forward decisions run only in the nightly job"), so there is one decision path.
 
 **C9 Feature vintages.**
 - `data/derived/feature_vintages/<S>.parquet` is written once by the forward run, from the frame `FeatureService.compute_features(publish=False)` returned for S.
