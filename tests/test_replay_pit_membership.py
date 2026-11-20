@@ -129,7 +129,7 @@ def test_delisting_liquidates_held_position_at_last_available_price_and_is_idemp
     listing = ListingHistory(tuple(_interval(key, end="2026-11-04" if key == "AAA" else None)
                                    for key in ("VWCE", "AAA", "BBB", "BAD")))
     october = datetime(2026, 10, 30, 12, tzinfo=timezone.utc)
-    november = datetime(2026, 11, 2, 12, tzinfo=timezone.utc)
+    november = datetime(2026, 11, 2, 16, tzinfo=timezone.utc)
     next_history = pd.DataFrame(_history_with_columns(_rows(october) + _rows(november, run_id="score-run-nov", snapshot="b")))
     next_history["as_of_date"] = next_history["run_completed_at"].str[:10]
     next_history["membership_policy"] = MEMBERSHIP_POLICY

@@ -3,8 +3,9 @@ schema_version: paper_bots_execution.v1
 base_currency: EUR
 # Fills happen at the open of the first benchmark-calendar session strictly after the decision date (never the same close).
 fill_rule: next_session_open
-# Simulated clock of a fill inside its session (after every EUR listing has opened).
-fill_time_utc: "09:30"
+# Simulated clock of a fill inside its session: after every listing venue has opened, after the 14:45/13:45 UTC opening
+# observation, and before the 15:30 UTC Xetra close in CEST. A forward fill uses only an observed open known by then.
+fill_time_utc: "15:20"
 # Smallest tradable step; whole units are the conservative retail default.
 lot_size: 1
 # Costs come from configs/costs.yaml (commission, spread, slippage, FX, gap): the combined spread/slippage/FX/gap

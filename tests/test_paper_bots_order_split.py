@@ -68,7 +68,12 @@ def test_remainder_is_split_across_sessions_with_the_original_hard_limit(monkeyp
 def test_after_five_sessions_the_unfilled_remainder_is_recorded_as_missed(monkeypatch, tmp_path: Path) -> None:
     book = _ready(monkeypatch, tmp_path)
     _change_limits(tmp_path, max_order_value=1000)  # tighten the existing gate to need more than five orders
-    assert _execute(tmp_path, book, as_of=_at(22)).status == "available"
+    # The fixture decides at noon: an 8-day validity keeps the fifth child's 15:20 UTC fill inside the decision expiry.
+    payload = yaml.safe_load(execution.EXECUTION_CONFIG_PATH.read_text(encoding="utf-8")) | {"proposal_validity_days": 8}
+    config = tmp_path / "execution.yaml"
+    config.write_text(yaml.safe_dump(payload), encoding="utf-8")
+    run = execution.run_paper_bot_execution(_at(22), root=tmp_path, price_book=book, now=_at(22), execution_config_path=config)
+    assert run.status == "available"
     fills = _core(tmp_path, "filled")
     missed, = _core(tmp_path, "missed")
     assert [item["session"] for item in fills] == ["2026-10-15", "2026-10-16", "2026-10-19", "2026-10-20", "2026-10-21"]
@@ -76,10 +81,12 @@ def test_after_five_sessions_the_unfilled_remainder_is_recorded_as_missed(monkey
     assert missed["session"] == "2026-10-21" and missed["reason"] == "max_order_split_sessions_exhausted"
     assert Decimal(missed["planned_quantity"]) == Decimal(fills[-1]["remaining_quantity"]) > 0
     assert sum(Decimal(item["quantity"]) for item in fills) + Decimal(missed["planned_quantity"]) == Decimal(_core_intent(tmp_path)["planned_quantity"])
-    assert _execute(tmp_path, book, as_of=_at(30)).appended == 0
+    rerun = execution.run_paper_bot_execution(_at(30), root=tmp_path, price_book=book, now=_at(30), execution_config_path=config)
+    assert rerun.appended == 0
 
 
-@pytest.mark.parametrize(("hour", "expected_buys"), [(8, 1), (12, 2)])
+# The 10-16 child fills at 15:20 UTC: a replacement before that time supersedes it, one after it does not.
+@pytest.mark.parametrize(("hour", "expected_buys"), [(8, 1), (12, 1), (16, 2)])
 def test_new_decision_supersedes_pending_children_at_its_own_time(monkeypatch, tmp_path: Path, hour: int, expected_buys: int) -> None:
     book = _ready(monkeypatch, tmp_path)
     assert _execute(tmp_path, book, as_of=_at(16)).status == "available"
