@@ -23,6 +23,7 @@ NUMBER_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("Cash and balance sheet", ("fcf", "fcf_conversion", "net_debt", "net_debt_to_ebitda", "debt_to_equity")),
     ("Valuation", ("market_cap", "ev", "pe", "ev_ebit", "ev_sales", "pb", "fcf_yield", "dividend_yield", "pe_percentile", "pe_vs_peers")),
     ("Reverse valuation", ("implied_growth_pe", "implied_growth_dcf")),
+    ("Quality and accounting", ("piotroski_f", "altman_z", "beneish_m", "gross_profitability", "accruals", "dilution", "sbc_adjusted_fcf", "buyback_yield", "shareholder_yield")),
 )
 PEER_COLUMNS = (("pe", "P/E"), ("ev_ebit", "EV/EBIT"), ("roe", "ROE"), ("ebit_margin", "EBIT margin"), ("fcf_yield", "FCF yield"), ("dividend_yield", "Div. yield"), ("revenue_cagr", "Rev. CAGR"))
 _SHORT = 100

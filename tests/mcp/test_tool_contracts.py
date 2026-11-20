@@ -42,6 +42,7 @@ REQUIRED_ARGUMENTS = {
     "monthly_decision_pack": {"month": "2026-10"},
     "paper_portfolio": {"account_id": "l9-paper"},
     "portfolio_candidate_analyse": {"target_weights": {"VWCE": 1.0}},
+    "research_document_search": {"query": "capital", "as_of": "2026-10-30T00:00:00Z"},
     "research_record_thesis_preview": {
         "instrument_ids": ["VWCE"], "thesis": "Fixture claim", "evidence_refs": [],
         "invalidation_rules": ["Review evidence"], "review_date": "2026-11-30",

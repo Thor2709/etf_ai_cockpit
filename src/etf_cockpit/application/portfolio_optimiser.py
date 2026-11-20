@@ -6,6 +6,7 @@ import pandas as pd
 
 from etf_cockpit.portfolio.optimiser import (
     METHODS,
+    SKFOLIO_METHODS,
     OptimiserConstraints,
     PortfolioOptimiser,
     returns_from_adjusted_prices,
@@ -22,6 +23,7 @@ def build_portfolio_optimiser(prices: pd.DataFrame | None) -> tuple[PortfolioOpt
 __all__ = [
     "METHODS",
     "OptimiserConstraints",
+    "SKFOLIO_METHODS",
     "PortfolioOptimiser",
     "build_portfolio_optimiser",
 ]

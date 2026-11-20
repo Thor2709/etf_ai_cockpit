@@ -52,6 +52,31 @@ def search_document_chunks(root: Path, query: str, *, as_of: str, limit: int = 1
     return {**search(path, query, as_of=as_of, limit=limit), "mode_used": "lexical", "fallback_reason": reason}
 
 
+def index_imported_pdf(root: Path, pdf_path: Path, *, source_id: str) -> int | None:
+    """INT-23: chunk an imported, text-bearing PDF into the local chunk store; ``None`` when it cannot be read.
+
+    ``known_at`` is the import instant; the publication date is not known here, so ``published_at`` uses the
+    same instant (never earlier), which keeps every search at an earlier cut-off free of this document.
+    """
+
+    import sqlite3
+
+    from etf_cockpit.data.document_chunks import CHUNK_STORE_NAME, chunk_pages, index_document
+    from etf_cockpit.parsers.priips_kid import _read_pages
+
+    pages, warning = _read_pages(Path(pdf_path))
+    if warning is not None:
+        return None
+    known_at = datetime.now(timezone.utc).isoformat()
+    digest = hashlib.sha256(Path(pdf_path).read_bytes()).hexdigest()
+    chunks = chunk_pages(pages, document_sha256=digest, source_id=source_id, published_at=known_at, known_at=known_at)
+    try:
+        index_document(Path(root) / "data" / CHUNK_STORE_NAME, chunks)
+    except (OSError, sqlite3.DatabaseError):
+        return None
+    return len(chunks)
+
+
 def research_revision(root: Path) -> str:
     return research_evidence_revision(Path(root) / "data")
 
@@ -277,6 +302,6 @@ def _load_theses(root: Path, subject: str | None) -> list[dict[str, Any]]:
 
 
 __all__ = [
-    "load_research_findings", "record_research_findings", "record_research_thesis",
-    "research_revision", "thesis_revision", "validate_research_batch",
+    "index_imported_pdf", "load_research_findings", "record_research_findings", "record_research_thesis",
+    "research_revision", "search_document_chunks", "thesis_revision", "validate_research_batch",
 ]

@@ -57,6 +57,8 @@ def macro_factors_page(page: ft.Page | None, state: AppState) -> PageView:
     inflation = macro_context.get("inflation_rates", {})
     breadth_value = _numeric_value(breadth.get("pct_above_sma200"))
     volatility_value = _numeric_value(volatility.get("median_annualised"))
+    stress = macro_context.get("stress_probability", {})
+    stress_value = _numeric_value(stress.get("probability"))
     view_state = {"view": "Regime", "horizon": "1Y"}
     view_note = kit.Note("View: Regime · Horizon: 1Y")
     view_sections: dict[str, ft.Control] = {}
@@ -88,6 +90,13 @@ def macro_factors_page(page: ft.Page | None, state: AppState) -> PageView:
             "Median annualised vol",
             _format_metric(volatility_value) if volatility_value is not None else None,
             "Local volatility observation unavailable." if volatility_value is None else "Context only",
+        ),
+        kit.KpiTile(
+            "Benchmark stress-state probability",
+            _format_metric(stress_value) if stress_value is not None else None,
+            str(stress.get("reason") or "Benchmark stress probability unavailable.")
+            if stress_value is None
+            else "Two-state Markov switching, filtered at the cut-off. Context only",
         ),
     ]
     proxy_details = [

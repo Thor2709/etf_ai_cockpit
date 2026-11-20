@@ -1857,7 +1857,7 @@ def _stock_layout(
     )
     stock_groups = {
         "Overview": [
-            *sp.numbers_cards(stock, ("Market", "Earnings and returns", "Cash and balance sheet")),
+            *sp.numbers_cards(stock, ("Market", "Earnings and returns", "Cash and balance sheet", "Quality and accounting")),
             sp.valuation_card(stock),
             sp.peers_card(stock, config),
             sp.notes_card(stock),

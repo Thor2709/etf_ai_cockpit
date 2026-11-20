@@ -15,7 +15,7 @@ from typing import Iterable, Mapping
 import numpy as np
 import pandas as pd
 
-from etf_cockpit.features.regime import build_market_regime, per_series_returns
+from etf_cockpit.features.regime import build_market_regime, filtered_stress_probability, per_series_returns
 from etf_cockpit.portfolio.benchmark_reference import (
     clip_to_decision_window,
     unavailable_reference_projection,
@@ -58,15 +58,18 @@ def build_macro_context(
 
     required = {"date", "etf_id", "adjusted_close"}
     reference = dict(benchmark_reference or unavailable_reference_projection())
-    if (benchmark_data_id is not None or benchmark_reference is not None) and validate_benchmark_reference(
-        benchmark_reference,
-        benchmark_data_id,
-        registry=benchmark_registry,
-    ) is None:
-        return _unavailable(
-            "Canonical benchmark/cash resolution is unavailable.",
-            benchmark_reference=reference,
+    canonical_benchmark_id = None
+    if benchmark_data_id is not None or benchmark_reference is not None:
+        canonical_benchmark_id = validate_benchmark_reference(
+            benchmark_reference,
+            benchmark_data_id,
+            registry=benchmark_registry,
         )
+        if canonical_benchmark_id is None:
+            return _unavailable(
+                "Canonical benchmark/cash resolution is unavailable.",
+                benchmark_reference=reference,
+            )
     if prices is None or prices.empty or not required.issubset(prices.columns):
         return _unavailable("No local adjusted-close price snapshot is available.")
     if "is_adjusted" in prices.columns and not prices["is_adjusted"].map(_adjusted_flag_is_true).all():
@@ -158,6 +161,10 @@ def build_macro_context(
             "score_10": regime.get("regime_score_10"),
             "summary": str(regime.get("summary", "Regime unavailable.")),
         },
+        # INT-19 shadow context: filtered (never smoothed) high-variance state probability of the benchmark.
+        "stress_probability": filtered_stress_probability(returns[canonical_benchmark_id], latest_date)
+        if canonical_benchmark_id in returns.columns
+        else {"status": "unavailable", "probability": None, "reason": "Canonical benchmark series is unavailable.", "execution_allowed": False},
         "optional_fred": {
             "status": "unavailable",
             "message": "Optional FRED is probe-only and no network request was made.",

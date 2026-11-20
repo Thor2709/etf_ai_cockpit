@@ -27,7 +27,7 @@ from etf_cockpit.app.components.shell.page_view import PageChrome, PageView
 from etf_cockpit.app.formatting import format_count, format_number, format_percent
 from etf_cockpit.app.pages._l4a_common import input_of, page_body, text_field
 from etf_cockpit.app.state import AppState
-from etf_cockpit.application.portfolio_optimiser import METHODS, OptimiserConstraints, build_portfolio_optimiser
+from etf_cockpit.application.portfolio_optimiser import METHODS, SKFOLIO_METHODS, OptimiserConstraints, build_portfolio_optimiser
 from etf_cockpit.application.ui_views.portfolio_optimiser import portfolio_optimiser_view
 
 
@@ -40,7 +40,11 @@ _METHOD_LABELS = {
     "maximum_diversification": "Maximum diversification",
     "cvar": "CVaR tail-risk baseline",
     "robust_mean_risk": "Robust mean-risk",
+    "sk_mean_variance": "skfolio minimum variance",
+    "sk_min_cvar": "skfolio minimum CVaR",
+    "sk_hrp": "skfolio HRP",
 }
+_PAGE_METHODS = (*METHODS, *SKFOLIO_METHODS)
 _STATUS_LABELS = {
     "success": ("Available", "ok"),
     "fallback": ("Fallback", "warn"),
@@ -59,7 +63,7 @@ def portfolio_optimiser_page(page: ft.Page | None, state: AppState) -> PageView:
 
     method = Field(
         "Method",
-        options=[_METHOD_LABELS[key] for key in METHODS],
+        options=[_METHOD_LABELS[key] for key in _PAGE_METHODS],
         value=_METHOD_LABELS[method_selection["value"]],
         on_change=select_method,
         key="portfolio-optimiser.method",
@@ -135,7 +139,7 @@ def portfolio_optimiser_page(page: ft.Page | None, state: AppState) -> PageView:
                     cash_weight=cash_percent / 100,
                     max_weight=max_percent / 100,
                 )
-                methods = [method_selection["value"], *[method_id for method_id in METHODS if method_id != method_selection["value"]]]
+                methods = [method_selection["value"], *[method_id for method_id in _PAGE_METHODS if method_id != method_selection["value"]]]
                 comparison = optimiser.compare(methods, constraints=constraints)
                 rows = []
                 points = []
@@ -196,7 +200,7 @@ def portfolio_optimiser_page(page: ft.Page | None, state: AppState) -> PageView:
                 table_well.content = result_table["control"]
                 method_groups = [
                     (label, theme.CATEGORICAL[index % len(theme.CATEGORICAL)])
-                    for index, method_id in enumerate(METHODS)
+                    for index, method_id in enumerate(_PAGE_METHODS)
                     for label in [_METHOD_LABELS[method_id]]
                 ]
                 frontier["control"] = ck.scatter_bubble(

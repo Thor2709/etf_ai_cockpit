@@ -48,6 +48,7 @@ from etf_cockpit.application.ui_facade import (
     dry_run_universe_import,
     edit_record,
     load_classification_projection,
+    load_identity_hints,
     load_identity_projection,
     load_universe,
     remove_record,
@@ -636,6 +637,12 @@ def universe_manager_page(page: ft.Page, state: AppState) -> PageView:
             "reviews": evidence.get("identity_reviews", "unavailable"),
             "reason_code": evidence.get("reason_code", ""),
         }
+        hints_text = "\r\n".join(
+            " | ".join(str(hint.get("attributes", {}).get(key, "")) for key in ("provider_symbol", "name", "mic", "currency"))
+            + f" | {hint.get('source', '')} {hint.get('version', '')}"
+            for hint in load_identity_hints(record.isin)
+        ) or "No community hint carries this ISIN."
+
         def close_identity(_event: object) -> None:
             dialogs.close_dialog(page, dialog)
 
@@ -645,6 +652,7 @@ def universe_manager_page(page: ft.Page, state: AppState) -> PageView:
             [
                 common.text(state_line, 13, 500, theme.POS if safe_identity else theme.AMBER, trunc=False),
                 Disclosure("lineage", json.dumps(lineage, sort_keys=True, indent=2, default=str), expanded=True),
+                Disclosure("community hints (context only, never identity evidence)", hints_text),
             ],
             [_workflow_button("Close", key_name="universe.identity-close", on_click=close_identity)],
         )

@@ -151,6 +151,21 @@ def load_identity_projection(
     return projection
 
 
+def load_identity_hints(isin: str, *, storage_root: Path | None = None) -> tuple[dict[str, object], ...]:
+    """INT-22: community identity hints (FinanceDatabase) carrying this exact ISIN; context only, never resolution input."""
+
+    root = Path(storage_root) if storage_root is not None else ROOT
+    if not str(isin or "").strip():
+        return ()
+    try:
+        if not identity_master_exists(root):
+            return ()
+        with IdentityMasterStore(root) as master:  # same open as load_identity_projection; exists check first
+            return master.hints_for_identifier("isin", isin)
+    except (IdentityMasterSchemaError, OSError, ValueError):
+        return ()
+
+
 def _text_sequence(value: object) -> tuple[str, ...]:
     if value is None:
         return ()
