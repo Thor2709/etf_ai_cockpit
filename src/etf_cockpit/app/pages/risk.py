@@ -649,11 +649,13 @@ def risk_page(page: ft.Page | None, state: AppState, *, _deferred: bool = False)
         holding_dates = pd.to_datetime(imported_holdings["as_of_date"], errors="coerce", utc=True)
         imported_holdings = imported_holdings.loc[holding_dates.notna() & holding_dates.dt.normalize().le(cutoff)]
     eligible_holdings = _exposure_eligible_holdings(imported_holdings, reference_date=snapshot_date)
+    current_weights = {str(row["etf_id"]): float(row["current_weight"]) for _, row in allocation.iterrows()}
+    target_weights = {str(row["etf_id"]): float(row["target_weight"]) for _, row in allocation.iterrows()}
     overlap = build_direct_overlap_view(
         snapshot,
-        list(snapshot.config.universe.enabled_ids),
-        current_weights={str(row["etf_id"]): float(row["current_weight"]) for _, row in allocation.iterrows()},
-        target_weights={str(row["etf_id"]): float(row["target_weight"]) for _, row in allocation.iterrows()},
+        [etf_id for etf_id in snapshot.config.universe.enabled_ids if str(etf_id) in current_weights],
+        current_weights=current_weights,
+        target_weights=target_weights,
         holdings=imported_holdings,
     )
     factors = build_factor_risk_report(

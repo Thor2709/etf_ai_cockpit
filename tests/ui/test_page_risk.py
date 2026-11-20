@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+from types import SimpleNamespace as NS
+from unittest.mock import Mock
+
 import flet as ft
 import pandas as pd
+import pytest
 
 from etf_cockpit.app.components.shell.page_view import PageView
 from etf_cockpit.app.pages import risk as risk_module
@@ -103,3 +107,34 @@ def test_empty_data_shows_unavailable(monkeypatch) -> None:
         if isinstance(data, dict) and data.get("kit") == "DataTable":
             values = [getattr(item, "value", None) for item in _walk(control)]
             assert all(str(value) != "0" for value in values if value is not None)
+
+
+def _synthetic_snapshot(enabled, prices):
+    return NS(
+        config=NS(universe=NS(enabled_ids=enabled)),
+        holdings=pd.DataFrame(),
+        prices=prices,
+        latest_features=pd.DataFrame(),
+        data_report=NS(as_of_date="2026-09-02"),
+    )
+
+
+def _stub_page_inputs(monkeypatch, allocation) -> None:
+    monkeypatch.setattr(risk_module, "allocation_frame", lambda *_args: allocation)
+    monkeypatch.setattr(risk_module, "exposure_limit_report", lambda *_args: pd.DataFrame())
+    monkeypatch.setattr(risk_module, "_load_holdings_evidence", lambda: pd.DataFrame())
+
+
+def test_overlap_receives_only_enabled_allocation_ids(monkeypatch) -> None:
+    enabled = [f"ETF{index:04d}" for index in range(4251)]
+    allocation = pd.DataFrame(
+        {"etf_id": ["ETF4000", "ETF0007"], "current_weight": [0.4, 0.6], "target_weight": [0.5, 0.5]}
+    )
+    _stub_page_inputs(monkeypatch, allocation)
+    monkeypatch.setattr(risk_module, "return_correlation_matrix", lambda *_args, **_kwargs: pd.DataFrame())
+    overlap = Mock(side_effect=RuntimeError("stop after capture"))
+    monkeypatch.setattr(risk_module, "build_direct_overlap_view", overlap)
+    snapshot = _synthetic_snapshot(enabled, pd.DataFrame({"date": ["2026-09-02"]}))
+    with pytest.raises(RuntimeError, match="stop after capture"):
+        risk_page(None, NS(snapshot=snapshot))
+    assert overlap.call_args.args[1] == ["ETF0007", "ETF4000"]
