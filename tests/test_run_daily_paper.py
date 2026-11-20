@@ -197,6 +197,18 @@ def test_a_forecast_failure_is_a_stage_failure_after_the_committed_refresh(monke
     assert events[-3:] == ["refresh", "rescore", "publish"]
 
 
+def test_a_failed_refresh_keeps_the_full_error_text(monkeypatch, tmp_path: Path) -> None:
+    events: list[str] = []
+    _wire_pipeline(monkeypatch, events)
+    symbols = ", ".join(f"SYM{index}" for index in range(400)) + ", LASTSYM"
+    monkeypatch.setattr(daily_paper, "_refresh", lambda _root: (_ for _ in ()).throw(RuntimeError(f"no data: {symbols}")))
+
+    result = daily_paper.run_daily_paper(tmp_path, now=_NOW)
+
+    assert result.stage == "refresh" and len(symbols) > 1200
+    assert result.details["error"].endswith("LASTSYM")
+
+
 def test_the_forecast_stage_runs_the_request_the_scores_read(tmp_path: Path) -> None:
     calls: list[dict] = []
 
