@@ -101,7 +101,7 @@ def test_yfinance_partial_price_refresh_is_not_successful(monkeypatch) -> None:
         )
 
     monkeypatch.setitem(sys.modules, "yfinance", SimpleNamespace(download=fake_download))
-    provider = YFinanceProvider(ProviderSection(symbols_map={"A": "A.OL", "B": "B.OL"}))
+    provider = YFinanceProvider(ProviderSection(symbols_map={"A": "A.OL", "B": "B.OL"}), retry_cooldown_seconds=0)
 
     result = provider.fetch_prices([], date(2026, 6, 1), date(2026, 6, 30))
 
@@ -109,6 +109,31 @@ def test_yfinance_partial_price_refresh_is_not_successful(monkeypatch) -> None:
     assert not result.ok
     assert result.data is not None
     assert "Partial refresh rejected" in result.message
+
+
+def test_yfinance_empty_download_is_retried_and_dead_symbol_cost_is_bounded(monkeypatch) -> None:
+    calls: list[str] = []
+
+    def fake_download(symbol: str, **kwargs):
+        calls.append(symbol)
+        if symbol == "DEAD.DE" or calls.count(symbol) == 1:
+            return pd.DataFrame()  # transient empty answer on the first call; DEAD.DE is always empty
+        return pd.DataFrame(
+            {"Open": [10.0], "High": [10.5], "Low": [9.5], "Close": [10.2], "Adj Close": [10.2],
+             "Dividends": [0.0], "Stock Splits": [0.0]},
+            index=pd.to_datetime(["2026-06-26"]),
+        )
+
+    monkeypatch.setitem(sys.modules, "yfinance", SimpleNamespace(download=fake_download))
+    provider = YFinanceProvider(ProviderSection(symbols_map={"FLAKY": "FLAKY.DE", "DEAD": "DEAD.DE"}), retry_cooldown_seconds=0)
+
+    result = provider.fetch_prices([], date(2026, 6, 1), date(2026, 6, 30))
+
+    assert result.data is not None
+    assert result.data["etf_id"].unique().tolist() == ["FLAKY"]
+    assert "DEAD/DEAD.DE: no rows returned" in result.message
+    assert calls.count("FLAKY.DE") == 2
+    assert calls.count("DEAD.DE") == 3  # 1 main call + at most 2 retry passes
 
 
 def test_yfinance_provider_extracts_metadata_from_funds_data(monkeypatch) -> None:
