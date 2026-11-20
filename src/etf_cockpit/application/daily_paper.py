@@ -93,7 +93,7 @@ def _failure(stage: str, exc: BaseException | str) -> _StageFailure:
         message = f"{type(exc).__name__}: {exc}"
     else:
         message = str(exc)
-    return _StageFailure(stage, redact_text(" ".join(message.split()))[:1200])
+    return _StageFailure(stage, redact_text(" ".join(message.split())))
 
 
 def _call(stage: str, operation):
