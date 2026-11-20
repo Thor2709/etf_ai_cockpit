@@ -43,10 +43,12 @@ from etf_cockpit.data.fx_data import fx_rates_for_prices
 from etf_cockpit.data.reference_data import load_reference_dataset
 from etf_cockpit.data.score_history_backfill import (
     BACKFILL_PROVENANCE,
+    FORWARD_PROVENANCE,
     backfill_history_path,
     load_backfill_eligibility,
     load_backfill_manifest,
     load_backfill_score_history,
+    run_content_hash,
     write_backfill_store,
 )
 from etf_cockpit.data.trust_artifacts import build_score_history_frame
@@ -102,6 +104,8 @@ _BASE_HISTORY_EXTRA = (
     "legacy_action",
     "gate_policy_version",
     "gate_policy_checksum",
+    "current_price",  # the forward recorder prices its decisions from the run itself (SDD C4/C5)
+    "instrument_currency",
 )
 
 
@@ -204,6 +208,7 @@ def backfill_score_history(
     progress: Callable[[str], None] | None = None,
     workers: int = 1,
     survivorship_mode: str = STRICT_MODE,
+    completed_at: datetime | None = None,
 ) -> BackfillResult:
     """Compute and store the canonical score for each selected historical session; resumable.
 
@@ -221,11 +226,17 @@ def backfill_score_history(
     ``survivorship_mode`` "strict" (default) keeps the fail-closed listing gate. "unverified-delistings" additionally treats an
     instrument as listed from its first price date (evidence ``listing_from_price_history``, usable from the end of that day);
     such rows are logged as ``listed_delisting_unverified`` and the manifest carries ``survivorship_unverified_label``.
+
+    ``completed_at`` (t_S) makes this the forward nightly run of the one session ``start == end`` (SDD C4): rows get the
+    ``forward_nightly`` provenance and ``run_completed_at`` = t_S, stored forward rows of that session are reused, and a
+    scoring error raises. Historical runs never rewrite a session that has forward rows.
     """
 
     root = Path(root)
     if survivorship_mode not in SURVIVORSHIP_MODES:
         raise ValueError(f"Unknown survivorship mode {survivorship_mode!r}")
+    if completed_at is not None and start != end:
+        raise ValueError("a forward score run scores exactly one session (start == end)")
     say = progress or (lambda _message: None)
     config = config or load_config()
     membership = ListingHistory.from_root(root)
@@ -253,7 +264,11 @@ def backfill_score_history(
     if not existing.empty:
         column = existing["config_fingerprint"] if "config_fingerprint" in existing.columns else pd.Series("unfingerprinted", index=existing.index)
         stored_fingerprint = dict(zip(existing["as_of_date"].astype(str), column.fillna("unfingerprinted").astype(str)))
-    done = set() if force else {day for day, value in stored_fingerprint.items() if value == fingerprint}
+    forward_days = set(existing.loc[existing["provenance"].astype(str).eq(FORWARD_PROVENANCE), "as_of_date"].astype(str)) if not existing.empty else set()
+    if completed_at is not None:
+        done = forward_days  # reuse rule: a stored forward run of S keeps its H
+    else:
+        done = forward_days | (set() if force else {day for day, value in stored_fingerprint.items() if value == fingerprint})
     changed = [session for session in sessions if session.isoformat() in stored_fingerprint and session.isoformat() not in done and not force]
     if changed:
         say(f"{len(changed)} stored sessions were produced with a different run configuration and are recomputed")
@@ -289,7 +304,7 @@ def backfill_score_history(
         configurations = {key: known_configs.get(key, {"unknown": "stored before configuration fingerprints existed"}) for key in fingerprints}
         manifest: dict[str, object] = {
             "schema_version": "score_history_backfill.v2",
-            "provenance": BACKFILL_PROVENANCE,
+            "provenances": sorted(set(history["provenance"].astype(str))) if not history.empty else [],
             "pit_policy_version": PIT_POLICY_VERSION,
             "withheld_sources": list(WITHHELD_SOURCES),
             "survivorship_caveat": SURVIVORSHIP_CAVEAT,
@@ -324,7 +339,7 @@ def backfill_score_history(
         )
 
     todo = [(index, session) for index, session in enumerate(sessions, start=1) if session.isoformat() not in done]
-    if not todo and not force and not existing.empty:
+    if not todo and not existing.empty:
         # Nothing to recompute: the store (and its manifest, including remembered unavailable dates) is left untouched.
         return BackfillResult(
             "available", backfill_history_path(root), len(sessions), runs_written=0, runs_kept=int(existing["run_id"].nunique()),
@@ -332,7 +347,7 @@ def backfill_score_history(
             survivorship_unverified=unverified_instruments(existing_eligibility),
         )
     try:
-        for index, session, outcome in _score_sessions(config, frame, todo, fx, registry_signature, excluded, workers, membership):
+        for index, session, outcome in _score_sessions(config, frame, todo, fx, registry_signature, excluded, workers, membership, completed_at):
             say(f"[{index}/{len(sessions)}] scored as of {session}")
             if isinstance(outcome, str):  # fail closed per session: never store a partial or guessed run
                 unavailable[session.isoformat()] = outcome
@@ -340,6 +355,7 @@ def backfill_score_history(
                 continue
             run, eligibility = outcome
             eligibility["config_fingerprint"] = fingerprint
+            eligibility["provenance"] = BACKFILL_PROVENANCE if completed_at is None else FORWARD_PROVENANCE
             new_eligibility.append(eligibility)
             if run is None:
                 unavailable[session.isoformat()] = "no eligible scored instrument"
@@ -363,10 +379,15 @@ def _worker_init(config: AppConfig, prices: pd.DataFrame, fx_rates: pd.DataFrame
     _WORKER_STATE.update(config=config, prices=prices, fx=fx_rates, registry=registry_signature, excluded=excluded, membership=membership)
 
 
-def _score_one(config: AppConfig, prices: pd.DataFrame, session: date, fx_rates: pd.DataFrame | None, registry_signature: str, excluded: Mapping[str, str] | None, membership: ListingHistory):
+def _score_one(config: AppConfig, prices: pd.DataFrame, session: date, fx_rates: pd.DataFrame | None, registry_signature: str, excluded: Mapping[str, str] | None, membership: ListingHistory, completed_at: datetime | None = None):
     try:
-        return score_as_of(config, prices, session, fx_rates=fx_rates, version_registry_signature=registry_signature, excluded=excluded, membership=membership)
-    except Exception as exc:  # reported as the session's unavailable reason
+        return score_as_of(
+            config, prices, session, fx_rates=fx_rates, version_registry_signature=registry_signature, excluded=excluded,
+            membership=membership, completed_at=completed_at,
+        )
+    except Exception as exc:  # reported as the session's unavailable reason; a forward run fails loudly (SDD C4)
+        if completed_at is not None:
+            raise
         return f"{type(exc).__name__}: {str(exc)[:200]}"
 
 
@@ -375,12 +396,12 @@ def _worker_score(session: date):
     return _score_one(state["config"], state["prices"], session, state["fx"], state["registry"], state["excluded"], state["membership"])
 
 
-def _score_sessions(config, frame, todo, fx, registry_signature, excluded, workers, membership):
+def _score_sessions(config, frame, todo, fx, registry_signature, excluded, workers, membership, completed_at=None):
     """Yield ``(index, session, outcome)`` in session order; outcome is ``(run, eligibility)`` or an error string."""
 
-    if workers <= 1 or len(todo) <= 1:
+    if workers <= 1 or len(todo) <= 1:  # a forward run has one session, so it always takes this branch
         for index, session in todo:
-            yield index, session, _score_one(config, frame, session, fx, registry_signature, excluded, membership)
+            yield index, session, _score_one(config, frame, session, fx, registry_signature, excluded, membership, completed_at)
         return
     import multiprocessing
     from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
@@ -419,9 +440,17 @@ def score_as_of(
     version_registry_signature: str = "unavailable",
     excluded: Mapping[str, str] | None = None,
     membership: ListingHistory | None = None,
+    completed_at: datetime | None = None,
 ) -> tuple[pd.DataFrame | None, pd.DataFrame]:
-    """The canonical score history run for one session plus its eligibility log; only data known at ``as_of`` is read."""
+    """The canonical score history run for one session plus its eligibility log; only data known at ``as_of`` is read.
 
+    With ``completed_at`` (t_S, forward mode, SDD C4) every consumed price row must carry ``known_at`` <= t_S (else raise);
+    an instrument with an unstamped consumed row is not admitted (``price_unstamped``).
+    """
+
+    decision_time = datetime(as_of.year, as_of.month, as_of.day, 23, 59, 59, tzinfo=timezone.utc)
+    if completed_at is not None and completed_at < decision_time:
+        raise ValueError(f"forward run completed at {completed_at.isoformat()}, before the session end {decision_time.isoformat()}")
     if membership is None:
         from etf_cockpit.core.paths import ROOT
 
@@ -439,11 +468,21 @@ def score_as_of(
     ].copy()
     known = known.loc[known["etf_id"].astype(str).isin(config.universe.enabled_ids)]
     known["date"] = _as_dates(known["date"])
+    if completed_at is not None:
+        stamps = pd.to_datetime(known["known_at"], utc=True, errors="coerce", format="mixed") if "known_at" in known.columns else pd.Series(pd.NaT, index=known.index)
+        late = known.loc[stamps > pd.Timestamp(completed_at)]
+        if not late.empty:
+            raise ValueError(f"price known after run time: {sorted(set(late['etf_id'].astype(str)))[:10]}")
+        unstamped = set(known.loc[stamps.isna(), "etf_id"].astype(str))
+        excluded = {**excluded, **{key: "price_unstamped" for key in unstamped}}
+        known = known.loc[~known["etf_id"].astype(str).isin(unstamped)]
+        config = config.model_copy(update={"universe": config.universe.model_copy(update={
+            "etfs": [item for item in config.universe.etfs if item.id not in unstamped]
+        })})
     if not config.universe.enabled_ids:
         eligibility = _eligibility_log(log_config, as_of, known, DataQualityReport(as_of, []), pd.DataFrame(), [], excluded, fx_rates, set())
         return None, _membership_log(eligibility, snapshot)
-    decision_time = datetime(as_of.year, as_of.month, as_of.day, 23, 59, 59, tzinfo=timezone.utc)
-    created_at = decision_time.isoformat()
+    created_at = (completed_at or decision_time).isoformat()
     # Admission precedes every cross-sectional operation, including features,
     # baseline forecasts and peer cohorts. Preserve the full input for the log.
     log_known = known
@@ -534,11 +573,14 @@ def score_as_of(
     ranked = rank_and_finalize_scores([score for score in scores if score.display_id in eligible_ids], known, metadata, news_inventory={})
     if not ranked:
         return None, eligibility
-    run = _history_run(ranked, run_id, created_at, as_of, inputs_hash, eligibility, version_registry_signature, baselines)
+    run = _history_run(
+        ranked, run_id, created_at, as_of, inputs_hash, eligibility, version_registry_signature, baselines,
+        provenance=BACKFILL_PROVENANCE if completed_at is None else FORWARD_PROVENANCE,
+    )
     run["membership_policy"] = MEMBERSHIP_POLICY
     run["membership_status"] = run["instrument_id"].map(eligibility.set_index("instrument_id")["membership_status"])
     run["membership_inputs_hash"] = snapshot.fingerprint
-    run["snapshot_hash"] = _content_hash(run)
+    run["snapshot_hash"] = run_content_hash(run)
     return run, eligibility
 
 
@@ -687,6 +729,8 @@ def _history_run(
     eligibility: pd.DataFrame,
     version_registry_signature: str,
     baselines: Mapping[str, ForecastResult],
+    *,
+    provenance: str = BACKFILL_PROVENANCE,
 ) -> pd.DataFrame:
     frame = build_score_history_frame(ranked, run_id=run_id, created_at=created_at, version_registry_signature=version_registry_signature)
     board = simple_scoreboard_frame(list(ranked)).set_index("instrument_id")
@@ -710,7 +754,7 @@ def _history_run(
         )
         for score in ranked
     }
-    frame["provenance"] = BACKFILL_PROVENANCE
+    frame["provenance"] = provenance
     frame["as_of_date"] = as_of.isoformat()
     frame["as_of_inputs_hash"] = inputs_hash
     frame["pit_policy_version"] = PIT_POLICY_VERSION
@@ -731,7 +775,7 @@ def _history_run(
     frame["forecast_status"] = frame["instrument_id"].map(lambda key: "partial" if key in baselines else "unavailable")
     frame["expected_return_order_value_source"] = "configured_min_trade_value_eur_research_reference"
     frame["snapshot_hash"] = ""
-    frame["snapshot_hash"] = _content_hash(frame)
+    frame["snapshot_hash"] = run_content_hash(frame)
     return frame
 
 
@@ -794,12 +838,6 @@ def _inputs_hash(config: AppConfig, known: pd.DataFrame, fx: pd.DataFrame | None
             fx_known = fx.loc[pd.to_datetime(fx["as_of_date"], errors="coerce").dt.date <= as_of]
         digest.update(pd.util.hash_pandas_object(fx_known.astype(str), index=False).to_numpy().tobytes())
     return digest.hexdigest()
-
-
-def _content_hash(frame: pd.DataFrame) -> str:
-    canonical = frame.drop(columns=["snapshot_hash"], errors="ignore").sort_values("instrument_id", kind="stable")
-    canonical = canonical.reindex(sorted(canonical.columns), axis=1)
-    return hashlib.sha256(canonical.to_json(orient="records", date_format="iso", default_handler=str).encode("utf-8")).hexdigest()
 
 
 def _as_dates(values: pd.Series) -> pd.Series:

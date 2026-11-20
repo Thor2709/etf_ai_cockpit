@@ -22,7 +22,7 @@ from etf_cockpit.data.replay_membership import (
 )
 from etf_cockpit.core.paths import ROOT
 from etf_cockpit.data.local_storage import StorageRevisionConflict, TransactionalStore
-from etf_cockpit.data.score_history_backfill import load_backfill_eligibility, load_backfill_score_history
+from etf_cockpit.data.score_history_backfill import BACKFILL_PROVENANCE, load_backfill_eligibility, load_backfill_score_history
 from etf_cockpit.portfolio import paper_bots_readiness as data_readiness
 from etf_cockpit.portfolio import paper_bots as bots
 from etf_cockpit.portfolio import paper_bots_execution as execution
@@ -72,7 +72,7 @@ def run_historical_replay(
 
     try:
         frame = history if history is not None else (
-            load_backfill_score_history(project_root) if history_source == "backfill"
+            load_backfill_score_history(project_root, {BACKFILL_PROVENANCE}) if history_source == "backfill"
             else bots._load_published_score_history(project_root)
         )
         readiness_days = []
@@ -97,7 +97,7 @@ def run_historical_replay(
             membership = membership.with_price_history(book.first_price_dates(), survivorship_mode)
         failure = replay_preflight(frame, membership, book, cutoff)
         flagged = [] if failure else delisting_unverified_in_history(frame, membership, cutoff)
-        unknown = unverified_instruments(load_backfill_eligibility(project_root)) if history_source == "backfill" else []
+        unknown = unverified_instruments(load_backfill_eligibility(project_root, {BACKFILL_PROVENANCE})) if history_source == "backfill" else []
     except (OSError, ValueError, TypeError, KeyError, sqlite3.Error) as exc:
         return execution.ExecutionRunResult("unavailable", "replay", bots._time_text(cutoff), reason=f"Membership preflight unavailable: {type(exc).__name__}.", label=track.label)
     if failure:

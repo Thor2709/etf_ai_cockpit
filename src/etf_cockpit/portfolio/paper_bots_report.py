@@ -112,7 +112,7 @@ def build_track_report(
     base["caveat"] = track.caveat
     base["survivorship_unverified"] = False
     base["as_of"] = bots._time_text(cutoff)
-    book = price_book if price_book is not None else execution.PriceBook.from_root(root)
+    book = price_book if price_book is not None else execution.PriceBook.from_root(root, with_observations=track.name == "forward")
     try:
         with TransactionalStore(track.store_root, read_only=True) as store:
             decisions = [dict(item.payload) for item in store.list(track.decision_type)]
@@ -207,10 +207,16 @@ def _bot_report(
         report["reason"] = "Awaiting the first VWCE shadow execution close after the first funding flow."
         return report
     report["valued_through"] = through.isoformat()
+
+    def observed_open(session: date) -> object | None:  # the same stored observation the shadow flow traded at (SDD C7.4)
+        row = book.observed_open(book.benchmark_id, session, known_by=execution._fill_datetime(config, session))
+        return None if row is None else row["open"]
+
     try:
         benchmark = shadow.shadow_daily_snapshots(
             frame, series_check=check, through=through, decision_time=cutoff,
             max_stale_sessions=int(config["max_stale_mark_sessions"]),
+            observed_open=observed_open if getattr(book, "observations", None) is not None else None,
         )
     except PaperLedgerError as exc:
         report["reason"] = f"Benchmark shadow account unavailable: {str(exc)[:160]}"

@@ -56,15 +56,15 @@ def _run(argv: list[str] | None = None) -> int:
     from etf_cockpit.data.replay_membership import SURVIVORSHIP_UNVERIFIED_BANNER, unverified_instruments
     from etf_cockpit.core.paths import ROOT
     from etf_cockpit.data.local_storage import TransactionalStore
-    from etf_cockpit.data.score_history_backfill import load_backfill_eligibility, load_backfill_score_history
+    from etf_cockpit.data.score_history_backfill import BACKFILL_PROVENANCE, load_backfill_eligibility, load_backfill_score_history
     from etf_cockpit.portfolio import paper_bots_execution as execution
     from etf_cockpit.portfolio.paper_bots_replay import run_historical_replay
     from etf_cockpit.portfolio.paper_bots_report import build_paper_bots_overview
 
     import pandas as pd
 
-    history = load_backfill_score_history(ROOT)
-    eligibility = load_backfill_eligibility(ROOT)
+    history = load_backfill_score_history(ROOT, {BACKFILL_PROVENANCE})
+    eligibility = load_backfill_eligibility(ROOT, {BACKFILL_PROVENANCE})
     print("survivorship-unverified instruments (no listing history at one or more replay dates):")
     for instrument_id in unverified_instruments(eligibility):
         print(f"  {instrument_id}")
@@ -152,7 +152,7 @@ def _run(argv: list[str] | None = None) -> int:
                 print(f"    VWCE benchmark track final: {bot['benchmark_wealth'][-1]}; first/last date: {bot['dates'][0]} / {bot['dates'][-1]}")
             print(f"    trades in log: {len(bot.get('trade_log', []))}")
     print("eligible instruments at the last session of each year, by asset type:")
-    print(eligible_counts_by_year(load_backfill_eligibility(ROOT)).to_string())
+    print(eligible_counts_by_year(load_backfill_eligibility(ROOT, {BACKFILL_PROVENANCE})).to_string())
     print("share of scored instruments with each score term available, by year:")
     print(term_coverage_by_year(history).to_string())
     print(SURVIVORSHIP_CAVEAT)

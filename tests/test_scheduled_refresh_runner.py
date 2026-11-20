@@ -70,3 +70,41 @@ def test_second_job_waits_until_the_first_ends(tmp_path):
         line.endswith(" waiting for the other data job to end") for line in weekly_log
     )
     assert weekly_start.split()[0] >= daily_end.split()[0]
+
+
+def test_daily_runs_the_paper_stages_and_the_session_opens_job_is_registered():
+    runner = RUNNER.read_text(encoding="utf-8")
+    daily = runner[runner.index("run_daily_paper.py"):].split(")", 1)[0]
+    assert "--dry-run" not in daily and "--dry-run" not in runner.splitlines()[2]
+    assert "run_morning_fill.py" in runner
+    register = (RUNNER.parent / "register_scheduled_refresh.ps1").read_text(encoding="utf-8")
+    assert ("Register-Job 'ETF-Cockpit-Session-Opens' 'Fill' (New-ScheduledTaskTrigger -Weekly -DaysOfWeek "
+            "Monday, Tuesday, Wednesday, Thursday, Friday -At '15:45') 1") in register
+
+
+def test_the_session_opens_job_does_not_wait_for_a_data_job(tmp_path):
+    scripts, root = tmp_path / "scripts", tmp_path / "root"
+    scripts.mkdir()
+    shutil.copy(RUNNER, scripts)
+    running = root / "daily.running"
+    (scripts / "run_daily_paper.py").write_text(
+        f"import pathlib, time\npathlib.Path({str(running)!r}).touch()\ntime.sleep(20)\n",
+        encoding="utf-8",
+    )
+    (scripts / "run_morning_fill.py").write_text("raise SystemExit(0)\n", encoding="utf-8")
+    daily = _start(scripts, root, "Daily")
+    fill = None
+    try:
+        deadline = time.monotonic() + 30
+        while not running.exists() and time.monotonic() < deadline:
+            time.sleep(0.1)
+        if not running.exists():
+            pytest.skip("a real scheduled data job holds the lock on this machine")
+        fill = _start(scripts, root, "Fill")
+        assert fill.wait(15) == 0
+        assert daily.poll() is None  # the daily job still holds the data-jobs mutex
+    finally:
+        for process in (daily, fill):
+            if process is not None and process.poll() is None:
+                process.kill()
+    assert not any(line.endswith("waiting for the other data job to end") for line in _log(root, "Fill"))

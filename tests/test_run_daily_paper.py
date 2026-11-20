@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 import json
 from pathlib import Path
@@ -15,25 +15,42 @@ from etf_cockpit.portfolio.paper_bots import _load_config
 
 
 _NOW = datetime(2026, 11, 3, 12, tzinfo=timezone.utc)
-_SNAPSHOT_ID = {"scoreboard_sha256": "a" * 64, "score_snapshot_hash": "b" * 64}
+_SESSION = date(2026, 11, 2)
+_SNAPSHOT = "b" * 64
+_FULL_ORDER = [
+    "capture", "decision_session", "score_run", "readiness", "feature_vintage", "paper_gate", "challengers",
+    "paper_bots", "paper_bot_execution", "ai_account", "refresh", "rescore", "publish",
+]
 
 
-def _wire_pipeline(monkeypatch, events: list[str], *, snapshot_id: dict[str, str] | None = None) -> None:
-    identity = dict(_SNAPSHOT_ID if snapshot_id is None else snapshot_id)
+def _bots(status: str = "available", *records: dict, snapshot: str | None = _SNAPSHOT) -> SimpleNamespace:
+    return SimpleNamespace(status=status, appended=len(records), reason=None, records=records, candidate_snapshot=snapshot)
+
+
+def _wire_pipeline(
+    monkeypatch, events: list[str], *, bots: SimpleNamespace | None = None, passed: bool = True,
+    new_session: bool = True, paper_gate: str | None = None, recorder_calls: list[dict] | None = None,
+) -> None:
     session = SimpleNamespace(snapshot=SimpleNamespace())
+    report = SimpleNamespace(passed=passed, format_text=lambda: "DATA READINESS -> FAIL")
+    monkeypatch.setattr(daily_paper, "_capture", lambda _root, _clock: events.append("capture") or {"status": "recorded"})
+    monkeypatch.setattr(daily_paper, "_decision_session", lambda _root, _clock: events.append("decision_session") or (_SESSION, new_session))
+    monkeypatch.setattr(daily_paper, "_score_run", lambda _root, _day, _at: events.append("score_run") or {"status": "available"})
+    monkeypatch.setattr(daily_paper, "_validate_readiness", lambda _root, _day: events.append("readiness") or (report, _SNAPSHOT, "run-1"))
+    monkeypatch.setattr(daily_paper, "record_feature_observations", lambda *_args, **_kwargs: events.append("feature_vintage"))
+    monkeypatch.setattr(daily_paper, "_paper_gate", lambda _root: events.append("paper_gate") or paper_gate)
+    monkeypatch.setattr(
+        daily_paper, "build_challenger_engines",
+        lambda _root, _cutoff: events.append("challengers") or ({}, {"gbdt_rank_63": {"status": "insufficient_evidence", "preflight": ["x"]}}),
+    )
     monkeypatch.setattr(daily_paper, "_refresh", lambda _root: events.append("refresh") or (session, "prices refreshed"))
     monkeypatch.setattr(daily_paper, "_rescore", lambda _session: events.append("rescore") or "rescored")
-    monkeypatch.setattr(
-        daily_paper,
-        "_validate_readiness",
-        lambda _root, _snapshot, _now: events.append("readiness") or (date(2026, 11, 2), identity["score_snapshot_hash"]),
-    )
     monkeypatch.setattr(daily_paper, "_publish", lambda _session: events.append("publish"))
-    monkeypatch.setattr(daily_paper, "_published_snapshot_id", lambda _root: dict(identity))
     monkeypatch.setattr(
         daily_paper,
         "run_paper_bots",
-        lambda *_args, **_kwargs: events.append("paper_bots") or SimpleNamespace(status="available", appended=0, reason=None),
+        lambda *_args, **kwargs: events.append("paper_bots") or (recorder_calls if recorder_calls is not None else []).append(kwargs)
+        or (bots or _bots()),
     )
     monkeypatch.setattr(
         daily_paper,
@@ -48,45 +65,109 @@ def _wire_pipeline(monkeypatch, events: list[str], *, snapshot_id: dict[str, str
     )
 
 
-def test_readiness_fail_stops_before_bot_or_ledger_writes(monkeypatch, tmp_path: Path) -> None:
+def test_readiness_fail_skips_the_paper_stages_and_still_refreshes(monkeypatch, tmp_path: Path) -> None:
     events: list[str] = []
-    _wire_pipeline(monkeypatch, events)
+    _wire_pipeline(monkeypatch, events, passed=False)
 
-    def fail_gate(_root, _snapshot, _now):
-        events.append("readiness")
-        raise daily_paper._failure("readiness", "DATA READINESS -> FAIL")
-
-    monkeypatch.setattr(daily_paper, "_validate_readiness", fail_gate)
     result = daily_paper.run_daily_paper(tmp_path, now=_NOW)
 
     assert result.exit_code == 1
     assert result.stage == "readiness"
-    assert events == ["refresh", "rescore", "readiness"]
+    assert events == ["capture", "decision_session", "score_run", "readiness", "feature_vintage", "refresh", "rescore", "publish"]
     paper_root = tmp_path / "data" / "operations" / "paper"
     assert not paper_root.exists()
 
 
-def test_pass_runs_refresh_rescore_gate_publish_then_bots(monkeypatch, tmp_path: Path) -> None:
+def test_pass_runs_capture_score_gate_and_bots_before_the_refresh(monkeypatch, tmp_path: Path) -> None:
     events: list[str] = []
-    _wire_pipeline(monkeypatch, events)
+    calls: list[dict] = []
+    _wire_pipeline(monkeypatch, events, recorder_calls=calls)
 
     result = daily_paper.run_daily_paper(tmp_path, now=_NOW)
 
-    assert result.exit_code == 0
-    assert events == [
-        "refresh",
-        "rescore",
-        "readiness",
-        "publish",
-        "paper_bots",
-        "paper_bot_execution",
-        "ai_account",
-    ]
+    assert result.exit_code == 0 and result.stage == "complete"
+    assert events == _FULL_ORDER
+    assert calls[0]["decision_session"] == _SESSION and calls[0]["snapshot_hash"] == _SNAPSHOT  # the readiness run's id
     payload = json.loads(result.to_json())
-    assert payload["readiness"]["snapshot_id"] == "b" * 64
+    assert payload["readiness"]["snapshot_id"] == _SNAPSHOT
+    assert payload["capture"]["status"] == "recorded" and payload["paper_enabled"] is True
+    assert payload["challengers"]["gbdt_rank_63"]["preflight"] == ["x"]
     assert payload["paper_bot_execution"]["ledger_price_basis"] == "as_traded_units_gross_cash_dividends"
     assert payload["paper_bot_execution"]["dividend_policy"].startswith("gross cash")
     assert payload["execution_allowed"] is False
+
+
+@pytest.mark.parametrize(("gate", "new_session", "stage"), [
+    ("paper_disabled", True, "paper_disabled"), (None, False, "no_new_session"),
+])
+def test_paper_disabled_or_no_new_session_skips_the_paper_stages_and_exits_zero(monkeypatch, tmp_path: Path, gate, new_session, stage) -> None:
+    events: list[str] = []
+    _wire_pipeline(monkeypatch, events, paper_gate=gate, new_session=new_session)
+
+    result = daily_paper.run_daily_paper(tmp_path, now=_NOW)
+
+    assert result.exit_code == 0 and result.stage == stage
+    assert "paper_bots" not in events and "ai_account" not in events
+    assert events[-3:] == ["refresh", "rescore", "publish"]
+    if stage == "paper_disabled":
+        assert result.details["paper_enabled"] is False and "readiness" in events
+    else:
+        assert "score_run" not in events and "readiness" not in events
+
+
+def _record(family: str, status: str, reason: str | None = None) -> dict:
+    return {"bot_family": family, "bot_id": f"{family}-id", "status": status, "reason": reason}
+
+
+def test_partial_is_accepted_only_for_challengers_without_a_new_trade(monkeypatch, tmp_path: Path) -> None:
+    accepted = _bots("partial", _record("B1", "available"), _record("B1-r", "unavailable", "NO_NEW_TRADE: ranker scores gbdt_rank_63 are not available"))
+    events: list[str] = []
+    _wire_pipeline(monkeypatch, events, bots=accepted)
+    result = daily_paper.run_daily_paper(tmp_path, now=_NOW)
+    assert result.exit_code == 0, result.details
+    assert [item["bot_family"] for item in result.details["paper_bots"]["bots"]] == ["B1", "B1-r"]
+
+    rejected = _bots("partial", _record("B0", "available"), _record("B1", "unavailable", "stale"))
+    events = []
+    _wire_pipeline(monkeypatch, events, bots=rejected)
+    result = daily_paper.run_daily_paper(tmp_path, now=_NOW)
+    assert result.exit_code == 1 and result.stage == "paper_bots"
+    assert "partial not accepted: B1" in result.details["error"]
+    assert "paper_bot_execution" not in events and events[-3:] == ["refresh", "rescore", "publish"]
+
+
+def test_capture_is_stamped_after_the_page_is_in_hand_and_a_failure_is_only_logged(monkeypatch, tmp_path: Path) -> None:
+    from etf_cockpit.data import sp500_capture
+
+    events: list[object] = []
+    monkeypatch.setattr(sp500_capture, "_fetch", lambda _url: events.append("fetch") or b"page")
+
+    def capture(_root, *, now, fetch):
+        events.append(("capture", now, fetch("url")))
+        return sp500_capture.Sp500Capture("recorded", "2026-11-03", "t", 503, 499, 4, 503)
+
+    monkeypatch.setattr(sp500_capture, "capture_sp500", capture)
+    clock = lambda: events.append("clock") or _NOW  # noqa: E731
+    assert daily_paper._capture(tmp_path, clock)["status"] == "recorded"
+    assert events == ["fetch", "clock", ("capture", _NOW, b"page")]
+
+    def failing(_root, *, now, fetch):
+        raise sp500_capture.Sp500CaptureError("capture failed: guard")
+
+    monkeypatch.setattr(sp500_capture, "capture_sp500", failing)
+    assert daily_paper._capture(tmp_path, clock) == {"status": "failed", "reason": "capture failed: guard"}
+
+
+def test_a_new_session_is_one_without_a_forward_run_from_an_earlier_night() -> None:
+    import pandas as pd
+
+    saturday = datetime(2026, 10, 31, 21, 32, tzinfo=timezone.utc)
+    friday = date(2026, 10, 30)
+    history = pd.DataFrame({"as_of_date": [friday.isoformat()], "provenance": ["forward_nightly"], "run_completed_at": [saturday.isoformat()]})
+    assert daily_paper._is_new_session(pd.DataFrame(), friday, saturday)
+    assert daily_paper._is_new_session(history, friday, saturday + timedelta(hours=1))  # a rerun on the same night reuses H
+    assert not daily_paper._is_new_session(history, friday, saturday + timedelta(days=1))  # Sunday: no_new_session
+    assert daily_paper._is_new_session(history, date(2026, 11, 2), saturday + timedelta(days=3))
 
 
 def test_ai_account_is_idempotent_and_does_not_add_cash_on_second_run(monkeypatch, tmp_path: Path) -> None:
@@ -182,22 +263,17 @@ def test_second_concurrent_driver_is_refused_by_shared_writer_lock(monkeypatch, 
     assert result.stage == "lock"
 
 
-def test_pass_bound_to_older_published_snapshot_is_rejected(monkeypatch, tmp_path: Path) -> None:
+@pytest.mark.parametrize("candidate", [None, "d" * 64])
+def test_decisions_bound_to_another_run_than_the_readiness_pass_are_rejected(monkeypatch, tmp_path: Path, candidate) -> None:
     events: list[str] = []
-    old_identity = {"scoreboard_sha256": "c" * 64, "score_snapshot_hash": "d" * 64}
-    _wire_pipeline(monkeypatch, events, snapshot_id=old_identity)
-    monkeypatch.setattr(
-        daily_paper,
-        "_published_snapshot_id",
-        lambda _root: {"scoreboard_sha256": "e" * 64, "score_snapshot_hash": "f" * 64},
-    )
+    _wire_pipeline(monkeypatch, events, bots=_bots(snapshot=candidate))
 
     result = daily_paper.run_daily_paper(tmp_path, now=_NOW)
 
     assert result.exit_code == 1
-    assert result.stage == "readiness"
-    assert "older published snapshot id" in result.details["error"]
-    assert events == ["refresh", "rescore", "readiness", "publish"]
+    assert result.stage == "paper_bots"
+    assert "recorded snapshot differs from H" in result.details["error"]
+    assert "paper_bot_execution" not in events and events[-3:] == ["refresh", "rescore", "publish"]
 
 
 def test_paper_bot_config_remains_exactly_four_families() -> None:

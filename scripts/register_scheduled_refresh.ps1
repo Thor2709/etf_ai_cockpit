@@ -1,11 +1,12 @@
 <#
-Registers the two scheduled ETF AI Cockpit data jobs for the current user. They run while the user is
+Registers the three scheduled ETF AI Cockpit jobs for the current user. They run while the user is
 logged on; no password is stored.
   ETF-Cockpit-Daily-Prices         every day 22:30 (all markets closed: US closed, Tokyo not open yet)
   ETF-Cockpit-Weekly-Fundamentals  Saturday, Sunday and Monday 10:00 (Sunday/Monday only catch up a missed Saturday)
+  ETF-Cockpit-Session-Opens        Monday to Friday 15:45 (opening prices for the paper fills; ADR-0009 O3)
 A start missed while the laptop was off runs as soon as it is on again. The jobs run the code next to this
-script, so register from the checkout that should run. Registering over an existing task fails; remove it
-first with Unregister-ScheduledTask.
+script, so register from the checkout that should run. A task that already exists is skipped; to change it,
+remove it first with Unregister-ScheduledTask.
 Usage: powershell -NoProfile -File register_scheduled_refresh.ps1 -Root <data root> -Python <python.exe>
 #>
 param(
@@ -21,6 +22,7 @@ foreach ($path in $runner, $Python, (Join-Path $Root 'configs\universe.yaml')) {
 $principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive
 
 function Register-Job([string]$Name, [string]$Kind, $Trigger, [int]$Hours) {
+    if (Get-ScheduledTask -TaskName $Name -ErrorAction SilentlyContinue) { "exists $Name (skipped)"; return }
     $argument = '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "{0}" -Job {1} -Root "{2}" -Python "{3}"' -f $runner, $Kind, $Root, $Python
     $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $argument
     $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -MultipleInstances IgnoreNew -AllowStartIfOnBatteries `
@@ -31,3 +33,4 @@ function Register-Job([string]$Name, [string]$Kind, $Trigger, [int]$Hours) {
 
 Register-Job 'ETF-Cockpit-Daily-Prices' 'Daily' (New-ScheduledTaskTrigger -Daily -At '22:30') 4
 Register-Job 'ETF-Cockpit-Weekly-Fundamentals' 'Weekly' (New-ScheduledTaskTrigger -Weekly -DaysOfWeek Saturday, Sunday, Monday -At '10:00') 8
+Register-Job 'ETF-Cockpit-Session-Opens' 'Fill' (New-ScheduledTaskTrigger -Weekly -DaysOfWeek Monday, Tuesday, Wednesday, Thursday, Friday -At '15:45') 1
