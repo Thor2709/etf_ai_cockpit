@@ -646,10 +646,16 @@ def test_registry_entrypoint_rejects_handcrafted_invalid_transition_events(
     }
     if case == "skip":
         issue_id = next(
-            candidate
-            for candidate, record in sorted(prior["records"].items())
-            if record["programme_status"] in skip_targets
+            (
+                candidate
+                for candidate, record in sorted(prior["records"].items())
+                if record["programme_status"] in skip_targets
+            ),
+            issue_id,
         )
+        if prior["records"][issue_id]["programme_status"] not in skip_targets:
+            # Every live issue is past the skippable states: stage one as planned in the authoritative copy.
+            prior["records"][issue_id]["programme_status"] = "planned"
     source = prior["records"][issue_id]["programme_status"]
     if case == "skip":
         assert skip_targets[source] not in issue_registry_core.CONTROL_ALLOWED_TRANSITIONS.get(
