@@ -774,6 +774,21 @@ def test_add_candidate_action_maps_to_the_candidate_buy_sleeve(monkeypatch, tmp_
     assert "cash_weight" not in sleeve["targets"]
 
 
+def test_an_eligible_equity_certificate_enters_the_top_n_and_both_candidate_sleeves(monkeypatch, tmp_path: Path) -> None:
+    now = _NOW
+    known_at = now - timedelta(minutes=5)
+    rows = _rows(known_at)
+    rows[0]["asset_type"] = "Equity certificate"  # the score row label of a Norwegian savings bank
+    board = _scoreboard(rows, known_at)
+
+    result = _run_fixture(monkeypatch, tmp_path, rows, board, now)
+
+    records = {record["bot_family"]: record for record in result.records}
+    assert records["B1"]["targets"] == pytest.approx({"AAA": 0.5, "BBB": 0.5})
+    for family in ("B2", "B3"):
+        assert records[family]["targets"] == pytest.approx({"VWCE": 0.8, "AAA": 0.1, "BBB": 0.1})
+
+
 def test_top_n_with_fewer_eligible_is_equal_weight_with_a_recorded_reason(monkeypatch, tmp_path: Path) -> None:
     now = _NOW
     known_at = now - timedelta(minutes=5)

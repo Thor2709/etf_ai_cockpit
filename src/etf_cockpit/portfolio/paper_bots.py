@@ -602,9 +602,9 @@ def _load_config(path: Path) -> tuple[bytes, dict[str, Any]]:
             if (
                 not isinstance(asset_types, list)
                 or not asset_types
-                or any(str(value).strip().upper() not in {"ETF", "STOCK"} for value in asset_types)
+                or any(_asset_type_key(value) not in {"ETF", "STOCK", "EQUITY CERTIFICATE"} for value in asset_types)
             ):
-                raise ValueError("top_n asset_types must be a non-empty ETF/STOCK list")
+                raise ValueError("top_n asset_types must be a non-empty ETF/STOCK/EQUITY_CERTIFICATE list")
         if item["strategy"] == "core_sleeve":
             core = _finite_number(item.get("core_weight"))
             sleeve = _finite_number(item.get("sleeve_weight"))
@@ -1036,15 +1036,14 @@ def _build_decision(
         selected_ids = [str(benchmark_spec["instrument_id"])]
     else:
         eligible: list[tuple[int, str, dict[str, Any], dict[str, Any]]] = []
-        asset_types = set(str(item).upper() for item in spec.get("asset_types", ("ETF", "STOCK")))
+        asset_types = set(_asset_type_key(item) for item in spec.get("asset_types", ("ETF", "STOCK")))
         for instrument_id, (history_row, board_row) in matched.items():
             if instrument_id in group.non_canonical_ids:
                 continue
             asset_type_value = _real_text(history_row.get("asset_type"))
             if asset_type_value is None:
                 return unavailable(f"Instrument {instrument_id} asset type is unverifiable.")
-            asset_type = asset_type_value.upper()
-            if asset_type not in asset_types:
+            if _asset_type_key(asset_type_value) not in asset_types:
                 skipped.append({"instrument_id": instrument_id, "reason": "asset_type_not_in_strategy_universe"})
                 continue
             gate = _strict_bool(board_row.get("research_promotion_allowed"))
@@ -1518,6 +1517,12 @@ def _date_text(value: object) -> str | None:
     except ValueError:
         parsed = _parse_timestamp(text)
         return parsed.date().isoformat() if parsed is not None else None
+
+
+def _asset_type_key(value: object) -> str:
+    """One spelling per asset type: score rows say ``Equity certificate``, the universe and config ``equity_certificate``."""
+
+    return str(value).strip().upper().replace("_", " ")
 
 
 def _real_text(value: object) -> str | None:
