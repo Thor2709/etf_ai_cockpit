@@ -51,12 +51,12 @@ $started = Get-Date
 # one short append per line keeps the log readable while the job runs (Add-Content in a pipeline locks it)
 & $Python @arguments 2>&1 | ForEach-Object { [IO.File]::AppendAllText($log, "$_`r`n", [Text.Encoding]::UTF8) }
 $code = $LASTEXITCODE
-if ($Job -eq 'Weekly') {
-    # FRED vintages (context only); its exit code is logged and never changes the job result
-    & $Python "$PSScriptRoot\refresh_macro.py" --root $Root 2>&1 | ForEach-Object { [IO.File]::AppendAllText($log, "$_`r`n", [Text.Encoding]::UTF8) }
-    Write-Log "refresh_macro exit=$LASTEXITCODE"
-}
 Write-Log ('end {0} exit={1} duration={2:hh\:mm\:ss}' -f $Job, $code, ((Get-Date) - $started))
 if ($Job -eq 'Weekly' -and $code -eq 0) { Set-Content -Path $stamp -Value $today.ToString('yyyy-MM-dd') }
 $mutex.ReleaseMutex()
+if ($Job -eq 'Weekly') {
+    # FRED vintages (context only) need no Yahoo mutex; the exit code is logged and never changes the job result
+    & $Python "$PSScriptRoot\refresh_macro.py" --root $Root 2>&1 | ForEach-Object { [IO.File]::AppendAllText($log, "$_`r`n", [Text.Encoding]::UTF8) }
+    Write-Log "refresh_macro exit=$LASTEXITCODE"
+}
 exit $code

@@ -25,7 +25,7 @@ def main(argv: list[str] | None = None, *, transport: Callable[[str], bytes] | N
     from etf_cockpit.data.macro_warehouse import MacroWarehouse
 
     section = config_module.load_config().data_providers.section("fred")
-    if section.active_provider != "fred":
+    if (section.active_provider or "").strip().lower() != "fred":
         print("FRED refresh skipped: the fred provider is not active.")
         return 0
     key = config_module.resolve_provider_api_key("fred", configured_value=section.api_key)

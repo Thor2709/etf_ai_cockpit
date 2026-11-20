@@ -106,6 +106,15 @@ def macro_factors_page(page: ft.Page | None, state: AppState) -> PageView:
             f"{indicators_available} of {len(indicators)} available" if indicators else None,
             str(indicator_gap or "Context only") if indicators else "FRED macro indicators unavailable.",
         ),
+        kit.Disclosure(
+            "FRED indicator details",
+            "\r\n".join(
+                f"{item.get('indicator_id')}: {item['value']:g} {item.get('unit', '')}"
+                if item.get("status") == "available"
+                else f"{item.get('indicator_id')}: unavailable — {item.get('reason')}"
+                for item in indicators
+            ) or "FRED macro indicators unavailable.",
+        ),
     ]
     proxy_details = [
         f"{row.get('proxy', 'Unavailable')}: {row.get('status', 'Unavailable')}; "

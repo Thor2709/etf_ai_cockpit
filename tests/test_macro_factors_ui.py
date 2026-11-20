@@ -267,25 +267,25 @@ def test_macro_page_fails_closed_with_explicit_unavailable_when_cutoff_missing(
     assert "9999" not in text
 
 
-def test_fred_macro_indicators_are_bound_at_the_cutoff_and_shown_as_context(monkeypatch) -> None:
-    vix = _observation().model_copy(update={"dataset_id": "fred:VIXCLS", "series_id": "VIXCLS", "unit": "index", "value": 14.0})
+def test_fred_macro_indicators_are_bound_at_the_cutoff_and_shown_as_context(monkeypatch, tmp_path) -> None:
+    def fred(series_id: str, value: float, available_at: str, revision: int = 1) -> MacroObservation:
+        return _observation().model_copy(update={
+            "dataset_id": f"fred:{series_id}", "series_id": series_id, "unit": "index" if series_id == "VIXCLS" else "percent",
+            "value": value, "available_at": available_at, "published_at": available_at, "ingested_at": available_at, "revision": revision,
+        })
 
-    class Warehouse:
-        def summary(self, **_kwargs):
-            return {"status": "available", "row_count": 1, "dataset_ids": [vix.dataset_id]}
+    # Cutoff 2024-03-01: the VIX revision and both yields become known after it, so they must not reach the indicators.
+    later = "2024-03-05T00:00:00Z"
+    warehouse = macro_context.MacroWarehouse()
+    warehouse.ingest([fred("VIXCLS", 14.0, "2024-02-01T00:00:00Z"), fred("VIXCLS", 30.0, later, 2), fred("DGS10", 4.0, later), fred("DGS2", 4.5, later)], root=tmp_path)
 
-        def observations_as_of(self, **_kwargs):
-            return [vix]
-
-        def curve_benchmark_coverage(self, **kwargs):
-            return {"status": "unavailable", "decision_time": kwargs["decision_time"]}
-
-    binding = macro_context.build_macro_context_binding(_snapshot(), warehouse=Warehouse(), root=macro_context.Path("."))
+    binding = macro_context.build_macro_context_binding(_snapshot(), warehouse=warehouse, root=tmp_path)
     indicators = binding.context["macro_indicators"]
 
     assert len(indicators) == 10 and indicators["vix"]["value"] == 14.0
     assert all(item["status"] == "unavailable" for name, item in indicators.items() if name != "vix")
-    monkeypatch.setattr(macro_factors, "MacroWarehouse", Warehouse)
+    monkeypatch.setattr(macro_factors, "ROOT", tmp_path)
     text = _text(macro_factors.macro_factors_page(None, SimpleNamespace(snapshot=_snapshot())))
     assert "fred macro indicators" in text.lower() and "1 of 10 available" in text
-    assert indicators["slope_10y_2y"]["reason"] in text
+    assert "vix: 14 index" in text
+    assert all(f"{name}: unavailable — {item['reason']}" in text for name, item in indicators.items() if name != "vix")

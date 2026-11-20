@@ -310,7 +310,7 @@ def test_refresh_macro_stores_each_series_once_and_one_failure_does_not_stop_the
 
     assert _refresh_macro(monkeypatch, tmp_path, transport) == 0
     first = capsys.readouterr().out.splitlines()
-    assert _refresh_macro(monkeypatch, tmp_path, transport) == 0
+    assert _refresh_macro(monkeypatch, tmp_path, transport, active=" FRED ") == 0  # same normalisation as FredProvider
     second = capsys.readouterr().out.splitlines()
 
     assert requested == list(FRED_SERIES) * 2
