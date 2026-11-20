@@ -138,3 +138,40 @@ def test_overlap_receives_only_enabled_allocation_ids(monkeypatch) -> None:
     with pytest.raises(RuntimeError, match="stop after capture"):
         risk_page(None, NS(snapshot=snapshot))
     assert overlap.call_args.args[1] == ["ETF0007", "ETF4000"]
+
+
+def test_risk_models_use_portfolio_ids_when_other_history_is_sparse(monkeypatch) -> None:
+    import numpy as np
+
+    dates = pd.bdate_range("2026-05-01", periods=90)
+    rng = np.random.default_rng(7)
+    frames = [
+        pd.DataFrame({"date": dates, "etf_id": etf_id, "adjusted_close": 100 * np.exp(np.cumsum(rng.normal(0, 0.01, len(dates))))})
+        for etf_id in ("AAA", "BBB", "CCC")
+    ]
+    sparse = frames[2].iloc[::2].assign(etf_id="XXX")
+    prices = pd.concat([*frames, sparse], ignore_index=True)
+    allocation = pd.DataFrame({"etf_id": ["BBB", "AAA"], "current_weight": [0.5, 0.5], "target_weight": [0.5, 0.5]})
+    _stub_page_inputs(monkeypatch, allocation)
+    monkeypatch.setattr(risk_module, "build_direct_overlap_view", lambda *_args, **_kwargs: {})
+    captured = {}
+    real_correlation = risk_module.return_correlation_matrix
+    real_robust = risk_module.build_robust_risk_report
+
+    def correlation(*args, **kwargs):
+        captured["correlation"] = real_correlation(*args, **kwargs)
+        return captured["correlation"]
+
+    def robust(*args, **kwargs):
+        captured["robust"] = real_robust(*args, **kwargs)
+        raise RuntimeError("stop after capture")
+
+    monkeypatch.setattr(risk_module, "return_correlation_matrix", correlation)
+    monkeypatch.setattr(risk_module, "build_robust_risk_report", robust)
+    snapshot = _synthetic_snapshot(["AAA", "BBB", "CCC", "XXX"], prices)
+    with pytest.raises(RuntimeError, match="stop after capture"):
+        risk_page(None, NS(snapshot=snapshot))
+    assert captured["correlation"].attrs["status"] != "unavailable"
+    assert list(captured["correlation"].columns) == ["AAA", "BBB"]
+    assert captured["robust"]["status"] != "unavailable"
+    assert list(captured["robust"]["returns"].columns) == ["AAA", "BBB"]
