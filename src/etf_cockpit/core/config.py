@@ -467,7 +467,7 @@ def resolve_provider_api_key(
     except Exception:
         raise ConfigError("Provider credential could not be read from the local vault.") from None
     if credential and str(credential).strip():
-        return str(credential)
+        return str(credential).strip()
     try:
         env_file_values = {
             key: value

@@ -52,6 +52,23 @@ def test_dpapi_secret_roundtrip(tmp_path, monkeypatch: pytest.MonkeyPatch) -> No
     assert _CREDENTIAL_SENTINEL.encode() not in vault_path.read_bytes()
 
 
+def test_pasted_credential_whitespace_is_never_stored_or_resolved(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _stub_dpapi(monkeypatch)
+    monkeypatch.setattr(provider_registry, "DEFAULT_PROBE_PATH", tmp_path / "probes.parquet")
+    vault = CredentialVault(tmp_path / "vault.dpapi")
+
+    vault.set("fred", f"  {_CREDENTIAL_SENTINEL} \n")
+
+    assert vault.get("fred") == _CREDENTIAL_SENTINEL
+
+    class LegacyVault:  # a value stored before saves were stripped
+        def get(self, _account: str) -> str:
+            return f"{_CREDENTIAL_SENTINEL} "
+
+    resolved = resolve_provider_api_key("fred", config_dir=tmp_path / "configs", vault=LegacyVault())
+    assert resolved == _CREDENTIAL_SENTINEL
+
+
 def test_secret_redacted_from_exports_and_logs(tmp_path, monkeypatch: pytest.MonkeyPatch, caplog) -> None:
     _stub_dpapi(monkeypatch)
     monkeypatch.setattr(provider_registry, "DEFAULT_PROBE_PATH", tmp_path / "probes.parquet")

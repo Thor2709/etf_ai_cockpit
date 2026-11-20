@@ -46,8 +46,8 @@ class CredentialVault:
 
     def set(self, account: str, value: str) -> None:
         name = canonical_provider_account(account)
-        secret = str(value)
-        if not secret.strip():
+        secret = str(value).strip()
+        if not secret:
             raise CredentialVaultError("A non-empty provider credential is required.")
         path = self._path(required=True)
         assert path is not None
