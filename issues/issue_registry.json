@@ -33316,7 +33316,7 @@
         },
         {
           "id": "AC2",
-          "text": "The run JSON of the go-live night and of the next two scheduled nights shows the refresh message list (ids with stored history kept as stale), the capture counts, readiness 8/8 bound to the score snapshot id, the per-bot outcomes (B0-B3 and B2-o `available`, B1-r `NO_NEW_TRADE` with the preflight list) and `execution_allowed=false`."
+          "text": "The run JSON of the go-live step 8 run and of the next two scheduled nights shows the refresh message list (ids with stored history kept as stale), the capture counts, readiness 8/8 bound to the score snapshot id, the per-bot outcomes (B0-B3 and B2-o `available`, B1-r `NO_NEW_TRADE` with the preflight list) and `execution_allowed=false`."
         },
         {
           "id": "AC3",
@@ -35467,7 +35467,7 @@
     "package_registry_sha256": "42f401c32d2fddb17af97333303f4aeea0f2d2f8384e2b8da382529c0c7d107c",
     "package_reviewed_commit": "e149db50945401fb014955f0f79794a909796a75",
     "package_sha256": "39e30adc22c34a2f80640fa895caa21473457cea5bd0de872927051f8f99839b",
-    "programme_control_state_sha256": "dc2dc91ab324143870dbc64e1e0d6925d6ba5ab5ab134800dfe5474320e6cbf3",
+    "programme_control_state_sha256": "cf8d365e7f5f37438c69283849453b44247cd38dbd201723a4ffd797148fd7e4",
     "repository": "Thor2709/etf_ai_cockpit",
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   }

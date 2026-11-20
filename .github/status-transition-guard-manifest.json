@@ -12,7 +12,7 @@
     "base_registry_sha256": "0077cfe3fbb9e1516c83305ea67040932e9b85820ab25855e6f645323c8ebdf2",
     "generator": "scripts/generate_issue_registry.py",
     "mode": "canonical_schema_and_intake",
-    "proposed_registry_sha256": "0867827667559dd4866b9484b2fcc87d20ef05f61070e3c860e44cd8d53a6597",
+    "proposed_registry_sha256": "51e57208227307a3f4df178ab5aa308257f9344e83862ab33871db03163912ef",
     "reason": "Register the planned forward nightly paper path issue ISSUE-0214 (build plan 2026-11-20); definition-only intake.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"

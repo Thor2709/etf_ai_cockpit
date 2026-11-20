@@ -20221,7 +20221,7 @@
           },
           {
             "id": "AC2",
-            "text": "The run JSON of the go-live night and of the next two scheduled nights shows the refresh message list (ids with stored history kept as stale), the capture counts, readiness 8/8 bound to the score snapshot id, the per-bot outcomes (B0-B3 and B2-o `available`, B1-r `NO_NEW_TRADE` with the preflight list) and `execution_allowed=false`."
+            "text": "The run JSON of the go-live step 8 run and of the next two scheduled nights shows the refresh message list (ids with stored history kept as stale), the capture counts, readiness 8/8 bound to the score snapshot id, the per-bot outcomes (B0-B3 and B2-o `available`, B1-r `NO_NEW_TRADE` with the preflight list) and `execution_allowed=false`."
           },
           {
             "id": "AC3",
