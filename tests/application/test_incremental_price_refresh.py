@@ -847,3 +847,36 @@ def test_stale_new_bar_still_blocks_the_commit(monkeypatch, tmp_path, future_sto
     assert _TODAY not in set(_stored(clean_path).loc[lambda frame: frame.etf_id.eq("LIVE"), "date"])
     assert "not committed because validation blocked them" in message
     assert "LATE" in message
+
+
+def test_blocked_refresh_keeps_the_batch_and_the_rerun_commits_it_without_fetching(monkeypatch, tmp_path):
+    floor = years_before(_TODAY, 5)
+    shared = date(2026, 10, 30)
+    stored_late = _price_frame("LATE", [_bar(floor), _bar(date(2026, 10, 16))])
+    stored = pd.concat([_price_frame("LIVE", [_bar(floor), _bar(shared)]), stored_late], ignore_index=True)
+    window = pd.concat(
+        [
+            _price_frame("LIVE", [_bar(shared), _bar(_TODAY)]),
+            _price_frame("LATE", [_bar(date(2026, 10, 16)), _bar(date(2026, 10, 19))]),  # new, but already stale
+        ],
+        ignore_index=True,
+    )
+    provider = _FakeProvider(("LIVE", "LATE"), [_result(window)])
+    clean_path, message = _run_real_validation(provider, monkeypatch, tmp_path, stored)
+    assert "not committed because validation blocked them" in message
+    staged = tmp_path / "data" / "staging" / f"prices_{_TODAY.isoformat()}.parquet"
+    assert pd.read_parquet(staged).attrs["staging"]["fetched_at"]
+
+    # The owner disables the dead instrument; the same-session rerun commits the staged batch.
+    rerun = _FakeProvider(("LIVE",), [])
+    monkeypatch.setattr(data_service.YFinanceProvider, "from_config", classmethod(lambda cls, _config: rerun))
+    message = DataService(config=None).refresh_yfinance_data(
+        include_reference_data=False, include_fundamentals=False, incremental=True,
+    )
+
+    assert rerun.calls == []
+    final = _stored(clean_path)
+    assert _TODAY in set(final.loc[final.etf_id.eq("LIVE"), "date"])
+    assert sorted(final.loc[final.etf_id.eq("LATE"), "date"]) == [floor, date(2026, 10, 16)]
+    assert "Validated and committed" in message
+    assert not staged.exists()
