@@ -122,11 +122,13 @@ No `availability_basis` column for prices: no price reader exists (it stays an F
 **C4 Forward score run.**
 - `backfill_score_history(root, start=S, end=S, every=1, force=<reuse rule>, completed_at=t_S)` passes `completed_at` to `score_as_of`.
 - When `completed_at` is given: `created_at` = `completed_at`, and it must be ≥ S 23:59:59 UTC, else raise. `provenance` = `forward_nightly`.
-- Loader: `load_backfill_score_history` (`data/score_history_backfill.py:28-36`) keeps only `historical_backfill` rows today. It gets a provenance set. Readiness (`portfolio/paper_bots_readiness.py:160`), the recorder (C5) and the merge step of the backfill writer (`application/score_backfill.py:249`, so a later write keeps the forward rows) read {`historical_backfill`, `forward_nightly`}. The historical replay readers keep the default {`historical_backfill`} and exclude forward rows: `portfolio/paper_bots_replay.py:75`, `scripts/replay_paper_bots_from_backfill.py:66`, `scripts/export_replay_ledger.py:77`. Per session the store holds rows of one provenance only.
-- Price guard (forward mode only). A consumed row is a price row that enters the run input `known` (`score_backfill.py:437-439`): date ≤ S, instrument enabled and not excluded. If a consumed row has `known_at` > t_S, the run raises. If a consumed row has a null `known_at`, its instrument is not admitted, with reason `price_unstamped` in the eligibility log; there is no zero-fill and no raise. The driver reads t_S while it holds the cross-process writer guard, so no write can come between the clock read and the score run.
+- Loader: `load_backfill_score_history` (`data/score_history_backfill.py:28-36`) keeps only `historical_backfill` rows today. It gets a provenance set. Readiness (`portfolio/paper_bots_readiness.py:160`), the recorder (C5) and the merge step of the backfill writer (`application/score_backfill.py:249-250`, history and eligibility, so a later write keeps the forward rows) read {`historical_backfill`, `forward_nightly`}. The historical replay readers keep the default {`historical_backfill`} and exclude forward rows: `portfolio/paper_bots_replay.py:75`, `scripts/replay_paper_bots_from_backfill.py:66`, `scripts/export_replay_ledger.py:77`. Per session the store holds rows of one provenance only.
+- Price guard (forward mode only). A consumed row is a price row that enters the run input `known` (`score_backfill.py:437-440`): date ≤ S, not excluded, and instrument enabled after the membership snapshot. If a consumed row has `known_at` > t_S, the run raises. If a consumed row has a null `known_at`, its instrument is not admitted, with reason `price_unstamped` in the eligibility log; there is no zero-fill and no raise. The driver reads t_S while it holds the cross-process writer guard, so no write can come between the clock read and the score run.
 - The membership, FX and feature `known_by` stay S 23:59:59.
 - New run fields: `current_price`, `instrument_currency` (via `_BASE_HISTORY_EXTRA`); both are in `snapshot_hash`.
 - Reuse: if rows for S with `provenance == forward_nightly` exist, reuse them (same H); otherwise compute with `force=True` for S only.
+- Eligibility rows get a `provenance` column; `load_backfill_eligibility` filters it with the same provenance set as `load_backfill_score_history`, so forward eligibility rows (for example `price_unstamped`) stay out of historical replay. A legacy row without the column counts as `historical_backfill`.
+- The manifest writes a `provenances` list taken from the stored rows, not the hardcoded `historical_backfill` (`score_backfill.py:292`). The list replaces the singular `provenance` key (no reader in `src/` or `tests/`).
 - Historical backfills must not write sessions that already have forward rows: they skip such sessions before the fingerprint check and keep the forward rows unchanged.
 
 **C5 Readiness and recorder binding.**
@@ -136,7 +138,7 @@ No `availability_basis` column for prices: no price reader exists (it stays an F
 - Month rule: the monthly slot month is the month of S. This replaces `cutoff.strftime("%Y-%m")` and the current-month filter on publication `known_at` (`paper_bots.py:192-202`).
 - Its field mapping: `symbol` ← `yahoo_ticker`, `latest_price_date` ← `price_as_of_date`, plus `current_price` and `instrument_currency`.
 - It requires `run_completed_at ≤ as_of` and an age ≤ 24 h (`paper_bots.py:894-898`, measured from `run_completed_at`).
-- Replaced check (immutable record): today the scoreboard bytes hash and the publication binding record tie the candidates to an immutable record. After the change, the stored forward run rows for S are that record: the recorder recomputes `_content_hash` over them (`score_backfill.py:799-803`) and requires it to equal H. Forward rows are never rewritten (reuse rule; historical backfills skip forward sessions).
+- Replaced check (immutable record): today the scoreboard bytes hash and the publication binding record tie the candidates to an immutable record. After the change, the stored forward run rows for S are that record: the recorder recomputes `_content_hash` over them (`score_backfill.py:799-803`) and requires it to equal H. H is set at `score_backfill.py:541`, before `config_fingerprint` is added (`:347`), and `_content_hash` drops only `snapshot_hash`; so the recorder drops `snapshot_hash` and `config_fingerprint` before it recomputes. `provenance` = `forward_nightly` and `created_at` = `completed_at` are set inside `_history_run`, before `:541`, so H covers them. This keeps every stored H unchanged (smaller change than moving H after `:347`). Forward rows are never rewritten (reuse rule; historical backfills skip forward sessions).
 - Replaced check (driver): the publication-hash comparison (`daily_paper.py:283-284`) is replaced, not removed. `PaperBotRunResult` gets a field `candidate_snapshot` = the snapshot of the run the recorder loaded and verified tonight. It is set whether or not a slot gets a new record (an already filled slot does not change it); it is None only when the recorder could not load and verify that run. The driver raises unless `candidate_snapshot == H`. The existing `snapshot_hash` field is the snapshot set of all records of the month, earlier records included (`paper_bots.py:343-345,429,438`), so it is not compared. The guarantee "the gate PASS and the decisions bind to one run" stays.
 
 **C6 Challengers.**
@@ -151,10 +153,12 @@ No `availability_basis` column for prices: no price reader exists (it stays an F
 - Config: `fill_time_utc: "15:20"`, with the comment "after every listing venue has opened, after the 14:45/13:45 UTC opening observation, and before the 15:30 UTC Xetra close in CEST".
 - Fill price (one source for `next_session_open` fills): the latest observation for (instrument, session) with `known_at ≤ fill_time`. If there is none: miss `price_not_known_at_fill_time` (same reason). `volume > 0`, the currency check and `require_actions` use the observation. The daily bar and `ledger_bar` are not used for these fills; they stay for valuation marks and corporate-action sync.
 - A fill miss is terminal: there is no retry on a later session. Only a `deferred` record (waiting for settled cash) is retried (`paper_bots_execution.py:1197-1200`).
-- One canonical open per session: the observation (the fill price in `_attempt`, `paper_bots_execution.py:1401-1417`). Three more call sites change:
-  1. Legacy fill-basis check in the corporate-action sync (`paper_bots_execution.py:741-744`): applies only to fills not taken from an observation. The fill record names its price source.
+- One canonical open per session: the observation (the fill price in `_attempt`, `paper_bots_execution.py:1401-1417`). Four more call sites change:
+  1. Legacy fill-basis check in the corporate-action sync (`paper_bots_execution.py:741-744`): applies only to fills not taken from an observation. The `fill_recorded` ledger event (read at `paper_bots_execution.py:735-737`) names its price source.
   2. Split check on the fill session (`split_ratio_between`, `paper_bots_execution.py:1425`, raises today): a split on the fill session (observation `stock_splits` ≠ 0, or a split not known at the fill time) becomes the per-order miss `split_on_fill_session` inside the order handling, not a stage raise. The miss is terminal.
-  3. B0 VWCE shadow (`portfolio/paper_trading.py:1737-1752`): uses the same observed VWCE open, not the daily series `open`.
+  3. B0 VWCE shadow (`portfolio/paper_trading.py:1737-1752`): uses the same observed VWCE open, not the daily series `open`; the flow stores it as `executed_open` (`:1832`) and names the observation as its price source.
+  4. B0 shadow valuation re-check (`portfolio/paper_trading.py:1889-1897`): today it compares the stored `executed_open` with the daily `open` and raises `historical_price_revised`. For an observation-sourced flow it compares `executed_open` with the stored observation instead; the close and prefix-hash checks stay.
+- The C7 build write set includes `portfolio/paper_trading.py`.
 - Delisting-day close fills are unchanged (daily bar close).
 
 **C8 Driver and status.**
@@ -174,7 +178,7 @@ No `availability_basis` column for prices: no price reader exists (it stays an F
 
 | Trigger | Behaviour | Reason text |
 |---|---|---|
-| Page fetch/parse/guard fails | No capture; bots run on last night's census | `capture failed: <cause>` (run JSON) |
+| Page fetch/parse/guard fails | No capture; bots run on last night's census; B1-r has no census for day D (t_S's UTC day) and records `NO_NEW_TRADE` | `capture failed: <cause>` (run JSON); C6 B1-r text |
 | No census for S (scope with a self capture) | readiness FAIL | `no visible census for listing:sp500:all on S` |
 | Coverage < 0.95 | readiness FAIL | existing detail |
 | Job starts after 00:00 UTC | Capture is dated D+1, S = D has no census: FAIL that night | as above |
@@ -185,6 +189,7 @@ No `availability_basis` column for prices: no price reader exists (it stays an F
 | Consumed price row with null `known_at` | instrument not admitted in the forward run | `price_unstamped` |
 | Forward run has no admitted rows | readiness `scored_run` FAIL | existing |
 | `completed_at` < S end, or age > 24 h | run raises / recorder unavailable | existing age reason |
+| Recomputed content hash of the stored rows ≠ H | recorder unavailable; `candidate_snapshot` None; driver raises | content hash differs from H |
 | `candidate_snapshot` ≠ H | driver raises | recorded snapshot differs from H |
 | Due B0-B3 bot unavailable | driver raises | `partial not accepted: <bot>` |
 | skfolio missing / short history | B2-o or B1-r `NO_NEW_TRADE` | C6 texts |
@@ -204,10 +209,10 @@ No `availability_basis` column for prices: no price reader exists (it stays an F
 3. C2: page fixture → ledger capture + census; second same-day run skipped; capture without census → census rebuilt from the raw payload; header and row-count guards fail closed.
 4. Binding: verified USD non-US-ISIN unique → bound; two records → unbound `ambiguous_universe_records`.
 5. C3: missing census → FAIL; present scope with 0 members → FAIL; licensed interval fixture (no self capture) behaves as before.
-6. C4: `completed_at` stamped and checked; price row with `known_at` > t_S → raise; null `known_at` → instrument not admitted; `provenance`; replay readers exclude forward rows and a historical write keeps them; changing `current_price` changes `snapshot_hash`; reuse rule.
+6. C4: `completed_at` stamped and checked; price row with `known_at` > t_S → raise; null `known_at` → instrument not admitted; `provenance`; replay readers exclude forward rows (history and eligibility; a legacy eligibility row without `provenance` counts as historical) and a historical write keeps them; a stored forward run round-tripped through parquet gives the same H with `snapshot_hash` and `config_fingerprint` dropped; changing `current_price` changes `snapshot_hash`; reuse rule.
 7. C5: readiness uses S; candidates only from the backfill store rows with H and a matching content hash; slot month = month of S; `candidate_snapshot` ≠ H → driver raises.
 8. C8: `partial` rules; paper-disabled, readiness-FAIL, `no_new_session` and a paper-stage failure skip the paper stages and still refresh.
-9. C7: fill with observation known ≤ fill time; miss when later, with no retry; observation with a bar date ≠ F dropped; split on fill session → per-order miss; B0 shadow uses the observed open; legacy fill-basis check skips observation fills.
+9. C7: fill with observation known ≤ fill time; miss when later, with no retry; observation with a bar date ≠ F dropped; split on fill session → per-order miss; B0 shadow uses the observed open and a later shadow valuation does not raise `historical_price_revised` for it; legacy fill-basis check skips observation fills.
 10. C6/C9: B2-o weights from a stamped EUR fixture; B1-r `NO_NEW_TRADE` with the preflight list; B1-r fits and scores on a synthetic vintage fixture that passes the preflight; a vintage file is written once.
 
 ## 7. Accepted limitations
