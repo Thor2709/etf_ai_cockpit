@@ -69,6 +69,7 @@ from etf_cockpit.signals.simple_scores import (
     rank_and_finalize_scores,
     simple_scoreboard_frame,
 )
+from etf_cockpit.portfolio.paper_bots_execution import load_execution_config
 
 PIT_POLICY_VERSION = "pit_score_backfill.v2"
 CALENDAR_INSTRUMENT_ID = "VWCE"  # the benchmark calendar defines the sessions (as in the paper bots)
@@ -134,6 +135,15 @@ def session_dates(prices: pd.DataFrame, start: date, end: date, *, every: int = 
     return dates[::every]
 
 
+def research_reference_order_value_eur() -> float:
+    """The paper bots' configured reference order (paper_bots_execution_v1.yaml ``cost_model``).
+
+    No historical portfolio exists, so as-of research costs ask whether a buy of the bots' reference order clears costs.
+    """
+
+    return float(load_execution_config()[1]["cost_model"]["reference_order_value_eur"])
+
+
 def config_fingerprint(config: AppConfig, excluded: Mapping[str, str] | None, membership: ListingHistory | None = None) -> tuple[str, dict[str, object]]:
     """Identity of everything that shapes a stored session besides its input data: a changed run configuration must recompute it."""
 
@@ -168,7 +178,7 @@ def config_fingerprint(config: AppConfig, excluded: Mapping[str, str] | None, me
         "baseline_forecast": {
             "model_name": "baseline", "model_version": BASELINE_MODEL_VERSION,
             "horizon_days": PRIMARY_MODEL_HORIZON_DAYS, "calibrated": False, "use": "friction_cost_only",
-            "reference_order_value_eur": config.risks.portfolio_limits.min_trade_value_eur,
+            "reference_order_value_eur": research_reference_order_value_eur(),
         },
         "calendar_instrument_id": CALENDAR_INSTRUMENT_ID,
         "universe_hash": universe,
@@ -552,9 +562,7 @@ def score_as_of(
         as_of_sources=AsOfScoreSources(
             decision_time=decision_time,
             expected_return_distributions={key: asdict(value) for key, value in baselines.items()},
-            # No historical portfolio exists. Use the configured minimum trade size
-            # as a conservative research cost reference (fixed fees bite hardest here).
-            reference_order_value_eur=config.risks.portfolio_limits.min_trade_value_eur,
+            reference_order_value_eur=research_reference_order_value_eur(),
             **source_kwargs,
         ),
         fx_rates=fx_rates if fx_rates is not None else pd.DataFrame(),
@@ -774,7 +782,7 @@ def _history_run(
     # The score engine labels the forecast by model components; the history carries only the uncalibrated baseline quantiles,
     # so a row with a baseline is "partial" (no TimesFM/Toto, no calibration), never "available".
     frame["forecast_status"] = frame["instrument_id"].map(lambda key: "partial" if key in baselines else "unavailable")
-    frame["expected_return_order_value_source"] = "configured_min_trade_value_eur_research_reference"
+    frame["expected_return_order_value_source"] = "paper_bots_reference_order_value_eur"
     frame["snapshot_hash"] = ""
     frame["snapshot_hash"] = run_content_hash(frame)
     return frame

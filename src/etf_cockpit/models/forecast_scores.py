@@ -438,6 +438,7 @@ def forecast_score_details(forecasts: pd.DataFrame, *, decision_time: object = N
                     "model_name": model_name,
                     "horizon_days": None if selected is None else int(selected["horizon_days"]),
                     "expected_return": None if selected is None else float(selected["expected_return"]),
+                    "forecast_date": None if selected is None else selected.get("forecast_date"),
                     "score": score,
                 }
             )

@@ -380,22 +380,20 @@ def _real_board(config, monkeypatch, *, short_id=None):
 
 
 @pytest.mark.xfail(strict=True, reason=(
-    "Blocked by gates this fix must not change: canonical coverage 0.354 < minimum 0.50 (the baseline forecast "
-    "component has no as_of_date, so it is never score-eligible) turns the label into insufficient_evidence; and the "
-    "cost gate has no net edge because a hold row has no positive order value (trade_value_eur None)."
+    "Live (published scoreboard) path only: the cost gate has no net edge because a hold row has no positive order "
+    "value (trade_value_eur None) and no as-of reference order. The forward PIT run supplies the paper reference order."
 ))
 def test_clean_deterministic_row_with_a_valid_forecast_is_promotable(local, monkeypatch):
     _report_unused, board = _real_board(local, monkeypatch)
     assert board["VWCE"].research_promotion_allowed is True
 
 
-def test_clean_deterministic_row_fails_only_the_coverage_and_cost_gates(local, monkeypatch):
-    # Known blockers of the strict xfail above; every other research gate of the clean row passes.
+def test_clean_deterministic_row_fails_only_the_cost_gate(local, monkeypatch):
+    # Known blocker of the strict xfail above; the dated, fresh forecast now counts toward canonical coverage.
     _report_unused, board = _real_board(local, monkeypatch)
     gates = {gate.gate_id: gate for gate in board["VWCE"].authority_decision.gates}
-    assert {gate_id for gate_id, gate in gates.items() if not gate.passed} == {"signal", "cost"}
-    assert gates["signal"].message == "Material score warnings: critical_evidence_insufficient"
-    assert board["VWCE"].canonical_score.coverage < 0.5 and board["VWCE"].net_expected_edge_bps is None
+    assert {gate_id for gate_id, gate in gates.items() if not gate.passed} == {"cost"}
+    assert board["VWCE"].canonical_score.coverage >= 0.5 and board["VWCE"].net_expected_edge_bps is None
 
 
 def test_short_history_row_is_published_but_not_promotable(local, monkeypatch):
@@ -409,8 +407,6 @@ def test_short_history_row_is_published_but_not_promotable(local, monkeypatch):
     assert board["LYP6"].research_state is not ResearchState.RESEARCH_CANDIDATE
     short = {gate.gate_id: gate for gate in board["LYP6"].authority_decision.gates}
     assert not short["signal"].passed and "insufficient_history" in short["signal"].message
-    # The short-history block stays on its own row: VWCE's identity and data gates pass and its signal gate
-    # carries only the known coverage warning.
+    # The short-history block stays on its own row: VWCE's identity, data and signal gates pass.
     clean = {gate.gate_id: gate for gate in board["VWCE"].authority_decision.gates}
-    assert clean["identity"].passed and clean["data_quality"].passed
-    assert clean["signal"].message == "Material score warnings: critical_evidence_insufficient"
+    assert clean["identity"].passed and clean["data_quality"].passed and clean["signal"].passed

@@ -2745,6 +2745,8 @@ def _attach_component_provenance(
             return "unavailable"
         if component.freshness_status:
             return component.freshness_status
+        if own_date is not None:
+            return _component_freshness_status(component.as_of_date, decision_date)
         return freshness if component.key in price_keys else "unknown"
 
     return [
@@ -2768,12 +2770,17 @@ def _forecast_component(
     if raw is not None:
         selected = _forecast_detail_row(forecast_details, model_name, instrument_id)
         why = "Valid forecast row is available and included in the weighted final score."
+        # The forecast's own date ages it; an undated forecast keeps "unknown" freshness and never counts as evidence.
+        as_of = None if selected is None else _parse_date(selected.get("forecast_date"))
         if selected is not None:
             why = (
                 f"Selected {int(selected['horizon_days'])} trading-day forecast expects "
                 f"{_fmt_pct(log_to_simple_return(selected['expected_return']))} (simple return, exp(y) - 1); this maps to {raw_to_score_10(raw)}/10."
             )
-        return _component(model_name, raw, why, authority="low", role="model_confirmation")
+        return replace(
+            _component(model_name, raw, why, authority="low", role="model_confirmation"),
+            as_of_date=None if as_of is None else as_of.isoformat(),
+        )
 
     reason = _missing_forecast_reason(forecasts, model_name, instrument_id)
     return SimpleScoreComponent(
