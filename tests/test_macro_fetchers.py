@@ -349,6 +349,21 @@ def test_fred_vintage_windows_do_not_duplicate_or_drop_a_vintage_at_their_edges(
     assert by_period[days[1]] == [(1, 1.0)]  # a value valid across every window edge stays one vintage
 
 
+def test_fred_vintage_row_dated_after_its_vintage_is_skipped_and_counted(tmp_path) -> None:
+    # VIXCLS: the Friday 2018-10-05 vintage also carried Monday 2018-10-08 (a US holiday); it cannot be point-in-time.
+    payload = _fred_payload([
+        ("2018-10-05", "14.8", "2018-10-05", _FOREVER),
+        ("2018-10-08", "15.7", "2018-10-05", "2018-10-08"),
+        ("2018-10-08", "15.9", "2018-10-09", _FOREVER),
+    ])
+    result = FredProvider(api_key="test-key", transport=lambda url: payload).fetch_vintages("VIXCLS", fetched_at=FETCHED_AT)
+    assert result.status == "available" and "skipped 1 " in str(result.reason)
+    assert [(row.period_start, row.revision, row.available_at[:10]) for row in result.observations] == [
+        ("2018-10-05", 1, "2018-10-06"), ("2018-10-08", 1, "2018-10-10")
+    ]
+    assert MacroWarehouse().ingest_vintages(result.observations, root=tmp_path)["row_count"] == 2
+
+
 def _refresh_macro(monkeypatch, tmp_path, transport, *, active: str = "fred", key: str | None = "test-key") -> int:
     from etf_cockpit.core import config as config_module
     from scripts import refresh_macro
