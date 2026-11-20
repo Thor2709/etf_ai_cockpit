@@ -59,6 +59,9 @@ def macro_factors_page(page: ft.Page | None, state: AppState) -> PageView:
     volatility_value = _numeric_value(volatility.get("median_annualised"))
     stress = macro_context.get("stress_probability", {})
     stress_value = _numeric_value(stress.get("probability"))
+    indicators = list((macro_context.get("macro_indicators") or {}).values())
+    indicators_available = sum(item.get("status") == "available" for item in indicators)
+    indicator_gap = next((item.get("reason") for item in indicators if item.get("status") != "available"), None)
     view_state = {"view": "Regime", "horizon": "1Y"}
     view_note = kit.Note("View: Regime · Horizon: 1Y")
     view_sections: dict[str, ft.Control] = {}
@@ -97,6 +100,20 @@ def macro_factors_page(page: ft.Page | None, state: AppState) -> PageView:
             str(stress.get("reason") or "Benchmark stress probability unavailable.")
             if stress_value is None
             else f"Two-state Markov switching, filtered at {str(stress.get('as_of', ''))[:10]}. Context only",
+        ),
+        kit.KpiTile(
+            "FRED macro indicators",
+            f"{indicators_available} of {len(indicators)} available" if indicators else None,
+            str(indicator_gap or "Context only") if indicators else "FRED macro indicators unavailable.",
+        ),
+        kit.Disclosure(
+            "FRED indicator details",
+            "\r\n".join(
+                f"{item.get('indicator_id')}: {item['value']:g} {item.get('unit', '')}"
+                if item.get("status") == "available"
+                else f"{item.get('indicator_id')}: unavailable — {item.get('reason')}"
+                for item in indicators
+            ) or "FRED macro indicators unavailable.",
         ),
     ]
     proxy_details = [

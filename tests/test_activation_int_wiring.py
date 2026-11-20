@@ -66,6 +66,62 @@ def test_int04_quality_scores_are_a_number_group_on_the_stock_pages(monkeypatch,
     assert "Quality and accounting" in _texts(page)
 
 
+def _stock_rows(monkeypatch, tmp_path, decision_time, snapshots=None) -> dict:
+    from datetime import datetime
+
+    monkeypatch.setattr("etf_cockpit.data.stock_notes.ROOT", tmp_path)
+    monkeypatch.setattr("etf_cockpit.application.sec_evidence_refresh.ROOT", tmp_path)
+    universe = UniverseEvidence(
+        datetime.fromisoformat(decision_time), evidence={"T": _evidence()}, names={"T": "Test Co"},
+        peers={"T": []}, config=dict(CONFIG), snapshots=snapshots or {},
+    )
+    monkeypatch.setattr(sv, "snapshot_stock_evidence", lambda _snapshot: universe)
+    return {row.key: row for row in dict(sv.build_stock_page_model(object(), "T", None).numbers)["Earnings and returns"]}
+
+
+def test_int06_stock_page_shows_the_revenue_surprise_known_at_the_decision_time(monkeypatch, tmp_path) -> None:
+    from etf_cockpit.data.bitemporal import BitemporalStore
+    from etf_cockpit.data.earnings_surprise import record_earnings_events
+
+    event = {
+        "quarter_end": "2026-06-30", "sec_receipt_time": "2026-07-30T20:15:00+00:00", "exact_acceptance": True,
+        "features": {"sue_revenue": {"status": "available", "value": 1.5, "available_at": "2026-08-05T14:00:00+00:00", "inputs": {}},
+                     "filing_reaction_3s": {"status": "unavailable", "reason": "T:entry_close_missing"}},
+    }
+    with BitemporalStore(tmp_path) as store:
+        record_earnings_events(store, "T", [event], run_id="test")
+
+    after = _stock_rows(monkeypatch, tmp_path, "2026-10-09T12:00:00+00:00")["sue_revenue"]
+    assert (after.label, after.display, after.available, after.reason) == ("Revenue surprise (SUE)", "+1.50", True, None)
+    before = _stock_rows(monkeypatch, tmp_path, "2026-08-05T13:59:00+00:00")["sue_revenue"]
+    assert (before.display, before.available) == ("—", False) and before.reason
+
+
+def test_int17_stock_page_shows_insider_net_open_market_shares_or_the_reason(monkeypatch, tmp_path) -> None:
+    from datetime import datetime, timezone
+    from pathlib import Path
+
+    import pytest
+
+    from etf_cockpit.application.sec_evidence_refresh import record_insider_filing
+    from etf_cockpit.data.bitemporal import BitemporalStore
+    from etf_cockpit.data.sec_ownership import parse_ownership_xml
+
+    pytest.importorskip("edgar")
+    xml = (Path(__file__).parent / "fixtures" / "sec_ownership" / "form4_mixed.xml").read_bytes()
+    filing = parse_ownership_xml(xml, accession="0000012345-26-000001", known_at=datetime(2026, 8, 13, 12, tzinfo=timezone.utc))
+    with BitemporalStore(tmp_path) as store:
+        record_insider_filing(store, "T", filing, run_id="test")
+    snapshots = {"T": {"cik": "0000012345"}}
+
+    row = _stock_rows(monkeypatch, tmp_path, "2026-10-09T12:00:00+00:00", snapshots)["insider_net_open_market_shares"]
+    assert (row.label, row.display, row.available, row.reason) == ("Insider net open-market shares (90 d)", "+1,300", True, None)
+    early = _stock_rows(monkeypatch, tmp_path, "2026-08-13T11:00:00+00:00", snapshots)["insider_net_open_market_shares"]
+    assert (early.display, early.available, early.reason) == ("—", False, "no_insider_filing_known_by_decision_time")
+    no_cik = _stock_rows(monkeypatch, tmp_path, "2026-10-09T12:00:00+00:00")["insider_net_open_market_shares"]
+    assert not no_cik.available and "CIK" in no_cik.reason
+
+
 def test_int09_startup_snapshot_passes_forecast_bridge_inputs(monkeypatch, synthetic_sample_opt_in) -> None:
     from etf_cockpit.application import snapshot_builder
 

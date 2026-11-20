@@ -76,6 +76,7 @@ page under `docs/architecture/` or `docs/sdd/` is missing from this index.
 
 - [Proposal policy and authority boundary](../architecture/proposal-policy.md) - what a proposal may and may not do.
 - [Local paper trading](../architecture/paper-trading.md) - the append-only paper ledger; operational incidents are in the [incident runbooks](../operations/INCIDENT_RUNBOOKS.md).
+- [Forward nightly paper path](../architecture/forward-paper-path.md) - forward score run, point-in-time binding and the morning fill job (target design).
 - Future broker designs under `docs/architecture/future/` are target designs, not current authority; `execution_allowed=false`.
 
 ## Audiences

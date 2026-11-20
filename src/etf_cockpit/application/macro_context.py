@@ -27,6 +27,7 @@ from etf_cockpit.data.macro_warehouse import (
 from etf_cockpit.features.macro import (
     build_macro_context,
     finalize_observation_rows,
+    macro_indicators,
     observation_summary_payload,
 )
 
@@ -99,6 +100,12 @@ def build_macro_context_binding(
     context["decision_time"] = decision_time
     context["inflation_rates"] = _macro_observation_summary(
         observations, decision_time=decision_time
+    )
+    context["macro_indicators"] = macro_indicators(
+        pd.DataFrame(
+            [row.model_dump(mode="json") for row in observations],
+            columns=list(MacroObservation.model_fields),
+        )
     )
     scenario = _scenario_payload(observations, decision_time, currency, horizon_days)
     return MacroContextBinding(

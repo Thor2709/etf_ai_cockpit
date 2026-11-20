@@ -1,27 +1,21 @@
 {
   "allow_downgrades": false,
   "allow_other_status_changes": false,
-  "allowed_status_transitions": [
-    {
-      "from": "in_progress",
-      "issue_id": "ISSUE-0152",
-      "to": "integrated"
-    }
-  ],
-  "base_commit": "5a47ceb9c7a617ab7056633c2f2fea81b714ea37",
-  "branch": "lc/0152-complete-20261119",
-  "issue_ids": [
-    "ISSUE-0152"
-  ],
+  "allowed_status_transitions": [],
+  "base_commit": "af1811d802b88dd6ed105f4ad7271fce8ff0f9d3",
+  "branch": "feat/pr3b-int-20261120",
+  "issue_ids": [],
   "registry_migration": {
-    "added_issue_ids": [],
-    "base_registry_sha256": "495428756897f3a5522cad0019b843cca37ee46c0906ac9189bc0faf1142130b",
+    "added_issue_ids": [
+      "ISSUE-0214"
+    ],
+    "base_registry_sha256": "0077cfe3fbb9e1516c83305ea67040932e9b85820ab25855e6f645323c8ebdf2",
     "generator": "scripts/generate_issue_registry.py",
-    "mode": "generation_base_and_status_transitions",
-    "proposed_registry_sha256": "0077cfe3fbb9e1516c83305ea67040932e9b85820ab25855e6f645323c8ebdf2",
-    "reason": "Transition only ISSUE-0152 from in_progress through implemented_initially to integrated; preserve dependencies, GitHub issue open state, external authority and execution_allowed=false.",
+    "mode": "canonical_schema_and_intake",
+    "proposed_registry_sha256": "51e57208227307a3f4df178ab5aa308257f9344e83862ab33871db03163912ef",
+    "reason": "Register the planned forward nightly paper path issue ISSUE-0214 (build plan 2026-11-20); definition-only intake.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },
-  "schema_version": "1.2"
+  "schema_version": "1.1"
 }

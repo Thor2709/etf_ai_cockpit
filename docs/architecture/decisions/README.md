@@ -14,3 +14,4 @@ or `deprecated`.
 | [ADR-0007](ADR-0007-validation-cadence-and-report-only-pilot.md) | superseded in part | Validation cadence and report-only pilot selection |
 | [ADR-0070](../ADR-0070-product-scope-and-authority.md) | accepted | Product scope and staged authority |
 | [ADR-0008](ADR-0008-control-plane-observation-and-authority.md) | proposed | Derived execution view, exact ownership observations and evidence identity |
+| [ADR-0009](ADR-0009-forward-paper-path.md) | proposed | Forward nightly paper path |

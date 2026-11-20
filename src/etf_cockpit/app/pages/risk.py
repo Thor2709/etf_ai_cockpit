@@ -618,10 +618,18 @@ def risk_page(page: ft.Page | None, state: AppState, *, _deferred: bool = False)
         if not allocation.empty
         else pd.DataFrame(columns=_LIMIT_COLUMNS)
     )
+    current_weights = {str(row["etf_id"]): float(row["current_weight"]) for _, row in allocation.iterrows()}
+    target_weights = {str(row["etf_id"]): float(row["target_weight"]) for _, row in allocation.iterrows()}
+    allocation_ids = [etf_id for etf_id in snapshot.config.universe.enabled_ids if str(etf_id) in current_weights]
+    portfolio_ids = [
+        etf_id for etf_id in allocation_ids if current_weights[str(etf_id)] > 0 or target_weights[str(etf_id)] > 0
+    ]
+    prices = snapshot.prices
+    portfolio_prices = prices.loc[prices["etf_id"].isin(portfolio_ids)] if "etf_id" in prices.columns else prices
     correlation_window = 120
     correlation = return_correlation_matrix(
-        snapshot.prices,
-        snapshot.config.universe.enabled_ids,
+        portfolio_prices,
+        portfolio_ids,
         window=correlation_window,
     )
     if allocation.empty or not {"etf_id", "drawdown_current", "drawdown_60d_max", "vol_60d_ann"}.issubset(snapshot.latest_features.columns):
@@ -651,18 +659,18 @@ def risk_page(page: ft.Page | None, state: AppState, *, _deferred: bool = False)
     eligible_holdings = _exposure_eligible_holdings(imported_holdings, reference_date=snapshot_date)
     overlap = build_direct_overlap_view(
         snapshot,
-        list(snapshot.config.universe.enabled_ids),
-        current_weights={str(row["etf_id"]): float(row["current_weight"]) for _, row in allocation.iterrows()},
-        target_weights={str(row["etf_id"]): float(row["target_weight"]) for _, row in allocation.iterrows()},
+        allocation_ids,
+        current_weights=current_weights,
+        target_weights=target_weights,
         holdings=imported_holdings,
     )
     factors = build_factor_risk_report(
-        snapshot.prices,
+        portfolio_prices,
         allocation,
         snapshot.latest_features,
         eligible_holdings,
     )
-    robust_risk = build_robust_risk_report(snapshot.prices, allocation, factor_report=factors)
+    robust_risk = build_robust_risk_report(portfolio_prices, allocation, factor_report=factors)
     volatility_forecast = robust_risk.get("volatility_forecast", {})
     forecast_volatility = volatility_forecast.get("annualised_volatility")
     factor_history = factors.get("factor_returns", pd.DataFrame())

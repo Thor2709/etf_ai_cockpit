@@ -2,7 +2,7 @@ owner,record_count,open_count,closed_count,proposed_count,phases
 analysis-and-validation,14,11,3,0,phase-01-governance-scope;phase-05-returns-risk-portfolio
 application-platform,2,2,0,2,phase-08-frontend-api
 audit-and-reproducibility,1,1,0,1,phase-10-audit-documentation-governance
-backtest-and-paper,5,5,0,5,phase-07-backtest-paper-execution
+backtest-and-paper,6,6,0,6,phase-07-backtest-paper-execution
 data-and-evidence,21,15,6,0,phase-01-governance-scope;phase-02-data-policy-identity
 data-platform,29,29,0,29,phase-01-governance-scope;phase-02-data-policy-identity
 documentation,1,1,0,1,phase-10-audit-documentation-governance

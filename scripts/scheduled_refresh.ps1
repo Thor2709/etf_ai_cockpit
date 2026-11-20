@@ -1,7 +1,7 @@
 <#
 Runs one scheduled ETF AI Cockpit data job and logs it to <Root>\logs\scheduled\<Job>-yyyyMMdd-HHmm.log.
   Daily : new price days + FX, rescore, readiness gate, publish. Paper bots are skipped (--dry-run).
-  Weekly: stock fundamentals once per week. The Saturday trigger runs it; the Sunday and Monday
+  Weekly: stock fundamentals and FRED macro vintages once per week. The Saturday trigger runs it; the Sunday and Monday
           triggers run it only when this week's run has not succeeded yet (stamp file).
 Exit code 1 from the daily job while the readiness gate fails is expected: data is fetched and saved.
 Register the jobs with register_scheduled_refresh.ps1.
@@ -54,4 +54,9 @@ $code = $LASTEXITCODE
 Write-Log ('end {0} exit={1} duration={2:hh\:mm\:ss}' -f $Job, $code, ((Get-Date) - $started))
 if ($Job -eq 'Weekly' -and $code -eq 0) { Set-Content -Path $stamp -Value $today.ToString('yyyy-MM-dd') }
 $mutex.ReleaseMutex()
+if ($Job -eq 'Weekly') {
+    # FRED vintages (context only) need no Yahoo mutex; the exit code is logged and never changes the job result
+    & $Python "$PSScriptRoot\refresh_macro.py" --root $Root 2>&1 | ForEach-Object { [IO.File]::AppendAllText($log, "$_`r`n", [Text.Encoding]::UTF8) }
+    Write-Log "refresh_macro exit=$LASTEXITCODE"
+}
 exit $code
