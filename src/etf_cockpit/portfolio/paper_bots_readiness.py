@@ -34,6 +34,7 @@ from etf_cockpit.data.duckdb_store import SYNTHETIC_PRICE_SOURCES, load_prices
 from etf_cockpit.data.fx_data import EurRateBook, load_fx_rates, major_currency
 from etf_cockpit.data.replay_membership import ETF_UNIVERSE_CAVEAT, OBSERVED_TRADING_STATUS, ListingHistory, _timestamp
 from etf_cockpit.data.score_history_backfill import (
+    STORE_PROVENANCES,
     load_backfill_eligibility,
     load_backfill_manifest,
     load_backfill_score_history,
@@ -157,9 +158,9 @@ def load_inputs(root: Path) -> ReadinessInputs:
             inputs.unavailable[name] = f"{type(exc).__name__}: {str(exc)[:160]}"
             return None
 
-    history = attempt("history", lambda: load_backfill_score_history(root))
+    history = attempt("history", lambda: load_backfill_score_history(root, STORE_PROVENANCES))
     inputs.history = history if history is not None else pd.DataFrame()
-    eligibility = attempt("eligibility", lambda: load_backfill_eligibility(root))
+    eligibility = attempt("eligibility", lambda: load_backfill_eligibility(root, STORE_PROVENANCES))
     inputs.eligibility = eligibility if eligibility is not None else pd.DataFrame()
     inputs.manifest = attempt("manifest", lambda: load_backfill_manifest(root)) or {}
     prices = attempt("prices", lambda: load_prices(root / PRICES_RELATIVE_PATH))

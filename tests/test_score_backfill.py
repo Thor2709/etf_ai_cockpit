@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 import numpy as np
@@ -504,3 +504,97 @@ def test_forecast_status_is_partial_for_baseline_only_rows_and_unavailable_witho
     assert with_baseline.any()
     assert run.loc[with_baseline, "forecast_status"].eq("partial").all()  # baseline only: no TimesFM/Toto, never "available"
     assert run.loc[~with_baseline, "forecast_status"].eq("unavailable").all()
+
+
+# Forward nightly score run (SDD C4): t_S is a night after the session; every stored price row is known before it.
+RUN_AT = datetime(2022, 7, 1, 21, 31, tzinfo=timezone.utc)
+
+
+def _stamped(prices: pd.DataFrame) -> pd.DataFrame:
+    return prices.assign(known_at=pd.Timestamp(RUN_AT - timedelta(hours=20)))
+
+
+def test_rows_carry_the_board_price_and_currency_inside_the_snapshot_hash() -> None:
+    config = _config()
+    run, _log = _run(config, _prices(config))
+    assert run["current_price"].notna().all() and run["instrument_currency"].notna().all()
+    assert store.run_content_hash(run) == run["snapshot_hash"].iloc[0]
+    changed = run.copy()
+    changed.loc[0, "current_price"] = float(changed.loc[0, "current_price"]) * 1.01
+    assert store.run_content_hash(changed) != run["snapshot_hash"].iloc[0]
+
+
+def test_forward_run_stamps_its_completion_time_and_provenance() -> None:
+    config = _config()
+    prices = _stamped(_prices(config))
+    with pytest.raises(ValueError, match="before the session end"):
+        score_backfill.score_as_of(config, prices, AS_OF, fx_rates=pd.DataFrame(), completed_at=datetime(2022, 6, 30, 23, tzinfo=timezone.utc))
+    run, _log = score_backfill.score_as_of(config, prices, AS_OF, fx_rates=pd.DataFrame(), completed_at=RUN_AT)
+    assert set(run["provenance"]) == {store.FORWARD_PROVENANCE}
+    assert {pd.Timestamp(value) for value in run["run_completed_at"]} == {pd.Timestamp(RUN_AT)}
+
+
+def test_forward_run_raises_on_a_price_known_after_it_and_never_admits_an_unstamped_price() -> None:
+    config = _config()
+    prices = _stamped(_prices(config))
+    late = prices.copy()
+    late.loc[late["etf_id"].eq("VWCE") & late["date"].eq(AS_OF), "known_at"] = pd.Timestamp(RUN_AT + timedelta(seconds=1))
+    with pytest.raises(ValueError, match="price known after run time"):
+        score_backfill.score_as_of(config, late, AS_OF, fx_rates=pd.DataFrame(), completed_at=RUN_AT)
+    victim = _eur_ids(config, "etf", 2)[0]
+    unstamped = prices.copy()
+    unstamped.loc[unstamped["etf_id"].eq(victim) & unstamped["date"].eq(AS_OF), "known_at"] = pd.NaT
+    run, log = score_backfill.score_as_of(config, unstamped, AS_OF, fx_rates=pd.DataFrame(), completed_at=RUN_AT)
+    assert run is not None and victim not in set(run["instrument_id"])  # no zero-fill, no raise
+    assert "price_unstamped" in log.loc[log["instrument_id"].eq(victim), "reasons"].iloc[0]
+
+
+def test_forward_rows_round_trip_are_reused_and_stay_out_of_the_historical_replay(tmp_path: Path) -> None:
+    config = _config()
+    prices = _stamped(_prices(config))
+    day = AS_OF.isoformat()
+    forward = score_backfill.backfill_score_history(
+        tmp_path, AS_OF, AS_OF, every=1, config=config, prices=prices, fx_rates=pd.DataFrame(), completed_at=RUN_AT,
+    )
+    assert forward.status == "available" and forward.runs_written == 1
+    stored = store.load_backfill_score_history(tmp_path, store.STORE_PROVENANCES)  # as readiness, recorder and writer read it
+    rows = stored.loc[stored["as_of_date"].eq(day)].reset_index(drop=True)
+    snapshot = rows["snapshot_hash"].iloc[0]
+    assert store.run_content_hash(rows.drop(columns=["config_fingerprint"])) == snapshot  # survives the parquet round trip
+    history_path = tmp_path / store.BACKFILL_HISTORY_RELATIVE_PATH
+    before = history_path.read_bytes()
+    again = score_backfill.backfill_score_history(
+        tmp_path, AS_OF, AS_OF, every=1, config=config, prices=prices, fx_rates=pd.DataFrame(), completed_at=RUN_AT + timedelta(minutes=5),
+    )
+    assert again.runs_written == 0 and history_path.read_bytes() == before  # reuse: same H
+    historical = score_backfill.backfill_score_history(
+        tmp_path, date(2022, 6, 29), AS_OF, every=1, config=config, prices=prices, fx_rates=pd.DataFrame(), force=True,
+    )
+    assert historical.runs_written == 1  # the forward session is skipped
+    after = store.load_backfill_score_history(tmp_path, store.STORE_PROVENANCES)
+    pd.testing.assert_frame_equal(after.loc[after["as_of_date"].eq(day)].reset_index(drop=True), rows)
+    replay = {store.BACKFILL_PROVENANCE}
+    assert set(store.load_backfill_score_history(tmp_path)["as_of_date"]) == {"2022-06-29"}  # the default is the replay's
+    eligibility = store.load_backfill_eligibility(tmp_path, store.STORE_PROVENANCES)
+    assert set(eligibility["provenance"]) == {store.BACKFILL_PROVENANCE, store.FORWARD_PROVENANCE}
+    assert set(store.load_backfill_eligibility(tmp_path)["as_of_date"]) == {"2022-06-29"}
+    assert store.load_backfill_manifest(tmp_path)["provenances"] == sorted([store.BACKFILL_PROVENANCE, store.FORWARD_PROVENANCE])
+    legacy = tmp_path / "legacy"  # an eligibility row stored before the provenance column counts as historical
+    store.write_backfill_store(legacy, pd.DataFrame({"x": [1]}), pd.DataFrame({"as_of_date": ["2022-01-03"], "instrument_id": ["X"]}), {})
+    assert len(store.load_backfill_eligibility(legacy, provenances=replay)) == 1
+
+
+def test_the_historical_replay_never_reads_forward_rows(monkeypatch, tmp_path: Path, readiness_pass) -> None:
+    from etf_cockpit.portfolio.paper_bots_replay import run_historical_replay
+
+    october = datetime(2026, 10, 5, 12, 0, tzinfo=timezone.utc)
+    history = pd.DataFrame(_history_with_columns(_rows(october)))
+    history["provenance"] = store.FORWARD_PROVENANCE
+    history["as_of_date"] = [str(value)[:10] for value in history["run_completed_at"]]
+    eligibility = history[["as_of_date", "instrument_id"]].assign(provenance=store.FORWARD_PROVENANCE)
+    store.write_backfill_store(tmp_path, history, eligibility, {})
+    as_of = datetime(2026, 12, 1, 12, 0, tzinfo=timezone.utc)
+    replay_track = execution.replay_track(tmp_path, _exec_config())
+    _allow(tmp_path, replay_track)
+    result = run_historical_replay(as_of, root=tmp_path, price_book=_book(known_at=as_of), now=as_of, history_source="backfill")
+    assert result.appended == 0 and _records(tmp_path, replay_track) == []

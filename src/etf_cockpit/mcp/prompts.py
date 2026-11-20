@@ -60,7 +60,7 @@ def monthly_decision(month: str) -> str:
 
 
 def bots_review() -> str:
-    return "Call paper_bots_status and data_readiness. If a due run is explicitly requested and all gates pass, submit paper_bots_run and poll job_status. Compare its paper-only evidence with the configured shadow baseline; never allow missing data or a kill switch to pass."
+    return "Call paper_bots_status and data_readiness. Paper bot decisions come only from the nightly driver (scripts/run_daily_paper.py); paper_bots_run records nothing. Compare the recorded paper-only evidence with the configured shadow baseline; never allow missing data or a kill switch to pass."
 
 
 PROMPT_SPECS = (

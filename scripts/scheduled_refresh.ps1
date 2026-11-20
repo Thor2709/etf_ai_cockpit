@@ -1,13 +1,14 @@
 <#
 Runs one scheduled ETF AI Cockpit data job and logs it to <Root>\logs\scheduled\<Job>-yyyyMMdd-HHmm.log.
-  Daily : new price days + FX, rescore, readiness gate, publish. Paper bots are skipped (--dry-run).
+  Daily : S&P capture, forward score run, readiness gate, paper bots (when enabled), then new price days + FX, rescore, publish.
   Weekly: stock fundamentals and FRED macro vintages once per week. The Saturday trigger runs it; the Sunday and Monday
           triggers run it only when this week's run has not succeeded yet (stamp file).
-Exit code 1 from the daily job while the readiness gate fails is expected: data is fetched and saved.
+  Fill  : observes the session opens for the paper fills; it writes only its own store and never waits for a data job.
+Exit code 1 from the daily job while the readiness gate or a paper stage fails is expected: the refresh still runs.
 Register the jobs with register_scheduled_refresh.ps1.
 #>
 param(
-    [Parameter(Mandatory)][ValidateSet('Daily', 'Weekly')][string]$Job,
+    [Parameter(Mandatory)][ValidateSet('Daily', 'Weekly', 'Fill')][string]$Job,
     [Parameter(Mandatory)][string]$Root,
     [Parameter(Mandatory)][string]$Python
 )
@@ -35,16 +36,22 @@ if ($Job -eq 'Weekly') {
         }
     }
     $arguments = @("$PSScriptRoot\refresh_stock_fundamentals.py", '--root', $Root)
+} elseif ($Job -eq 'Fill') {
+    $arguments = @("$PSScriptRoot\run_morning_fill.py", '--root', $Root)
 } else {
-    $arguments = @("$PSScriptRoot\run_daily_paper.py", '--root', $Root, '--dry-run',
+    $arguments = @("$PSScriptRoot\run_daily_paper.py", '--root', $Root,
                    '--incremental-prices', '--skip-fundamentals', '--refresh-fx')
 }
 
-# Both jobs call Yahoo: run one at a time to keep 1 call/s (both may start at once after the laptop was off).
-$mutex = New-Object Threading.Mutex($false, 'Global\ETF-Cockpit-Data-Jobs')
-try {
-    if (-not $mutex.WaitOne(0)) { Write-Log 'waiting for the other data job to end'; $null = $mutex.WaitOne() }
-} catch [Threading.AbandonedMutexException] { }   # the other job was killed; the mutex is ours now
+# Daily and Weekly call Yahoo in bulk: run one at a time to keep 1 call/s (both may start at once after the laptop was
+# off). Fill must observe before the fill time, so it never waits (SDD C7); its start check bounds it instead.
+$mutex = $null
+if ($Job -ne 'Fill') {
+    $mutex = New-Object Threading.Mutex($false, 'Global\ETF-Cockpit-Data-Jobs')
+    try {
+        if (-not $mutex.WaitOne(0)) { Write-Log 'waiting for the other data job to end'; $null = $mutex.WaitOne() }
+    } catch [Threading.AbandonedMutexException] { }   # the other job was killed; the mutex is ours now
+}
 
 Write-Log "start $Job"
 $started = Get-Date
@@ -53,7 +60,7 @@ $started = Get-Date
 $code = $LASTEXITCODE
 Write-Log ('end {0} exit={1} duration={2:hh\:mm\:ss}' -f $Job, $code, ((Get-Date) - $started))
 if ($Job -eq 'Weekly' -and $code -eq 0) { Set-Content -Path $stamp -Value $today.ToString('yyyy-MM-dd') }
-$mutex.ReleaseMutex()
+if ($null -ne $mutex) { $mutex.ReleaseMutex() }
 if ($Job -eq 'Weekly') {
     # FRED vintages (context only) need no Yahoo mutex; the exit code is logged and never changes the job result
     & $Python "$PSScriptRoot\refresh_macro.py" --root $Root 2>&1 | ForEach-Object { [IO.File]::AppendAllText($log, "$_`r`n", [Text.Encoding]::UTF8) }

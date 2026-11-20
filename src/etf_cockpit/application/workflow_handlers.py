@@ -144,39 +144,12 @@ def headless_workflow_handlers(
     if include_paper:
         handlers["report_export"] = report_export
 
-        def paper_bots_run(context: JobContext) -> dict[str, object]:
-            session, payload = inputs(context)
-            from etf_cockpit.portfolio.paper_bots import run_paper_bots
-            from etf_cockpit.application.paper_manual_order import load_paper_controls_status
-
-            result = run_paper_bots(payload.get("as_of", ""), root=session.root)
-            execution: dict[str, object]
-            if result.status not in {"available", "partial"}:
-                execution = {"status": "unavailable", "reason": "stage_a_unavailable"}
-            else:
-                controls = load_paper_controls_status(session.root, "local-paper")
-                if controls.get("status") != "available":
-                    execution = {"status": "blocked", "reason": "paper_controls_unavailable"}
-                elif controls.get("kill_switch_active") is True:
-                    execution = {"status": "blocked", "reason": "paper_kill_switch_active"}
-                else:
-                    from etf_cockpit.portfolio.paper_bots_execution import run_paper_bot_execution
-
-                    stage_b = run_paper_bot_execution(payload.get("as_of", ""), root=session.root)
-                    execution = {
-                        "status": stage_b.status,
-                        "as_of": stage_b.as_of,
-                        "appended": stage_b.appended,
-                        "reason": stage_b.reason,
-                        "warnings": list(stage_b.warnings),
-                    }
+        def paper_bots_run(_context: JobContext) -> dict[str, object]:
+            # SDD C8 (docs/architecture/forward-paper-path.md): paper decisions come only from the nightly driver.
             return {
-                "status": result.status,
-                "as_of": result.as_of,
-                "appended": result.appended,
-                "reason": result.reason,
-                "warnings": list(result.warnings),
-                "execution": execution,
+                "status": "unavailable",
+                "reason": "forward decisions run only in the nightly job",
+                "appended": 0,
                 "execution_allowed": False,
             }
 

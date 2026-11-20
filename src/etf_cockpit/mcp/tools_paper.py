@@ -97,7 +97,7 @@ def paper_bots_status(as_of: str | None = None, cursor: str | None = None, limit
     return {**dict(view), "forward": forward, "execution_allowed": False}
 
 
-@tool(tier="paper", description="Submit due B0-B3 paper bot decisions to the durable local worker.", profiles=("full",))
+@tool(tier="paper", description="Paper bot decisions come only from the nightly driver (scripts/run_daily_paper.py); this workflow records nothing and returns unavailable.", profiles=("full",))
 def paper_bots_run(as_of: str | None = None, dry_run: bool = True, confirm_token: str | None = None) -> dict[str, Any]:
     session = _session()
     cutoff = datetime.now(timezone.utc) if as_of is None else _parse_aware(as_of, "as_of")

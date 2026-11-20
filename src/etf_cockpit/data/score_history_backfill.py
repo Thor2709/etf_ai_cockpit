@@ -7,7 +7,9 @@ provenance label and a point-in-time coverage summary, so the optional historica
 
 from __future__ import annotations
 
+import hashlib
 import json
+from collections.abc import Collection
 from pathlib import Path
 
 import pandas as pd
@@ -15,6 +17,8 @@ import pandas as pd
 from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_group, parquet_payload, validate_parquet_file
 
 BACKFILL_PROVENANCE = "historical_backfill"
+FORWARD_PROVENANCE = "forward_nightly"  # nightly forward score runs (SDD C4); never read by the historical replay
+STORE_PROVENANCES = frozenset({BACKFILL_PROVENANCE, FORWARD_PROVENANCE})
 BACKFILL_HISTORY_RELATIVE_PATH = Path("data") / "derived" / "score_history_backfill.parquet"
 BACKFILL_ELIGIBILITY_RELATIVE_PATH = Path("data") / "derived" / "score_history_backfill_eligibility.parquet"
 BACKFILL_MANIFEST_RELATIVE_PATH = Path("data") / "derived" / "score_history_backfill_manifest.json"
@@ -24,8 +28,11 @@ def backfill_history_path(root: Path) -> Path:
     return Path(root) / BACKFILL_HISTORY_RELATIVE_PATH
 
 
-def load_backfill_score_history(root: Path) -> pd.DataFrame:
-    """The backfill store, restricted to rows that carry the ``historical_backfill`` provenance (fail closed otherwise)."""
+def load_backfill_score_history(root: Path, provenances: Collection[str] = (BACKFILL_PROVENANCE,)) -> pd.DataFrame:
+    """The backfill store, restricted to rows whose provenance is in ``provenances`` (fail closed otherwise).
+
+    The default serves the historical replay; readiness, the forward recorder and the writer pass ``STORE_PROVENANCES``.
+    """
 
     path = backfill_history_path(root)
     if not path.is_file():
@@ -33,12 +40,29 @@ def load_backfill_score_history(root: Path) -> pd.DataFrame:
     frame = pd.read_parquet(path)
     if frame.empty or "provenance" not in frame.columns:
         return pd.DataFrame()
-    return frame.loc[frame["provenance"].astype(str).eq(BACKFILL_PROVENANCE)].reset_index(drop=True)
+    return frame.loc[frame["provenance"].astype(str).isin(set(provenances))].reset_index(drop=True)
 
 
-def load_backfill_eligibility(root: Path) -> pd.DataFrame:
+def load_backfill_eligibility(root: Path, provenances: Collection[str] = (BACKFILL_PROVENANCE,)) -> pd.DataFrame:
+    """The eligibility log, filtered like the history; a legacy row without a provenance counts as historical."""
+
     path = Path(root) / BACKFILL_ELIGIBILITY_RELATIVE_PATH
-    return pd.read_parquet(path) if path.is_file() else pd.DataFrame()
+    if not path.is_file():
+        return pd.DataFrame()
+    frame = pd.read_parquet(path)
+    if frame.empty:
+        return frame
+    labels = frame["provenance"] if "provenance" in frame.columns else pd.Series(None, index=frame.index, dtype=object)
+    labels = labels.where(labels.notna(), BACKFILL_PROVENANCE).astype(str)
+    return frame.loc[labels.isin(set(provenances))].reset_index(drop=True)
+
+
+def run_content_hash(frame: pd.DataFrame) -> str:
+    """``snapshot_hash`` of one score run: its rows without ``snapshot_hash``, in a canonical order."""
+
+    canonical = frame.drop(columns=["snapshot_hash"], errors="ignore").sort_values("instrument_id", kind="stable")
+    canonical = canonical.reindex(sorted(canonical.columns), axis=1)
+    return hashlib.sha256(canonical.to_json(orient="records", date_format="iso", default_handler=str).encode("utf-8")).hexdigest()
 
 
 def load_backfill_manifest(root: Path) -> dict[str, object]:
@@ -82,9 +106,12 @@ __all__ = [
     "BACKFILL_HISTORY_RELATIVE_PATH",
     "BACKFILL_MANIFEST_RELATIVE_PATH",
     "BACKFILL_PROVENANCE",
+    "FORWARD_PROVENANCE",
+    "STORE_PROVENANCES",
     "backfill_history_path",
     "load_backfill_eligibility",
     "load_backfill_manifest",
     "load_backfill_score_history",
+    "run_content_hash",
     "write_backfill_store",
 ]

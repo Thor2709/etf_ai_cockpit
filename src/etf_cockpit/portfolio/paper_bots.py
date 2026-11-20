@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta, timezone
+from functools import partial
 import hashlib
 from io import BytesIO
 import json
@@ -25,6 +26,7 @@ from etf_cockpit.data.local_storage import (
     TransactionalStore,
 )
 from etf_cockpit.data.score_history import project_classification_score_frame
+from etf_cockpit.data.score_history_backfill import STORE_PROVENANCES, load_backfill_score_history, run_content_hash
 from etf_cockpit.data.trust_artifacts import SCORE_HISTORY_PATH
 from etf_cockpit.portfolio import paper_bots_readiness as data_readiness
 from etf_cockpit.portfolio.optimiser import OptimiserConstraints, PortfolioOptimiser, returns_from_adjusted_prices
@@ -77,6 +79,8 @@ class PaperBotRunResult:
     reason: str | None = None
     appended: int = 0
     warnings: tuple[str, ...] = ()
+    # SDD C5: the snapshot of the stored forward run loaded and verified tonight; None when it could not be verified.
+    candidate_snapshot: str | None = None
 
 
 @dataclass(frozen=True)
@@ -103,8 +107,14 @@ def run_paper_bots(
     config_path: Path | None = None,
     now: datetime | None = None,
     challenger_engines: Mapping[str, ChallengerInput] | None = None,
+    decision_session: date | None = None,
+    snapshot_hash: str | None = None,
 ) -> PaperBotRunResult:
     """Record this month's first eligible published decision for each bot that is due this month.
+
+    With ``decision_session`` S and ``snapshot_hash`` H (the nightly driver, SDD C5) the candidates and prices come from
+    the stored forward score run of S with hash H, readiness is gated on S and the slot month is the month of S; the
+    published scoreboard is not read. Without them the published scoreboard path below is used.
 
     A bot decides only in the months its cadence allows (``rebalance_every_months`` counted in calendar months from its
     first available decision month; B0 only in its first month); in any other month it records no target and no order.
@@ -130,7 +140,10 @@ def run_paper_bots(
             "Forward recorder accepts only the current UTC calendar day; historical replay is not mixed into forward records.",
         )
 
-    readiness_failure = data_readiness.paper_bot_readiness_failure(project_root, cutoff.date(), cutoff.date())
+    if (decision_session is None) != (snapshot_hash is None):
+        raise ValueError("decision_session and snapshot_hash are given together (forward recording) or not at all")
+    session = decision_session or cutoff.date()
+    readiness_failure = data_readiness.paper_bot_readiness_failure(project_root, session, session)
     if readiness_failure is not None:
         return PaperBotRunResult(
             "unavailable", _time_text(cutoff), None, (), f"Paper bot data readiness blocked:\n{readiness_failure}"
@@ -145,61 +158,73 @@ def run_paper_bots(
         return PaperBotRunResult("unavailable", _time_text(cutoff), None, (), f"Bot specification unavailable: {type(exc).__name__}.")
 
     config_hash = hashlib.sha256(config_bytes).hexdigest()
-    month = cutoff.strftime("%Y-%m")
+    month = session.strftime("%Y-%m")  # SDD C5: the slot month is the month of S (= the UTC month on the legacy path)
 
-    scoreboard_path = project_root / "data" / "derived" / "scoreboard.parquet"
-    scoreboard_digest = None
-    try:
-        scoreboard_bytes = scoreboard_path.read_bytes()
-        scoreboard_digest = hashlib.sha256(scoreboard_bytes).hexdigest()
-        scoreboard = project_classification_score_frame(
-            pd.read_parquet(BytesIO(scoreboard_bytes)), root=project_root
-        )
-        if not isinstance(scoreboard, pd.DataFrame):
+    if snapshot_hash is not None:
+        try:
+            forward, group_error = _forward_run_group(project_root, session, snapshot_hash, cutoff)
+        except (OSError, TypeError, ValueError, KeyError) as exc:
+            forward, group_error = None, f"Stored forward score run unavailable: {type(exc).__name__}."
+        if forward is None:
+            return _persist_unavailable(project_root, cutoff, month, config, config_hash, str(group_error))
+        groups = current_month_groups = (forward,)
+        warnings: tuple[str, ...] = ()
+        match_rows: Callable[[_PublishedGroup], dict[str, tuple[dict[str, Any], dict[str, Any]]] | None] = _run_rows
+    else:
+        scoreboard_path = project_root / "data" / "derived" / "scoreboard.parquet"
+        scoreboard_digest = None
+        try:
+            scoreboard_bytes = scoreboard_path.read_bytes()
+            scoreboard_digest = hashlib.sha256(scoreboard_bytes).hexdigest()
+            scoreboard = project_classification_score_frame(
+                pd.read_parquet(BytesIO(scoreboard_bytes)), root=project_root
+            )
+            if not isinstance(scoreboard, pd.DataFrame):
+                scoreboard = pd.DataFrame()
+        except Exception:
             scoreboard = pd.DataFrame()
-    except Exception:
-        scoreboard = pd.DataFrame()
 
-    try:
-        with TransactionalStore(project_root, read_only=True) as binding_store:
-            bindings = tuple(record.payload for record in binding_store.list(PUBLICATION_BINDING_ENTITY_TYPE))
-    except Exception:
-        bindings = ()
-    publications = _bound_publications(bindings, scoreboard_digest, cutoff)
+        try:
+            with TransactionalStore(project_root, read_only=True) as binding_store:
+                bindings = tuple(record.payload for record in binding_store.list(PUBLICATION_BINDING_ENTITY_TYPE))
+        except Exception:
+            bindings = ()
+        publications = _bound_publications(bindings, scoreboard_digest, cutoff)
 
-    try:
-        history = _load_published_score_history(project_root)
-    except Exception as exc:
-        return _persist_unavailable(
-            project_root,
-            cutoff,
-            month,
-            config,
-            config_hash,
-            f"Published score history unavailable: {type(exc).__name__}.",
-        )
+        try:
+            history = _load_published_score_history(project_root)
+        except Exception as exc:
+            return _persist_unavailable(
+                project_root,
+                cutoff,
+                month,
+                config,
+                config_hash,
+                f"Published score history unavailable: {type(exc).__name__}.",
+            )
 
-    try:
-        groups, group_error, warnings = _published_groups(
-            history, cutoff, {run_id for run_id, _snapshot_hash in publications}
-        )
-    except (TypeError, ValueError, KeyError) as exc:
-        groups, group_error, warnings = (), f"Published score history is unverifiable: {type(exc).__name__}.", ()
-    if group_error:
-        return _persist_unavailable(project_root, cutoff, month, config, config_hash, group_error, warnings)
+        try:
+            groups, group_error, warnings = _published_groups(
+                history, cutoff, {run_id for run_id, _snapshot_hash in publications}
+            )
+        except (TypeError, ValueError, KeyError) as exc:
+            groups, group_error, warnings = (), f"Published score history is unverifiable: {type(exc).__name__}.", ()
+        if group_error:
+            return _persist_unavailable(project_root, cutoff, month, config, config_hash, group_error, warnings)
 
-    groups = _bind_publication_groups(groups, publications)
-    current_month_groups = [group for group in groups if group.known_at.strftime("%Y-%m") == month]
-    if not current_month_groups:
-        return _persist_unavailable(
-            project_root,
-            cutoff,
-            month,
-            config,
-            config_hash,
-            "No scoreboard publication with matching immutable bytes is known in the current UTC month.",
-            warnings,
-        )
+        groups = _bind_publication_groups(groups, publications)
+        current_month_groups = [group for group in groups if group.known_at.strftime("%Y-%m") == month]
+        if not current_month_groups:
+            return _persist_unavailable(
+                project_root,
+                cutoff,
+                month,
+                config,
+                config_hash,
+                "No scoreboard publication with matching immutable bytes is known in the current UTC month.",
+                warnings,
+            )
+        match_rows = partial(_matched_score_rows, scoreboard=scoreboard)
 
     try:
         with TransactionalStore(project_root) as store:
@@ -361,7 +386,7 @@ def run_paper_bots(
                 if failure is None:
                     decision, group, failure = _first_successful_candidate(
                         spec, bot_id, config_hash, config, cutoff, month, candidates,
-                        expected_lineage_hash, lambda candidate: _matched_score_rows(candidate, scoreboard),
+                        expected_lineage_hash, match_rows,
                         engines=challenger_engines,
                     )
 
@@ -442,7 +467,8 @@ def run_paper_bots(
                 else "No bot decision could be recorded from a verified published snapshot."
             )
             return PaperBotRunResult(
-                status, _time_text(cutoff), result_snapshot, tuple(results), reason, appended, warnings
+                status, _time_text(cutoff), result_snapshot, tuple(results), reason, appended, warnings,
+                candidate_snapshot=snapshot_hash,
             )
     except (OSError, ValueError, KeyError, StorageSchemaError, StorageRevisionConflict) as exc:
         return PaperBotRunResult(
@@ -601,6 +627,48 @@ def _load_published_score_history(root: Path) -> pd.DataFrame:
     if not path.is_file():
         return pd.DataFrame()
     return pd.read_parquet(path)
+
+
+def _forward_run_group(
+    root: Path, session: date, snapshot_hash: str, cutoff: datetime,
+) -> tuple[_PublishedGroup | None, str | None]:
+    """The stored score run of ``session`` with hash H, verified against its own content (SDD C5), or the reason not."""
+
+    history = load_backfill_score_history(root, STORE_PROVENANCES)
+    if history.empty or not {"as_of_date", "snapshot_hash", "run_id"}.issubset(history.columns):
+        return None, "No stored score run is available for the decision session."
+    rows = history.loc[
+        history["as_of_date"].astype(str).eq(session.isoformat()) & history["snapshot_hash"].astype(str).eq(snapshot_hash)
+    ].reset_index(drop=True)
+    if rows.empty:
+        return None, f"No stored score run of session {session.isoformat()} has the readiness snapshot."
+    # H is computed before config_fingerprint is added (score_backfill), and the hash itself drops only snapshot_hash.
+    if run_content_hash(rows.drop(columns=["config_fingerprint"], errors="ignore")) != snapshot_hash:
+        return None, "The stored score run does not match its content hash."
+    run_ids = set(rows["run_id"].astype(str))
+    if len(run_ids) != 1:
+        return None, "The stored score run of the readiness snapshot has conflicting run identities."
+    group, error = _validate_run(next(iter(run_ids)), rows.to_dict(orient="records"), cutoff)
+    if group is None:
+        return None, error or "The stored score run is newer than as_of."
+    return group, None
+
+
+def _run_rows(group: _PublishedGroup) -> dict[str, tuple[dict[str, Any], dict[str, Any]]]:
+    """Pair each stored run row with the board fields the rules read, taken from the run itself (SDD C5 mapping)."""
+
+    return {
+        str(row["instrument_id"]): (dict(row), {
+            "symbol": row.get("yahoo_ticker"),
+            "instrument_currency": row.get("instrument_currency"),
+            "current_price": row.get("current_price"),
+            "latest_price_date": _date_text(row.get("price_as_of_date")),
+            "research_promotion_allowed": row.get("research_promotion_allowed"),
+            "analysis_status": row.get("analysis_status"),
+            "legacy_action": row.get("legacy_action") if _real_text(row.get("legacy_action")) else row.get("final_action"),
+        })
+        for row in group.rows
+    }
 
 
 def _bound_publications(
