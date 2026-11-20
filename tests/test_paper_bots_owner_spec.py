@@ -202,11 +202,12 @@ def test_classification_uses_the_universe_and_fails_closed_to_unknown() -> None:
         CERT={"instrument_type": "equity_certificate", "sector": "Banks", "region": "Norway"},
         NOSECTOR={"instrument_type": "etf", "sector": None, "region": "World"},
     )
-    decision = {"instrument_asset_types": {"FROZENSTOCK": "STOCK", "FROZENETF": "ETF"}}
-    kinds = {name: execution._classify(context, decision, name) for name in ("BROAD", "TECH", "BANKX", "CERT", "NOSECTOR", "FROZENSTOCK", "FROZENETF", "ABSENT")}
+    decision = {"instrument_asset_types": {"FROZENSTOCK": "STOCK", "FROZENETF": "ETF", "FROZENCERT": "EQUITY CERTIFICATE"}}
+    names = ("BROAD", "TECH", "BANKX", "CERT", "NOSECTOR", "FROZENSTOCK", "FROZENETF", "FROZENCERT", "ABSENT")
+    kinds = {name: execution._classify(context, decision, name) for name in names}
     assert {name: item["kind"] for name, item in kinds.items()} == {
         "BROAD": "broad_etf", "TECH": "narrow_etf", "BANKX": "stock", "CERT": "stock", "NOSECTOR": "unknown",
-        "FROZENSTOCK": "stock", "FROZENETF": "unknown", "ABSENT": "unknown",
+        "FROZENSTOCK": "stock", "FROZENETF": "unknown", "FROZENCERT": "stock", "ABSENT": "unknown",
     }
     assert (kinds["TECH"]["sector"], kinds["TECH"]["country"]) == ("Technology", None)  # Europe spans countries
     assert (kinds["BANKX"]["sector"], kinds["BANKX"]["country"]) == ("Banks", "Norway")
