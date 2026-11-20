@@ -93,6 +93,15 @@ def stamp_price_availability(stored: pd.DataFrame | None, incoming: pd.DataFrame
     return out
 
 
+def _read_stored_prices(path: Path) -> pd.DataFrame | None:
+    """The stored store whose stamps are kept; an absent or unreadable store gives none (all bars stamp as new)."""
+
+    try:
+        return pd.read_parquet(path) if path.is_file() else None
+    except (OSError, ValueError):
+        return None
+
+
 def _keys(frame: pd.DataFrame) -> pd.MultiIndex:
     """(instrument, session) per row; the import path accepts ``etf_id`` or ``instrument_id``."""
 
@@ -150,7 +159,7 @@ def commit_price_import(
         raise ValueError("Cannot commit a provider result that did not load data.")
 
     incoming = result.data.copy()
-    stored = pd.read_parquet(clean_path) if clean_path.exists() else None
+    stored = _read_stored_prices(clean_path)
     now = datetime.now(timezone.utc)
     # C1: only a download that asked for actions is action evidence; a local file never is.
     claimed = incoming if result.provider_name in _ACTION_DOWNLOAD_PROVIDERS else incoming.assign(actions_evidenced=False)
@@ -216,7 +225,7 @@ def rollback_latest_price_import(
     restored = pd.read_parquet(restored_snapshot_path)
     with publication_scope(publish_guard):
         # Read the current store under the guard, so no write comes between this read and the rollback write.
-        current = pd.read_parquet(clean_path) if clean_path.exists() else None
+        current = _read_stored_prices(clean_path)
         now = datetime.now(timezone.utc)
         frame = stamp_price_availability(current, restored, retrieved_at=now)
         checksum = sha256_dataframe(frame)
