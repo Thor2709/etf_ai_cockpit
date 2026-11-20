@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import replace
-from datetime import datetime
+from datetime import datetime, timezone
 from importlib.util import find_spec
 from pathlib import Path
 
@@ -19,8 +19,8 @@ from etf_cockpit.core.pandas_values import bool_like_or_none
 from etf_cockpit.data.fx_data import load_fx_rates
 from etf_cockpit.features.feature_observations import FX_FILE_RELATIVE, VINTAGE_DIR_RELATIVE, known_prices
 from etf_cockpit.features.feature_pipeline import eur_basis_prices
-from etf_cockpit.features.feature_store import BUILTIN_FEATURES, LocalFeatureStore
-from etf_cockpit.features.panel import PITPanelInputs, build_pit_panel
+from etf_cockpit.features.feature_store import BUILTIN_FEATURES, FeatureStoreError, LocalFeatureStore
+from etf_cockpit.features.panel import PanelContractError, PITPanelInputs, build_pit_panel
 from etf_cockpit.models import cross_sectional_ranker as ranker
 from etf_cockpit.portfolio import paper_bots as bots
 from etf_cockpit.validation.protocol import ValidationSpec
@@ -70,6 +70,8 @@ def _ranker_scores(root: Path, cutoff: datetime, prices: pd.DataFrame) -> tuple[
     if not ranker.is_available():
         return {}, {"status": "unavailable", "preflight": ["lightgbm is not installed"]}
     vintages = _vintages(root, cutoff)
+    if vintages.empty:
+        return {}, {"status": "insufficient_evidence", "preflight": ["no feature vintage is known by the cut-off"]}
     panel_prices = prices.rename(columns={"etf_id": "instrument_id"})
     benchmark = panel_prices if panel_prices.empty else panel_prices.loc[panel_prices["instrument_id"].astype(str).eq("VWCE")]
     store = LocalFeatureStore(root)
@@ -80,18 +82,31 @@ def _ranker_scores(root: Path, cutoff: datetime, prices: pd.DataFrame) -> tuple[
             sorted(set(vintages["known_at"])), _SCOPE, _FEATURE_IDS, horizons=(_HORIZON,),
             inputs=PITPanelInputs(store, vintages, panel_prices, benchmark),
         )
-    except ValueError as error:  # PanelContractError and feature-store errors: the panel cannot be built
+    except FeatureStoreError as error:
+        return {}, {"status": "unavailable", "preflight": [f"feature store: {error}"]}
+    except PanelContractError as error:
         return {}, {"status": "insufficient_evidence", "preflight": [str(error)]}
+    decisions = pd.to_datetime(panel["decision_time"], format="mixed", utc=True)
+    # The store takes the latest row at or before each decision; a row from an older vintage (an instrument missing
+    # from that night's vintage) is not that decision's observation, so it neither trains nor scores.
+    stamps = pd.to_datetime(panel["feature_vintages_available_at"], format="mixed", utc=True, errors="coerce")
+    panel.loc[~stamps.eq(decisions), list(_FEATURE_IDS)] = None
+    latest = decisions.max()
+    report: dict[str, object] = {"decision_time": latest.isoformat()}
+    # Tonight's decision only: a failed capture or vintage write on this night must not send older ranks out.
+    day = cutoff.astimezone(timezone.utc).date()
+    if latest.date() != day:
+        return {}, {**report, "status": "unavailable", "preflight": [f"latest decision {latest.date()} is not on the cut-off day {day}"]}
     outcome = ranker.fit(panel, _RANKER_SPEC, horizon=_HORIZON, feature_ids=_FEATURE_IDS)
     if outcome.artefact is None:
-        return {}, {"status": outcome.status, "preflight": outcome.reason.split("; ")}
-    latest = panel.loc[panel["decision_time"].eq(panel["decision_time"].max())]
+        return {}, {**report, "status": outcome.status, "preflight": outcome.reason.split("; ")}
+    rows = panel.loc[decisions.eq(latest)]
     scores = {
         str(instrument): float(value)
-        for instrument, value in zip(latest["instrument_id"], ranker.score(outcome.artefact, latest))
+        for instrument, value in zip(rows["instrument_id"], ranker.score(outcome.artefact, rows))
         if math.isfinite(value)
     }
-    return scores, {"status": outcome.status, "preflight": [], "scored": len(scores)}
+    return scores, {**report, "status": outcome.status, "preflight": [], "scored": len(scores)}
 
 
 def _vintages(root: Path, cutoff: datetime) -> pd.DataFrame:

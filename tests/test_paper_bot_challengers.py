@@ -133,6 +133,27 @@ def test_b1r_short_history_gives_no_scores_and_lists_the_failed_preflight(tmp_pa
     ]
 
 
+def test_b1r_gives_no_scores_when_the_latest_vintage_is_not_from_the_cutoff_night(tmp_path: Path) -> None:
+    pytest.importorskip("lightgbm")
+    from etf_cockpit.portfolio import paper_bot_challengers as challengers
+
+    days = pd.bdate_range("2026-10-01", periods=30)
+    _write(tmp_path, PRICES, pd.concat([_bars(name, days, np.linspace(100.0, 110.0, len(days))) for name in ("AAA", "BBB", "VWCE")]))
+    previous = _at(days[-2], "21:40:00")  # tonight (days[-1]) wrote no vintage: only last night's exists
+    record_listing_capture([{"instrument_id": "AAA"}, {"instrument_id": "BBB"}], "fixture", SCOPE,
+                           _iso(previous - timedelta(minutes=9)), root=tmp_path)
+    _vintage(tmp_path, days[-2], previous, {"AAA": [0.1] * 6, "BBB": [0.2] * 6})
+    tonight = _at(days[-1], "21:41:00")
+
+    engines, report = challengers.build_challenger_engines(tmp_path, tonight)
+
+    assert engines["gbdt_rank_63"] == {}
+    assert report["gbdt_rank_63"]["decision_time"] == pd.Timestamp(previous).isoformat()
+    assert report["gbdt_rank_63"]["preflight"] == [
+        f"latest decision {days[-2].date()} is not on the cut-off day {days[-1].date()}"
+    ]
+
+
 def test_b1r_fits_and_scores_on_a_vintage_fixture_that_meets_the_minima(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     pytest.importorskip("lightgbm")
     from etf_cockpit.portfolio import paper_bot_challengers as challengers
@@ -153,6 +174,8 @@ def test_b1r_fits_and_scores_on_a_vintage_fixture_that_meets_the_minima(tmp_path
         decision = _at(day, "21:40:00")
         _vintage(tmp_path, day, decision, {name: list(rng.normal(size=6)) for name in members})
         decisions.append(decision)
+    # S19 has no row in tonight's vintage: its older vintage must not be carried forward into a score.
+    _vintage(tmp_path, sessions[645], decisions[-1], {name: list(rng.normal(size=6)) for name in members[:-1]})
 
     def ledger(scope: str, cutoff, *, root: Path) -> pd.DataFrame:
         # Stands in for 130 nightly ledger captures (about 0.8 s each); the real ledger read is in the short-history test.
@@ -166,8 +189,9 @@ def test_b1r_fits_and_scores_on_a_vintage_fixture_that_meets_the_minima(tmp_path
     engines, report = challengers.build_challenger_engines(tmp_path, decisions[-1] + timedelta(minutes=1))
 
     assert report["gbdt_rank_63"]["status"] == "fitted", report
+    assert report["gbdt_rank_63"]["decision_time"] == pd.Timestamp(decisions[-1]).isoformat()
     scores = engines["gbdt_rank_63"]
-    assert set(scores) == set(members)
+    assert set(scores) == set(members[:-1])
     assert all(np.isfinite(value) for value in scores.values())
 
 
@@ -212,3 +236,23 @@ def test_feature_vintage_is_written_once_and_the_panel_accepts_it(tmp_path: Path
     )
     assert panel["instrument_id"].tolist() == ["AAA"]
     assert panel["vintage.momentum_60d"].notna().all()
+
+
+def test_feature_vintage_ignores_fx_ingested_after_its_known_at(tmp_path: Path) -> None:
+    from etf_cockpit.features.feature_observations import record_feature_observations
+
+    days = pd.bdate_range("2026-07-01", periods=80)
+    known_at = _at(days[-1], "21:40:00")
+    closes = np.linspace(10.0, 14.0, len(days))
+    _write(tmp_path, PRICES, pd.concat([_bars("AAA", days, closes, currency="USD"), _bars("VWCE", days, closes)]))
+    ingested = [_iso(_at(day, "17:00:00")) for day in days]
+    ingested[-1] = _iso(known_at + timedelta(minutes=20))  # after t_S, before the session end 23:59:59
+    _write(tmp_path, FX, pd.DataFrame({
+        "as_of_date": days.date, "base_currency": "USD", "quote_currency": "EUR",
+        "rate": [0.9] * (len(days) - 1) + [2.0], "source": "fixture", "ingested_at": ingested,
+    }))
+
+    vintage = pd.read_parquet(record_feature_observations(tmp_path, days[-1].date(), known_at)).set_index("instrument_id")
+
+    # The late 2.0 rate is unseen; the session keeps the last known 0.9 rate, so the EUR return is the local return.
+    assert vintage.loc["AAA", "return_1d_log"] == pytest.approx(np.log(closes[-1] / closes[-2]))

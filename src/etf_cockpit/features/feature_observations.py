@@ -43,7 +43,8 @@ def record_feature_observations(
     """Write the features of ``session`` once, stamped ``known_at`` (t_S); None when the file exists or has no rows.
 
     The features come from the canonical path the score run uses (``FeatureService.compute_features``, publish=False,
-    EUR basis, the score run's reference window), fed only with prices known by ``known_at``.
+    EUR basis, the score run's reference window), fed only with prices and FX rates known by ``known_at``.
+    A read or write failure raises; the caller logs it and the run continues (SDD C9).
     """
 
     root = Path(root)
@@ -58,7 +59,11 @@ def record_feature_observations(
     prices = prices.loc[prices["date"] <= session] if not prices.empty else prices
     if prices.empty:
         return None
-    features = FeatureService(config, reference_context=context, fx_rates=load_fx_rates(root / FX_FILE_RELATIVE)).compute_features(
+    # The feature path cuts FX at the session end (S 23:59:59); a rate ingested after t_S is not known at t_S.
+    fx = load_fx_rates(root / FX_FILE_RELATIVE)
+    if "ingested_at" in fx.columns:
+        fx = fx.loc[pd.to_datetime(fx["ingested_at"], utc=True, errors="coerce") <= known_at]
+    features = FeatureService(config, reference_context=context, fx_rates=fx).compute_features(
         session, prices, publish=False,
     )
     rows = features.loc[pd.to_datetime(features["date"]).dt.date.eq(session)].copy()
