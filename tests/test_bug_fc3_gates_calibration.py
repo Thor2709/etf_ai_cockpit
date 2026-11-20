@@ -69,7 +69,7 @@ def _signal(**overrides: object) -> SignalResult:
 
 
 def _gate(signal: SignalResult, report: DataQualityReport, gate_id: str):
-    decision = signal_pipeline._attach_authority(signal, report).authority_decision
+    decision = signal_pipeline._attach_authority(signal, report, portfolio_inputs_available=True).authority_decision
     return next(gate for gate in decision.gates if gate.gate_id == gate_id)
 
 

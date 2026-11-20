@@ -22,7 +22,7 @@ from etf_cockpit.portfolio.rebalancing import proposed_new_weight, suggested_tra
 from etf_cockpit.signals.actions import advisory_action, apply_gate_result, preliminary_action
 from etf_cockpit.signals.canonical_scoring import _is_sparebank_ec_asset_type, canonical_score_from_signal_row
 from etf_cockpit.signals.explanations import explain_signal
-from etf_cockpit.signals.gates import PORTFOLIO_ONLY_ISSUE_CODES, evaluate_risk_gates
+from etf_cockpit.signals.gates import NON_MATERIAL_SIGNAL_WARNINGS, PORTFOLIO_ONLY_ISSUE_CODES, evaluate_risk_gates
 from etf_cockpit.signals.scoring import component_scores, row_components
 from etf_cockpit.core.research_states import GateResult, research_state_for_legacy_action
 from etf_cockpit.models.uncertainty import (
@@ -455,7 +455,7 @@ def _signal_to_json(signal: SignalResult) -> dict[str, object]:
 
 
 def _attach_authority(
-    signal: SignalResult, data_report: DataQualityReport, *, portfolio_inputs_available: bool = True
+    signal: SignalResult, data_report: DataQualityReport, *, portfolio_inputs_available: bool
 ) -> SignalResult:
     """Resolve and attach the typed gate decision before release serialisation.
 
@@ -466,7 +466,7 @@ def _attach_authority(
 
     etf_issues = [issue for issue in data_report.issues if issue.etf_id in {signal.etf_id, "ALL"}]
     blocked_codes = set(signal.blocked_by)
-    warning_codes = set(signal.warnings)
+    warning_codes = set(signal.warnings) - NON_MATERIAL_SIGNAL_WARNINGS
     has_dataset_evidence = _has_verified_price_evidence(signal, data_report, etf_issues)
     has_valid_model = _model_validity(signal)
     cost_failure_codes = blocked_codes & {"edge_below_cost_threshold", "edge_inputs_unavailable"}
@@ -533,7 +533,7 @@ def _attach_authority(
         GateResult(
             gate_id="signal",
             passed=not warning_codes,
-            message="No signal warnings" if not warning_codes else "Signal warnings remain visible",
+            message="No material signal warnings" if not warning_codes else "Material signal warnings: " + ", ".join(sorted(warning_codes)),
         ),
         GateResult(
             gate_id="portfolio_fit",

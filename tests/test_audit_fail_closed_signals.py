@@ -94,7 +94,7 @@ def test_authority_publication_keeps_missing_edge_cost_evidence_blocked() -> Non
         model_versions_used={"baseline": "momentum_shrunk_v1"},
     )
 
-    resolved = _attach_authority(signal, _risk_report())
+    resolved = _attach_authority(signal, _risk_report(), portfolio_inputs_available=True)
     cost_gate = next(gate for gate in resolved.authority_decision.gates if gate.gate_id == "cost")
 
     assert cost_gate.passed is False

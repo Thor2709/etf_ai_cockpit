@@ -7,8 +7,16 @@ from etf_cockpit.core.types import DataQualityReport
 from etf_cockpit.core.values import finite_float_or_none as _finite_float
 from etf_cockpit.portfolio.risk import projected_weight_allowed
 
-# Data-quality codes that describe the owner's portfolio targets, not an instrument's research evidence.
-PORTFOLIO_ONLY_ISSUE_CODES = frozenset({"target_total_invalid"})
+# Data-quality warnings that describe the owner's portfolio (targets, holdings), not an instrument's research evidence.
+# Holdings blocks (holdings_weight_above_100, stale_holdings) are not listed: they still block.
+PORTFOLIO_ONLY_ISSUE_CODES = frozenset({
+    "target_total_invalid", "target_policy_violation", "current_concentration_violation",
+    "stale_holdings_warning", "holding_weight_value_mismatch",
+})
+
+# Informational price notices (validation.py) that stay visible but do not fail the signal gate: an 8-robust-sigma day
+# anywhere in the 312-session lookback and a zero-volume session are data context, not a missing or contradicted signal.
+NON_MATERIAL_SIGNAL_WARNINGS = frozenset({"return_outlier", "zero_volume"})
 
 
 def evaluate_risk_gates(
