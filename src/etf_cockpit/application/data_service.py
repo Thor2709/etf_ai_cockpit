@@ -191,26 +191,34 @@ def _price_store_digest() -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else ""
 
 
-def _stage_prices(path: Path, data: pd.DataFrame, *, fetched_at: str, missing_ids: Sequence[str]) -> None:
+def _stage_prices(path: Path, data: pd.DataFrame, *, fetched_at: str, missing_ids: Sequence[str], start_date: date,
+                  incremental: bool) -> None:
     frame = data.copy()
     frame.attrs["staging"] = {
         "fetched_at": fetched_at, "missing_ids": list(missing_ids), "store_sha256": _price_store_digest(),
+        "start_date": start_date.isoformat(), "incremental": incremental,
     }
     atomic_write_bytes(path, _parquet_bytes(frame), _parquet_validator(len(frame)))
+    for other in path.parent.glob("prices_*.parquet"):
+        if other != path:
+            other.unlink(missing_ok=True)  # only the latest session's batch is ever reused
 
 
-def _read_staged_prices(path: Path) -> pd.DataFrame | None:
-    """A staged batch is reused only while the store it was built on is unchanged."""
+def _read_staged_prices(path: Path, *, start_date: date, incremental: bool) -> pd.DataFrame | None:
+    """A staged batch is reused for the same span and a mode it covers; a full refetch never takes a window batch."""
     try:
         staged = pd.read_parquet(path) if path.is_file() else None
     except Exception:
         return None  # an unreadable batch cannot be validated: fetch as usual
-    if staged is None or staged.attrs.get("staging", {}).get("store_sha256") != _price_store_digest():
+    info = staged.attrs.get("staging", {}) if staged is not None else {}
+    if staged is None or staged.empty or info.get("start_date") != start_date.isoformat():
         return None
-    return staged
+    if info.get("store_sha256") != _price_store_digest():
+        return None  # built on another store: fetch now rather than under the lock
+    return staged if info.get("incremental") in (incremental, False) else None
 
 
-def _staged_price_result(staged: pd.DataFrame, expected_ids: tuple[str, ...] | None) -> tuple[ProviderResult, str]:
+def _staged_price_result(staged: pd.DataFrame, expected_ids: tuple[str, ...] | None) -> tuple[ProviderResult, str] | None:
     info = staged.attrs["staging"]
     parts, missing = [staged], tuple(info["missing_ids"])
     if expected_ids is not None:
@@ -219,9 +227,12 @@ def _staged_price_result(staged: pd.DataFrame, expected_ids: tuple[str, ...] | N
         stored = _read_clean_price_store()
         kept = stored[~stored["etf_id"].astype(str).isin(configured)] if "etf_id" in stored.columns else stored
         parts = [staged[staged["etf_id"].astype(str).isin(configured)], kept]
-        missing = tuple(instrument_id for instrument_id in missing if instrument_id in configured)
     data = pd.concat([part.assign(date=_normalised_price_dates(part)) for part in parts], ignore_index=True)
     data.attrs.clear()
+    if data["date"].dropna().empty:
+        return None
+    if expected_ids is not None:
+        missing = tuple(sorted(set(expected_ids) - set(data["etf_id"].astype(str))))
     message = f"Staged Yahoo Finance prices fetched at {info['fetched_at']}."
     metadata = metadata_from_frame(
         data,
@@ -644,25 +655,33 @@ class DataService:
         symbol_map = getattr(provider, "_symbol_map", None)
         expected_ids = tuple(symbol_map([])) if callable(symbol_map) else None
         staging_path = ROOT / "data" / "staging" / f"prices_{end_date.isoformat()}.parquet"
-        staged = _read_staged_prices(staging_path)
-        if staged is not None:
-            result, fetched_at = _staged_price_result(staged, expected_ids)
-        elif incremental:
-            stored_snapshot = _read_clean_price_store()
-            if not stored_snapshot.empty and "date" in stored_snapshot.columns:
-                valid_dates = _normalised_price_dates(stored_snapshot).dropna()
-                if not valid_dates.empty:
-                    latest_stored_date = max(valid_dates)
-                    incremental_window_start = max(
-                        start_date,
-                        latest_stored_date - timedelta(days=INCREMENTAL_OVERLAP_DAYS),
-                    )
+        staged = _read_staged_prices(staging_path, start_date=start_date, incremental=incremental)
         if staged is None:
+            if incremental:
+                stored_snapshot = _read_clean_price_store()
+                if not stored_snapshot.empty and "date" in stored_snapshot.columns:
+                    valid_dates = _normalised_price_dates(stored_snapshot).dropna()
+                    if not valid_dates.empty:
+                        latest_stored_date = max(valid_dates)
+                        incremental_window_start = max(
+                            start_date,
+                            latest_stored_date - timedelta(days=INCREMENTAL_OVERLAP_DAYS),
+                        )
             result = provider.fetch_prices([], incremental_window_start or start_date, end_date)
             fetched_at = datetime.now(timezone.utc).isoformat()
         # Merge-with-stored and commit are one critical section: two concurrent partial refreshes
         # must not both start from the same stored snapshot and overwrite each other's rows.
         with _PRICE_REFRESH_LOCK:
+            if staged is not None:
+                # The batch extends only the store it was built on: check and merge it under the lock.
+                unchanged = staged.attrs["staging"]["store_sha256"] == _price_store_digest()
+                staged_result = _staged_price_result(staged, expected_ids) if unchanged else None
+                if staged_result is None:
+                    staged = None
+                    result = provider.fetch_prices([], start_date, end_date)
+                    fetched_at = datetime.now(timezone.utc).isoformat()
+                else:
+                    result, fetched_at = staged_result
             if incremental_window_start is not None:
                 stored = _read_clean_price_store()
                 if stored.empty:
@@ -745,9 +764,15 @@ class DataService:
                 data = pd.concat([result.data.loc[~tolerated], kept], ignore_index=True)
                 metadata = dataclasses.replace(result.metadata, checksum=sha256_dataframe(data)) if result.metadata else None
                 result = dataclasses.replace(result, data=data, metadata=metadata)
-            if block_issues:
+            if block_issues and staged is None:
                 # A blocked batch is kept: the next refresh for the same end date validates it again without fetching.
-                _stage_prices(staging_path, result.data, fetched_at=fetched_at, missing_ids=partial_missing)
+                try:
+                    _stage_prices(
+                        staging_path, result.data, fetched_at=fetched_at, missing_ids=partial_missing,
+                        start_date=start_date, incremental=incremental_window_start is not None,
+                    )
+                except (OSError, ValueError) as exc:
+                    messages.append(f"staging failed: {type(exc).__name__}: {exc}")
             quarantine_parts = [frame for frame in (adjusted_quarantined, quarantined) if frame is not None and not frame.empty]
             if quarantine_parts:
                 quarantine_path = _unused_quarantine_path(ROOT / "data" / "quality", end_date)
@@ -762,7 +787,10 @@ class DataService:
                 return "\n".join(messages)
             with publication_scope(publish_guard):
                 commit_result = commit_price_import(result)
-            staging_path.unlink(missing_ok=True)
+            try:
+                staging_path.unlink(missing_ok=True)
+            except OSError as exc:  # the commit stands; a held batch no longer matches the new store
+                messages.append(f"Staged batch not removed: {type(exc).__name__}.")
         messages.append(
             (
                 f"{result.message} Validated and committed {commit_result.rows} price rows. "

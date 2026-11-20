@@ -849,7 +849,8 @@ def test_stale_new_bar_still_blocks_the_commit(monkeypatch, tmp_path, future_sto
     assert "LATE" in message
 
 
-def test_blocked_refresh_keeps_the_batch_and_the_rerun_commits_it_without_fetching(monkeypatch, tmp_path):
+def _blocked_run(monkeypatch, tmp_path):
+    """LATE gets a new but already stale bar: the run blocks and stages its batch."""
     floor = years_before(_TODAY, 5)
     shared = date(2026, 10, 30)
     stored_late = _price_frame("LATE", [_bar(floor), _bar(date(2026, 10, 16))])
@@ -857,26 +858,64 @@ def test_blocked_refresh_keeps_the_batch_and_the_rerun_commits_it_without_fetchi
     window = pd.concat(
         [
             _price_frame("LIVE", [_bar(shared), _bar(_TODAY)]),
-            _price_frame("LATE", [_bar(date(2026, 10, 16)), _bar(date(2026, 10, 19))]),  # new, but already stale
+            _price_frame("LATE", [_bar(date(2026, 10, 16)), _bar(date(2026, 10, 19))]),
         ],
         ignore_index=True,
     )
     provider = _FakeProvider(("LIVE", "LATE"), [_result(window)])
     clean_path, message = _run_real_validation(provider, monkeypatch, tmp_path, stored)
-    assert "not committed because validation blocked them" in message
+    assert message.startswith("Yahoo Finance prices fetched but not committed because validation blocked them: LATE")
     staged = tmp_path / "data" / "staging" / f"prices_{_TODAY.isoformat()}.parquet"
-    assert pd.read_parquet(staged).attrs["staging"]["fetched_at"]
+    return clean_path, staged, floor
 
-    # The owner disables the dead instrument; the same-session rerun commits the staged batch.
-    rerun = _FakeProvider(("LIVE",), [])
-    monkeypatch.setattr(data_service.YFinanceProvider, "from_config", classmethod(lambda cls, _config: rerun))
-    message = DataService(config=None).refresh_yfinance_data(
+
+def _rerun(monkeypatch, provider: _FakeProvider) -> str:
+    monkeypatch.setattr(data_service.YFinanceProvider, "from_config", classmethod(lambda cls, _config: provider))
+    return DataService(config=None).refresh_yfinance_data(
         include_reference_data=False, include_fundamentals=False, incremental=True,
     )
 
+
+def test_blocked_refresh_keeps_the_batch_and_the_rerun_commits_it_without_fetching(monkeypatch, tmp_path):
+    clean_path, staged, floor = _blocked_run(monkeypatch, tmp_path)
+    fetched_at = pd.Timestamp(pd.read_parquet(staged).attrs["staging"]["fetched_at"])
+
+    # The owner disables the dead instrument; the same-session rerun commits the staged batch.
+    rerun = _FakeProvider(("LIVE",), [])
+    message = _rerun(monkeypatch, rerun)
+
     assert rerun.calls == []
     final = _stored(clean_path)
-    assert _TODAY in set(final.loc[final.etf_id.eq("LIVE"), "date"])
+    live_today = final.loc[final.etf_id.eq("LIVE") & final.date.eq(_TODAY)]
+    assert pd.Timestamp(live_today["known_at"].iloc[0]) >= fetched_at  # never stamped before the fetch
     assert sorted(final.loc[final.etf_id.eq("LATE"), "date"]) == [floor, date(2026, 10, 16)]
     assert "Validated and committed" in message
     assert not staged.exists()
+
+
+def test_blocked_staged_rerun_still_blocks_and_keeps_the_batch(monkeypatch, tmp_path):
+    clean_path, staged, _ = _blocked_run(monkeypatch, tmp_path)
+    store_before = clean_path.read_bytes()
+
+    rerun = _FakeProvider(("LIVE", "LATE"), [])
+    message = _rerun(monkeypatch, rerun)
+
+    assert rerun.calls == []
+    assert message.startswith("Yahoo Finance prices fetched but not committed because validation blocked them: LATE")
+    assert clean_path.read_bytes() == store_before
+    assert staged.is_file()
+
+
+def test_changed_store_fetches_instead_of_committing_the_staged_batch(monkeypatch, tmp_path):
+    clean_path, staged, floor = _blocked_run(monkeypatch, tmp_path)
+    changed = _stored(clean_path)
+    changed = changed.loc[changed.etf_id.eq("LIVE")]
+    changed.to_parquet(clean_path, index=False)  # another writer committed after the batch was staged
+
+    rerun = _FakeProvider(("LIVE",), [_result(_price_frame("LIVE", [_bar(date(2026, 10, 30)), _bar(_TODAY, 104)]))])
+    message = _rerun(monkeypatch, rerun)
+
+    assert len(rerun.calls) == 1
+    assert "Staged Yahoo Finance prices" not in message
+    final = _stored(clean_path)
+    assert final.loc[final.etf_id.eq("LIVE") & final.date.eq(_TODAY), "close"].tolist() == [104]
