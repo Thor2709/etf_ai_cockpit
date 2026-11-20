@@ -595,16 +595,16 @@ def _load_config(path: Path) -> tuple[bytes, dict[str, Any]]:
             low, high = (_positive_int(value) for value in horizon[:2]) if isinstance(horizon, list) and len(horizon) == 2 else (None, None)
             if low is None or high is None or low > high:
                 raise ValueError("rebalancing bots need horizon_months as a [low, high] pair of positive months")
-        if item["strategy"] == "top_n":
-            if _positive_int(item.get("top_n")) is None:
-                raise ValueError("top_n strategy requires a positive integer top_n")
+        if item["strategy"] == "top_n" and _positive_int(item.get("top_n")) is None:
+            raise ValueError("top_n strategy requires a positive integer top_n")
+        if item["strategy"] == "top_n" or (item["strategy"] == "core_sleeve" and "asset_types" in item):
             asset_types = item.get("asset_types")
             if (
                 not isinstance(asset_types, list)
                 or not asset_types
                 or any(_asset_type_key(value) not in {"ETF", "STOCK", "EQUITY CERTIFICATE"} for value in asset_types)
             ):
-                raise ValueError("top_n asset_types must be a non-empty ETF/STOCK/EQUITY_CERTIFICATE list")
+                raise ValueError(f"{item['strategy']} asset_types must be a non-empty ETF/STOCK/EQUITY_CERTIFICATE list")
         if item["strategy"] == "core_sleeve":
             core = _finite_number(item.get("core_weight"))
             sleeve = _finite_number(item.get("sleeve_weight"))
