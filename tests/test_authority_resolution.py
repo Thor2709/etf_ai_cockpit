@@ -220,7 +220,7 @@ def test_production_signal_release_path_publishes_resolved_gate_table() -> None:
     )
     report = DataQualityReport(as_of_date=date(2026, 7, 12), issues=[])
 
-    resolved = _attach_authority(signal, report)
+    resolved = _attach_authority(signal, report, portfolio_inputs_available=True)
     payload = resolved.to_v2_dict()
 
     assert payload["gate_policy_version"] != "unavailable"

@@ -97,6 +97,7 @@ from etf_cockpit.core.research_states import (
 )
 from etf_cockpit.signals.strategy_templates import strategy_template_frame, strategy_template_labels, template_description
 from etf_cockpit.signals.friction_edge import estimate_friction_adjusted_return, estimate_friction_edge
+from etf_cockpit.signals.gates import NON_MATERIAL_SIGNAL_WARNINGS
 from etf_cockpit.signals.canonical_scoring import (
     FORMULA_PATH,
     CanonicalScore,
@@ -1375,11 +1376,6 @@ def _forecast_status_for_components(components: Iterable[SimpleScoreComponent]) 
     if valid == len(rows):
         return "available"
     return "partial" if valid else "unavailable"
-
-
-# Informational price notices (validation.py) that stay visible but do not fail the signal gate: an 8-robust-sigma day
-# anywhere in the 312-session lookback and a zero-volume session are data context, not a missing or contradicted signal.
-NON_MATERIAL_SIGNAL_WARNINGS = frozenset({"return_outlier", "zero_volume"})
 
 
 def _attach_authority(score: SimpleInstrumentScore) -> SimpleInstrumentScore:
