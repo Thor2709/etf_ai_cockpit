@@ -337,12 +337,16 @@ class PaperLedger:
         control_binding: object | None = None,
         quote_currency: str | None = None,
         expiry_reference: datetime | None = None,
+        price_source: str | None = None,
     ) -> dict[str, object]:
         """Accept one policy-approved proposal as a simulated open order.
 
         ``auto_paper`` is an explicit paper-only decision label.  It changes
         attribution, not authority: both modes remain local simulations and
         retain ``execution_allowed=false``.
+
+        ``price_source`` names where the execution price comes from (for example ``SESSION_OPEN_OBSERVATION``); the
+        order keeps it and each of its fills, also a recovered one, carries it.
 
         ``fx_rate`` may be omitted only when the quote currency is the account base currency; a foreign
         quote currency requires an explicit rate. The quote currency is ``quote_currency``, else the
@@ -476,6 +480,7 @@ class PaperLedger:
                 "proposal_evidence_hashes": _freeze_proposal_evidence(proposal),
                 "decision_mode": decision_mode,
                 "execution_allowed": False,
+                **({"price_source": str(price_source)} if price_source is not None else {}),
             }
             self._append("order_accepted", order, occurred_at=occurred_at)
             self._order_lifecycle().transition(
@@ -782,6 +787,7 @@ class PaperLedger:
         occurred_at: datetime | None = None,
         quote_currency: str | None = None,
         expiry_reference: datetime | None = None,
+        price_source: str | None = None,
     ) -> dict[str, object]:
         """Record an explicitly selected automatic paper decision.
 
@@ -798,6 +804,7 @@ class PaperLedger:
             occurred_at=occurred_at,
             quote_currency=quote_currency,
             expiry_reference=expiry_reference,
+            price_source=price_source,
         )
 
     def record_fill(
@@ -811,7 +818,6 @@ class PaperLedger:
         fx_rate: float | None = None,
         occurred_at: datetime | None = None,
         reference_price: object | None = None,
-        price_source: str | None = None,
     ) -> dict[str, object]:
         fill_quantity_decimal = _decimal_number(quantity, "quantity", positive=True)
         if fill_quantity_decimal < MIN_QUANTITY:
@@ -925,7 +931,7 @@ class PaperLedger:
                 "currency": order["currency"],
                 "price_basis": "execution_quote",
                 "execution_allowed": False,
-                **({"price_source": str(price_source)} if price_source is not None else {}),
+                **({"price_source": order["price_source"]} if "price_source" in order else {}),
             }
             fill["valuation_snapshot_id"] = _fill_snapshot_id(fill, fill_stamp)
             self._append("fill_recorded", fill, occurred_at=occurred_at)
@@ -1778,11 +1784,14 @@ class PaperLedger:
                 ):
                     raise PaperLedgerError("The shadow flow was already recorded with different terms.")
                 return dict(existing)
+            # No observed open known at the fill time is a terminal miss of the trade (SDD C7): the flow is recorded
+            # without one, its cash stays uninvested, and later flows still run.
+            missed = False
             if observed_open is not None:
                 observed = observed_open(executed.date())
-                if observed is None:
-                    raise PaperLedgerError(f"Benchmark session open observation is unavailable for {executed.date().isoformat()}.")
-                open_price = _decimal_number(observed, "open", positive=True)
+                missed = observed is None
+                if not missed:
+                    open_price = _decimal_number(observed, "open", positive=True)
             active = PaperLedger(self.root, account_id=str(shadow.get("active_account_id", "")))
             active_events = active._read_events()
             active_state = active._replay(active_events)
@@ -1813,8 +1822,12 @@ class PaperLedger:
             adverse = policy.adverse_bps / Decimal(10000)
             cash = state["cash"]
             units = state["shadow_units"]
-            side, quantity, price, fee = "none", Decimal("0"), open_price, Decimal("0")
-            if kind == "contribution":
+            # A missed flow trades nothing; its replayed price field holds the session close, never an unobserved open.
+            side, quantity, price, fee = "none", Decimal("0"), close_price if missed else open_price, Decimal("0")
+            if missed:
+                if kind == "withdrawal" and cash < amount_decimal:  # a sale is needed and cannot be priced
+                    raise PaperLedgerError(f"Benchmark session open observation is unavailable for {executed.date().isoformat()}.")
+            elif kind == "contribution":
                 price = open_price * (Decimal(1) + adverse)
                 budget = amount_decimal - policy.commission
                 if budget > 0:
@@ -1842,8 +1855,9 @@ class PaperLedger:
                 "flow_at": _timestamp(flow_at),
                 "entry_session": entry.date().isoformat(),
                 "executed_session": executed.date().isoformat(),
-                "executed_open": str(open_price),
-                **({"open_source": SESSION_OPEN_OBSERVATION} if observed_open is not None else {}),
+                **({} if missed else {"executed_open": str(open_price)}),
+                **({"open_source": SESSION_OPEN_OBSERVATION} if observed_open is not None and not missed else {}),
+                **({"missed_reason": "price_not_known_at_fill_time"} if missed else {}),
                 "executed_close": str(close_price),
                 "prefix_hash": prefix_hash,
                 "instrument_id": shadow["instrument_id"],
@@ -1867,8 +1881,12 @@ class PaperLedger:
         through: date,
         decision_time: datetime | None = None,
         max_stale_sessions: int = 0,
+        observed_open: Callable[[date], object | None] | None = None,
     ) -> pd.DataFrame:
         """Value the shadow account per session through the canonical daily-snapshot builder.
+
+        ``observed_open`` gives the stored observed open of a session (as in ``record_shadow_flow``); a flow priced from
+        an observation is checked against it. Without it, the open of such a flow is not checked.
 
         The result has the standard ``SNAPSHOT_COLUMNS`` so TWR, XIRR and the performance series run on the same
         canonical path as the active account. External flows appear on their entry session; trades and fees on
@@ -1901,15 +1919,19 @@ class PaperLedger:
             current = prices.loc[sessions == executed_day, "close"]
             recorded_open = flow.get("executed_open")
             current_open = prices.loc[sessions == executed_day, "open"] if "open" in prices.columns else None
+            observed = flow.get("open_source") == SESSION_OPEN_OBSERVATION
+            stored_open = observed_open(executed_day.date()) if observed and observed_open is not None else None
             if (
                 not flow.get("prefix_hash")
                 or recorded_close is None
                 or len(current) != 1
                 or _decimal_number(current.iloc[0], "close", positive=True) != Decimal(str(recorded_close))
                 # An observation-priced open is evidence of its own store, not of the daily series.
-                or (recorded_open is not None and flow.get("open_source") != SESSION_OPEN_OBSERVATION and (
+                or (recorded_open is not None and not observed and (
                     current_open is None or len(current_open) != 1
                     or _decimal_number(current_open.iloc[0], "open", positive=True) != Decimal(str(recorded_open))))
+                or (observed and observed_open is not None and (
+                    stored_open is None or _decimal_number(stored_open, "open", positive=True) != Decimal(str(recorded_open))))
                 or _shadow_prefix_hash(prices, executed_day) != flow["prefix_hash"]
             ):
                 raise PaperLedgerError(f"historical_price_revised:{flow['flow_id']}")
@@ -2054,6 +2076,7 @@ class PaperLedger:
                 "currency": str(order["currency"]),
                 "price_basis": "execution_quote",
                 "execution_allowed": False,
+                **({"price_source": order["price_source"]} if "price_source" in order else {}),
             }
             fill["valuation_snapshot_id"] = _fill_snapshot_id(fill, _timestamp(lifecycle_event.occurred_at))
             self._append("fill_recorded", fill, occurred_at=lifecycle_event.occurred_at)

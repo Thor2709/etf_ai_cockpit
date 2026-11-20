@@ -34,11 +34,19 @@ def _provider(root: Path) -> YFinanceProvider:
     return YFinanceProvider.from_config(load_config(root / "configs"))
 
 
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
 def run_morning_fill(root: Path, *, now: datetime | None = None) -> dict[str, object]:
-    """Observe today's opens of the pending fill instruments; status ``available``, ``skipped`` or ``failed``."""
+    """Observe today's opens of the pending fill instruments.
+
+    Status ``available``, ``skipped``, ``partial`` (a pending instrument has no observation) or ``failed`` (also when
+    the observations are known only at or after the fill time, so no fill can use them).
+    """
 
     root = Path(root)
-    clock = datetime.now(timezone.utc) if now is None else now.astimezone(timezone.utc)
+    clock = _now() if now is None else now.astimezone(timezone.utc)
     session = clock.date()
     result: dict[str, object] = {
         "status": "skipped", "reason": None, "session_date": session.isoformat(), "requested": [], "observed": [],
@@ -54,14 +62,15 @@ def run_morning_fill(root: Path, *, now: datetime | None = None) -> dict[str, ob
     _, config = load_execution_config(_config_file(root, "paper_bots_execution_v1.yaml", EXECUTION_CONFIG_PATH))
     if expected_session_dates(session, session, BENCHMARK_CALENDAR).empty:
         return {**result, "reason": "not_a_session"}
-    if clock >= _fill_datetime(config, session):
+    fill_time = _fill_datetime(config, session)
+    if clock >= fill_time:
         return {**result, "reason": "fill_time_passed"}
     try:
         ids = pending_fill_instruments(root, clock)
         if not ids:
             return {**result, "reason": "no_pending_instruments"}
         fetched = _provider(root).fetch_prices(ids, session, session + timedelta(days=1))
-        known_at = datetime.now(timezone.utc) if now is None else clock  # the values are in hand from here on
+        known_at = _now() if now is None else clock  # the values are in hand from here on
         frame = _observations(fetched.data, session, known_at, fetched.provider_name)
         result.update(requested=ids, observed=sorted(frame["instrument_id"]), known_at=known_at.isoformat())
         result["missing"] = sorted(set(ids) - set(frame["instrument_id"]))
@@ -72,7 +81,11 @@ def run_morning_fill(root: Path, *, now: datetime | None = None) -> dict[str, ob
         atomic_write_bytes(path, parquet_payload(combined), validate_parquet_file)
     except Exception as exc:  # job boundary: any failure means no observation, reported in the run JSON
         return {**result, "status": "failed", "reason": f"{type(exc).__name__}: {str(exc)[:200]}"}
-    return {**result, "status": "available", "reason": None if not result["missing"] else str(fetched.message)[:200]}
+    if known_at >= fill_time:  # stored as evidence, but no fill can use it: the task log must show a failure
+        return {**result, "status": "failed", "reason": "observed_after_fill_time"}
+    if result["missing"]:
+        return {**result, "status": "partial", "reason": str(fetched.message)[:200]}
+    return {**result, "status": "available"}
 
 
 def _observations(data: pd.DataFrame | None, session: date, known_at: datetime, provider: str) -> pd.DataFrame:

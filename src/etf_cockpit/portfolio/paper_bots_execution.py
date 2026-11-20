@@ -1523,12 +1523,12 @@ def _attempt(
             order = ledger.auto_paper_proposal(
                 proposal, execution_price=price, fee=policy.commission, occurred_at=fill_time,
                 quote_currency=currency, fx_rate=ledger_fx, expiry_reference=fill_time,
+                price_source=SESSION_OPEN_OBSERVATION if observed else None,
             )
             order_id = str(order["order_id"])
             ledger.record_fill(
                 order_id, fill_id=fill_id, quantity=quantity, price=price, fee=policy.commission,
                 reference_price=reference, fx_rate=ledger_fx, occurred_at=fill_time,
-                price_source=SESSION_OPEN_OBSERVATION if observed else None,
             )
         except PaperLedgerError as exc:
             message = str(exc)
@@ -1684,7 +1684,9 @@ def pending_fill_instruments(root: Path, cutoff: datetime) -> list[str]:
     if not storage_layout(track.store_root).transactional_path.is_file():
         return []
     ids: set[str] = set()
-    with TransactionalStore(track.store_root, read_only=True) as store:
+    # The normal WAL connection, as the nightly execution opens it: it reads while the app or a job holds the store
+    # open. The detached read-only snapshot refuses a store with an active WAL file. This function only reads.
+    with TransactionalStore(track.store_root) as store:
         for bot_id, items in _load_decisions(store, track, cutoff, []).items():
             latest = items[-1]
             plan = store.get(track.plan_type, str(latest["decision_id"]))

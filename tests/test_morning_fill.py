@@ -11,10 +11,10 @@ import exchange_calendars as xcals
 import pandas as pd
 import pytest
 
-from etf_cockpit.data.local_storage import TransactionalStore
+from etf_cockpit.data.local_storage import TransactionalStore, storage_layout
 from etf_cockpit.data.providers import ProviderResult
 from etf_cockpit.portfolio import paper_bots_execution as execution
-from etf_cockpit.portfolio.paper_trading import PaperLedger, ShadowCostPolicy
+from etf_cockpit.portfolio.paper_trading import PaperLedger, PaperLedgerError, ShadowCostPolicy
 from tests._pit_listing import verified_listing_history  # noqa: F401 (autouse)
 from tests.test_paper_bots_corporate_actions import _ledger, _sync
 from tests.test_paper_bots_execution import (
@@ -70,11 +70,12 @@ class _FakeProvider:
 
     def __init__(self) -> None:
         self.calls: list[tuple[tuple[str, ...], date, date]] = []
+        self.omit: set[str] = set()  # ids the provider returns no bar for
 
     def fetch_prices(self, symbols, start_date, end_date):
         self.calls.append((tuple(symbols), start_date, end_date))
         rows = []
-        for instrument in symbols:
+        for instrument in sorted(set(symbols) - self.omit):
             for day in (start_date - timedelta(days=1), start_date):
                 observed = _observation(instrument, FILL_DAY)
                 rows.append({"date": day, "etf_id": instrument, "open": observed["open"] if day == start_date else 1.0,
@@ -189,6 +190,84 @@ def test_the_b0_shadow_buys_at_the_observed_open_and_its_valuation_does_not_flag
     assert flows[0]["open_source"] == "session_open_observation"
 
 
+def _b0(root: Path) -> str:
+    track = execution.forward_track(root)
+    with TransactionalStore(track.store_root) as store:
+        return next(item.payload["bot_id"] for item in store.list(track.decision_type) if item.payload["bot_family"] == "B0")
+
+
+def _shadow_flows(root: Path, bot_id: str) -> dict[str, dict]:
+    shadow = PaperLedger(execution.forward_track(root).ledger_root, account_id=execution.shadow_id_for(bot_id))
+    return {item["payload"]["flow_id"]: item["payload"] for item in shadow._read_events() if item["event_type"] == "shadow_flow_executed"}
+
+
+def test_the_b0_shadow_valuation_compares_the_executed_open_with_the_stored_observation(monkeypatch, tmp_path: Path) -> None:
+    _ready(monkeypatch, tmp_path)
+    book = _observed_book(_observations())
+    _execute(tmp_path, book)
+    bot_id = _b0(tmp_path)
+    flow, =_shadow_flows(tmp_path, bot_id).values()
+    shadow = PaperLedger(execution.forward_track(tmp_path).ledger_root, account_id=execution.shadow_id_for(bot_id))
+    frame, check = book.benchmark_check(RUN_AT)
+    options = {"series_check": check, "through": date.fromisoformat(flow["executed_session"]), "decision_time": RUN_AT}
+    stored = lambda day: _observation("VWCE", day)["open"]  # noqa: E731
+    assert not shadow.shadow_daily_snapshots(frame, observed_open=stored, **options).empty
+    with pytest.raises(PaperLedgerError, match="historical_price_revised"):
+        shadow.shadow_daily_snapshots(frame, observed_open=lambda day: stored(day) + 1, **options)
+
+
+def test_a_missing_b0_observation_is_a_terminal_shadow_miss_and_later_flows_continue(monkeypatch, tmp_path: Path) -> None:
+    _ready(monkeypatch, tmp_path)
+    book = _observed_book(_observations(drop={("VWCE", FILL_DAY)}))
+    _execute(tmp_path, book, as_of=datetime(2026, 10, 16, 22, tzinfo=timezone.utc))
+    bot_id = _b0(tmp_path)
+    active =PaperLedger(execution.forward_track(tmp_path).ledger_root, account_id=execution.account_id_for(bot_id))
+    active.record_external_flow(flow_id=f"{active.account_id}:extra", kind="contribution", amount=Decimal("1000"),
+                                flow_at=datetime(2026, 10, 19, 12, tzinfo=timezone.utc),
+                                source_authority="paper_bots_config", source_checksum="a" * 64)
+    _execute(tmp_path, book)
+    flows = _shadow_flows(tmp_path, bot_id)
+    first = flows[f"{active.account_id}:initial"]
+    assert (first["side"], first.get("missed_reason"), first["executed_session"]) == (
+        "none", "price_not_known_at_fill_time", FILL_DAY.isoformat())
+    assert "executed_open" not in first  # no open was known: the cash stays uninvested, for good
+    second = flows[f"{active.account_id}:extra"]
+    assert (second["side"], second["open_source"], second["executed_session"]) == ("buy", "session_open_observation", "2026-10-20")
+    assert Decimal(second["executed_open"]) == Decimal(str(_observation("VWCE", date(2026, 10, 20))["open"]))
+
+
+def test_a_recovered_observation_fill_keeps_its_price_source(monkeypatch, tmp_path: Path) -> None:
+    from tests.test_paper_bots_corporate_actions import DAYS, _actions, _at, _book as _action_book
+    from etf_cockpit.portfolio.paper_trading import _digest
+
+    ledger = _ledger(tmp_path)
+    proposal = _proposal(quantity_delta=5, source="recovered-observed-buy")
+    proposal["instrument_id"] = proposal["input_material"]["instrument_id"] = "VWCE"
+    proposal["input_checksum"] = _digest(proposal["input_material"])
+    proposal["proposal_id"] = "proposal_" + proposal["input_checksum"][:20]
+    proposal.pop("decision_checksum")
+    proposal["decision_checksum"] = _digest(proposal)
+    order = ledger.accept_proposal(proposal, execution_price=97, quote_currency="EUR", occurred_at=_at(DAYS[1], 15),
+                                   price_source="session_open_observation")
+    original_append = ledger._append
+
+    def crash(event_type, payload, *, occurred_at):
+        if event_type == "fill_recorded":
+            raise OSError("simulated crash after the lifecycle fill")
+        return original_append(event_type, payload, occurred_at=occurred_at)
+
+    monkeypatch.setattr(ledger, "_append", crash)
+    with pytest.raises(OSError):
+        ledger.record_fill(str(order["order_id"]), fill_id="r1", quantity=5, price=97, reference_price=97, occurred_at=_at(DAYS[1], 15))
+    restarted = PaperLedger(ledger.root, account_id=ledger.account_id)
+    restarted.record_fill(str(order["order_id"]), fill_id="r1", quantity=5, price=97, reference_price=97, occurred_at=_at(DAYS[1], 15))
+    fill, = [item["payload"] for item in restarted._read_events()
+             if item["event_type"] == "fill_recorded" and item["payload"]["order_id"] == order["order_id"]]
+    assert fill["price_source"] == "session_open_observation"
+    _sync(tmp_path, restarted, _action_book(dividend=0, split=2))
+    assert [item["payload"]["split_ratio"] for item in _actions(restarted)] == [2.0]
+
+
 def test_the_legacy_fill_basis_check_skips_a_fill_priced_from_an_observation(tmp_path: Path) -> None:
     from tests.test_paper_bots_corporate_actions import DAYS, _actions, _at, _book as _action_book
     from etf_cockpit.portfolio.paper_trading import _digest
@@ -200,10 +279,10 @@ def test_the_legacy_fill_basis_check_skips_a_fill_priced_from_an_observation(tmp
     proposal["proposal_id"] = "proposal_" + proposal["input_checksum"][:20]
     proposal.pop("decision_checksum")
     proposal["decision_checksum"] = _digest(proposal)
-    order = ledger.accept_proposal(proposal, execution_price=97, quote_currency="EUR", occurred_at=_at(DAYS[1], 15))
+    order = ledger.accept_proposal(proposal, execution_price=97, quote_currency="EUR", occurred_at=_at(DAYS[1], 15),
+                                   price_source="session_open_observation")
     # The observed open (97) differs from the daily open of the session; the fill names its price source.
-    ledger.record_fill(str(order["order_id"]), quantity=5, price=97, reference_price=97, occurred_at=_at(DAYS[1], 15),
-                       price_source="session_open_observation")
+    ledger.record_fill(str(order["order_id"]), quantity=5, price=97, reference_price=97, occurred_at=_at(DAYS[1], 15))
     book = _action_book(dividend=0, split=2)
     _sync(tmp_path, ledger, book)
     assert [item["payload"]["split_ratio"] for item in _actions(ledger)] == [2.0]
@@ -267,6 +346,32 @@ def test_paper_disabled_or_the_kill_switch_means_no_fetch(monkeypatch, tmp_path:
     assert job.provider.calls == []
 
 
+def test_the_job_reads_the_bot_store_while_another_writer_holds_it_open(monkeypatch, tmp_path: Path, job) -> None:
+    _ready(monkeypatch, tmp_path)
+    track = execution.forward_track(tmp_path)
+    with TransactionalStore(track.store_root) as store:  # the app or another job has the store open
+        store.put("morning_fill_test", "open-writer", {"held": True})
+        assert Path(f"{storage_layout(track.store_root).transactional_path}-wal").exists()
+        result = job.module.run_morning_fill(tmp_path, now=JOB_AT)
+    assert result["status"] == "available", result
+    assert set(_stored(tmp_path)["instrument_id"]) == {"AAA", "BBB", "VWCE"}
+
+
+def test_a_pending_instrument_without_an_observation_is_not_a_success(monkeypatch, tmp_path: Path, job) -> None:
+    _ready(monkeypatch, tmp_path)
+    job.provider.omit = {"AAA"}
+    result = job.module.run_morning_fill(tmp_path, now=JOB_AT)
+    assert (result["status"], result["missing"]) == ("partial", ["AAA"])
+
+
+def test_an_observation_known_only_at_the_fill_time_is_a_failure(monkeypatch, tmp_path: Path, job) -> None:
+    _ready(monkeypatch, tmp_path)
+    clock = iter([JOB_AT, datetime(2026, 10, 15, 15, 20, tzinfo=timezone.utc)])  # the fetch ends at the fill time
+    monkeypatch.setattr(job.module, "_now", lambda: next(clock))
+    result = job.module.run_morning_fill(tmp_path)
+    assert (result["status"], result["reason"]) == ("failed", "observed_after_fill_time")
+
+
 def test_the_job_requests_the_latest_targets_and_the_held_positions_and_only_appends(monkeypatch, tmp_path: Path, job) -> None:
     _ready(monkeypatch, tmp_path)
     _execute(tmp_path, _observed_book(_observations()))  # the bots now hold AAA, BBB and VWCE
@@ -301,7 +406,7 @@ def test_the_script_prints_json_and_exits_zero_only_on_available_or_skipped(monk
     monkeypatch.syspath_prepend(str(scripts))
     module = importlib.import_module("run_morning_fill")
     monkeypatch.setenv("ETF_COCKPIT_ROOT", str(tmp_path))  # restored after the test; the script sets it
-    for status, code in (("available", 0), ("skipped", 0), ("failed", 1)):
+    for status, code in (("available", 0), ("skipped", 0), ("partial", 1), ("failed", 1)):
         monkeypatch.setattr(morning_fill, "run_morning_fill", lambda root, status=status: {"status": status})
         assert module.main(["--root", str(tmp_path)]) == code
         assert json.loads(capsys.readouterr().out)["status"] == status

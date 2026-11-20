@@ -194,6 +194,7 @@ No `availability_basis` column for prices: no price reader exists (it stays an F
 | Due B0-B3 bot unavailable | driver raises | `partial not accepted: <bot>` |
 | skfolio missing / short history | B2-o or B1-r `NO_NEW_TRADE` | C6 texts |
 | Opens job late, failed or absent | terminal fill miss (no retry) | `price_not_known_at_fill_time` |
+| No VWCE observation for a B0 shadow flow | terminal shadow miss: the flow is recorded with no trade, its cash stays uninvested, later flows continue | `missed_reason` = `price_not_known_at_fill_time` |
 | Split on fill session | terminal per-order fill miss | `split_on_fill_session` |
 | Row without stamps | invisible to PriceBook/optimiser/panel | existing per-bar rules |
 | Census present for the day | capture skipped; first kept | `capture kept: first of day` |
