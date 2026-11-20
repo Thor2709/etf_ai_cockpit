@@ -109,15 +109,13 @@ def test_complete_pit_stock_and_etf_are_promoted(monkeypatch):
     assert run is not None and len(run) == 5
     score = observed[stock]
     failures = [(gate.gate_id, gate.message) for gate in score.authority_decision.gates if not gate.passed]
-    # A01-F1: the authority gates fail on pending states. As-of mode withholds stored forecasts (no known-at), so
-    # edge-to-cost stays unevaluated and the stock is not promoted. Owner gate decision 2026-10-23: backtest validity
-    # is not applicable to this deterministic family and portfolio fit is not a research-promotion gate.
-    assert sorted(gate_id for gate_id, _ in failures) == ["cost"], failures
-    assert score.research_promotion_allowed is False
-    # A01-F1: failed authority-warning gates resolve to analysis_status "partial" (gate_policy.resolve_authority).
-    assert score.analysis_status == "partial"
+    # The as-of baseline edge clears costs at the paper bots' reference order (paper_bots_execution_v1.yaml), so every
+    # research gate passes. Owner gate decision 2026-10-23: backtest validity is not applicable to this deterministic
+    # family and portfolio fit is not a research-promotion gate.
+    assert failures == []
+    assert score.research_promotion_allowed is True and score.analysis_status == "complete"
     row = run.set_index("instrument_id").loc[stock]
-    assert not bool(row["research_promotion_allowed"]) and row["analysis_status"] == "partial"
+    assert bool(row["research_promotion_allowed"]) and row["analysis_status"] == "complete"
     # ETF: the PIT holdings now satisfy the exposure/identity/cost critical gates. As-of mode withholds stored
     # forecasts (no known-at), so ETF canonical coverage stays below minimum_coverage 0.50 by design; the gate is
     # not relaxed and the remaining blocker is named.

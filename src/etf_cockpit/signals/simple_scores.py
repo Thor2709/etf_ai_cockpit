@@ -77,6 +77,7 @@ from etf_cockpit.models.forecast_scores import (
     forecast_score_details,
     load_latest_forecasts,
 )
+from etf_cockpit.models.uncertainty import _freshness_age_days as _forecast_age_days
 from etf_cockpit.portfolio.costs import estimate_execution_cost
 from etf_cockpit.portfolio.benchmark_reference_contract import (
     BenchmarkReferenceError,
@@ -1893,9 +1894,14 @@ def build_universe_simple_scores(
                     ),
                 ]
             ),
-            _forecast_component(signal.etf_id, "baseline", raw_forecast_scores, forecast_details, forecasts),
-            _forecast_component(signal.etf_id, "timesfm", raw_forecast_scores, forecast_details, forecasts),
-            _forecast_component(signal.etf_id, "toto", raw_forecast_scores, forecast_details, forecasts),
+            *(
+                _forecast_component(
+                    signal.etf_id, model_name, raw_forecast_scores, forecast_details, forecasts,
+                    decision_date=signal.signal_date,
+                    maximum_age_days=config.models.forecast_uncertainty.maximum_forecast_age_days,
+                )
+                for model_name in ("baseline", "timesfm", "toto")
+            ),
             ],
             as_of_date,
             signal.signal_date,
@@ -2763,17 +2769,33 @@ def _forecast_component(
     raw_forecast_scores: dict[str, dict[str, float]],
     forecast_details: pd.DataFrame,
     forecasts: pd.DataFrame,
+    *,
+    decision_date: date | None = None,
+    maximum_age_days: int | None = None,
 ) -> SimpleScoreComponent:
     raw = raw_forecast_scores.get(model_name, {}).get(instrument_id)
     if raw is not None:
         selected = _forecast_detail_row(forecast_details, model_name, instrument_id)
         why = "Valid forecast row is available and included in the weighted final score."
+        # The forecast's own date ages it by the uncertainty gate's rule and setting (calendar days to the decision
+        # date, stale above maximum_forecast_age_days). Undated, or without a decision date or age limit, its
+        # freshness stays "unknown" and it never counts as evidence.
+        forecast_date = None if selected is None else selected.get("forecast_date")
+        as_of = _parse_date(forecast_date)
+        freshness = None
+        if as_of is not None and decision_date is not None and maximum_age_days is not None:
+            age = _forecast_age_days({"decision_time": decision_date}, [{"forecast_date": forecast_date}])
+            freshness = "unavailable" if age is None else "ok" if age <= maximum_age_days else "stale"
         if selected is not None:
             why = (
                 f"Selected {int(selected['horizon_days'])} trading-day forecast expects "
                 f"{_fmt_pct(log_to_simple_return(selected['expected_return']))} (simple return, exp(y) - 1); this maps to {raw_to_score_10(raw)}/10."
             )
-        return _component(model_name, raw, why, authority="low", role="model_confirmation")
+        return replace(
+            _component(model_name, raw, why, authority="low", role="model_confirmation"),
+            as_of_date=None if as_of is None else as_of.isoformat(),
+            freshness_status=freshness,
+        )
 
     reason = _missing_forecast_reason(forecasts, model_name, instrument_id)
     return SimpleScoreComponent(

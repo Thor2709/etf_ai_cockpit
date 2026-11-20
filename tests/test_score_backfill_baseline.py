@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 import pandas as pd
 
 from etf_cockpit.application import score_backfill
+from etf_cockpit.core.paths import ROOT
 from etf_cockpit.data import score_history_backfill as store
 from etf_cockpit.models.baseline_models import baseline_forecast
 from etf_cockpit.models.forecast_scores import PRIMARY_MODEL_HORIZON_DAYS
@@ -94,7 +95,7 @@ def test_existing_friction_and_cost_gate_consume_baseline_without_changing_other
     without, _ = _run(config, prices)
     assert without is not None
     with_baseline, without_baseline = captured
-    order_value = config.risks.portfolio_limits.min_trade_value_eur
+    order_value = score_backfill.research_reference_order_value_eur(ROOT)
     for row in history.itertuples():
         actual = with_baseline[row.instrument_id]
         missing = without_baseline[row.instrument_id]
@@ -112,7 +113,7 @@ def test_existing_friction_and_cost_gate_consume_baseline_without_changing_other
         assert actual.expected_return_cost_eur == expected.cost_eur
         assert actual.edge_to_cost_ratio == expected.return_to_cost_ratio
         assert row.expected_return_order_value_eur == order_value
-        assert row.expected_return_order_value_source == "configured_min_trade_value_eur_research_reference"
+        assert row.expected_return_order_value_source == "paper_bots_reference_order_value_eur"
         assert missing.friction_status == "unavailable" and missing.edge_to_cost_ratio is None
         gates = {gate.gate_id: gate for gate in actual.authority_decision.gates}
         old_gates = {gate.gate_id: gate for gate in missing.authority_decision.gates}
