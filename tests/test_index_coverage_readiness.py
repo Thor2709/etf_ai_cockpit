@@ -109,6 +109,20 @@ def test_malformed_coverage_fails_closed(column, value):
     assert not result.passed and result.detail.startswith("unavailable:")
 
 
+def test_self_capture_without_visible_census_fails_closed():
+    inputs = _coverage_inputs(20)
+    inputs.index_coverage["valid_from"] = DAYS[1].isoformat()  # no census row is active on START
+    assert _check(inputs).passed  # licensed-only scope: an empty cohort behaves as before
+    capture = {"scope": "listing:sp500:all", "snapshot_date": START.isoformat(), "known_at": f"{START}T21:31:00Z"}
+    inputs.membership = replace(inputs.membership, captures=(capture,))
+    result = _check(inputs)
+    assert not result.passed and result.detail == f"unavailable: no visible census for listing:sp500:all on {START}"
+    # A capture made after the day does not change that day's verdict.
+    later = {**capture, "snapshot_date": DAYS[1].isoformat(), "known_at": f"{DAYS[1]}T21:31:00Z"}
+    inputs.membership = replace(inputs.membership, captures=(later,))
+    assert _check(inputs).passed
+
+
 def test_coverage_overlap_fails_closed():
     inputs = _coverage_inputs(20)
     inputs.index_coverage = pd.concat([inputs.index_coverage, inputs.index_coverage.iloc[:1]])
