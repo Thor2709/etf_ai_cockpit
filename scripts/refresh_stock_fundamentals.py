@@ -36,6 +36,13 @@ def main() -> int:
     print(f"rows added: {report.rows_added}; instruments without data: {len(report.failures)}")
     for key, reason in report.failures.items():
         print(f"  {key}: {reason}")
+    from etf_cockpit.application.sec_evidence_refresh import refresh_sec_evidence
+
+    sec = refresh_sec_evidence(config, only_ids=only, progress=print)
+    print(
+        f"SEC evidence added: earnings rows {sec['earnings_rows']}; Form 4 filings {sec['insider_rows']}; "
+        f"10-K chunks indexed {sec['ten_k_chunks']}; targets with a gap: {len(sec['reasons'])}"
+    )
     return 0
 
 
