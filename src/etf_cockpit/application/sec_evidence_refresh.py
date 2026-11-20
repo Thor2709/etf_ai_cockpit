@@ -4,16 +4,16 @@ For each US stock the refresh reads companyfacts and submissions from SEC EDGAR 
 SEC-receipt earnings features and the Form 4 filings of the last 120 days (from their acceptance
 time) in the bitemporal store. An 8-K with item 2.02 adds only the printed release time to the
 earnings rows. For the target positions, the latest 10-K risk-factor and MD&A sections go to the
-document chunk store. A stored accession is never fetched again. Every provider or target error becomes a
-reason in the returned dict; nothing here raises for one target, so the weekly job exit code is
-unchanged. Prices are passed empty: the stored prices carry no per-bar ``known_at``, so the filing
+document chunk store (cache-first). A parsed 8-K and a stored Form 4 are never fetched again; a failed
+8-K is retried on the next run and its release time then becomes a new earnings-row revision. Without
+edgartools no filing document is downloaded. Every provider or target error becomes a reason in the
+returned dict; the script holds the top-level guard, so the weekly job exit code is unchanged. Prices are passed empty: the stored prices carry no per-bar ``known_at``, so the filing
 reaction stays unavailable and is not stored.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
-from contextlib import closing
 import dataclasses
 from datetime import date, datetime, timedelta, timezone
 from importlib.util import find_spec
@@ -21,7 +21,6 @@ import json
 import os
 from pathlib import Path
 import re
-import sqlite3
 from typing import Any
 from urllib.error import HTTPError
 
@@ -35,9 +34,9 @@ from etf_cockpit.data import stock_sources as src
 from etf_cockpit.data.bitemporal import BitemporalStore
 from etf_cockpit.data.document_chunks import CHUNK_STORE_NAME, index_document
 from etf_cockpit.data.earnings_surprise import _US, DATASET_ID as EARNINGS_DATASET
-from etf_cockpit.data.earnings_surprise import compute_earnings_events, earnings_information_features, record_earnings_events
+from etf_cockpit.data.earnings_surprise import compute_earnings_events, record_earnings_events
 from etf_cockpit.data.sec_edgar_provider import SecEdgarProvider
-from etf_cockpit.data.sec_filing_documents import fetch_8k, fetch_10k_section_chunks
+from etf_cockpit.data.sec_filing_documents import EightKFiling, fetch_8k, fetch_10k_section_chunks
 from etf_cockpit.data.sec_ownership import (
     InsiderFiling,
     InsiderTransaction,
@@ -47,9 +46,9 @@ from etf_cockpit.data.sec_ownership import (
     parse_ownership_xml,
 )
 from etf_cockpit.data.sec_pit_facts import acceptance_index
-from etf_cockpit.features.feature_store import LocalFeatureStore
 
 INSIDER_DATASET = "sec_insider_filings"
+EIGHT_K_DATASET = "sec_8k_releases"
 _FORM4_DAYS = 120
 _MAX_BYTES = 50_000_000  # the same cap as the macro fetches
 _PRICE_COLUMNS = ["instrument_id", "date", "adjusted_close", "known_at"]
@@ -135,43 +134,55 @@ def _refresh_target(
         return [f"SEC companyfacts/submissions unavailable: {_why(exc)}"]
     acceptances = acceptance_index(submissions)
     filings = _filing_rows(submissions)
-    reasons = _store_form4(provider, ledger, iid, cik, filings, acceptances, run_id, report, now)
-    stored = ledger.observations(EARNINGS_DATASET, entity_id=iid)
-    receipts = {item.value.get("sec_receipt_time") for item in stored}
-    eight_ks = []
+    parser = find_spec("edgar") is not None  # the document fetches have no use without it: never download them
+    reasons = [] if parser else ["SEC filing documents skipped: edgartools is not installed (optional `sec` extra)"]
+    if parser:
+        reasons += _store_form4(provider, ledger, iid, cik, filings, acceptances, run_id, report, now)
+    parsed = {item.stable_id: item.value for item in ledger.observations(EIGHT_K_DATASET, entity_id=iid)}
     for row in filings:
-        accepted = (acceptances.get(row["accession"]) or {}).get("accepted")
-        if row["form"] != "8-K" or "2.02" not in row["items"].split(",") or not accepted or accepted in receipts:
+        accession = row["accession"]
+        if not parser or row["form"] != "8-K" or "2.02" not in row["items"].split(",") or accession in parsed:
+            continue
+        if not (acceptances.get(accession) or {}).get("accepted"):
             continue
         try:
-            eight_ks.append(fetch_8k(provider, cik, row["accession"]))
-        except Exception as exc:
-            reasons.append(f"8-K {row['accession']}: {_why(exc)}")
+            parsed[accession] = _record_8k(ledger, iid, accession, fetch_8k(provider, cik, accession), run_id)
+        except Exception as exc:  # retried on the next run: only a parsed 8-K is stored
+            reasons.append(f"8-K {accession}: {_why(exc)}")
+    eight_ks = [_eight_k(value) for value in parsed.values()]
     empty = pd.DataFrame(columns=_PRICE_COLUMNS)
     result = compute_earnings_events(iid, facts, submissions, empty, empty, country=country, eight_ks=eight_ks)
     if result["status"] != "available":
         reasons.append(str(result["reason"]))
-    record_earnings_events(ledger, iid, result["events"], run_id=run_id)
-    report["earnings_rows"] += len(ledger.observations(EARNINGS_DATASET, entity_id=iid)) - len(stored)
+    before = len(ledger.observations(EARNINGS_DATASET, entity_id=iid))
+    record_earnings_events(ledger, iid, result["events"], run_id=run_id, revised_at=now)
+    report["earnings_rows"] += len(ledger.observations(EARNINGS_DATASET, entity_id=iid)) - before
     ten_ks = [row for row in filings if row["form"] == "10-K"]
     latest = max(ten_ks, key=lambda row: row["filingDate"])["accession"] if ten_ks else None
-    if in_positions and latest and not _indexed(root / "data" / CHUNK_STORE_NAME, latest):
+    if parser and in_positions and latest:
         try:
             chunks = fetch_10k_section_chunks(provider, cik, latest)
-            index_document(root / "data" / CHUNK_STORE_NAME, chunks)
-            report["ten_k_chunks"] += len(chunks)
+            report["ten_k_chunks"] += index_document(root / "data" / CHUNK_STORE_NAME, chunks)
         except Exception as exc:
             reasons.append(f"10-K {latest}: {_why(exc)}")
     return reasons
 
 
-def _indexed(path: Path, accession: str) -> bool:
-    """True when the chunk store already holds a section of this filing (source id ``sec:<form>:<accession>:<section>``)."""
+def _record_8k(ledger: BitemporalStore, instrument_id: str, accession: str, filing: EightKFiling, run_id: str) -> dict[str, Any]:
+    """Store one parsed 8-K under its submissions accession (tables are not kept), available from its SEC receipt."""
 
-    if not path.is_file():
-        return False
-    with closing(sqlite3.connect(path)) as connection:
-        return connection.execute("SELECT 1 FROM chunks WHERE source_id LIKE ? LIMIT 1", (f"sec:%:{accession}:%",)).fetchone() is not None
+    value = json.loads(json.dumps(dataclasses.asdict(dataclasses.replace(filing, tables=())), default=lambda item: item.isoformat()))
+    ledger.record_observation(
+        dataset_id=EIGHT_K_DATASET, entity_id=instrument_id, stable_id=accession, value=value,
+        source_id="sec_8k", source_checksum=filing.source_sha256, revision=1, valid_from=filing.sec_receipt_time,
+        published_at=filing.sec_receipt_time, observed_at=filing.sec_receipt_time, available_at=filing.sec_receipt_time,
+        run_id=run_id, availability_confidence="exact",
+    )
+    return value
+
+
+def _eight_k(value: dict[str, Any]) -> EightKFiling:
+    return EightKFiling(**{**value, "sec_receipt_time": datetime.fromisoformat(value["sec_receipt_time"]), "items": tuple(value["items"]), "tables": ()})
 
 
 def _filing_rows(submissions: dict[str, Any]) -> list[dict[str, str]]:
@@ -189,8 +200,6 @@ def _store_form4(
 ) -> list[str]:
     """Fetch, parse and store each Form 4 filed in the last 120 days that is not stored yet."""
 
-    if find_spec("edgar") is None:  # fetch_filing_document has no cache read: never download what cannot be parsed
-        return ["Form 4 skipped: edgartools is not installed (optional `sec` extra)"]
     reasons: list[str] = []
     stored = {item.stable_id for item in ledger.observations(INSIDER_DATASET, entity_id=iid)}
     since = (now - timedelta(days=_FORM4_DAYS)).date().isoformat()
@@ -254,14 +263,13 @@ def insider_features(root: Path | None, instrument_id: str, cik: str | None, dec
 def sue_revenue_feature(root: Path | None, instrument_id: str, decision_time: datetime) -> tuple[float | None, str, str | None]:
     """(value, detail, reason) of the latest stored revenue SUE known at ``decision_time``."""
 
-    root = Path(root or ROOT)
     try:
-        with BitemporalStore(root) as ledger:
-            frame = earnings_information_features(ledger, LocalFeatureStore(root), instrument_id)
+        with BitemporalStore(Path(root or ROOT)) as ledger:
+            rows = ledger.observations(EARNINGS_DATASET, entity_id=instrument_id, available_at_lte=decision_time)
     except Exception as exc:
         return None, "—", f"SEC evidence store unavailable: {_why(exc)}"
-    known = frame[frame["sue_revenue"].notna() & (pd.to_datetime(frame["available_at"], utc=True) <= decision_time)]
-    if known.empty:
+    known = [row for row in rows if row.status == "active" and row.value.get("feature") == "sue_revenue"]
+    if not known:
         return None, "—", "no revenue surprise known by the decision time (weekly SEC refresh, US stocks only)"
-    row = known.sort_values("available_at").iloc[-1]
-    return float(row["sue_revenue"]), f"SEC receipt {row['date']} · known {str(row['available_at'])[:10]} · SEC EDGAR", None
+    row = max(known, key=lambda item: (item.valid_from, item.revision))  # the latest quarter, not the latest revision
+    return float(row.value["value"]), f"SEC receipt {row.valid_from[:10]} · known {row.available_at[:10]} · SEC EDGAR", None

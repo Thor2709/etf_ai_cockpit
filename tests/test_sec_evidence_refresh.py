@@ -82,7 +82,9 @@ def _sue(i: int) -> float:
     return (_REVENUE[i] - _REVENUE[i - 4]) / statistics.stdev([_REVENUE[j] - _REVENUE[j - 4] for j in range(max(4, i - 8), i)])
 
 
-def test_int06_weekly_refresh_stores_sec_receipt_earnings_rows_once_and_skips_non_us_issuers(tmp_path: Path) -> None:
+def test_int06_weekly_refresh_stores_sec_receipt_earnings_rows_once_and_skips_non_us_issuers(tmp_path: Path, monkeypatch) -> None:
+    from etf_cockpit.features.feature_store import LocalFeatureStore
+
     config, fake, provider = _setup(tmp_path, _sec_documents())
     first = ser.refresh_sec_evidence(config, root=tmp_path, provider=provider, now=NOW)
     assert first["earnings_rows"] > 0
@@ -90,7 +92,8 @@ def test_int06_weekly_refresh_stores_sec_receipt_earnings_rows_once_and_skips_no
     assert all("SAP" not in url for url in fake.calls)
     with BitemporalStore(tmp_path) as store:
         rows = store.observations(DATASET_ID, entity_id="ZZA")
-    assert rows and all(row.available_at >= row.value["sec_receipt_time"] for row in rows)
+    assert rows and all(datetime.fromisoformat(row.available_at) >= datetime.fromisoformat(row.value["sec_receipt_time"]) for row in rows)
+    monkeypatch.setattr(LocalFeatureStore, "register_feature", lambda *_a: pytest.fail("the page reader must not write"))
 
     calls = len(fake.calls)
     again = ser.refresh_sec_evidence(config, root=tmp_path, provider=provider, now=NOW)
@@ -161,7 +164,14 @@ def _filing_documents() -> dict[str, bytes]:
     return documents
 
 
-def test_int18_8k_release_time_reaches_the_earnings_rows_and_the_latest_10k_of_a_position_is_searchable(tmp_path: Path) -> None:
+def _count_8k_parses(monkeypatch) -> list[str]:
+    parsed: list[str] = []
+    real = ser.fetch_8k
+    monkeypatch.setattr(ser, "fetch_8k", lambda provider, cik, accession: parsed.append(accession) or real(provider, cik, accession))
+    return parsed
+
+
+def test_int18_8k_release_time_reaches_the_earnings_rows_and_the_latest_10k_of_a_position_is_searchable(tmp_path: Path, monkeypatch) -> None:
     import sqlite3
 
     from etf_cockpit.application.research_evidence import search_document_chunks
@@ -190,9 +200,67 @@ def test_int18_8k_release_time_reaches_the_earnings_rows_and_the_latest_10k_of_a
             return connection.execute("SELECT COUNT(*) FROM chunks").fetchone()[0]
 
     count, calls = chunk_count(), len(fake.calls)
+    parsed = _count_8k_parses(monkeypatch)
     again = ser.refresh_sec_evidence(config, root=tmp_path, provider=provider, now=NOW)
     assert (again["earnings_rows"], again["ten_k_chunks"], chunk_count()) == (0, 0, count)
-    assert set(fake.calls[calls:]) <= {FACTS_URL, SUBMISSIONS_URL}  # stored 8-K and 10-K: no new fetch
+    assert ACC_8K not in parsed  # a parsed 8-K is never read again
+    assert set(fake.calls[calls:]) <= {FACTS_URL, SUBMISSIONS_URL}  # the 10-K comes from the raw cache
+
+
+def test_int18_a_failed_8k_is_retried_and_its_release_time_is_then_recorded_as_a_new_revision(tmp_path: Path, monkeypatch) -> None:
+    pytest.importorskip("edgar")
+    documents = _filing_documents()
+    config, fake, provider = _setup(tmp_path, documents)
+    with monkeypatch.context() as patch:  # without the parser no filing document is downloaded
+        patch.setattr(ser, "find_spec", lambda _name: None)
+        skipped = ser.refresh_sec_evidence(config, root=tmp_path, provider=provider, now=NOW)
+    assert EIGHT_K_URL not in fake.calls and TEN_K_URL not in fake.calls and "edgartools" in skipped["reasons"]["ZZA"]
+
+    def announcement() -> tuple[str, str]:
+        with BitemporalStore(tmp_path) as store:
+            rows = [o for o in store.observations(DATASET_ID, entity_id="ZZA") if o.stable_id == "2026-06-30:sue_revenue"]
+        latest = max(rows, key=lambda o: o.revision)
+        return latest.value["public_announcement_time"], latest.available_at
+
+    assert announcement()[0] == "unavailable"  # stored without the 8-K
+    later = datetime(2026, 10, 16, 12, tzinfo=timezone.utc)
+    documents[EIGHT_K_URL + ":down"] = documents.pop(EIGHT_K_URL)  # the SEC refuses the 8-K once (404)
+    failed = ser.refresh_sec_evidence(config, root=tmp_path, provider=provider, now=later)
+    assert ACC_8K in failed["reasons"]["ZZA"] and announcement()[0] == "unavailable"
+
+    documents[EIGHT_K_URL] = documents.pop(EIGHT_K_URL + ":down")
+    ser.refresh_sec_evidence(config, root=tmp_path, provider=provider, now=later)
+    announced, available_at = announcement()
+    assert announced == "2026-07-30T20:05:00+00:00" and datetime.fromisoformat(available_at) == later  # no look-back
+
+    parsed = _count_8k_parses(monkeypatch)
+    ser.refresh_sec_evidence(config, root=tmp_path, provider=provider, now=later)
+    assert ACC_8K not in parsed and announcement()[0] == announced
+
+
+def test_empty_prices_build_no_trading_calendar(monkeypatch) -> None:
+    from etf_cockpit.data import earnings_surprise
+
+    monkeypatch.setattr(earnings_surprise.xcals, "get_calendar", lambda *_a, **_k: pytest.fail("no calendar for empty prices"))
+    facts, submissions = (_shift(item) for item in _case())
+    empty = pd.DataFrame(columns=ser._PRICE_COLUMNS)
+    events = earnings_surprise.compute_earnings_events("ZZA", facts, submissions, empty, empty, country="US")["events"]
+    assert {e["features"]["filing_reaction_3s"]["reason"] for e in events if e["exact_acceptance"]} == {"ZZA:entry_close_missing"}
+
+
+def test_an_8k_without_a_stored_html_primary_document_is_refused_without_a_network_fallback(monkeypatch) -> None:
+    pytest.importorskip("edgar")
+    from edgar.sgml.sgml_common import FilingSGML
+
+    from etf_cockpit.data import sec_filing_documents as sfd
+    from etf_cockpit.plugins.registry import _network_probe
+
+    sfd._edgar()
+    source = (FIXTURES / "sec_filing_documents" / "8k_earnings.txt").read_bytes()
+    monkeypatch.setattr(FilingSGML, "html", lambda _self: None)
+    with _network_probe() as calls, pytest.raises(sfd.SecFilingDocumentUnavailable, match="HTML primary document"):
+        sfd.parse_8k(source, known_at=datetime(2026, 7, 30, 20, 15, tzinfo=timezone.utc))
+    assert calls == []
 
 
 def test_without_a_user_agent_every_target_has_the_reason_and_no_request_is_made(tmp_path: Path, monkeypatch) -> None:
@@ -223,7 +291,7 @@ def test_transport_maps_304_to_a_response_and_refuses_a_body_above_50_mb(monkeyp
         ser._sec_transport(FACTS_URL, {})
 
 
-def test_weekly_fundamentals_script_runs_the_sec_evidence_refresh_after_the_fundamentals(monkeypatch) -> None:
+def test_weekly_fundamentals_script_runs_the_sec_evidence_refresh_after_the_fundamentals(monkeypatch, capsys) -> None:
     import sys
 
     from etf_cockpit.application import stock_service
@@ -239,3 +307,10 @@ def test_weekly_fundamentals_script_runs_the_sec_evidence_refresh_after_the_fund
                         lambda *a, **k: order.append(("sec", a, k["only_ids"])) or {"earnings_rows": 0, "insider_rows": 0, "ten_k_chunks": 0, "reasons": {}})
     assert script.main() == 0
     assert order == [("fundamentals", ("cfg",), {"ZZA"}), ("sec", ("cfg",), {"ZZA"})]
+
+    def broken(*_a, **_k):
+        raise OSError("store locked")
+
+    monkeypatch.setattr(ser, "refresh_sec_evidence", broken)
+    assert script.main() == 0  # the weekly job keeps its exit code
+    assert "SEC evidence refresh unavailable: OSError: store locked" in capsys.readouterr().out

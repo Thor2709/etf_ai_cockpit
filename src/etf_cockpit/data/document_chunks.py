@@ -61,13 +61,18 @@ def chunk_pages(
     return chunks
 
 
-def index_document(path: Path, chunks: Sequence[DocumentChunk]) -> None:
+def index_document(path: Path, chunks: Sequence[DocumentChunk]) -> int:
+    """Store the chunks not stored yet; returns how many were new."""
+
+    added = 0
     with closing(_connect(path)) as connection:
         for chunk in chunks:
             row = astuple(replace(chunk, published_at=_utc(chunk.published_at), known_at=_utc(chunk.known_at)))
             inserted = connection.execute(f"INSERT OR IGNORE INTO chunks VALUES ({', '.join('?' * len(_COLUMNS))})", row)
             if inserted.rowcount:
                 connection.execute("INSERT INTO chunks_fts (chunk_id, text) VALUES (?, ?)", (chunk.chunk_id, chunk.text))
+                added += 1
+    return added
 
 
 def search(path: Path, query: str, *, as_of: str, limit: int = 10, chunker_version: str = CHUNKER_VERSION) -> dict[str, object]:
