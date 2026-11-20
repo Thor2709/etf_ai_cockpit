@@ -204,6 +204,7 @@
     "ISSUE-0211",
     "ISSUE-0212",
     "ISSUE-0213",
+    "ISSUE-0214",
     "UPDATEV2-0010",
     "UPDATEV2-0011",
     "UPDATEV2-0012",
@@ -231,6 +232,7 @@
     "closed": 17,
     "deferred": 2,
     "integrated": 213,
+    "planned": 1,
     "research_only": 2
   },
   "execution_allowed": false,
@@ -241,7 +243,7 @@
     "phase-04-etf-research": 8,
     "phase-05-returns-risk-portfolio": 36,
     "phase-06-model-research": 11,
-    "phase-07-backtest-paper-execution": 18,
+    "phase-07-backtest-paper-execution": 19,
     "phase-08-frontend-api": 22,
     "phase-09-quality-release-security": 11,
     "phase-10-audit-documentation-governance": 5,
@@ -5624,6 +5626,21 @@
       ],
       "edges": [],
       "execution_allowed": false,
+      "issue_id": "ISSUE-0214",
+      "ready": true,
+      "reason_codes": [
+        "READY_NO_BLOCKING_DEPENDENCIES"
+      ],
+      "required_inputs": []
+    },
+    {
+      "activation_edges": [],
+      "activation_ready": true,
+      "activation_reason_codes": [
+        "ACTIVATION_READY_NO_DEPENDENCIES"
+      ],
+      "edges": [],
+      "execution_allowed": false,
       "issue_id": "UPDATEV2-0010",
       "ready": false,
       "reason_codes": [
@@ -6041,6 +6058,7 @@
     "ISSUE-0058",
     "ISSUE-0065",
     "ISSUE-0066",
+    "ISSUE-0214",
     "UPDATEV2-0024",
     "UPDATEV2-0025",
     "UPDATEV2-0030",
@@ -6049,5 +6067,5 @@
     "ISSUE-0205"
   ],
   "schema_version": "1.0",
-  "source_registry_sha256": "0077cfe3fbb9e1516c83305ea67040932e9b85820ab25855e6f645323c8ebdf2"
+  "source_registry_sha256": "51e57208227307a3f4df178ab5aa308257f9344e83862ab33871db03163912ef"
 }

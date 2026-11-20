@@ -20211,6 +20211,79 @@
       "verified_commit": "0e14027914bfd574c40fb79c59ed033969ae4e69",
       "verified_date": "2026-11-19"
     },
+    "ISSUE-0214": {
+      "acceptance_evidence": [],
+      "canonical_definition": {
+        "acceptance_criteria": [
+          {
+            "id": "AC1",
+            "text": "Each per-PR done-test of the build plan passes, and each merged PR has a green exact-head `validation-summary`."
+          },
+          {
+            "id": "AC2",
+            "text": "The run JSON of the go-live step 8 run and of the next two scheduled nights shows the refresh message list (ids with stored history kept as stale), the capture counts, readiness 8/8 bound to the score snapshot id, the per-bot outcomes (B0-B3 and B2-o `available`, B1-r `NO_NEW_TRADE` with the preflight list) and `execution_allowed=false`."
+          },
+          {
+            "id": "AC3",
+            "text": "The ledger has fills on the session after each decision, all from the opening-price fill job; the fill-job JSON shows `bar_known_at <= fill_time` for each fill."
+          },
+          {
+            "id": "AC4",
+            "text": "A feature-observation file exists for each night, and the index-coverage census has rows for each capture date."
+          },
+          {
+            "id": "AC5",
+            "text": "`programme_execution.py --check` exits 0 after the lifecycle transitions, and the independent readback shows zero actions."
+          }
+        ],
+        "activation_dependencies": [],
+        "blocking_dependencies": [],
+        "capability_lane": "PAPER_BROKER_OPERATIONS",
+        "contract_markdown": "Forward nightly paper path (build plan 2026-11-20). Design reference: `docs/architecture/forward-paper-path.md` and ADR-0009. All product PRs say \"Refs ISSUE-0214\".",
+        "data_and_dependencies": "Uses the existing local price store, the public S&P 500 constituents page and the existing yfinance provider; with the network unavailable a capture or refresh stays `unavailable` and keeps stored history as stale, never zero-filled.",
+        "exclusions": [
+          "No new data, package, model-weight or execution authority from registration.",
+          "No live orders and no broker writes; `execution_allowed=false` stays.",
+          "No scheduled-task registration and no `controls.paper.enabled: true` change; these stay owner actions."
+        ],
+        "objective": "Run the forward paper bots each night on point-in-time data: stamp each price bar, capture the S&P 500 members with a census, bind readiness, recorder and bots to one score run, and fill each decision at the next-session open.",
+        "owner": "backtest-and-paper",
+        "phase": "phase-07-backtest-paper-execution",
+        "priority": "P2",
+        "related_issues": [
+          "ISSUE-0196",
+          "ISSUE-0197"
+        ],
+        "release_blocking": false,
+        "required_inputs": [],
+        "rollback": "Revert the bounded integration, keep the driver enable flag off and retain the existing local evidence and defaults.",
+        "scope": [
+          "Per-bar price stamps (`known_at`, `available_at`, `availability_basis`) with the revision rule and the one-time recovery rule.",
+          "Nightly S&P 500 capture with identity bindings and the index-coverage census.",
+          "One point-in-time score run that binds readiness, the recorder and the bots.",
+          "Challengers B2-o (EUR inputs) and B1-r (panel inputs) with persisted feature vintages.",
+          "The opening-price observation and the next-session-open fill job.",
+          "The driver enable flag and the `partial` status rule.",
+          "Fix the price currency-label defect before go-live."
+        ],
+        "title": "Forward nightly paper path",
+        "validation": {
+          "required": [
+            "Focused tests for the intake acceptance criteria and the validation tier required by the product diff."
+          ]
+        }
+      },
+      "dependency_edge_evidence": {},
+      "phase": "phase-07-backtest-paper-execution",
+      "programme_status": "planned",
+      "status_transition": {
+        "from": "planned",
+        "review_reference": "Forward nightly paper path build plan (2026-11-20, section 10 P1; activation plan section 7, OD-3: one record for all PRs); Claude Code root intake.",
+        "to": "planned"
+      },
+      "verified_commit": "af1811d802b88dd6ed105f4ad7271fce8ff0f9d3",
+      "verified_date": "2026-11-20"
+    },
     "UPDATEV2-0010": {
       "acceptance_evidence": [],
       "dependency_edge_evidence": {},
