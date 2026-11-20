@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 import pandas as pd
 
 from etf_cockpit.application import score_backfill
+from etf_cockpit.core.paths import ROOT
 from etf_cockpit.data import score_history_backfill as store
 from etf_cockpit.models.baseline_models import baseline_forecast
 from etf_cockpit.models.forecast_scores import PRIMARY_MODEL_HORIZON_DAYS
@@ -94,7 +95,7 @@ def test_existing_friction_and_cost_gate_consume_baseline_without_changing_other
     without, _ = _run(config, prices)
     assert without is not None
     with_baseline, without_baseline = captured
-    order_value = score_backfill.research_reference_order_value_eur()
+    order_value = score_backfill.research_reference_order_value_eur(ROOT)
     for row in history.itertuples():
         actual = with_baseline[row.instrument_id]
         missing = without_baseline[row.instrument_id]

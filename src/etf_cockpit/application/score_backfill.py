@@ -37,6 +37,7 @@ from etf_cockpit.application.reference_context import (
     _reference_context_from_inputs,
 )
 from etf_cockpit.core.config import AppConfig, load_config
+from etf_cockpit.core.values import finite_float_or_none
 from etf_cockpit.core.versioning import build_version_registry
 from etf_cockpit.data.duckdb_store import load_prices
 from etf_cockpit.data.fx_data import fx_rates_for_prices
@@ -69,7 +70,7 @@ from etf_cockpit.signals.simple_scores import (
     rank_and_finalize_scores,
     simple_scoreboard_frame,
 )
-from etf_cockpit.portfolio.paper_bots_execution import load_execution_config
+from etf_cockpit.portfolio.paper_bots_execution import EXECUTION_CONFIG_PATH, _config_file, load_execution_config
 
 PIT_POLICY_VERSION = "pit_score_backfill.v2"
 CALENDAR_INSTRUMENT_ID = "VWCE"  # the benchmark calendar defines the sessions (as in the paper bots)
@@ -135,17 +136,33 @@ def session_dates(prices: pd.DataFrame, start: date, end: date, *, every: int = 
     return dates[::every]
 
 
-def research_reference_order_value_eur() -> float:
-    """The paper bots' configured reference order (paper_bots_execution_v1.yaml ``cost_model``).
+def research_reference_order_value_eur(root: Path) -> float:
+    """The paper bots' configured reference order (``cost_model`` of the paper_bots_execution_v1.yaml the bots read for ``root``).
 
     No historical portfolio exists, so as-of research costs ask whether a buy of the bots' reference order clears costs.
     """
 
-    return float(load_execution_config()[1]["cost_model"]["reference_order_value_eur"])
+    path = _config_file(root, "paper_bots_execution_v1.yaml", EXECUTION_CONFIG_PATH)
+    value = load_execution_config(path)[1]["cost_model"].get("reference_order_value_eur")
+    number = None if isinstance(value, bool) else finite_float_or_none(value)
+    if number is None or number <= 0:
+        raise ValueError(f"{path}: cost_model.reference_order_value_eur must be a finite number above 0, got {value!r}")
+    return number
 
 
-def config_fingerprint(config: AppConfig, excluded: Mapping[str, str] | None, membership: ListingHistory | None = None) -> tuple[str, dict[str, object]]:
+def config_fingerprint(
+    config: AppConfig,
+    excluded: Mapping[str, str] | None,
+    membership: ListingHistory | None = None,
+    *,
+    reference_order_value_eur: float | None = None,
+) -> tuple[str, dict[str, object]]:
     """Identity of everything that shapes a stored session besides its input data: a changed run configuration must recompute it."""
+
+    if reference_order_value_eur is None:
+        from etf_cockpit.core.paths import ROOT
+
+        reference_order_value_eur = research_reference_order_value_eur(ROOT)
 
     formulas: dict[str, str] = {}
     for asset_type in ("ETF", "Stock"):
@@ -178,7 +195,7 @@ def config_fingerprint(config: AppConfig, excluded: Mapping[str, str] | None, me
         "baseline_forecast": {
             "model_name": "baseline", "model_version": BASELINE_MODEL_VERSION,
             "horizon_days": PRIMARY_MODEL_HORIZON_DAYS, "calibrated": False, "use": "friction_cost_only",
-            "reference_order_value_eur": research_reference_order_value_eur(),
+            "reference_order_value_eur": reference_order_value_eur,
         },
         "calendar_instrument_id": CALENDAR_INSTRUMENT_ID,
         "universe_hash": universe,
@@ -266,7 +283,8 @@ def backfill_score_history(
         return BackfillResult("unavailable", None, reason=f"No {CALENDAR_INSTRUMENT_ID} session between {start} and {end}.")
     fx = fx_rates if fx_rates is not None else _load_fx(frame)
     registry_signature = str(build_version_registry().get("registry_signature", "unavailable"))
-    fingerprint, applied = config_fingerprint(config, excluded, membership)
+    reference_order_value = research_reference_order_value_eur(root)  # the file the bots read for this root, once per run
+    fingerprint, applied = config_fingerprint(config, excluded, membership, reference_order_value_eur=reference_order_value)
 
     existing = load_backfill_score_history(root, STORE_PROVENANCES)  # a later write keeps the forward rows
     existing_eligibility = load_backfill_eligibility(root, STORE_PROVENANCES)
@@ -358,7 +376,7 @@ def backfill_score_history(
             survivorship_unverified=unverified_instruments(existing_eligibility),
         )
     try:
-        for index, session, outcome in _score_sessions(config, frame, todo, fx, registry_signature, excluded, workers, membership, completed_at):
+        for index, session, outcome in _score_sessions(config, frame, todo, fx, registry_signature, excluded, workers, membership, completed_at, reference_order_value):
             say(f"[{index}/{len(sessions)}] scored as of {session}")
             if isinstance(outcome, str):  # fail closed per session: never store a partial or guessed run
                 unavailable[session.isoformat()] = outcome
@@ -383,18 +401,18 @@ def backfill_score_history(
 _WORKER_STATE: dict[str, Any] = {}
 
 
-def _worker_init(config: AppConfig, prices: pd.DataFrame, fx_rates: pd.DataFrame | None, registry_signature: str, excluded: Mapping[str, str] | None, membership: ListingHistory) -> None:
+def _worker_init(config: AppConfig, prices: pd.DataFrame, fx_rates: pd.DataFrame | None, registry_signature: str, excluded: Mapping[str, str] | None, membership: ListingHistory, reference_order_value_eur: float | None = None) -> None:
     import os
 
     os.environ["CUDA_VISIBLE_DEVICES"] = ""
-    _WORKER_STATE.update(config=config, prices=prices, fx=fx_rates, registry=registry_signature, excluded=excluded, membership=membership)
+    _WORKER_STATE.update(config=config, prices=prices, fx=fx_rates, registry=registry_signature, excluded=excluded, membership=membership, reference=reference_order_value_eur)
 
 
-def _score_one(config: AppConfig, prices: pd.DataFrame, session: date, fx_rates: pd.DataFrame | None, registry_signature: str, excluded: Mapping[str, str] | None, membership: ListingHistory, completed_at: datetime | None = None):
+def _score_one(config: AppConfig, prices: pd.DataFrame, session: date, fx_rates: pd.DataFrame | None, registry_signature: str, excluded: Mapping[str, str] | None, membership: ListingHistory, completed_at: datetime | None = None, reference_order_value_eur: float | None = None):
     try:
         return score_as_of(
             config, prices, session, fx_rates=fx_rates, version_registry_signature=registry_signature, excluded=excluded,
-            membership=membership, completed_at=completed_at,
+            membership=membership, completed_at=completed_at, reference_order_value_eur=reference_order_value_eur,
         )
     except Exception as exc:  # reported as the session's unavailable reason; a forward run fails loudly (SDD C4)
         if completed_at is not None:
@@ -404,15 +422,15 @@ def _score_one(config: AppConfig, prices: pd.DataFrame, session: date, fx_rates:
 
 def _worker_score(session: date):
     state = _WORKER_STATE
-    return _score_one(state["config"], state["prices"], session, state["fx"], state["registry"], state["excluded"], state["membership"])
+    return _score_one(state["config"], state["prices"], session, state["fx"], state["registry"], state["excluded"], state["membership"], None, state["reference"])
 
 
-def _score_sessions(config, frame, todo, fx, registry_signature, excluded, workers, membership, completed_at=None):
+def _score_sessions(config, frame, todo, fx, registry_signature, excluded, workers, membership, completed_at=None, reference_order_value_eur=None):
     """Yield ``(index, session, outcome)`` in session order; outcome is ``(run, eligibility)`` or an error string."""
 
     if workers <= 1 or len(todo) <= 1:  # a forward run has one session, so it always takes this branch
         for index, session in todo:
-            yield index, session, _score_one(config, frame, session, fx, registry_signature, excluded, membership, completed_at)
+            yield index, session, _score_one(config, frame, session, fx, registry_signature, excluded, membership, completed_at, reference_order_value_eur)
         return
     import multiprocessing
     from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
@@ -422,7 +440,7 @@ def _score_sessions(config, frame, todo, fx, registry_signature, excluded, worke
             max_workers=min(workers, len(todo)),
             mp_context=multiprocessing.get_context("spawn"),
             initializer=_worker_init,
-            initargs=(config, frame, fx, registry_signature, excluded, membership),
+            initargs=(config, frame, fx, registry_signature, excluded, membership, reference_order_value_eur),
         )
     except PermissionError:
         # Some Windows sandboxes deny multiprocessing's named pipes. No tasks
@@ -431,7 +449,7 @@ def _score_sessions(config, frame, todo, fx, registry_signature, excluded, worke
 
         warnings.warn("Process pool unavailable; scoring sessions with parallel threads.", RuntimeWarning, stacklevel=2)
         with ThreadPoolExecutor(max_workers=min(workers, len(todo))) as threads:
-            futures = [(index, session, threads.submit(_score_one, config, frame, session, fx, registry_signature, excluded, membership))
+            futures = [(index, session, threads.submit(_score_one, config, frame, session, fx, registry_signature, excluded, membership, None, reference_order_value_eur))
                        for index, session in todo]
             for index, session, future in futures:
                 yield index, session, future.result()
@@ -452,6 +470,7 @@ def score_as_of(
     excluded: Mapping[str, str] | None = None,
     membership: ListingHistory | None = None,
     completed_at: datetime | None = None,
+    reference_order_value_eur: float | None = None,
 ) -> tuple[pd.DataFrame | None, pd.DataFrame]:
     """The canonical score history run for one session plus its eligibility log; only data known at ``as_of`` is read.
 
@@ -466,6 +485,10 @@ def score_as_of(
         from etf_cockpit.core.paths import ROOT
 
         membership = ListingHistory.from_root(ROOT)
+    if reference_order_value_eur is None:
+        from etf_cockpit.core.paths import ROOT
+
+        reference_order_value_eur = research_reference_order_value_eur(ROOT)
     config = _historical_config(config, membership)
     log_config = config
     membership = membership.with_observed_trading(prices, config)
@@ -562,7 +585,7 @@ def score_as_of(
         as_of_sources=AsOfScoreSources(
             decision_time=decision_time,
             expected_return_distributions={key: asdict(value) for key, value in baselines.items()},
-            reference_order_value_eur=research_reference_order_value_eur(),
+            reference_order_value_eur=reference_order_value_eur,
             **source_kwargs,
         ),
         fx_rates=fx_rates if fx_rates is not None else pd.DataFrame(),

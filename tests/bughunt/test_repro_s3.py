@@ -15,6 +15,7 @@ from etf_cockpit.core.config import (
     CostConfig,
     DataProvidersConfig,
     ETFConfig,
+    ModelSettings,
     UniverseConfig,
 )
 from etf_cockpit.core.types import ComponentScores, SignalResult
@@ -167,6 +168,7 @@ def test_s3_08_configured_stock_uses_stock_policy(monkeypatch):
             id="UCG", name="UniCredit", ticker="UCG.MI", role="core", instrument_type="stock")]),
         costs=CostConfig(),
         data_providers=DataProvidersConfig(),
+        models=ModelSettings(),
     )
     comp = ComponentScores(1.0, 1.0, 1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
     sig = SignalResult("r", date(2026, 1, 20), "UCG", "hold", 0.8, 1.0, comp, [], [], "", "", "3M")
