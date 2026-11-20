@@ -1,9 +1,11 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 import json
 import time
 from types import SimpleNamespace
+from urllib.error import HTTPError
+from urllib.parse import parse_qs, urlparse
 
 import pandas as pd
 import pytest
@@ -274,6 +276,77 @@ def test_fred_vintage_fetch_reads_every_page_before_assigning_revisions(tmp_path
     ]
     short = FredProvider(api_key="test-key", transport=lambda url: json.dumps({"count": 5, "observations": []}).encode())
     assert short.fetch_vintages("UNRATE", fetched_at=FETCHED_AT).status == "unavailable"
+
+
+def _alfred(rows: list[tuple[str, str, str, str]], vintages: list[str], paths: list[str]):
+    """Fake FRED: clips rows to the asked real-time period and, like FRED, refuses more than 2000 vintage dates."""
+
+    def transport(url: str) -> bytes:
+        parsed = urlparse(url)
+        paths.append(parsed.path)
+        if parsed.path.endswith("/vintagedates"):
+            return json.dumps({"count": len(vintages), "vintage_dates": vintages}).encode()
+        query = {name: values[0] for name, values in parse_qs(parsed.query).items()}
+        start, end = query["realtime_start"], query["realtime_end"]
+        if sum(start <= day <= end for day in vintages) > 2000:
+            raise HTTPError("https://api.stlouisfed.org/", 400, "Bad Request", None, None)
+        clipped = [(day, value, max(s, start), min(e, end)) for day, value, s, e in rows if s <= end and e >= start]
+        return _fred_payload(sorted(clipped, key=lambda row: (row[0], row[2])))
+
+    return transport
+
+
+def _daily_history(count: int) -> tuple[list[tuple[str, str, str, str]], list[str]]:
+    """Every vintage (two days apart) publishes one value; the first value is revised at the 2001st vintage."""
+
+    days = [(date(2000, 1, 1) + timedelta(days=2 * n)).isoformat() for n in range(count)]
+    rows = [(day, f"{n}.0", day, _FOREVER) for n, day in enumerate(days)]
+    if count > 2000:
+        rows[0] = (days[0], "0.0", days[0], (date.fromisoformat(days[2000]) - timedelta(days=1)).isoformat())
+        rows.append((days[0], "0.5", days[2000], _FOREVER))
+    return rows, days
+
+
+def test_fred_vintage_fetch_above_2000_vintage_dates_equals_one_uncapped_request(tmp_path) -> None:
+    rows, days = _daily_history(4500)
+    paths: list[str] = []
+    capped = FredProvider(api_key="test-key", transport=_alfred(rows, days, paths)).fetch_vintages("DGS10", fetched_at=FETCHED_AT)
+    assert capped.status == "available", capped.reason
+
+    def uncapped(url: str) -> bytes:
+        return _fred_payload(sorted(rows, key=lambda row: (row[0], row[2])))
+
+    whole = FredProvider(api_key="test-key", transport=uncapped).fetch_vintages("DGS10", fetched_at=FETCHED_AT)
+    for name, result in (("capped", capped), ("whole", whole)):
+        MacroWarehouse().ingest_vintages(result.observations, root=tmp_path / name)
+
+    def stored(name: str) -> list[dict]:
+        return [row.model_dump(exclude={"source_checksum"}) for row in MacroWarehouse().observations(root=tmp_path / name)]
+
+    assert len(capped.observations) == len(rows) and stored("capped") == stored("whole")
+    assert [row.available_at for row in capped.observations if row.revision == 1] == sorted(
+        row.available_at for row in whole.observations if row.revision == 1
+    )
+
+
+def test_fred_vintage_fetch_under_2000_vintage_dates_makes_the_same_single_request(tmp_path) -> None:
+    rows, days = _daily_history(1500)
+    paths: list[str] = []
+    result = FredProvider(api_key="test-key", transport=_alfred(rows, days, paths)).fetch_vintages("NFCI", fetched_at=FETCHED_AT)
+    assert result.status == "available" and len(result.observations) == len(rows)
+    assert paths == ["/fred/series/observations"]
+
+
+def test_fred_vintage_windows_do_not_duplicate_or_drop_a_vintage_at_their_edges() -> None:
+    rows, days = _daily_history(4500)
+    result = FredProvider(api_key="test-key", transport=_alfred(rows, days, [])).fetch_vintages("VIXCLS", fetched_at=FETCHED_AT)
+    keys = [(row.period_start, row.available_at) for row in result.observations]
+    assert len(keys) == len(set(keys)) == len(rows)
+    by_period = {row.period_start: [] for row in result.observations}
+    for row in result.observations:
+        by_period[row.period_start].append((row.revision, row.value))
+    assert by_period[days[0]] == [(1, 0.0), (2, 0.5)]  # a real revision on a window's first vintage is kept
+    assert by_period[days[1]] == [(1, 1.0)]  # a value valid across every window edge stays one vintage
 
 
 def _refresh_macro(monkeypatch, tmp_path, transport, *, active: str = "fred", key: str | None = "test-key") -> int:

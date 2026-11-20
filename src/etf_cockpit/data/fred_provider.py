@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, time, timezone
 import hashlib
 import json
+from urllib.error import HTTPError
 from urllib.parse import urlencode
 from zoneinfo import ZoneInfo
 
@@ -20,6 +21,8 @@ from etf_cockpit.data.macro_warehouse import (
 )
 
 _URL = "https://api.stlouisfed.org/fred/series/observations"
+_VINTAGE_DATES_URL = "https://api.stlouisfed.org/fred/series/vintagedates"
+_MAX_WINDOW_VINTAGES = 2000  # FRED json limit of vintage dates per observations request
 _MAX_PAGES = 20  # FRED returns at most 100,000 rows per request
 _EARLIEST_VINTAGE = "1776-07-04"
 _LATEST_VINTAGE = "9999-12-31"
@@ -116,7 +119,7 @@ class FredProvider:
         if vintages:
             params |= {"realtime_start": _EARLIEST_VINTAGE, "realtime_end": _LATEST_VINTAGE}
         try:
-            raw_rows, payloads = self._pages(params)
+            raw_rows, payloads = self._vintage_pages(params) if vintages else self._pages(params)
             known_at = fetch_time(fetched_at)  # taken after the response arrived, never before
             rows = _observations(raw_rows, payloads, series_id, vintages, known_at, unit, frequency)
         except FETCH_ERRORS as exc:
@@ -127,7 +130,40 @@ class FredProvider:
         return MacroFetchResult("available", tuple(rows))
 
 
-    def _pages(self, params: dict[str, str]) -> tuple[list[dict[str, str]], bytes]:
+    def _vintage_pages(self, params: dict[str, str]) -> tuple[list[dict[str, str]], bytes]:
+        """Read every vintage. Above 2000 vintage dates FRED answers 400, so read windows of at most 2000."""
+
+        try:
+            return self._pages(params)
+        except HTTPError as exc:
+            if exc.code != 400:
+                raise
+        dates, _ = self._pages(params, _VINTAGE_DATES_URL, "vintage_dates")
+        rows: list[dict[str, str]] = []
+        payloads = b""
+        carried: dict[str, dict[str, str]] = {}  # per date, the row still valid at the previous window's end
+        for first in range(0, len(dates), _MAX_WINDOW_VINTAGES):
+            start = dates[first] if first else _EARLIEST_VINTAGE
+            last = first + _MAX_WINDOW_VINTAGES
+            end = dates[last - 1] if last < len(dates) else _LATEST_VINTAGE
+            batch, page = self._pages(params | {"realtime_start": start, "realtime_end": end})
+            payloads += page
+            still_valid: dict[str, dict[str, str]] = {}
+            for row in batch:
+                before = carried.get(row["date"])
+                if before and before["value"] == row["value"] and row["realtime_start"] <= start:
+                    before["realtime_end"] = row["realtime_end"]  # one vintage, cut at the window edge
+                    row = before
+                else:
+                    rows.append(row)
+                if row["realtime_end"] >= end:
+                    still_valid[row["date"]] = row
+            carried = still_valid
+        return rows, payloads
+
+    def _pages(
+        self, params: dict[str, str], endpoint: str = _URL, key: str = "observations"
+    ) -> tuple[list[dict[str, str]], bytes]:
         """Read every page of the response (bounded), so a long vintage history is complete."""
 
         rows: list[dict[str, str]] = []
@@ -135,12 +171,12 @@ class FredProvider:
         total = 0
         for _ in range(_MAX_PAGES):
             query = params | ({"offset": str(len(rows))} if rows else {})
-            url = f"{_URL}?{urlencode(query)}"
+            url = f"{endpoint}?{urlencode(query)}"
             page = self.transport(url) if self.transport else fetch_bytes(
                 url, {"User-Agent": "ETF AI Evidence Cockpit/1.0"}
             )
             document = json.loads(page)
-            batch = document["observations"]
+            batch = document[key]
             total = int(document.get("count", len(rows) + len(batch)))
             rows += batch
             payloads += page
