@@ -44,7 +44,7 @@ def main(argv: list[str] | None = None, *, transport: Callable[[str], bytes] | N
         except (ValueError, OSError) as exc:
             print(f"{series_id}: unavailable (ingest failed: {type(exc).__name__}: {exc})")
             continue
-        print(f"{series_id}: available rows={len(result.observations)} new={manifest['row_count'] if manifest else 0}")
+        print(f"{series_id}: available rows={len(result.observations)} new={manifest['row_count'] if manifest else 0}" + (f" ({result.reason})" if result.reason else ""))
     return 0
 
 

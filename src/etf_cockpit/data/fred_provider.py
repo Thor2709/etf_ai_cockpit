@@ -121,13 +121,14 @@ class FredProvider:
         try:
             raw_rows, payloads = self._vintage_pages(params) if vintages else self._pages(params)
             known_at = fetch_time(fetched_at)  # taken after the response arrived, never before
-            rows = _observations(raw_rows, payloads, series_id, vintages, known_at, unit, frequency)
+            rows, skipped = _observations(raw_rows, payloads, series_id, vintages, known_at, unit, frequency)
         except FETCH_ERRORS as exc:
             # Only the exception type is reported: the request URL carries the API key.
             return MacroFetchResult.unavailable(f"FRED fetch failed: {type(exc).__name__}.")
         if not rows:
             return MacroFetchResult.unavailable("FRED returned no usable observations.")
-        return MacroFetchResult("available", tuple(rows))
+        reason = f"FRED skipped {skipped} vintage rows dated after their vintage." if skipped else None
+        return MacroFetchResult("available", tuple(rows), reason)
 
 
     def _vintage_pages(self, params: dict[str, str]) -> tuple[list[dict[str, str]], bytes]:
@@ -189,7 +190,7 @@ class FredProvider:
 
 def _observations(
     rows: list[dict[str, str]], payload: bytes, series_id: str, vintages: bool, fetched_at: datetime, unit: str, frequency: str
-) -> list[MacroObservation]:
+) -> tuple[list[MacroObservation], int]:
     # "." is FRED's marker for a missing value; it is skipped, never filled.
     kept = sorted(
         (row for row in rows if str(row["value"]).strip() not in {"", "."}),
@@ -198,6 +199,7 @@ def _observations(
     checksum = hashlib.sha256(payload).hexdigest()
     observed: list[MacroObservation] = []
     revisions: dict[str, int] = {}
+    skipped = 0
     for row in kept:
         period = str(row["date"])
         if vintages:
@@ -207,6 +209,9 @@ def _observations(
             ).astimezone(timezone.utc)
             if end_of_day > fetched_at:
                 continue  # that vintage day is not over; the next refresh picks it up
+            if datetime.combine(date.fromisoformat(period), time(0), tzinfo=timezone.utc) > end_of_day:
+                skipped += 1
+                continue  # the vintage dates a later observation (e.g. a US holiday); it cannot be point-in-time
             available_at, ingested_at = end_of_day, end_of_day
             revisions[period] = revisions.get(period, 0) + 1
             dataset_id = f"fred:{series_id}"
@@ -243,4 +248,4 @@ def _observations(
             revision=revision,
             availability_confidence=confidence,
         ))
-    return observed
+    return observed, skipped
