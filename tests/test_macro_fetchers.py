@@ -409,3 +409,9 @@ def test_refresh_macro_stores_each_series_once_and_one_failure_does_not_stop_the
         assert all(f"new={new}" in line for line in lines if not line.startswith("NFCI"))
         assert "unavailable" in next(line for line in lines if line.startswith("NFCI"))
     assert "test-key" not in "\n".join(first + second)
+
+
+def test_refresh_macro_prints_the_skipped_vintage_count(monkeypatch, tmp_path, capsys) -> None:
+    payload = _fred_payload([("2018-10-05", "14.8", "2018-10-05", _FOREVER), ("2018-10-08", "15.7", "2018-10-05", _FOREVER)])
+    assert _refresh_macro(monkeypatch, tmp_path, lambda url: payload) == 0
+    assert "skipped 1 " in next(line for line in capsys.readouterr().out.splitlines() if line.startswith("VIXCLS"))
