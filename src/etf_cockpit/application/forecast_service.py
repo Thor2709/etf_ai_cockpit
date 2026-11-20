@@ -76,6 +76,17 @@ def _live_optional_models_from_config(config: AppConfig) -> bool:
     )
 
 
+class _SharedRows(dict):
+    """Read-only per-instrument price rows in ``pivot.attrs``, shared by reference.
+
+    pandas deep-copies ``attrs`` into every derived frame, so a plain dict copied all rows once per
+    instrument column (memory O(N^2); the full universe exceeded 11 GB).
+    """
+
+    def __deepcopy__(self, memo):
+        return self
+
+
 class ForecastService:
     def __init__(self, config: AppConfig, *, reference_context: CanonicalReferenceContext | None = None):
         self.config = config
@@ -134,10 +145,10 @@ class ForecastService:
         pivot = price_frame.pivot(index="date", columns="etf_id", values="adjusted_close").sort_index()
         # Preserve row presence separately from the union pivot's holiday NaNs.
         pivot.attrs["decision_time"] = calculation_window["decision_time"]
-        pivot.attrs["timesfm_price_rows"] = {
+        pivot.attrs["timesfm_price_rows"] = _SharedRows({
             etf_id: group.sort_values("date")
             for etf_id, group in price_frame.groupby("etf_id", sort=False)
-        }
+        })
         benchmark_id = context.benchmark_data_id if context is not None else None
         benchmark_returns = daily_log_returns(pivot[benchmark_id]).dropna() if benchmark_id in pivot else None
         forecasts: list[ForecastResult] = []
