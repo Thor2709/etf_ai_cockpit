@@ -121,6 +121,8 @@ def _refresh(
         refresh_options = {
             "incremental": incremental,
             "include_fundamentals": include_fundamentals,
+            # Reference metadata (~2 Yahoo calls per ETF) refreshes with the weekly fundamentals job.
+            "include_reference_data": include_fundamentals,
         }
         if include_fx:
             refresh_options["include_fx"] = True
