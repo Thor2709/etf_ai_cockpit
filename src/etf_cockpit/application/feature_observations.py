@@ -12,29 +12,7 @@ from etf_cockpit.application.reference_context import _benchmark_reference_snaps
 from etf_cockpit.core.atomic_io import atomic_write_bytes, parquet_payload, validate_parquet_file
 from etf_cockpit.core.config import load_config
 from etf_cockpit.data.fx_data import load_fx_rates
-from etf_cockpit.portfolio import paper_bots as bots
-from etf_cockpit.portfolio.paper_bots_execution import PRICE_FILE_RELATIVE
-
-VINTAGE_DIR_RELATIVE = Path("data") / "derived" / "feature_vintages"
-FX_FILE_RELATIVE = Path("data") / "clean" / "fx.parquet"
-
-
-def known_prices(root: Path, cutoff: datetime) -> pd.DataFrame:
-    """Stored price rows dated and known at or before ``cutoff``; a row (or store) without ``known_at`` is not admitted."""
-
-    path = Path(root) / PRICE_FILE_RELATIVE
-    if not path.is_file():
-        return pd.DataFrame()
-    frame = pd.read_parquet(path)
-    if "known_at" not in frame.columns or not {"etf_id", "date"}.issubset(frame.columns):
-        return frame.iloc[0:0]
-    cut = cutoff.astimezone(timezone.utc)
-    known = frame["known_at"].map(bots._parse_timestamp)
-    dates = pd.to_datetime(frame["date"], errors="coerce").dt.date
-    keep = known.map(lambda value: value is not None and value <= cut) & dates.map(lambda value: pd.notna(value) and value <= cut.date())
-    result = frame.loc[keep].copy()
-    result["date"] = dates.loc[keep]
-    return result
+from etf_cockpit.portfolio.paper_bot_challengers import FX_FILE_RELATIVE, VINTAGE_DIR_RELATIVE, known_prices
 
 
 def record_feature_observations(
