@@ -44,6 +44,7 @@ from etf_cockpit.data.import_pipeline import (
     _parquet_bytes,
     _parquet_validator,
     _metadata_to_json,
+    stamp_price_availability,
 )
 from etf_cockpit.data.provenance import metadata_from_frame, sha256_dataframe
 from etf_cockpit.data.universe_store import load_universe
@@ -505,7 +506,8 @@ def promote_staging(options: FetchOptions, rows: list[dict], items: list[FetchIt
             frame = _validated_stage(stage, item, start, end)
             frames[item.kind].append(frame)
         extra, merged = [], {}
-        timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+        now = datetime.now(timezone.utc)
+        timestamp = now.strftime("%Y%m%dT%H%M%S%fZ")
         for kind, batches in frames.items():
             if not batches:
                 continue
@@ -516,6 +518,9 @@ def promote_staging(options: FetchOptions, rows: list[dict], items: list[FetchIt
             combined = pd.concat([stored, incoming], ignore_index=True) if not stored.empty else incoming
             combined[date_column] = pd.to_datetime(combined[date_column])
             combined = combined.drop_duplicates([id_column, date_column], keep="last").sort_values([id_column, date_column]).reset_index(drop=True)
+            if kind == "prices":
+                # Stored-only bars pass as unchanged, so they keep (or recover) their stamps (C1).
+                combined = stamp_price_availability(stored if not stored.empty else None, combined, retrieved_at=now)
             merged[kind] = combined
             payload = _parquet_bytes(combined)
             checksum = sha256_dataframe(combined)

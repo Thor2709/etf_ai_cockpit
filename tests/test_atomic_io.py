@@ -324,10 +324,10 @@ def test_failed_second_price_store_write_restores_both_previous_stores(tmp_path,
     clean = tmp_path / "clean" / "prices.parquet"
     compatibility.parent.mkdir()
     clean.parent.mkdir()
-    previous = pd.DataFrame({"date": ["2026-01-01"], "adjusted_close": [100.0]})
+    previous = pd.DataFrame({"date": ["2026-01-01"], "etf_id": ["A"], "adjusted_close": [100.0]})
     previous.to_parquet(compatibility, index=False)
     previous.to_parquet(clean, index=False)
-    replacement = pd.DataFrame({"date": ["2026-01-02"], "adjusted_close": [101.0]})
+    replacement = pd.DataFrame({"date": ["2026-01-02"], "etf_id": ["A"], "adjusted_close": [101.0]})
     real_replace = Path.replace
 
     def fail_clean(self, destination):

@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 from etf_cockpit.core.atomic_io import (
@@ -45,6 +46,87 @@ class PriceImportRollback:
     checksum: str
 
 
+_REVISION_COLUMNS = ("open", "high", "low", "close", "volume", "currency", "is_adjusted",
+                     "dividends", "stock_splits", "capital_gains")
+
+
+def stamp_price_availability(stored: pd.DataFrame | None, incoming: pd.DataFrame, *, retrieved_at: datetime) -> pd.DataFrame:
+    """Per-bar ``ingested_at``, ``known_at``, ``available_at`` and ``actions_evidenced`` (SDD contract C1).
+
+    Key (``etf_id``, session). A new or revised bar gets ``retrieved_at``; a new bar is available at
+    min(session 23:59:59 UTC, ``retrieved_at``), a revised bar at ``retrieved_at``. An unchanged bar takes the
+    incoming values and keeps its stored stamps. A stored ``ingested_at`` without ``known_at`` gives
+    ``known_at := ingested_at``; a bar with no stamps stays unstamped.
+    """
+
+    now = pd.Timestamp(retrieved_at).tz_convert("UTC")
+    new = incoming.reset_index(drop=True)
+    close = _sessions(new).dt.tz_localize("UTC") + pd.Timedelta(hours=23, minutes=59, seconds=59)
+    stamps = {"ingested_at": pd.Series(now, index=new.index), "known_at": pd.Series(now, index=new.index),
+              "available_at": close.where(close < now, now), "actions_evidenced": _true(new, "actions_evidenced")}
+    if stored is not None and not stored.empty:
+        old = stored.reset_index(drop=True)
+        ingested = _utc(old, "ingested_at")
+        kept_stamps = {"ingested_at": ingested, "known_at": _utc(old, "known_at").fillna(ingested),
+                       "available_at": _utc(old, "available_at"), "actions_evidenced": _true(old, "actions_evidenced")}
+        lookup = pd.Series(old.index, index=_keys(old))
+        position = lookup[~lookup.index.duplicated(keep="last")].reindex(_keys(new))
+        rows, at = np.flatnonzero(position.notna().to_numpy()), position.dropna().astype(int).to_numpy()
+        changed = np.zeros(len(rows), dtype=bool)
+        for column in (name for name in _REVISION_COLUMNS if name in new and name in old):
+            changed |= _differs(new[column].iloc[rows], old[column].iloc[at], rtol=1e-9)
+        if "adjusted_close" in new and "adjusted_close" in old:
+            (new_gross, new_prev), (old_gross, old_prev) = _session_gross(new), _session_gross(old)
+            changed |= (new_prev.iloc[rows].to_numpy() & old_prev.iloc[at].to_numpy()
+                        & _differs(new_gross.iloc[rows], old_gross.iloc[at], rtol=1e-6))
+        stamps["available_at"].iloc[rows[changed]] = now
+        for name, values in kept_stamps.items():
+            stamps[name].iloc[rows[~changed]] = values.iloc[at[~changed]].to_numpy()
+    out = incoming.copy()
+    for name, values in stamps.items():
+        out[name] = values.to_numpy()
+    return out
+
+
+def _sessions(frame: pd.DataFrame) -> pd.Series:
+    return pd.to_datetime(frame["date"]).dt.normalize()
+
+
+def _keys(frame: pd.DataFrame) -> pd.MultiIndex:
+    return pd.MultiIndex.from_arrays([frame["etf_id"].astype(str), _sessions(frame)])
+
+
+def _utc(frame: pd.DataFrame, column: str) -> pd.Series:
+    if column not in frame:
+        return pd.Series(pd.NaT, index=frame.index, dtype="datetime64[ns, UTC]")
+    return pd.to_datetime(frame[column], errors="coerce", utc=True)
+
+
+def _true(frame: pd.DataFrame, column: str) -> pd.Series:
+    if column not in frame:
+        return pd.Series(False, index=frame.index)
+    return frame[column].map(lambda value: isinstance(value, (bool, np.bool_)) and bool(value)).astype(bool)
+
+
+def _differs(new: pd.Series, old: pd.Series, *, rtol: float) -> np.ndarray:
+    """Value inequality: numbers within ``rtol`` are equal; NaN equals NaN and differs from a number."""
+
+    new, old = new.reset_index(drop=True), old.reset_index(drop=True)
+    if pd.api.types.is_numeric_dtype(new) and pd.api.types.is_numeric_dtype(old):
+        return ~np.isclose(new.to_numpy(float), old.to_numpy(float), rtol=rtol, atol=0.0, equal_nan=True)
+    return ~((new == old) | (new.isna() & old.isna())).to_numpy()
+
+
+def _session_gross(frame: pd.DataFrame) -> tuple[pd.Series, pd.Series]:
+    """One-session gross return of ``adjusted_close`` per row, and whether the row has a previous session."""
+
+    ordered = pd.DataFrame({"id": frame["etf_id"].astype(str), "session": _sessions(frame),
+                            "adjusted": pd.to_numeric(frame["adjusted_close"], errors="coerce")})
+    groups = ordered.sort_values(["id", "session"], kind="stable").groupby("id", sort=False)
+    gross = ordered["adjusted"] / groups["adjusted"].shift(1).sort_index()
+    return gross, (groups.cumcount() > 0).sort_index()
+
+
 def commit_price_import(
     result: ProviderResult,
     *,
@@ -56,17 +138,20 @@ def commit_price_import(
     if not result.ok or result.data is None:
         raise ValueError("Cannot commit a provider result that did not load data.")
 
-    frame = result.data.copy()
+    incoming = result.data.copy()
+    stored = pd.read_parquet(clean_path) if clean_path.exists() else None
+    now = datetime.now(timezone.utc)
+    frame = stamp_price_availability(stored, incoming, retrieved_at=now)
     # The checksum always describes the frame that is persisted, never a pre-filter snapshot of it.
     checksum = sha256_dataframe(frame)
     metadata = dataclasses.replace(result.metadata, checksum=checksum) if result.metadata else None
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    timestamp = now.strftime("%Y%m%dT%H%M%S%fZ")
     raw_dir.mkdir(parents=True, exist_ok=True)
     clean_path.parent.mkdir(parents=True, exist_ok=True)
     compatibility_path.parent.mkdir(parents=True, exist_ok=True)
     snapshots_dir.mkdir(parents=True, exist_ok=True)
 
-    raw_path = _store_raw_import(result, frame, raw_dir, timestamp, checksum)
+    raw_path = _store_raw_import(result, incoming, raw_dir, timestamp, checksum)
     previous_snapshot_path = _snapshot_existing_clean(compatibility_path, snapshots_dir, timestamp)
 
     metadata_path = snapshots_dir / f"{timestamp}_{checksum[:12]}_prices_metadata.json"
@@ -115,9 +200,11 @@ def rollback_latest_price_import(
         raise FileNotFoundError("No previous clean price snapshot is available to roll back.")
 
     restored_snapshot_path = candidates[-1]
-    frame = pd.read_parquet(restored_snapshot_path)
+    current = pd.read_parquet(clean_path) if clean_path.exists() else None
+    now = datetime.now(timezone.utc)
+    frame = stamp_price_availability(current, pd.read_parquet(restored_snapshot_path), retrieved_at=now)
     checksum = sha256_dataframe(frame)
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    timestamp = now.strftime("%Y%m%dT%H%M%S%fZ")
     with publication_scope(publish_guard):
         clean_path.parent.mkdir(parents=True, exist_ok=True)
         compatibility_path.parent.mkdir(parents=True, exist_ok=True)

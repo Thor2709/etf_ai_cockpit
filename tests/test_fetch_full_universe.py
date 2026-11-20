@@ -93,7 +93,9 @@ def test_parallel_two_processes_equals_serial_canonical_rows(tmp_path):
     assert one["missing"] == two["missing"] == 0
     assert one["promotion"] == two["promotion"] == "committed"
     assert len({row["pid"] for row in two["rows"]}) == 2
-    pd.testing.assert_frame_equal(_prices(serial), _prices(parallel))
+    # Each promotion stamps its own retrieval time (C1); every other canonical value is equal.
+    retrieval = ["ingested_at", "known_at"]
+    pd.testing.assert_frame_equal(_prices(serial).drop(columns=retrieval), _prices(parallel).drop(columns=retrieval))
     pd.testing.assert_frame_equal(pd.read_parquet(serial / "data/clean/fx.parquet"), pd.read_parquet(parallel / "data/clean/fx.parquet"))
     assert set(_prices(parallel)["etf_id"]) == {"A", "B", "BENCH"}
     assert _prices(parallel)["dividends"].sum() > 0
