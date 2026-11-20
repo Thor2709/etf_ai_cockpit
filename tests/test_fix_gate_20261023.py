@@ -90,6 +90,13 @@ def test_portfolio_only_inputs_fail_portfolio_fit_not_the_research_gates(monkeyp
     assert signal.authority_decision.portfolio_review_allowed is False
 
 
+def test_portfolio_only_code_with_block_severity_still_blocks(monkeypatch):
+    report = _report(_metadata(), issues=[DataQualityIssue("AAA", "block", "target_policy_violation", "blocked")])
+    signal = _generate(monkeypatch, report=report)
+    assert "target_policy_violation" in signal.blocked_by
+    assert not _gate_map(signal)["risk"].passed and not _gate_map(signal)["data_quality"].passed
+
+
 def test_signal_gate_uses_the_canonical_non_material_notices(monkeypatch):
     for code, material in (("return_outlier", False), ("zero_volume", False), ("some_new_warning_code", True)):
         report = _report(_metadata(), issues=[DataQualityIssue("AAA", "warning", code, "notice")])
@@ -382,6 +389,15 @@ def test_clean_deterministic_row_with_a_valid_forecast_is_promotable(local, monk
     assert board["VWCE"].research_promotion_allowed is True
 
 
+def test_clean_deterministic_row_fails_only_the_coverage_and_cost_gates(local, monkeypatch):
+    # Known blockers of the strict xfail above; every other research gate of the clean row passes.
+    _report_unused, board = _real_board(local, monkeypatch)
+    gates = {gate.gate_id: gate for gate in board["VWCE"].authority_decision.gates}
+    assert {gate_id for gate_id, gate in gates.items() if not gate.passed} == {"signal", "cost"}
+    assert gates["signal"].message == "Material score warnings: critical_evidence_insufficient"
+    assert board["VWCE"].canonical_score.coverage < 0.5 and board["VWCE"].net_expected_edge_bps is None
+
+
 def test_short_history_row_is_published_but_not_promotable(local, monkeypatch):
     from etf_cockpit.application.scoreboard_publication import _require_publishable_snapshot
 
@@ -390,4 +406,12 @@ def test_short_history_row_is_published_but_not_promotable(local, monkeypatch):
     _require_publishable_snapshot(SimpleNamespace(data_report=report, prices=pd.DataFrame({"etf_id": ["VWCE"]}), signals=[], config=local))
     assert "insufficient_history" in board["LYP6"].warnings
     assert board["LYP6"].research_promotion_allowed is False
+    assert board["LYP6"].research_state is not ResearchState.RESEARCH_CANDIDATE
+    short = {gate.gate_id: gate for gate in board["LYP6"].authority_decision.gates}
+    assert not short["signal"].passed and "insufficient_history" in short["signal"].message
+    # The short-history block stays on its own row: VWCE's identity and data gates pass and its signal gate
+    # carries only the known coverage warning.
+    clean = {gate.gate_id: gate for gate in board["VWCE"].authority_decision.gates}
+    assert clean["identity"].passed and clean["data_quality"].passed
+    assert clean["signal"].message == "Material score warnings: critical_evidence_insufficient"
 

@@ -40,8 +40,8 @@ def evaluate_risk_gates(
         blocked.append("portfolio_validation_block")
 
     for issue in data_report.issues:
-        if issue.code in PORTFOLIO_ONLY_ISSUE_CODES:
-            continue  # portfolio-target context: routed to the portfolio_fit gate, not to every instrument's signal
+        if issue.code in PORTFOLIO_ONLY_ISSUE_CODES and issue.severity != "block":
+            continue  # portfolio context: routed to the portfolio_fit gate; a block is never dropped
         if issue.etf_id in {etf_id, "ALL"}:
             if issue.severity == "block":
                 blocked.append(issue.code)

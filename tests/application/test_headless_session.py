@@ -367,8 +367,12 @@ def test_empty_inputs_do_not_hide_another_failed_gate(failure) -> None:
 
 
 def test_per_instrument_block_does_not_refuse_the_board() -> None:
+    from dataclasses import replace
     from datetime import date
+    from etf_cockpit.core.research_states import ResearchState
     from etf_cockpit.core.types import DataQualityIssue, DataQualityReport
+    from etf_cockpit.signals import simple_scores
+    from tests.test_fix_score_20261023 import _score
 
     issues = [
         DataQualityIssue("ETF2", "block", "stale_data", "Stale prices."),
@@ -380,6 +384,11 @@ def test_per_instrument_block_does_not_refuse_the_board() -> None:
 
     scoreboard_publication._require_publishable_snapshot(snapshot)
 
+    # The blocked instrument's own row carries its code and is never promotable.
+    for issue in issues:
+        row = simple_scores._attach_authority(replace(_score(), warnings=[issue.code]))
+        assert row.research_promotion_allowed is False
+        assert row.research_state is not ResearchState.RESEARCH_CANDIDATE
     snapshot.data_report = DataQualityReport(
         date(2026, 11, 2), [*issues, DataQualityIssue("ALL", "block", "unknown_block", "Dataset gate failed.")]
     )
@@ -400,6 +409,21 @@ def test_per_instrument_blocks_on_every_enabled_instrument_refuse_the_board() ->
 
     with pytest.raises(scoreboard_publication.ScoreboardPublicationBlockedError):
         scoreboard_publication._require_publishable_snapshot(snapshot)
+
+
+def test_per_instrument_block_without_an_enabled_row_or_enabled_ids_refuses_the_board() -> None:
+    # A block on a configured-but-not-enabled id has no row to carry it; unreadable enabled ids also fail closed.
+    from datetime import date
+    from etf_cockpit.core.types import DataQualityIssue, DataQualityReport
+
+    snapshot = _snapshot()
+    snapshot.data_report = DataQualityReport(date(2026, 11, 2), [
+        DataQualityIssue("ETF9", "block", "unknown_holding_etf", "Holding is not an enabled instrument."),
+    ])
+    for universe in (SimpleNamespace(enabled_ids=["ETF1", "ETF2"]), SimpleNamespace(enabled_ids=None), None):
+        snapshot.config.universe = universe
+        with pytest.raises(scoreboard_publication.ScoreboardPublicationBlockedError):
+            scoreboard_publication._require_publishable_snapshot(snapshot)
 
 
 def test_empty_price_gate_cannot_publish_signals_as_available() -> None:
