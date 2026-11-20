@@ -292,6 +292,13 @@ reconciliation failure rejects the run. **Audit:** event/fill history, costs,
 benchmarks, ledger hashes and `execution_allowed=false`. This flow is
 **PARTIALLY IMPLEMENTED**; paper activity is simulation only.
 
+The planned forward nightly paper path will bind the S&P 500 capture, one
+point-in-time score run, readiness, the recorder and execution to one session
+and one snapshot, and fill at the next session open with a price known at the
+fill time. Forward nightly paper path (TARGET / PLANNED):
+[forward-paper-path.md](forward-paper-path.md),
+[ADR-0009](decisions/ADR-0009-forward-paper-path.md).
+
 ### 7.7 Optional model invocation and unavailable fallback
 
 **Inputs:** validated feature snapshot, model configuration and optional local
@@ -550,6 +557,8 @@ local-first product-scope, optional-enrichment and staged-authority record;
 those subjects are deliberately not duplicated. Proposed future
 broker designs under `future/` are **TARGET / PLANNED**, not accepted execution
 authority.
+[ADR-0009](decisions/ADR-0009-forward-paper-path.md) is proposed and records
+the forward nightly paper path design.
 
 [Decision Architecture v1](decision-architecture-v1.md) defines the additive, read-only domain scoring layer and its migration policy.
 
