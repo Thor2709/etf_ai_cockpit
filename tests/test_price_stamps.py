@@ -9,7 +9,7 @@ import pandas as pd
 
 from etf_cockpit.application import universe_fetch as fetch
 from etf_cockpit.data import import_pipeline
-from etf_cockpit.data.providers import ManualLocalFileProvider
+from etf_cockpit.data.providers import ManualLocalFileProvider, ProviderResult
 from etf_cockpit.portfolio import paper_bots
 from etf_cockpit.portfolio.paper_bots_execution import PRICE_FILE_RELATIVE, PriceBook
 from tests.application.test_incremental_price_refresh import _bar, _price_frame, _result
@@ -93,6 +93,46 @@ def test_local_file_import_has_no_action_evidence(tmp_path):
     stored = pd.read_parquet(tmp_path / PRICE_FILE_RELATIVE)
     assert stored["actions_evidenced"].dtype == bool
     assert not stored["actions_evidenced"].any()
+
+
+def test_local_file_claiming_action_evidence_stores_false(tmp_path):
+    source = tmp_path / "prices.csv"
+    _frame().drop(columns=["fetched_at", "ingested_at", "available_at"]).to_csv(source, index=False)
+
+    _commit(ManualLocalFileProvider().import_file(source, "prices"), tmp_path)
+
+    assert not pd.read_parquet(tmp_path / PRICE_FILE_RELATIVE)["actions_evidenced"].any()
+
+
+def test_instrument_id_only_file_commits_twice_and_keeps_stamps(tmp_path):
+    frame = _frame().drop(columns=["actions_evidenced", "fetched_at", "ingested_at", "available_at"])
+    frame = frame.rename(columns={"etf_id": "instrument_id"})
+    result = ProviderResult("manual_local_file", "prices", "ok", "local file", frame)
+
+    _commit(result, tmp_path)
+    first = pd.read_parquet(tmp_path / PRICE_FILE_RELATIVE)
+    _commit(result, tmp_path)
+
+    second = pd.read_parquet(tmp_path / PRICE_FILE_RELATIVE)
+    assert second["known_at"].tolist() == first["known_at"].tolist()
+
+
+def test_staging_keeps_the_provider_per_row_action_evidence(tmp_path):
+    class PartlyEvidenced(FakeProvider):
+        def fetch(self, item, start, end):
+            frame = super().fetch(item, start, end)
+            return frame.assign(actions_evidenced=[index != 0 for index in range(len(frame))])
+
+    options = _options(_root(tmp_path / "root"))
+    options.staging.mkdir()
+    result_path = options.staging / "worker.json"
+
+    fetch._worker([fetch.FetchItem("prices", "B", "B", "EUR")], options, options.start, options.end,
+                  result_path, PartlyEvidenced)
+
+    row, = json.loads(result_path.read_text())
+    staged = pd.read_parquet(row["path"])
+    assert staged["actions_evidenced"].tolist() == [False, True, True, True]
 
 
 def test_recovery_copies_ingested_at_and_leaves_null_stamps_null():
