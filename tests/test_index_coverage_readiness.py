@@ -121,6 +121,14 @@ def test_self_capture_without_visible_census_fails_closed():
     later = {**capture, "snapshot_date": DAYS[1].isoformat(), "known_at": f"{DAYS[1]}T21:31:00Z"}
     inputs.membership = replace(inputs.membership, captures=(later,))
     assert _check(inputs).passed
+    # A capture dated on the day but known after the cutoff is look-ahead: the day behaves as before.
+    unknown = {**capture, "known_at": f"{DAYS[1]}T00:00:01Z"}
+    inputs.membership = replace(inputs.membership, captures=(unknown,))
+    assert _check(inputs).passed
+    # A self capture with a visible census row on the day passes.
+    inputs.membership = replace(inputs.membership, captures=(capture,))
+    inputs.index_coverage["valid_from"] = START.isoformat()
+    assert _check(inputs).passed
 
 
 def test_coverage_overlap_fails_closed():

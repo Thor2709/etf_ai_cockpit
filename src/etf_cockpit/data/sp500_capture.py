@@ -146,9 +146,10 @@ def capture_sp500(root: Path, *, now: datetime, fetch=None) -> Sp500Capture:
         else:
             payload = (fetch or _fetch)(WIKI_CONSTITUENTS)
             rows = _census_rows(payload, root, day, stamp, stamp)
-            status, known_at = record_listing_capture(
+            record_listing_capture(
                 [{"instrument_id": row["instrument_id"]} for row in rows if row["instrument_id"] is not None],
-                SOURCE, SCOPE, stamp, root=root, raw_payload=payload, snapshot_date=day).status, stamp
+                SOURCE, SCOPE, stamp, root=root, raw_payload=payload, snapshot_date=day)
+            status, known_at = "recorded", stamp
         incoming = pd.DataFrame(rows, columns=COVERAGE_COLUMNS)
         combined = incoming if old.empty else pd.concat([old, incoming], ignore_index=True)
         atomic_write_bytes(path, parquet_payload(combined), validate_parquet_file)
