@@ -414,4 +414,3 @@ def test_short_history_row_is_published_but_not_promotable(local, monkeypatch):
     clean = {gate.gate_id: gate for gate in board["VWCE"].authority_decision.gates}
     assert clean["identity"].passed and clean["data_quality"].passed
     assert clean["signal"].message == "Material score warnings: critical_evidence_insufficient"
-
