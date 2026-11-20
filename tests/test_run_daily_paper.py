@@ -197,7 +197,7 @@ def test_a_forecast_failure_is_a_stage_failure_after_the_committed_refresh(monke
     assert events[-3:] == ["refresh", "rescore", "publish"]
 
 
-def test_the_forecast_stage_runs_the_baseline_only_with_the_request_the_scores_read(tmp_path: Path) -> None:
+def test_the_forecast_stage_runs_the_request_the_scores_read(tmp_path: Path) -> None:
     calls: list[dict] = []
 
     class Service:
@@ -217,17 +217,14 @@ def test_the_forecast_stage_runs_the_baseline_only_with_the_request_the_scores_r
     )
 
     assert daily_paper._forecast(session) == "Configured ETF forecasts refreshed"
-    assert calls == [{"include_candidates": False, "horizons": [60], "live_optional_models": False, "publish_guard": guard}]
+    models.shadow_optional_models = True  # owner opt-in: the scores read optional-model forecasts
+    assert daily_paper._forecast(session) == "Configured ETF forecasts refreshed"
+    assert [call["live_optional_models"] for call in calls] == [False, True]
+    assert calls[0] == {"include_candidates": False, "horizons": [60], "live_optional_models": False, "publish_guard": guard}
 
     Service.last_operation_succeeded = False
     with pytest.raises(RuntimeError, match="Configured ETF forecasts refreshed"):
         daily_paper._forecast(session)
-
-    # The scores read an optional-model request: a baseline-only cache would not be read, so no run and a stage failure.
-    models.shadow_optional_models = True
-    with pytest.raises(RuntimeError, match="shadow_optional_models"):
-        daily_paper._forecast(session)
-    assert len(calls) == 2
 
 
 def _real_gate(monkeypatch, events: list[str], controls: dict) -> None:

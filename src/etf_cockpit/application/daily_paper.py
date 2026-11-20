@@ -10,9 +10,9 @@ c. Readiness of S on that run (H). A FAIL skips d-f.
 d. Paper enabled and kill switch off? Otherwise skip e-f (stage ``paper_disabled`` / ``paper_kill_switch_active``).
 e. Recorder bound to (S, H); f. execution and the AI paper account (``ai-paper``, EUR 40,000, EUR 0 monthly).
 g. Refresh, forecast, rescore and publish (UI only) run whatever b-f did; a b-f failure keeps a non-zero exit code.
-   The forecast is baseline only. A forecast failure is a stage failure after the committed refresh; rescore and
-   publish still run, and a cache not bound to the refreshed prices is not read (forecast_scores binding,
-   maximum_forecast_age_days).
+   The forecast runs the configured request. A forecast failure is a stage failure after the committed refresh;
+   rescore and publish still run, and a cache not bound to the refreshed prices is not read (forecast_scores
+   binding, maximum_forecast_age_days).
 
 ``--dry-run`` runs a-c and g and skips d-f. Synthetic sample data is disabled for this workflow. The external AI
 client remains responsible for AI proposals through the existing MCP paper controls.
@@ -138,24 +138,19 @@ def _refresh(
 
 
 def _forecast(session: HeadlessSession) -> str:
-    """Baseline forecasts of the enabled universe on the refreshed prices, with the request the scores read.
+    """Forecast the enabled universe on the refreshed prices with the request the scores read.
 
-    Optional models stay off (CPU and memory bound). When the scores read an optional-model request, a
-    baseline-only cache would not be read, so the stage fails without a run.
+    The baseline always runs; optional models run only as configured (shadow_optional_models), and an absent
+    or failing optional model yields unavailable or failed rows, not a stage failure.
     """
 
     config = session.snapshot.config
     request = configured_forecast_request_identity(config)
-    if request["live_optional_models"]:
-        raise RuntimeError(
-            "The scores read optional-model forecasts (model_settings shadow_optional_models: true); "
-            "the nightly stage runs the baseline only."
-        )
     service = session.data_service_factory(config)
     message = service.run_yfinance_forecasts(
         include_candidates=False,
         horizons=list(request["requested_horizons"]),
-        live_optional_models=False,
+        live_optional_models=bool(request["live_optional_models"]),
         publish_guard=session.activity_publication,
     )
     if not getattr(service, "last_operation_succeeded", True):

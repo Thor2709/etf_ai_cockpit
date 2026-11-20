@@ -86,6 +86,31 @@ def test_forecast_price_rows_are_shared_not_copied_into_each_column(tmp_path, mo
     assert shared == [True, True, True, True]  # baseline and TimesFM gates, two instruments each
 
 
+def test_live_optional_models_that_fail_or_are_absent_leave_the_baseline_run_intact(tmp_path, monkeypatch):
+    from etf_cockpit.models.timesfm_adapter import TimesFMAdapter
+
+    config = load_config()
+    config.models.promotion.enabled = False
+    for name in ("timesfm", "toto", "chronos2"):  # live, but no weights at the configured path
+        config.models.models[name] = {**config.models.models.get(name, {}), "enabled": True, "mode": "live", "model_path": str(tmp_path / "absent")}
+    monkeypatch.setattr(TimesFMAdapter, "is_available", lambda self: True)  # TimesFM fails while loading instead
+    monkeypatch.setattr(TimesFMAdapter, "load_model", lambda self: (_ for _ in ()).throw(RuntimeError("weights unreadable")))
+    monkeypatch.setattr(forecast_service, "current_settings_identity", lambda: {"settings_revision": "a" * 64})
+    monkeypatch.setattr(forecast_service, "settings_bound_run_id", lambda run_id, *, settings_identity: run_id)
+    monkeypatch.setattr(forecast_service, "ensure_run_manifest", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(forecast_service, "timed_step", lambda *_args, **_kwargs: nullcontext())
+    service = ForecastService(config, reference_context=SimpleNamespace(resolution=None, benchmark_data_id=None, identity={}))
+    monkeypatch.setattr(service, "_write_forecasts", lambda *_args, **_kwargs: None)
+    prices = pd.DataFrame({"date": pd.bdate_range(end="2026-10-20", periods=300), "etf_id": "A", "adjusted_close": np.linspace(100.0, 130.0, 300)})
+
+    rows = service.run_forecasts(date(2026, 10, 20), ["A"], prices, horizons=[1], live_optional_models=True, output_path=tmp_path / "f.csv")
+
+    statuses = {row.model_name: row.status for row in rows}
+    assert statuses["timesfm"] == "failed" and "weights unreadable" in next(r.error_message or r.reason_unavailable or "" for r in rows if r.model_name == "timesfm")
+    assert statuses["toto"] == statuses["chronos2"] == "unavailable"
+    assert "baseline" in statuses
+
+
 def test_timesfm_forecasts_fail_closed_on_stale_history_at_canonical_cutoff(monkeypatch):
     as_of = date(2026, 10, 20)
     decision_time = "2026-10-20T23:59:59+00:00"
