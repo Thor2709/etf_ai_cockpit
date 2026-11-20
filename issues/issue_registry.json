@@ -39,8 +39,8 @@
   ],
   "counts": {
     "canonical_closed_package_records": 17,
-    "canonical_open_package_records": 217,
-    "canonical_records": 234,
+    "canonical_open_package_records": 218,
+    "canonical_records": 235,
     "closed_index_records": 17,
     "current_open_ledger_records": 97,
     "final_release_new_records": 24,
@@ -49,7 +49,7 @@
     "package_current_open_records": 72,
     "package_current_records": 76,
     "package_proposed_records": 83,
-    "package_records": 234
+    "package_records": 235
   },
   "dependency_reconciliation": [
     {
@@ -9473,6 +9473,21 @@
       "ready": false,
       "reason_codes": [
         "BLOCKED_UNRESOLVED_DEPENDENCY"
+      ],
+      "required_inputs": []
+    },
+    {
+      "activation_edges": [],
+      "activation_ready": true,
+      "activation_reason_codes": [
+        "ACTIVATION_READY_NO_DEPENDENCIES"
+      ],
+      "edges": [],
+      "execution_allowed": false,
+      "issue_id": "ISSUE-0214",
+      "ready": true,
+      "reason_codes": [
+        "READY_NO_BLOCKING_DEPENDENCIES"
       ],
       "required_inputs": []
     },
@@ -33294,6 +33309,97 @@
       "write_conflict_group": "stock-research"
     },
     {
+      "acceptance_criteria": [
+        {
+          "id": "AC1",
+          "text": "Each per-PR done-test of the build plan passes, and each merged PR has a green exact-head `validation-summary`."
+        },
+        {
+          "id": "AC2",
+          "text": "The run JSON of the go-live night and of the next two scheduled nights shows the refresh message list (ids with stored history kept as stale), the capture counts, readiness 8/8 bound to the score snapshot id, the per-bot outcomes (B0-B3 and B2-o `available`, B1-r `NO_NEW_TRADE` with the preflight list) and `execution_allowed=false`."
+        },
+        {
+          "id": "AC3",
+          "text": "The ledger has fills on the session after each decision, all from the opening-price fill job; the fill-job JSON shows `bar_known_at <= fill_time` for each fill."
+        },
+        {
+          "id": "AC4",
+          "text": "A feature-observation file exists for each night, and the index-coverage census has rows for each capture date."
+        },
+        {
+          "id": "AC5",
+          "text": "`programme_execution.py --check` exits 0 after the lifecycle transitions, and the independent readback shows zero actions."
+        }
+      ],
+      "acceptance_evidence": [],
+      "activation_dependencies": [],
+      "blocking_dependencies": [],
+      "canonical_id": "ISSUE-0214",
+      "capability_lane": "PAPER_BROKER_OPERATIONS",
+      "classification": "proposed_new",
+      "contract_markdown": "Forward nightly paper path (build plan 2026-11-20). Design reference: `docs/architecture/forward-paper-path.md` and ADR-0009. All product PRs say \"Refs ISSUE-0214\".",
+      "data_and_dependencies": "Uses the existing local price store, the public S&P 500 constituents page and the existing yfinance provider; with the network unavailable a capture or refresh stays `unavailable` and keeps stored history as stale, never zero-filled.",
+      "dependency_candidates": [],
+      "dependency_conversions": [],
+      "dependency_edge_evidence": {},
+      "downstream_issues": [],
+      "epic": "",
+      "evidence_grade": "",
+      "exclusions": [
+        "No new data, package, model-weight or execution authority from registration.",
+        "No live orders and no broker writes; `execution_allowed=false` stays.",
+        "No scheduled-task registration and no `controls.paper.enabled: true` change; these stay owner actions."
+      ],
+      "ledger_state": "open",
+      "normative_amendments": [],
+      "objective": "Run the forward paper bots each night on point-in-time data: stamp each price bar, capture the S&P 500 members with a census, bind readiness, recorder and bots to one score run, and fill each decision at the next-session open.",
+      "owner": "backtest-and-paper",
+      "package_status": "",
+      "phase": "phase-07-backtest-paper-execution",
+      "priority": "P2",
+      "programme_status": "planned",
+      "provenance": {
+        "amendment_references": [],
+        "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
+        "primary_source": "issues/programme_control_state.json",
+        "schema_version": "1.0",
+        "source_record_id": "ISSUE-0214"
+      },
+      "related_issues": [
+        "ISSUE-0196",
+        "ISSUE-0197"
+      ],
+      "release_blocking": false,
+      "required_inputs": [],
+      "risk": {
+        "categories": [],
+        "level": "normal"
+      },
+      "rollback": "Revert the bounded integration, keep the driver enable flag off and retain the existing local evidence and defaults.",
+      "scope": [
+        "Per-bar price stamps (`known_at`, `available_at`, `availability_basis`) with the revision rule and the one-time recovery rule.",
+        "Nightly S&P 500 capture with identity bindings and the index-coverage census.",
+        "One point-in-time score run that binds readiness, the recorder and the bots.",
+        "Challengers B2-o (EUR inputs) and B1-r (panel inputs) with persisted feature vintages.",
+        "The opening-price observation and the next-session-open fill job.",
+        "The driver enable flag and the `partial` status rule.",
+        "Fix the price currency-label defect before go-live."
+      ],
+      "source_file": "issues/programme_control_state.json",
+      "source_kind": "control_extension",
+      "source_record_id": "ISSUE-0214",
+      "source_title": "Forward nightly paper path",
+      "title": "Forward nightly paper path",
+      "validation": {
+        "required": [
+          "Focused tests for the intake acceptance criteria and the validation tier required by the product diff."
+        ]
+      },
+      "verified_commit": "af1811d802b88dd6ed105f4ad7271fce8ff0f9d3",
+      "verified_date": "2026-11-20",
+      "write_conflict_group": "backtest-and-paper"
+    },
+    {
       "acceptance_evidence": [],
       "activation_dependencies": [],
       "blocking_dependencies": [],
@@ -35267,11 +35373,12 @@
         "ISSUE-0135",
         "ISSUE-0167",
         "ISSUE-0196",
-        "ISSUE-0197"
+        "ISSUE-0197",
+        "ISSUE-0214"
       ],
-      "issue_range": "ISSUE-0031–ISSUE-0032, ISSUE-0057, ISSUE-0066, ISSUE-0125–ISSUE-0135, ISSUE-0167, ISSUE-0196–ISSUE-0197",
+      "issue_range": "ISSUE-0031–ISSUE-0032, ISSUE-0057, ISSUE-0066, ISSUE-0125–ISSUE-0135, ISSUE-0167, ISSUE-0196–ISSUE-0197, ISSUE-0214",
       "phase": "phase-07-backtest-paper-execution",
-      "record_count": 18,
+      "record_count": 19,
       "title": "Backtest, paper trading and staged execution"
     },
     {
@@ -35360,7 +35467,7 @@
     "package_registry_sha256": "42f401c32d2fddb17af97333303f4aeea0f2d2f8384e2b8da382529c0c7d107c",
     "package_reviewed_commit": "e149db50945401fb014955f0f79794a909796a75",
     "package_sha256": "39e30adc22c34a2f80640fa895caa21473457cea5bd0de872927051f8f99839b",
-    "programme_control_state_sha256": "a522a2bd49a97a6a4e27a4443630dedd21020075c3322a68ef9b30cdcb5ed58e",
+    "programme_control_state_sha256": "dc2dc91ab324143870dbc64e1e0d6925d6ba5ab5ab134800dfe5474320e6cbf3",
     "repository": "Thor2709/etf_ai_cockpit",
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   }
