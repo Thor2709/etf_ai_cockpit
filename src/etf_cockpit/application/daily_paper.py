@@ -41,7 +41,7 @@ from etf_cockpit.core.config import load_config
 from etf_cockpit.core.session_log import redact_text
 from etf_cockpit.core.settings_bundle import load_settings_bundle
 from etf_cockpit.data import sp500_capture
-from etf_cockpit.data.score_history_backfill import FORWARD_PROVENANCE, load_backfill_score_history
+from etf_cockpit.data.score_history_backfill import FORWARD_PROVENANCE, STORE_PROVENANCES, load_backfill_score_history
 from etf_cockpit.portfolio.paper_bot_challengers import build_challenger_engines
 from etf_cockpit.portfolio.paper_bots import run_paper_bots
 from etf_cockpit.portfolio.paper_bots_execution import LEDGER_PRICE_BASIS, run_paper_bot_execution
@@ -209,7 +209,7 @@ def _decision_session(root: Path, clock: Callable[[], datetime]) -> tuple[date, 
     session.refresh_snapshot()
     now = clock()
     day = _latest_completed_session(data_readiness.load_inputs(root), session.snapshot, now)
-    return day, _is_new_session(load_backfill_score_history(root), day, now)
+    return day, _is_new_session(load_backfill_score_history(root, STORE_PROVENANCES), day, now)
 
 
 def _score_run(root: Path, session: date, completed_at: datetime) -> dict[str, Any]:

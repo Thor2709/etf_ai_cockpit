@@ -26,7 +26,7 @@ from etf_cockpit.data.local_storage import (
     TransactionalStore,
 )
 from etf_cockpit.data.score_history import project_classification_score_frame
-from etf_cockpit.data.score_history_backfill import load_backfill_score_history, run_content_hash
+from etf_cockpit.data.score_history_backfill import STORE_PROVENANCES, load_backfill_score_history, run_content_hash
 from etf_cockpit.data.trust_artifacts import SCORE_HISTORY_PATH
 from etf_cockpit.portfolio import paper_bots_readiness as data_readiness
 from etf_cockpit.portfolio.optimiser import OptimiserConstraints, PortfolioOptimiser, returns_from_adjusted_prices
@@ -634,7 +634,7 @@ def _forward_run_group(
 ) -> tuple[_PublishedGroup | None, str | None]:
     """The stored score run of ``session`` with hash H, verified against its own content (SDD C5), or the reason not."""
 
-    history = load_backfill_score_history(root)
+    history = load_backfill_score_history(root, STORE_PROVENANCES)
     if history.empty or not {"as_of_date", "snapshot_hash", "run_id"}.issubset(history.columns):
         return None, "No stored score run is available for the decision session."
     rows = history.loc[

@@ -60,7 +60,7 @@ def main() -> int:
     from etf_cockpit.core.config import load_config
     from etf_cockpit.core.paths import ROOT
     from etf_cockpit.data.local_storage import TransactionalStore
-    from etf_cockpit.data.score_history_backfill import BACKFILL_PROVENANCE, load_backfill_score_history
+    from etf_cockpit.data.score_history_backfill import load_backfill_score_history
     from etf_cockpit.portfolio import paper_bots_execution as execution
     from etf_cockpit.portfolio import paper_bots_report as report
     from etf_cockpit.portfolio.paper_trading import PaperLedger
@@ -74,7 +74,7 @@ def main() -> int:
     cutoff_day = args.as_of or (max(book.sessions) + timedelta(days=1))
     cutoff = datetime.combine(cutoff_day, time(12, 0), tzinfo=timezone.utc)
     stale_limit = int(exec_config["max_stale_mark_sessions"])
-    history = load_backfill_score_history(ROOT, {BACKFILL_PROVENANCE})
+    history = load_backfill_score_history(ROOT)
     weekly = sorted({date.fromisoformat(str(value)[:10]) for value in history["as_of_date"]}) if not history.empty else []
     scores = (
         history.set_index(["snapshot_hash", "instrument_id"])[["final_combined_score_10", "rank"]].to_dict("index") if not history.empty else {}

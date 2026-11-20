@@ -90,8 +90,8 @@ def test_replay_cli_selects_exact_benchmark_dates_and_refuses_mismatch(monkeypat
     )
     book = SimpleNamespace(sessions=[*days, date(2026, 10, 8)])
     captured: list[pd.DataFrame] = []
-    monkeypatch.setattr(score_history_backfill, "load_backfill_score_history", lambda _root, _provenances=None: history)
-    monkeypatch.setattr(score_history_backfill, "load_backfill_eligibility", lambda _root, _provenances=None: pd.DataFrame())
+    monkeypatch.setattr(score_history_backfill, "load_backfill_score_history", lambda _root: history)
+    monkeypatch.setattr(score_history_backfill, "load_backfill_eligibility", lambda _root: pd.DataFrame())
     monkeypatch.setattr(score_backfill, "run_label", lambda _frame: "fixture")
     monkeypatch.setattr(replay_membership, "unverified_instruments", lambda _frame: [])
     monkeypatch.setattr(execution.PriceBook, "from_root", classmethod(lambda cls, _root: book))

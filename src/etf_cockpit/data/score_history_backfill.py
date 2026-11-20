@@ -28,10 +28,10 @@ def backfill_history_path(root: Path) -> Path:
     return Path(root) / BACKFILL_HISTORY_RELATIVE_PATH
 
 
-def load_backfill_score_history(root: Path, provenances: Collection[str] = STORE_PROVENANCES) -> pd.DataFrame:
+def load_backfill_score_history(root: Path, provenances: Collection[str] = (BACKFILL_PROVENANCE,)) -> pd.DataFrame:
     """The backfill store, restricted to rows whose provenance is in ``provenances`` (fail closed otherwise).
 
-    The historical replay passes ``{BACKFILL_PROVENANCE}``; readiness, the forward recorder and the writer read both.
+    The default serves the historical replay; readiness, the forward recorder and the writer pass ``STORE_PROVENANCES``.
     """
 
     path = backfill_history_path(root)
@@ -43,7 +43,7 @@ def load_backfill_score_history(root: Path, provenances: Collection[str] = STORE
     return frame.loc[frame["provenance"].astype(str).isin(set(provenances))].reset_index(drop=True)
 
 
-def load_backfill_eligibility(root: Path, provenances: Collection[str] = STORE_PROVENANCES) -> pd.DataFrame:
+def load_backfill_eligibility(root: Path, provenances: Collection[str] = (BACKFILL_PROVENANCE,)) -> pd.DataFrame:
     """The eligibility log, filtered like the history; a legacy row without a provenance counts as historical."""
 
     path = Path(root) / BACKFILL_ELIGIBILITY_RELATIVE_PATH

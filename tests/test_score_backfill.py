@@ -557,7 +557,7 @@ def test_forward_rows_round_trip_are_reused_and_stay_out_of_the_historical_repla
         tmp_path, AS_OF, AS_OF, every=1, config=config, prices=prices, fx_rates=pd.DataFrame(), completed_at=RUN_AT,
     )
     assert forward.status == "available" and forward.runs_written == 1
-    stored = store.load_backfill_score_history(tmp_path)  # readiness, recorder and writer read both provenances
+    stored = store.load_backfill_score_history(tmp_path, store.STORE_PROVENANCES)  # as readiness, recorder and writer read it
     rows = stored.loc[stored["as_of_date"].eq(day)].reset_index(drop=True)
     snapshot = rows["snapshot_hash"].iloc[0]
     assert store.run_content_hash(rows.drop(columns=["config_fingerprint"])) == snapshot  # survives the parquet round trip
@@ -571,13 +571,13 @@ def test_forward_rows_round_trip_are_reused_and_stay_out_of_the_historical_repla
         tmp_path, date(2022, 6, 29), AS_OF, every=1, config=config, prices=prices, fx_rates=pd.DataFrame(), force=True,
     )
     assert historical.runs_written == 1  # the forward session is skipped
-    after = store.load_backfill_score_history(tmp_path)
+    after = store.load_backfill_score_history(tmp_path, store.STORE_PROVENANCES)
     pd.testing.assert_frame_equal(after.loc[after["as_of_date"].eq(day)].reset_index(drop=True), rows)
     replay = {store.BACKFILL_PROVENANCE}
-    assert set(store.load_backfill_score_history(tmp_path, provenances=replay)["as_of_date"]) == {"2022-06-29"}
-    eligibility = store.load_backfill_eligibility(tmp_path)
+    assert set(store.load_backfill_score_history(tmp_path)["as_of_date"]) == {"2022-06-29"}  # the default is the replay's
+    eligibility = store.load_backfill_eligibility(tmp_path, store.STORE_PROVENANCES)
     assert set(eligibility["provenance"]) == {store.BACKFILL_PROVENANCE, store.FORWARD_PROVENANCE}
-    assert set(store.load_backfill_eligibility(tmp_path, provenances=replay)["as_of_date"]) == {"2022-06-29"}
+    assert set(store.load_backfill_eligibility(tmp_path)["as_of_date"]) == {"2022-06-29"}
     assert store.load_backfill_manifest(tmp_path)["provenances"] == sorted([store.BACKFILL_PROVENANCE, store.FORWARD_PROVENANCE])
     legacy = tmp_path / "legacy"  # an eligibility row stored before the provenance column counts as historical
     store.write_backfill_store(legacy, pd.DataFrame({"x": [1]}), pd.DataFrame({"as_of_date": ["2022-01-03"], "instrument_id": ["X"]}), {})

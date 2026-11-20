@@ -44,6 +44,7 @@ from etf_cockpit.data.reference_data import load_reference_dataset
 from etf_cockpit.data.score_history_backfill import (
     BACKFILL_PROVENANCE,
     FORWARD_PROVENANCE,
+    STORE_PROVENANCES,
     backfill_history_path,
     load_backfill_eligibility,
     load_backfill_manifest,
@@ -257,8 +258,8 @@ def backfill_score_history(
     registry_signature = str(build_version_registry().get("registry_signature", "unavailable"))
     fingerprint, applied = config_fingerprint(config, excluded, membership)
 
-    existing = load_backfill_score_history(root)
-    existing_eligibility = load_backfill_eligibility(root)
+    existing = load_backfill_score_history(root, STORE_PROVENANCES)  # a later write keeps the forward rows
+    existing_eligibility = load_backfill_eligibility(root, STORE_PROVENANCES)
     previous_manifest = load_backfill_manifest(root)
     stored_fingerprint: dict[str, str] = {}
     if not existing.empty:
