@@ -58,6 +58,34 @@ def test_forecasts_use_promotion_prices_for_evidence(tmp_path, monkeypatch):
     assert captured["probability_prices"]["etf_id"].unique().tolist() == ["UNIVERSE"]
 
 
+def test_forecast_price_rows_are_shared_not_copied_into_each_column(tmp_path, monkeypatch):
+    # pandas deep-copies attrs into each derived frame; a copy of all rows per instrument made memory grow O(N^2).
+    config = forecast_service._config_with_optional_models_disabled(load_config())
+    config.models.promotion.enabled = False
+    service = ForecastService(config, reference_context=SimpleNamespace(resolution=None, benchmark_data_id=None, identity={}))
+    prices = pd.concat(
+        pd.DataFrame({"date": pd.bdate_range(end="2026-10-20", periods=40), "etf_id": etf_id, "adjusted_close": np.arange(40) + 100.0})
+        for etf_id in ("A", "B")
+    ).reset_index(drop=True)
+    shared = []
+    original = forecast_service._baseline_price_series
+
+    def capture(pivot, etf_id, as_of_date, *, decision_time=None):
+        shared.append(pivot[etf_id].attrs["timesfm_price_rows"] is pivot.attrs["timesfm_price_rows"])
+        return original(pivot, etf_id, as_of_date, decision_time=decision_time)
+
+    monkeypatch.setattr(forecast_service, "_baseline_price_series", capture)
+    monkeypatch.setattr(forecast_service, "current_settings_identity", lambda: {"settings_revision": "a" * 64})
+    monkeypatch.setattr(forecast_service, "settings_bound_run_id", lambda run_id, *, settings_identity: run_id)
+    monkeypatch.setattr(forecast_service, "ensure_run_manifest", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(forecast_service, "timed_step", lambda *_args, **_kwargs: nullcontext())
+    monkeypatch.setattr(service, "_write_forecasts", lambda *_args, **_kwargs: None)
+
+    service.run_forecasts(date(2026, 10, 20), ["A", "B"], prices, horizons=[1], output_path=tmp_path / "forecasts.csv")
+
+    assert shared == [True, True, True, True]  # baseline and TimesFM gates, two instruments each
+
+
 def test_timesfm_forecasts_fail_closed_on_stale_history_at_canonical_cutoff(monkeypatch):
     as_of = date(2026, 10, 20)
     decision_time = "2026-10-20T23:59:59+00:00"

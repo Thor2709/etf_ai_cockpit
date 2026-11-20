@@ -50,6 +50,10 @@ Night D (job 21:30 UTC = 22:30 CET); all paper stages hold the cross-process wri
         f. execution: fill intents for sessions F with d < F < as_of.date(); AI account
  ~21:45 g. refresh prices + FX (2.5-3.5 h)  -> stamps (C1); bars of D for tomorrow's S = D
            g runs whatever b-f do (finally-style); a failure in b-f keeps the exit code non-zero
+        g2. baseline forecasts of the enabled universe on the refreshed prices (optional models off; with
+           shadow_optional_models: true the scores read another request, so g2 fails without a run).
+           A failure is a stage failure; h still runs and reads no unbound cache.
+           Not an input of b (the forward score run computes its own point-in-time baseline).
         h. live rescore + publish (UI only)
 Day F (first VWCE session after d)
  13:30/14:30 US open; 07:00/08:00 Xetra open

@@ -9,7 +9,10 @@ b. S = the latest VWCE session before today and no later than the stored snapsho
 c. Readiness of S on that run (H). A FAIL skips d-f.
 d. Paper enabled and kill switch off? Otherwise skip e-f (stage ``paper_disabled`` / ``paper_kill_switch_active``).
 e. Recorder bound to (S, H); f. execution and the AI paper account (``ai-paper``, EUR 40,000, EUR 0 monthly).
-g. Refresh, rescore and publish (UI only) run whatever b-f did; a b-f failure keeps a non-zero exit code.
+g. Refresh, forecast, rescore and publish (UI only) run whatever b-f did; a b-f failure keeps a non-zero exit code.
+   The forecast is baseline only. A forecast failure is a stage failure after the committed refresh; rescore and
+   publish still run, and a cache not bound to the refreshed prices is not read (forecast_scores binding,
+   maximum_forecast_age_days).
 
 ``--dry-run`` runs a-c and g and skips d-f. Synthetic sample data is disabled for this workflow. The external AI
 client remains responsible for AI proposals through the existing MCP paper controls.
@@ -42,6 +45,7 @@ from etf_cockpit.core.session_log import redact_text
 from etf_cockpit.core.settings_bundle import load_settings_bundle
 from etf_cockpit.data import sp500_capture
 from etf_cockpit.data.score_history_backfill import FORWARD_PROVENANCE, STORE_PROVENANCES, load_backfill_score_history
+from etf_cockpit.models.forecast_scores import configured_forecast_request_identity
 from etf_cockpit.portfolio.paper_bot_challengers import build_challenger_engines
 from etf_cockpit.portfolio.paper_bots import run_paper_bots
 from etf_cockpit.portfolio.paper_bots_execution import LEDGER_PRICE_BASIS, run_paper_bot_execution
@@ -131,6 +135,32 @@ def _refresh(
         raise RuntimeError(str(message))
     session.refresh_snapshot()
     return session, str(message)
+
+
+def _forecast(session: HeadlessSession) -> str:
+    """Baseline forecasts of the enabled universe on the refreshed prices, with the request the scores read.
+
+    Optional models stay off (CPU and memory bound). When the scores read an optional-model request, a
+    baseline-only cache would not be read, so the stage fails without a run.
+    """
+
+    config = session.snapshot.config
+    request = configured_forecast_request_identity(config)
+    if request["live_optional_models"]:
+        raise RuntimeError(
+            "The scores read optional-model forecasts (model_settings shadow_optional_models: true); "
+            "the nightly stage runs the baseline only."
+        )
+    service = session.data_service_factory(config)
+    message = service.run_yfinance_forecasts(
+        include_candidates=False,
+        horizons=list(request["requested_horizons"]),
+        live_optional_models=False,
+        publish_guard=session.activity_publication,
+    )
+    if not getattr(service, "last_operation_succeeded", True):
+        raise RuntimeError(str(message))
+    return str(message)
 
 
 def _rescore(session: HeadlessSession) -> str:
@@ -321,6 +351,10 @@ def run_daily_paper(
                 stage = failure.stage
             try:  # step g runs whatever the paper stages did (SDD C8)
                 session, details["refresh"] = _call("refresh", lambda: _refresh(resolved_root, **refresh_options))
+                try:  # a forecast failure keeps the committed refresh and still lets rescore and publish run
+                    details["forecast"] = _call("forecast", lambda: _forecast(session))
+                except _StageFailure as exc:
+                    failure = failure or exc
                 details["rescore"] = _call("rescore", lambda: _rescore(session))
                 _call("publish", lambda: _publish(session))
             except _StageFailure as exc:
