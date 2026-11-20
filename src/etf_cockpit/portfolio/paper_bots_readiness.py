@@ -527,6 +527,13 @@ def _index_coverage_check(day: date, context: _Context) -> CheckResult:
     keys = [(row["scope"], row["source_ticker"]) for row, _ in active]
     if len(keys) != len(set(keys)):
         return _fail("unavailable: overlapping index coverage member rows")
+    # A scope with its own capture known by the cutoff needs a visible census row on the day (SDD C3).
+    captured = {str(row["scope"]) for row in membership.captures
+                if str(row["scope"]).startswith(INDEX_SCOPE_PREFIXES) and str(row["snapshot_date"]) <= day.isoformat()
+                and _timestamp(row["known_at"]) <= cutoff} if membership is not None else set()
+    missing = sorted(captured - {row["scope"] for row, _ in active})
+    if missing:
+        return _fail(f"unavailable: no visible census for {', '.join(missing)} on {day}")
     members = len(active)
     covered = unbound = no_price = identity_unavailable = 0
     first_prices = context.first_stored_price

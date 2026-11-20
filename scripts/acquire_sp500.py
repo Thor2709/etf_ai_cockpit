@@ -10,7 +10,7 @@ Rules: observation known_at is the actual fetch time; opt-in cover identities
 use filing acceptance evidence. SEC <= 8 req/s in total, other hosts
 1 req/s; retries with backoff; every step resumes from on-disk files whose
 checksum matches their sidecar. Instrument IDs are NEVER minted: bindings come
-only from the verified universe store (US ISIN, verified, exact ticker) and
+only from the verified universe store (verified, USD quote, exact ticker) and
 unbound members stay out of the stores. Former-member CIKs are acquisition
 candidates only (exact normalised name, unique CIK); the ingester still decides
 the identity. Former-member prices are kept only when the price window covers
@@ -31,7 +31,6 @@ from __future__ import annotations
 import argparse
 import gzip
 import hashlib
-import html as html_lib
 import http.client
 import json
 import logging
@@ -64,6 +63,7 @@ from etf_cockpit.data.sec_cik_history import cik_text  # noqa: E402
 from etf_cockpit.data.sec_cover_identity import (  # noqa: E402
     DEFAULT_COVER_START, FORMS, acceptance_utc, parse_cover, select_bindings,
 )
+from etf_cockpit.data.sp500_capture import constituents, sec_ticker, select_instrument_bindings  # noqa: E402
 from etf_cockpit.data.sp500_history import (  # noqa: E402
     fja_events, intervals_from_fja, parse_fja_csv, parse_wikipedia_changes,
 )
@@ -286,11 +286,6 @@ class Layout:
 
 
 # ---------------------------------------------------------------- pure helpers
-def sec_ticker(ticker: str) -> str:
-    """SEC and Yahoo write share-class separators with '-' where S&P data uses '.'."""
-    return ticker.replace(".", "-")
-
-
 def name_key(name: str) -> str:
     text = re.sub(r"\([A-Z0-9, .\-]+\)\s*$", "", name.replace("&", " and "))
     tokens = [token for token in re.sub(r"[^a-z0-9]+", " ", text.casefold()).split() if token not in SUFFIXES]
@@ -321,28 +316,6 @@ def conservative_announcements(events: list[dict]) -> list[dict]:
             "the effective date")
     keys = sorted({(e["date"], e["action"], e["ticker"]) for e in events})
     return [{"date": d, "action": a, "ticker": t, "known_at": d, "source": note} for d, a, t in keys]
-
-
-def select_instrument_bindings(members: dict, records: list, ciks: dict, *, known_at: str, revision: str) -> tuple[list, list]:
-    """Bind only open-interval members to a verified US-ISIN stock record with the exact ticker."""
-    by_ticker = {}
-    for item in records:
-        if item.asset_type == "stock" and item.isin_status == "verified" and item.isin.startswith("US") and item.ticker:
-            by_ticker.setdefault(item.ticker, []).append(item)
-    bindings, rejected = [], []
-    for ticker, info in sorted(members.items()):
-        if not info["current"] or ticker not in ciks:
-            continue
-        matches = by_ticker.get(sec_ticker(ticker), [])
-        if len(matches) == 1:
-            record_ = matches[0]
-            bindings.append({"ticker": ticker, "valid_from": info["open_from"], "valid_to": None,
-                             "instrument_id": record_.instrument_id, "known_at": known_at,
-                             "source": f"universe_store revision {revision}: {record_.instrument_id} ISIN {record_.isin} "
-                                       "verified, exact ticker (share-class '.'->'-' only)"})
-        elif matches:
-            rejected.append({"ticker": ticker, "reason": "ambiguous_universe_records"})
-    return bindings, rejected
 
 
 # ---------------------------------------------------------------- step: sources
@@ -403,27 +376,13 @@ def step_sources(layout: Layout) -> dict:
 
 
 # ---------------------------------------------------------------- step: resolve
-def constituents(path: Path) -> list[dict]:
-    text = path.read_text(encoding="utf-8")
-    table = text[text.find('id="constituents"'):]
-    table = table[:table.find("</table>")]
-    rows = []
-    for row in re.findall(r"<tr.*?</tr>", table, re.S):
-        rows.append([html_lib.unescape(re.sub(r"<[^>]+>", "", cell)).strip()
-                     for cell in re.findall(r"<t[hd][^>]*>(.*?)</t[hd]>", row, re.S)])
-    if not rows or rows[0][:2] != ["Symbol", "Security"] or "CIK" not in rows[0]:
-        raise ValueError("unexpected Wikipedia constituents header")
-    index = rows[0].index("CIK")
-    return [{"ticker": r[0], "name": r[1], "cik": cik_text(r[index])} for r in rows[1:] if len(r) > index]
-
-
 def load_history(layout: Layout) -> dict:
     snapshots = parse_fja_csv(
         (layout.sources / "fja_history.csv").read_text(encoding="utf-8"), date_column="date", tickers_column="tickers")
     events = parse_wikipedia_changes((layout.sources / "wikipedia_changes.html").read_text(encoding="utf-8"),
                                      table_id="changes")
     return {"snapshots": snapshots, "wiki_events": events, "fja_events": fja_events(snapshots),
-            "current": constituents(layout.sources / "wikipedia_constituents.html")}
+            "current": constituents((layout.sources / "wikipedia_constituents.html").read_text(encoding="utf-8"))}
 
 
 def windows(snapshots: list[dict]) -> dict:

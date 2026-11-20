@@ -16,7 +16,7 @@ from etf_cockpit.application.data_service import (
     _carry_forward_failed_instruments,
     _unused_quarantine_path,
 )
-from etf_cockpit.data.import_pipeline import commit_price_import
+from etf_cockpit.data.import_pipeline import commit_price_import, stamp_price_availability
 from etf_cockpit.data.price_quarantine import quarantine_invalid_ohlc
 from etf_cockpit.data.provenance import metadata_from_frame, sha256_dataframe
 from etf_cockpit.data.providers import ManualLocalFileProvider, ProviderResult
@@ -141,7 +141,9 @@ def test_quarantine_recomputes_checksum_and_commit_persists_the_filtered_checksu
         snapshots_dir=tmp_path / "snap",
     )
     persisted = pd.read_parquet(commit.clean_path)
-    assert commit.checksum == sha256_dataframe(clean.data)
+    # The persisted frame is the filtered frame plus its per-bar stamps (C1).
+    stamped = stamp_price_availability(None, clean.data, retrieved_at=persisted["known_at"].iloc[0].to_pydatetime())
+    assert commit.checksum == sha256_dataframe(stamped) != sha256_dataframe(clean.data)
     meta = pd.read_json(commit.metadata_path, typ="series")
     assert meta["checksum"] == commit.checksum
     assert meta["metadata"]["checksum"] == commit.checksum

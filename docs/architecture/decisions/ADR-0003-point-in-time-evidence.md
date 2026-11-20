@@ -24,6 +24,20 @@ missing benchmark bar leaves the excess label unavailable. Validation keeps each
 decision date together and excludes training
 labels unavailable at the first validation decision.
 
+### Per-bar price stamps (amendment 2026-11-20)
+
+Every daily price bar carries `ingested_at`, `known_at`, `available_at` and
+`actions_evidenced` (contract C1 of the
+[forward paper path](../forward-paper-path.md), [ADR-0009](ADR-0009-forward-paper-path.md)).
+One function, `stamp_price_availability` in `data/import_pipeline.py`, sets
+them for both writers (`commit_price_import`, `universe_fetch.promote_staging`)
+and for `rollback_latest_price_import`. A new or revised bar gets the
+retrieval time, never an earlier time; a new bar is available at
+min(session 23:59:59 UTC, retrieval time). An unchanged bar keeps its stamps; a
+uniform `adjusted_close` re-base is not a revision. A legacy bar with
+`ingested_at` and no `known_at` gets `known_at := ingested_at`; a bar without
+stamps stays unstamped and is unavailable to every stamped reader.
+
 ## Consequences
 
 As-of queries and replay require versioned evidence. ISSUE-0153 must resolve
