@@ -3,7 +3,7 @@
   "allow_other_status_changes": false,
   "allowed_status_transitions": [],
   "base_commit": "af1811d802b88dd6ed105f4ad7271fce8ff0f9d3",
-  "branch": "prog/register-0214-20261120",
+  "branch": "feat/pr3b-int-20261120",
   "issue_ids": [],
   "registry_migration": {
     "added_issue_ids": [
