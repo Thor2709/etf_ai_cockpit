@@ -53,7 +53,7 @@ Items settled:
 
 - Stamp rule: option (b), contract C1.
 - Item 1: option (c), accept the one-night lag; capture is the first step and the paper stages run before the refresh.
-- Item 2: option (a), session-opens day job and `fill_time_utc` "15:00"; the `price_not_known_at_fill_time` gate stays strict (C7).
+- Item 2: option (a), session-opens day job and `fill_time_utc` "15:20" (design review moved it from "15:00"); the `price_not_known_at_fill_time` gate stays strict (C7).
 - Item 3: option (a), add `current_price` and `instrument_currency` to `_BASE_HISTORY_EXTRA`; both enter `snapshot_hash`.
 - Item 4: option (b), compare raw values by value and `adjusted_close` by its one-session return; `adjusted_close` levels are not PIT evidence.
 - Item 5: option (b), no snapshot-chain walk; one-time migration `known_at := ingested_at`; option (c) only on a later request.
@@ -64,20 +64,20 @@ Items settled:
 Contracts (one bullet each; full text in the design document):
 
 - **C1 Price stamps:** one `stamp_price_availability` function in `data/import_pipeline.py`, called by both writers and by rollback; `known_at` is never earlier than retrieval; revisions by raw value or one-session adjusted return; one-time migration from `ingested_at`.
-- **C2 Nightly S&P capture:** fetch the constituents page with `core.http_fetch.get_checked`, parse and bind with the moved `constituents()` and `select_instrument_bindings` in `data/sp500_capture.py`, guard 480-520 rows, record one `listing:sp500:all` capture per UTC day.
-- **C3 Index-coverage census:** append-only one-day rows per page member; `_index_coverage_check` fails on a missing census or 0 members; threshold 0.95 unchanged.
-- **C4 Forward score run:** `backfill_score_history(..., completed_at=t_S)` stamps `created_at` = t_S, `provenance` = `forward_nightly`, raises on a price row with `known_at` > t_S, and reuses an existing forward run for S.
-- **C5 Readiness and recorder binding:** the recorder gates on S and takes candidates only from snapshot H; the publication-hash check is replaced by "recorded snapshot == H".
+- **C2 Nightly S&P capture:** fetch the constituents page with `core.http_fetch.get_checked`, parse and bind with the moved `constituents()` and `select_instrument_bindings` in `data/sp500_capture.py`, guard 480-520 rows, record one `listing:sp500:all` capture per UTC day; the skip key is census presence, and a capture without its census gets the census rebuilt from the stored raw payload.
+- **C3 Index-coverage census:** append-only one-day rows per page member; for a scope with a `source_kind='self'` capture, `_index_coverage_check` fails on a missing census or 0 members; licensed-only scopes behave as before; threshold 0.95 unchanged.
+- **C4 Forward score run:** `backfill_score_history(..., completed_at=t_S)` stamps `created_at` = t_S, `provenance` = `forward_nightly`, raises on a consumed price row with `known_at` > t_S, does not admit an instrument with a null-stamped consumed row (`price_unstamped`), and reuses an existing forward run for S. `load_backfill_score_history` gets a provenance set: readiness, the recorder and the writer merge read both provenances; historical replay readers exclude forward rows.
+- **C5 Readiness and recorder binding:** the recorder reads the same backfill store and run as readiness (not the live publication), gates on S, uses the month of S as slot month, and takes candidates only from snapshot H. Replaced checks: the publication binding becomes the recomputed content hash of the stored forward rows (= H); the publication-hash comparison in the driver becomes `PaperBotRunResult.candidate_snapshot == H`.
 - **C6 Challengers:** B2-o uses stamped adjusted rows through `eur_basis_prices`; B1-r uses `build_pit_panel` with t_S decision times and C9 features; both record `NO_NEW_TRADE` when unavailable.
-- **C7 Session opens and fills:** an append-only `session_opens.parquet` with real retrieval `known_at`; `next_session_open` fills use only an observation known at or before `fill_time_utc` "15:00".
-- **C8 Driver and status:** `controls.paper.enabled` false or a readiness FAIL skips recorder and execution, and the refresh still runs; `--dry-run` leaves the scheduled command; `partial` is accepted only in a bounded case (a bounded relaxation).
+- **C7 Session opens and fills:** an append-only `session_opens.parquet` with real retrieval `known_at`, written by a job that does not wait on the data-jobs mutex; the observation is the one canonical open for fills, the legacy fill-basis check and the B0 shadow; fills use only an observation known at or before `fill_time_utc` "15:20"; a miss (also `split_on_fill_session`, per order) is terminal.
+- **C8 Driver and status:** `controls.paper.enabled` false, a readiness FAIL or no new session (`no_new_session`) skips recorder and execution; the refresh runs whatever the paper stages do, and a paper-stage failure keeps a non-zero exit code; `--dry-run` leaves the scheduled command; `partial` is accepted only in a bounded case (a bounded relaxation).
 - **C9 Feature vintages:** `data/derived/feature_vintages/<S>.parquet` is written once from `FeatureService.compute_features(publish=False)` with `known_at` = `available_at` = t_S.
 
 Owner decisions (decided 2026-11-20):
 
 | # | Decision | Outcome |
 |---|---|---|
-| O1 | Fill clock | 2a: opening-price day job and `fill_time_utc` "15:00"; the `price_not_known_at_fill_time` gate is kept. |
+| O1 | Fill clock | 2a: opening-price day job (15:45 local) and `fill_time_utc` "15:20" (design review moved it from "15:00"; still before the 15:30 UTC Xetra close in CEST); the `price_not_known_at_fill_time` gate is kept. |
 | O2 | S&P identity rule | Accepted: a verified-ISIN stock with a non-US ISIN binds when its configured currency is USD and the suffix-free ticker is unique (the currency is configured metadata, not provider-verified; see P1). |
 | O3 | Scheduled task `ETF-Cockpit-Session-Opens` (Mon-Fri 15:45 local, 1 h limit) | Register after the code PRs merge; remove `--dry-run` only when `controls.paper.enabled` is set. |
 | O4 | One-night lag | Accepted. |
@@ -88,10 +88,11 @@ Owner decisions (decided 2026-11-20):
 ## Consequences
 
 - New stores: `data/derived/feature_vintages/<session>.parquet` and `data/validated/prices/session_opens.parquet`; new census rows in `index_coverage.parquet` and nightly captures in `membership.sqlite`.
-- New scheduled task `ETF-Cockpit-Session-Opens`; the owner registers it (O3). `register_scheduled_refresh.ps1` gets the third job and skips a task that already exists.
+- New scheduled task `ETF-Cockpit-Session-Opens`; the owner registers it (O3). `register_scheduled_refresh.ps1` gets the third job and skips a task that already exists. The task does not wait on the `Global\ETF-Cockpit-Data-Jobs` mutex; it has a bounded start check instead.
+- The monthly slot month becomes the month of S; nights with no new session (weekends, holidays) skip the paper stages with `no_new_session`.
 - `scripts/ingest_sp500.py` must not run on the forward root.
 - Preconditions before go-live: fix P1 (O6); the first night after go-live fails readiness (no prior census).
-- Accepted limitations: two-session data lag; B1-r records `NO_NEW_TRADE` for about 2 years after the first capture; only S&P 500 stocks and observed-trading ETFs are bot-eligible; Asian listings fill at their open with a 15:00 UTC clock after their close; a provider change of `adjusted_close` that keeps every one-session return is not detected.
+- Accepted limitations: two-session data lag; B1-r records `NO_NEW_TRADE` for about 2 years after the first capture; only S&P 500 stocks and observed-trading ETFs are bot-eligible; Asian listings fill at their open with a 15:20 UTC clock after their close; a late or failed opens job loses that fill (terminal miss); a provider change of `adjusted_close` that keeps every one-session return is not detected.
 
 ## Alternatives
 
