@@ -814,40 +814,7 @@ class DataService:
             )
 
         if include_reference_data:
-            from etf_cockpit.data.etf_e1_fetch import fetch_etf_e1_reference_data
-
-            context = self._reference_context()
-            reference_results, source_messages = fetch_etf_e1_reference_data(
-                self.config, provider, checkpoint=lambda: _cancellation_checkpoint(publish_guard)
-            )
-            messages.extend(redact_text(message) for message in source_messages)
-            for dataset_type, reference_result in reference_results:
-                if not reference_result.ok or reference_result.data is None:
-                    messages.append(f"{dataset_type}: {redact_text(str(reference_result.message))}")
-                    continue
-                try:
-                    with publication_scope(publish_guard):
-                        reference_commit = commit_reference_import(
-                            reference_result,
-                            dataset_type,
-                            known_etfs=context["known_etfs"],
-                            isin_to_etf_id=context["isin_to_etf_id"],
-                            ticker_to_etf_id=context["ticker_to_etf_id"],
-                        )
-                except WorkflowTransitionError:
-                    raise
-                except Exception as exc:
-                    messages.append(
-                        f"{dataset_type}: fetched but not committed because validation failed ({type(exc).__name__})."
-                    )
-                    continue
-                warning_suffix = f" Warnings: {'; '.join(reference_commit.warnings)}" if reference_commit.warnings else ""
-                messages.append(
-                    (
-                        f"{redact_text(str(reference_result.message))} Validated and committed {reference_commit.rows} {dataset_type} rows. "
-                        f"Clean data: {reference_commit.clean_path}.{warning_suffix}"
-                    )
-                )
+            messages.extend(self.refresh_reference_data(provider, publish_guard))
         if include_fundamentals:
             messages.append(_refresh_stock_fundamentals(self.config, publish_guard))
         else:
@@ -863,6 +830,52 @@ class DataService:
             messages.append(f"iShares holdings unavailable ({type(exc).__name__}).")
         self.last_operation_succeeded = True
         return "\n".join(messages)
+
+    def refresh_reference_data(
+        self,
+        provider: YFinanceProvider | None = None,
+        publish_guard: PublicationScopeFactory | None = None,
+    ) -> list[str]:
+        """Fetch and commit the ETF reference datasets; return the status messages."""
+
+        from etf_cockpit.data.etf_e1_fetch import fetch_etf_e1_reference_data
+
+        if provider is None:
+            provider = YFinanceProvider.from_config(self.config)
+        messages: list[str] = []
+        context = self._reference_context()
+        reference_results, source_messages = fetch_etf_e1_reference_data(
+            self.config, provider, checkpoint=lambda: _cancellation_checkpoint(publish_guard)
+        )
+        messages.extend(redact_text(message) for message in source_messages)
+        for dataset_type, reference_result in reference_results:
+            if not reference_result.ok or reference_result.data is None:
+                messages.append(f"{dataset_type}: {redact_text(str(reference_result.message))}")
+                continue
+            try:
+                with publication_scope(publish_guard):
+                    reference_commit = commit_reference_import(
+                        reference_result,
+                        dataset_type,
+                        known_etfs=context["known_etfs"],
+                        isin_to_etf_id=context["isin_to_etf_id"],
+                        ticker_to_etf_id=context["ticker_to_etf_id"],
+                    )
+            except WorkflowTransitionError:
+                raise
+            except Exception as exc:
+                messages.append(
+                    f"{dataset_type}: fetched but not committed because validation failed ({type(exc).__name__})."
+                )
+                continue
+            warning_suffix = f" Warnings: {'; '.join(reference_commit.warnings)}" if reference_commit.warnings else ""
+            messages.append(
+                (
+                    f"{redact_text(str(reference_result.message))} Validated and committed {reference_commit.rows} {dataset_type} rows. "
+                    f"Clean data: {reference_commit.clean_path}.{warning_suffix}"
+                )
+            )
+        return messages
 
     def run_stored_candidate_analysis(
         self,
