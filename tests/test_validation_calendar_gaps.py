@@ -194,6 +194,13 @@ def test_unavailable_ledger_falls_back_for_explicit_and_resolved_calendars(monke
     assert len(loads) == 2
 
 
+def test_calendar_with_holidays_recorded_only_a_short_way_ahead_is_used() -> None:
+    # XSHG records holidays only to 2026; its Spring Festival and Golden Week closures must not count as missing.
+    prices = _prices("XSHG", "Asia/Shanghai").drop(columns="calendar_identity")
+    report = validate_prices(prices, min_history_days=1, calendar_resolver=lambda _: "XSHG")
+    assert [issue for issue in report.issues if issue.code == "missing_trading_days"] == []
+
+
 def test_unresolved_calendar_does_not_suppress_weekday_gaps() -> None:
     prices = _prices().drop(columns="calendar_identity")
     for calendar_id in (None, "ZZZZ"):

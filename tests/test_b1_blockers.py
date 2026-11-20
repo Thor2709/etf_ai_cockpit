@@ -68,6 +68,7 @@ def test_stamping_uses_only_the_import_log_date_added_of_the_matching_package() 
 @pytest.mark.parametrize("suffix,calendar", [
     (".HE", "XHEL"), (".CO", "XCSE"), (".SW", "XSWX"),
     (".VI", "XWBO"), (".LS", "XLIS"), (".IR", "XDUB"),
+    (".T", "XTKS"), (".HK", "XHKG"), (".SS", "XSHG"), (".TO", "XTSE"),
 ])
 def test_additional_listing_suffixes_use_certified_calendars(suffix, calendar) -> None:
     assert resolve_listing_calendar("unknown venue", "TEST" + suffix) == calendar
