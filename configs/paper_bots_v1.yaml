@@ -22,7 +22,8 @@ bots:
     strategy: top_n
     name: Top 10 gated canonical ranks
     top_n: 10
-    asset_types: [ETF, STOCK]
+    # EQUITY_CERTIFICATE: Norwegian savings bank equity certificates (score row label "Equity certificate").
+    asset_types: [ETF, STOCK, EQUITY_CERTIFICATE]
     # Horizon 3-6 months; the portfolio is rebalanced every month, counted from the bot's first decision month.
     horizon_months: [3, 6]
     rebalance_every_months: 1
@@ -33,6 +34,7 @@ bots:
     sleeve_weight: 0.2
     sleeve_top_n: 5
     sleeve_action: CANDIDATE_BUY
+    asset_types: [ETF, STOCK, EQUITY_CERTIFICATE]
     # Horizon 6-12 months; rebalanced every quarter.
     horizon_months: [6, 12]
     rebalance_every_months: 3
@@ -43,6 +45,7 @@ bots:
     sleeve_weight: 0.2
     sleeve_top_n: 5
     sleeve_action: CANDIDATE_BUY
+    asset_types: [ETF, STOCK, EQUITY_CERTIFICATE]
     # Multi-year horizon; rebalanced every half year (12 = yearly is an allowed value).
     horizon_months: [24, 60]
     rebalance_every_months: 6

@@ -70,7 +70,7 @@ _PENDING_SHADOW_MARKERS = ("No eligible benchmark session", "Benchmark execution
 _AVAILABLE_BUYING_POWER = re.compile(r"available buying power is ([0-9.]+)")
 _MAX_WARNINGS = 12
 # Owner spec 2026-10-22 concentration classes. Universe instrument types that name one issuer (stricter stock cap).
-_STOCK_LIKE_TYPES = frozenset({"stock", "equity_certificate", "certificate"})
+_STOCK_LIKE_TYPES = frozenset({"stock", "equity_certificate", "equity certificate", "certificate"})
 # Universe sector labels that describe breadth or size, not an industry: they never count toward the sector cap.
 _NON_SECTOR_LABELS = frozenset({"broad", "small cap"})
 # Universe region labels that span many countries: they never count toward the country cap (an unrecognised label does).
