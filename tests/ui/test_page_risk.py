@@ -134,7 +134,9 @@ def test_overlap_receives_only_enabled_allocation_ids(monkeypatch) -> None:
     monkeypatch.setattr(risk_module, "return_correlation_matrix", lambda *_args, **_kwargs: pd.DataFrame())
     overlap = Mock(side_effect=RuntimeError("stop after capture"))
     monkeypatch.setattr(risk_module, "build_direct_overlap_view", overlap)
-    snapshot = _synthetic_snapshot(enabled, pd.DataFrame({"date": ["2026-09-02"]}))
+    snapshot = _synthetic_snapshot(
+        enabled, pd.DataFrame({"date": ["2026-09-02"], "etf_id": ["ETF0007"], "adjusted_close": [100.0]})
+    )
     with pytest.raises(RuntimeError, match="stop after capture"):
         risk_page(None, NS(snapshot=snapshot))
     assert overlap.call_args.args[1] == ["ETF0007", "ETF4000"]
@@ -150,8 +152,11 @@ def test_risk_models_use_portfolio_ids_when_other_history_is_sparse(monkeypatch)
         for etf_id in ("AAA", "BBB", "CCC")
     ]
     sparse = frames[2].iloc[::2].assign(etf_id="XXX")
-    prices = pd.concat([*frames, sparse], ignore_index=True)
-    allocation = pd.DataFrame({"etf_id": ["BBB", "AAA"], "current_weight": [0.5, 0.5], "target_weight": [0.5, 0.5]})
+    zero_weight_target = frames[2].iloc[1::2].assign(etf_id="ZZZ")
+    prices = pd.concat([*frames, sparse, zero_weight_target], ignore_index=True)
+    allocation = pd.DataFrame(
+        {"etf_id": ["BBB", "AAA", "ZZZ"], "current_weight": [0.5, 0.5, 0.0], "target_weight": [0.5, 0.5, 0.0]}
+    )
     _stub_page_inputs(monkeypatch, allocation)
     monkeypatch.setattr(risk_module, "build_direct_overlap_view", lambda *_args, **_kwargs: {})
     captured = {}
@@ -168,7 +173,7 @@ def test_risk_models_use_portfolio_ids_when_other_history_is_sparse(monkeypatch)
 
     monkeypatch.setattr(risk_module, "return_correlation_matrix", correlation)
     monkeypatch.setattr(risk_module, "build_robust_risk_report", robust)
-    snapshot = _synthetic_snapshot(["AAA", "BBB", "CCC", "XXX"], prices)
+    snapshot = _synthetic_snapshot(["AAA", "BBB", "CCC", "XXX", "ZZZ"], prices)
     with pytest.raises(RuntimeError, match="stop after capture"):
         risk_page(None, NS(snapshot=snapshot))
     assert captured["correlation"].attrs["status"] != "unavailable"

@@ -620,7 +620,10 @@ def risk_page(page: ft.Page | None, state: AppState, *, _deferred: bool = False)
     )
     current_weights = {str(row["etf_id"]): float(row["current_weight"]) for _, row in allocation.iterrows()}
     target_weights = {str(row["etf_id"]): float(row["target_weight"]) for _, row in allocation.iterrows()}
-    portfolio_ids = [etf_id for etf_id in snapshot.config.universe.enabled_ids if str(etf_id) in current_weights]
+    allocation_ids = [etf_id for etf_id in snapshot.config.universe.enabled_ids if str(etf_id) in current_weights]
+    portfolio_ids = [
+        etf_id for etf_id in allocation_ids if current_weights[str(etf_id)] > 0 or target_weights[str(etf_id)] > 0
+    ]
     prices = snapshot.prices
     portfolio_prices = prices.loc[prices["etf_id"].isin(portfolio_ids)] if "etf_id" in prices.columns else prices
     correlation_window = 120
@@ -656,7 +659,7 @@ def risk_page(page: ft.Page | None, state: AppState, *, _deferred: bool = False)
     eligible_holdings = _exposure_eligible_holdings(imported_holdings, reference_date=snapshot_date)
     overlap = build_direct_overlap_view(
         snapshot,
-        portfolio_ids,
+        allocation_ids,
         current_weights=current_weights,
         target_weights=target_weights,
         holdings=imported_holdings,
