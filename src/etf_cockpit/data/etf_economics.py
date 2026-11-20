@@ -1398,6 +1398,10 @@ _EXCHANGE_CALENDAR_ALIASES = {
 _TICKER_SUFFIX_CALENDARS = {
     ".OL": "XOSL", ".AS": "XAMS", ".DE": "XETR", ".PA": "XPAR", ".MI": "XMIL", ".MC": "XMAD", ".L": "XLON", ".ST": "XSTO", ".BR": "XBRU",
     ".HE": "XHEL", ".CO": "XCSE", ".SW": "XSWX", ".VI": "XWBO", ".LS": "XLIS", ".IR": "XDUB",
+    ".T": "XTKS", ".SS": "XSHG", ".HK": "XHKG", ".AX": "XASX", ".TO": "XTSE", ".KS": "XKRX", ".TW": "XTAI", ".BO": "XBOM",
+    ".SA": "BVMF", ".WA": "XWAR", ".SG": "XSTU", ".JO": "XJSE", ".TA": "XTAE", ".JK": "XIDX", ".MX": "XMEX", ".SN": "XSGO",
+    ".AT": "ASEX", ".NZ": "XNZE", ".IS": "XIST", ".PR": "XPRA", ".CL": "XBOG",
+    ".V": "XTSE", ".KQ": "XKRX", ".TWO": "XTAI",
 }
 
 
