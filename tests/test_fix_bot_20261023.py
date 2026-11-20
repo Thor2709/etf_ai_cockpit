@@ -164,7 +164,7 @@ def test_capped_sell_exits_across_sessions_and_waits_only_for_actual_proceeds(mo
     assert sum(Decimal(r["quantity"]) for r in sales) == Decimal(str(held))
     assert all(Decimal(r["quantity"]) * Decimal(r["fill_price"]) <= 10000 for r in sales)
     assert not any(p.instrument_id == "VWCE" and p.quantity > 0 for p in ledger.snapshot().positions)
-    assert execution._awaits_settlement(ledger, datetime(2026, 11, 2, 12, tzinfo=timezone.utc))
+    assert execution._awaits_settlement(ledger, datetime(2026, 11, 2, 16, tzinfo=timezone.utc))
     assert not execution._awaits_settlement(ledger, through)
 
 

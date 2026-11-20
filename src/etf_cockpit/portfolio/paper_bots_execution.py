@@ -31,6 +31,7 @@ from etf_cockpit.data.local_storage import (
     StorageRevisionConflict,
     StorageSchemaError,
     TransactionalStore,
+    storage_layout,
 )
 from etf_cockpit.data.provenance import metadata_from_frame
 from etf_cockpit.portfolio import paper_bots as bots
@@ -40,6 +41,7 @@ from etf_cockpit.portfolio.benchmark_reference import (
 )
 from etf_cockpit.portfolio.costs import estimate_execution_cost
 from etf_cockpit.portfolio.paper_trading import (
+    SESSION_OPEN_OBSERVATION,
     PaperLedger,
     PaperLedgerError,
     ShadowCostPolicy,
@@ -60,6 +62,7 @@ REPLAY_DECISION_TYPE = "paper_bot_replay_decision"
 REPLAY_PLAN_TYPE = "paper_bot_replay_plan"
 REPLAY_RECORD_TYPE = "paper_bot_replay_execution"
 PRICE_FILE_RELATIVE = Path("data") / "validated" / "prices" / "prices_daily.parquet"
+SESSION_OPENS_RELATIVE = Path("data") / "validated" / "prices" / "session_opens.parquet"
 EXECUTION_ALLOWED = False
 NETWORK_ACCESS_ALLOWED = False
 LEDGER_PRICE_BASIS = "as_traded_units_gross_cash_dividends"
@@ -129,13 +132,37 @@ class ExecutionRunResult:
     survivorship_unverified: bool = False
 
 
-class PriceBook:
-    """Point-in-time daily bars of every instrument; the benchmark calendar defines the sessions."""
+class _SplitNotKnown(PaperLedgerError):
+    """A split in the order's span is not known at the sizing or fill time."""
 
-    def __init__(self, frame: pd.DataFrame | None, *, known_at: datetime | None, benchmark_id: str = "VWCE", error: str | None = None) -> None:
+
+class PriceBook:
+    """Point-in-time daily bars of every instrument; the benchmark calendar defines the sessions.
+
+    ``observations`` are the session-opens rows (SDD C7). When they are given, a forward fill takes its open only from
+    them; ``None`` keeps the daily-bar open (the replay track and explicit in-memory books).
+    """
+
+    def __init__(
+        self, frame: pd.DataFrame | None, *, known_at: datetime | None, benchmark_id: str = "VWCE", error: str | None = None,
+        observations: pd.DataFrame | None = None,
+    ) -> None:
         self.known_at = known_at.astimezone(timezone.utc) if isinstance(known_at, datetime) and known_at.tzinfo else None
         self.benchmark_id = benchmark_id
         self.error = error
+        self.observations: dict[tuple[str, date], list[dict[str, Any]]] | None = None
+        if observations is not None:
+            self.observations = {}
+            try:
+                if not observations.empty:
+                    sessions = pd.to_datetime(observations["session_date"], errors="coerce")
+                    for row, session in zip(observations.to_dict("records"), sessions, strict=True):
+                        row["_known_at"] = bots._parse_timestamp(row.get("known_at"))
+                        if not pd.isna(session) and row["_known_at"] is not None:
+                            key = (str(row["instrument_id"]).strip().upper(), session.date())
+                            self.observations.setdefault(key, []).append(row)
+            except (KeyError, TypeError, ValueError):
+                self.error = "Session open observations are malformed."
         self._bars: dict[str, dict[date, dict[str, Any]]] = {}
         self._dates: dict[str, list[date]] = {}
         self._frame = pd.DataFrame()
@@ -167,15 +194,17 @@ class PriceBook:
             self._dates[str(instrument)] = sorted(rows)
 
     @classmethod
-    def from_root(cls, root: Path, *, benchmark_id: str = "VWCE") -> "PriceBook":
+    def from_root(cls, root: Path, *, benchmark_id: str = "VWCE", with_observations: bool = False) -> "PriceBook":
         path = Path(root) / PRICE_FILE_RELATIVE
+        opens = Path(root) / SESSION_OPENS_RELATIVE
         try:
             frame = pd.read_parquet(path)
+            observations = (pd.read_parquet(opens) if opens.is_file() else pd.DataFrame()) if with_observations else None
         except (OSError, ValueError) as exc:
             return cls(None, known_at=None, benchmark_id=benchmark_id, error=f"Price history unavailable: {type(exc).__name__}.")
         if "known_at" not in frame.columns:
             return cls(None, known_at=None, benchmark_id=benchmark_id, error="Per-bar price known_at is unavailable.")
-        return cls(frame, known_at=None, benchmark_id=benchmark_id)
+        return cls(frame, known_at=None, benchmark_id=benchmark_id, observations=observations)
 
     @property
     def sessions(self) -> list[date]:
@@ -201,6 +230,12 @@ class PriceBook:
             if not isinstance(known, datetime) or pd.isna(known) or (known_by is not None and known > known_by):
                 return None
         return bar
+
+    def observed_open(self, instrument_id: str, session: date, *, known_by: datetime) -> dict[str, Any] | None:
+        """The latest session-open observation of ``session`` known at ``known_by``; ``None`` when there is none."""
+
+        rows = [row for row in (self.observations or {}).get((str(instrument_id).upper(), session), ()) if row["_known_at"] <= known_by]
+        return max(rows, key=lambda row: row["_known_at"]) if rows else None
 
     def last_bar(self, instrument_id: str, day: date, *, known_by: datetime | None = None) -> dict[str, Any] | None:
         dates = self._dates.get(str(instrument_id).upper(), [])
@@ -260,7 +295,7 @@ class PriceBook:
                 if value:
                     available = self.action_available_at(bar)
                     if available is None or (known_by is not None and available > known_by):
-                        raise PaperLedgerError(f"corporate_actions_unaccounted: {instrument}: split not known at sizing/fill time")
+                        raise _SplitNotKnown(f"corporate_actions_unaccounted: {instrument}: split not known at sizing/fill time")
                     ratio *= value
         return ratio
 
@@ -482,7 +517,9 @@ def _run(
         return ExecutionRunResult("unavailable", track.name, as_of_text, reason=f"Bot specification unavailable: {type(exc).__name__}.", label=track.label)
     config_hash = hashlib.sha256(bots_bytes).hexdigest()
     exec_hash = hashlib.sha256(exec_bytes).hexdigest()
-    book = price_book if price_book is not None else PriceBook.from_root(root, benchmark_id=str(bots_config["benchmark"]["instrument_id"]))
+    book = price_book if price_book is not None else PriceBook.from_root(
+        root, benchmark_id=str(bots_config["benchmark"]["instrument_id"]), with_observations=track.name == "forward",
+    )
     if track.name == "replay" and getattr(book, "membership_fingerprint", None):
         config_hash = hashlib.sha256((config_hash + book.membership_fingerprint).encode()).hexdigest()
         exec_hash = hashlib.sha256((exec_hash + book.membership_fingerprint).encode()).hexdigest()
@@ -736,8 +773,8 @@ def _sync_corporate_actions(context: _Context, ledger: PaperLedger, through: dat
                 fill = event["payload"]
                 fill_day = datetime.fromisoformat(event["occurred_at"]).date()
                 if (event["event_type"] != "fill_recorded" or fill["instrument_id"] != instrument
-                        or fill["side"] != "buy" or fill_day >= day):
-                    continue
+                        or fill["side"] != "buy" or fill_day >= day or fill.get("price_source") == SESSION_OPEN_OBSERVATION):
+                    continue  # an observed open is a nominal quote of its session: no legacy unit basis to verify
                 nominal_fill = context.book.ledger_bar(instrument, fill_day)
                 reference = float(fill["price"]) / (1 + adverse)
                 if nominal_fill is None or not math.isclose(reference, float(nominal_fill["open"]), rel_tol=1e-8):
@@ -1394,23 +1431,37 @@ def _attempt(
         return miss(f"fx_unavailable: no {currency}/EUR rate known at {fill_time.isoformat()}")
     ledger_fx = None if currency == "EUR" else fx  # EUR keeps the ledger's implicit unit rate
     to_eur = Decimal(1) if currency == "EUR" else Decimal(str(fx))
-    bar = (context.book.liquidation_bar(instrument, intent["delisting_day"])
-           if intent.get("delisting_day") else context.book.bar(instrument, session))
-    if bar is None:
-        return miss(f"no_session_data: provider outage, halt or missing bar on {session.isoformat()}")
-    try:
-        context.book.require_actions(bar, instrument)
-        nominal = context.book.ledger_bar(instrument, bar["date"].date())
-        if nominal is None:
-            return miss("corporate_actions_unaccounted: nominal price unavailable")
-        bar = nominal
-    except PaperLedgerError as exc:
-        context.warnings.append(str(exc))
-        return miss(str(exc))
-    if "known_at" in bar:
-        bar_known = bots._parse_timestamp(bar.get("known_at"))
-        if bar_known is None or bar_known > fill_time:
+    observed = getattr(context.book, "observations", None) is not None
+    if observed:
+        # SDD C7: the one canonical open of a forward fill is the latest observation known at the fill time.
+        bar = context.book.observed_open(instrument, session, known_by=fill_time)
+        if bar is None:
             return miss("price_not_known_at_fill_time")
+        try:
+            context.book.require_actions(bar, instrument)
+        except PaperLedgerError as exc:
+            context.warnings.append(str(exc))
+            return miss(str(exc))
+        if bots._finite_number(bar.get("stock_splits")):
+            return miss("split_on_fill_session")
+    else:
+        bar = (context.book.liquidation_bar(instrument, intent["delisting_day"])
+               if intent.get("delisting_day") else context.book.bar(instrument, session))
+        if bar is None:
+            return miss(f"no_session_data: provider outage, halt or missing bar on {session.isoformat()}")
+        try:
+            context.book.require_actions(bar, instrument)
+            nominal = context.book.ledger_bar(instrument, bar["date"].date())
+            if nominal is None:
+                return miss("corporate_actions_unaccounted: nominal price unavailable")
+            bar = nominal
+        except PaperLedgerError as exc:
+            context.warnings.append(str(exc))
+            return miss(str(exc))
+        if "known_at" in bar:
+            bar_known = bots._parse_timestamp(bar.get("known_at"))
+            if bar_known is None or bar_known > fill_time:
+                return miss("price_not_known_at_fill_time")
     volume = bots._finite_number(bar.get("volume"))
     if volume is None or volume <= 0:
         return miss(f"zero_volume_session on {session.isoformat()}")
@@ -1422,7 +1473,10 @@ def _attempt(
         return miss(f"currency_mismatch: the session bar is quoted in {bar_currency}, the order in {currency}")
 
     basis_day = date.fromisoformat(intent.get("quantity_basis_date", session.isoformat()))
-    quantity_scale = context.book.split_ratio_between(instrument, basis_day, session, known_by=fill_time)
+    try:
+        quantity_scale = context.book.split_ratio_between(instrument, basis_day, session, known_by=fill_time)
+    except _SplitNotKnown:
+        return miss("split_on_fill_session")
     if quantity_scale != 1:
         intent = {**intent, "planned_quantity": str(Decimal(str(intent["planned_quantity"])) * quantity_scale)}
 
@@ -1474,6 +1528,7 @@ def _attempt(
             ledger.record_fill(
                 order_id, fill_id=fill_id, quantity=quantity, price=price, fee=policy.commission,
                 reference_price=reference, fx_rate=ledger_fx, occurred_at=fill_time,
+                price_source=SESSION_OPEN_OBSERVATION if observed else None,
             )
         except PaperLedgerError as exc:
             message = str(exc)
@@ -1598,6 +1653,11 @@ def _sync_shadow(context: _Context, bot_id: str) -> None:
         context.warnings.append(str(exc))
         return
     shadow = PaperLedger(context.track.ledger_root, account_id=shadow_id_for(bot_id))
+
+    def observed_open(session: date) -> object | None:
+        row = context.book.observed_open(context.book.benchmark_id, session, known_by=_fill_datetime(context.config, session))
+        return None if row is None else row["open"]
+
     try:
         shadow.open_benchmark_shadow_account(cost_policy=context.policy, active_account=active, occurred_at=context.cutoff)
         for flow in flows:
@@ -1607,6 +1667,7 @@ def _sync_shadow(context: _Context, bot_id: str) -> None:
                     flow_at=datetime.fromisoformat(str(flow["flow_at"])), prices=context.benchmark_frame,
                     series_check=context.benchmark_check, cost_policy=context.policy,
                     decision_time=context.cutoff, occurred_at=context.cutoff,
+                    observed_open=observed_open if getattr(context.book, "observations", None) is not None else None,
                 )
             except PaperLedgerError as exc:
                 if not any(marker in str(exc) for marker in _PENDING_SHADOW_MARKERS):
@@ -1615,14 +1676,36 @@ def _sync_shadow(context: _Context, bot_id: str) -> None:
         context.warnings.append(f"Shadow account of {bot_id[:12]} not synchronised: {str(exc)[:160]}")
 
 
+def pending_fill_instruments(root: Path, cutoff: datetime) -> list[str]:
+    """Ids whose session open a forward fill can need (read only): the targets of each bot's latest non-terminal
+    decision known at ``cutoff``, and the positions each bot account holds. A newer decision supersedes older buys."""
+
+    track = forward_track(Path(root))
+    if not storage_layout(track.store_root).transactional_path.is_file():
+        return []
+    ids: set[str] = set()
+    with TransactionalStore(track.store_root, read_only=True) as store:
+        for bot_id, items in _load_decisions(store, track, cutoff, []).items():
+            latest = items[-1]
+            plan = store.get(track.plan_type, str(latest["decision_id"]))
+            if plan is None or plan.payload.get("terminal") is not True:
+                ids.update(key for key in latest["targets"] if key != "cash_weight")
+            ledger = PaperLedger(track.ledger_root, account_id=account_id_for(bot_id))
+            if ledger.path.is_file():
+                ids.update(item.instrument_id for item in ledger.snapshot().positions if item.quantity > 0)
+    return sorted(ids)
+
+
 __all__ = [
     "EXECUTION_CONFIG_PATH",
     "ExecutionRunResult",
     "PriceBook",
+    "SESSION_OPENS_RELATIVE",
     "Track",
     "account_id_for",
     "forward_track",
     "load_execution_config",
+    "pending_fill_instruments",
     "replay_track",
     "run_paper_bot_execution",
     "shadow_id_for",

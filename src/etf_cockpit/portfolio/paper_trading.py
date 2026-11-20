@@ -18,7 +18,7 @@ from pathlib import Path
 import sqlite3
 import threading
 from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal, InvalidOperation
-from typing import Literal, Mapping
+from typing import Callable, Literal, Mapping
 
 import pandas as pd
 
@@ -56,6 +56,8 @@ class PaperLedgerIntegrityError(PaperLedgerError):
 
 
 SHADOW_ACCOUNT_TYPE = "benchmark_shadow_account"
+# Price source of a fill or shadow flow priced from the session-opens store (forward paper path, SDD C7).
+SESSION_OPEN_OBSERVATION = "session_open_observation"
 _SHADOW_FLOW_KINDS = ("contribution", "withdrawal")
 
 
@@ -809,6 +811,7 @@ class PaperLedger:
         fx_rate: float | None = None,
         occurred_at: datetime | None = None,
         reference_price: object | None = None,
+        price_source: str | None = None,
     ) -> dict[str, object]:
         fill_quantity_decimal = _decimal_number(quantity, "quantity", positive=True)
         if fill_quantity_decimal < MIN_QUANTITY:
@@ -922,6 +925,7 @@ class PaperLedger:
                 "currency": order["currency"],
                 "price_basis": "execution_quote",
                 "execution_allowed": False,
+                **({"price_source": str(price_source)} if price_source is not None else {}),
             }
             fill["valuation_snapshot_id"] = _fill_snapshot_id(fill, fill_stamp)
             self._append("fill_recorded", fill, occurred_at=occurred_at)
@@ -1707,8 +1711,12 @@ class PaperLedger:
         decision_time: datetime | None = None,
         source_authority: str = "vwce_reference_series",
         occurred_at: datetime | None = None,
+        observed_open: Callable[[date], object | None] | None = None,
     ) -> dict[str, object]:
         """Mirror one external flow of the active account into the benchmark shadow account.
+
+        ``observed_open`` (forward paper path) gives the observed open of a session known at its fill time; the
+        flow then trades at that open, not at the daily-series open, and names the observation as its price source.
 
         The cash enters at the first session on or after the flow date and buys (contribution) or sells
         (withdrawal) the benchmark at the OPEN of the first session strictly after the flow date (like every
@@ -1770,6 +1778,11 @@ class PaperLedger:
                 ):
                     raise PaperLedgerError("The shadow flow was already recorded with different terms.")
                 return dict(existing)
+            if observed_open is not None:
+                observed = observed_open(executed.date())
+                if observed is None:
+                    raise PaperLedgerError(f"Benchmark session open observation is unavailable for {executed.date().isoformat()}.")
+                open_price = _decimal_number(observed, "open", positive=True)
             active = PaperLedger(self.root, account_id=str(shadow.get("active_account_id", "")))
             active_events = active._read_events()
             active_state = active._replay(active_events)
@@ -1830,6 +1843,7 @@ class PaperLedger:
                 "entry_session": entry.date().isoformat(),
                 "executed_session": executed.date().isoformat(),
                 "executed_open": str(open_price),
+                **({"open_source": SESSION_OPEN_OBSERVATION} if observed_open is not None else {}),
                 "executed_close": str(close_price),
                 "prefix_hash": prefix_hash,
                 "instrument_id": shadow["instrument_id"],
@@ -1892,7 +1906,8 @@ class PaperLedger:
                 or recorded_close is None
                 or len(current) != 1
                 or _decimal_number(current.iloc[0], "close", positive=True) != Decimal(str(recorded_close))
-                or (recorded_open is not None and (
+                # An observation-priced open is evidence of its own store, not of the daily series.
+                or (recorded_open is not None and flow.get("open_source") != SESSION_OPEN_OBSERVATION and (
                     current_open is None or len(current_open) != 1
                     or _decimal_number(current_open.iloc[0], "open", positive=True) != Decimal(str(recorded_open))))
                 or _shadow_prefix_hash(prices, executed_day) != flow["prefix_hash"]
@@ -2971,6 +2986,7 @@ __all__ = [
     "EXECUTION_ALLOWED",
     "NETWORK_ACCESS_ALLOWED",
     "PAPER_SCHEMA_VERSION",
+    "SESSION_OPEN_OBSERVATION",
     "SHADOW_ACCOUNT_TYPE",
     "ShadowCostPolicy",
     "PaperAccountSnapshot",
