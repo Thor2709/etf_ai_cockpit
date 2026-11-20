@@ -21,6 +21,7 @@ from urllib.request import Request, urlopen
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPOSITORY_ROOT / "src"))
 
+from etf_cockpit.application.docling_worker import queue_tables
 from etf_cockpit.data.pillar3_extract import ingest_pdf
 
 MAX_BYTES = 80 * 1024 * 1024
@@ -61,7 +62,10 @@ def main(argv: list[str] | None = None) -> int:
         if not args.source_url:
             parser.error("--source-url is required with --file")
         path, source_url = args.file, args.source_url
+    # Docling first: ingest_pdf then writes the queue's document record last, so its title and period are kept.
+    docling_tables = queue_tables(args.root, instrument_id, path, source_url=source_url)
     result = ingest_pdf(args.root, instrument_id, str(path), source_url=source_url, title=args.title)
+    result["docling_tables"] = docling_tables
     print(json.dumps(result, indent=2, ensure_ascii=False))
     return 0
 

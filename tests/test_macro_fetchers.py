@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import json
 import time
+from types import SimpleNamespace
 
 import pandas as pd
 import pytest
@@ -273,3 +274,50 @@ def test_fred_vintage_fetch_reads_every_page_before_assigning_revisions(tmp_path
     ]
     short = FredProvider(api_key="test-key", transport=lambda url: json.dumps({"count": 5, "observations": []}).encode())
     assert short.fetch_vintages("UNRATE", fetched_at=FETCHED_AT).status == "unavailable"
+
+
+def _refresh_macro(monkeypatch, tmp_path, transport, *, active: str = "fred", key: str | None = "test-key") -> int:
+    from etf_cockpit.core import config as config_module
+    from scripts import refresh_macro
+
+    providers = config_module.DataProvidersConfig(providers={"fred": config_module.ProviderSection(active_provider=active)})
+    monkeypatch.setenv("ETF_COCKPIT_ROOT", str(tmp_path))
+    monkeypatch.setattr(config_module, "load_config", lambda *_a, **_k: SimpleNamespace(data_providers=providers))
+    monkeypatch.setattr(config_module, "resolve_provider_api_key", lambda *_a, **_k: key)
+    return refresh_macro.main(["--root", str(tmp_path)], transport=transport)
+
+
+@pytest.mark.parametrize("active, key, reason", [("none", "test-key", "not active"), ("fred", None, "API key")])
+def test_refresh_macro_without_gate_or_key_makes_no_request(monkeypatch, tmp_path, capsys, active, key, reason) -> None:
+    calls: list[str] = []
+
+    assert _refresh_macro(monkeypatch, tmp_path, calls.append, active=active, key=key) == 0
+    assert calls == [] and reason in capsys.readouterr().out
+    assert MacroWarehouse().observations(root=tmp_path) == []
+
+
+def test_refresh_macro_stores_each_series_once_and_one_failure_does_not_stop_the_others(monkeypatch, tmp_path, capsys) -> None:
+    from etf_cockpit.data.fred_provider import FRED_SERIES
+
+    requested: list[str] = []
+
+    def transport(url: str) -> bytes:
+        series_id = url.split("series_id=")[1].split("&")[0]
+        requested.append(series_id)
+        if series_id == "NFCI":
+            raise OSError("offline")
+        return _fred_payload([("2024-03-01", "1.5", "2024-03-02", _FOREVER)])
+
+    assert _refresh_macro(monkeypatch, tmp_path, transport) == 0
+    first = capsys.readouterr().out.splitlines()
+    assert _refresh_macro(monkeypatch, tmp_path, transport, active=" FRED ") == 0  # same normalisation as FredProvider
+    second = capsys.readouterr().out.splitlines()
+
+    assert requested == list(FRED_SERIES) * 2
+    stored = MacroWarehouse().observations(root=tmp_path)
+    assert {row.series_id for row in stored} == set(FRED_SERIES) - {"NFCI"} and len(stored) == len(FRED_SERIES) - 1
+    for lines, new in ((first, 1), (second, 0)):
+        assert [line.split(":")[0] for line in lines] == list(FRED_SERIES)
+        assert all(f"new={new}" in line for line in lines if not line.startswith("NFCI"))
+        assert "unavailable" in next(line for line in lines if line.startswith("NFCI"))
+    assert "test-key" not in "\n".join(first + second)

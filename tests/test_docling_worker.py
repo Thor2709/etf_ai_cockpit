@@ -12,7 +12,7 @@ import yaml
 
 from etf_cockpit.application import docling_worker as dw
 from etf_cockpit.core.paths import MODEL_DIR
-from etf_cockpit.data.pillar3_queue import load_queue
+from etf_cockpit.data.pillar3_queue import load_queue, merge_extraction
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = str(ROOT / "src")
@@ -40,6 +40,34 @@ def test_absent_docling_gives_unavailable_and_parsers_stay_untouched(monkeypatch
     assert (result.status, result.reason) == ("unavailable", "docling_not_installed")
     assert dw.queue_tables(tmp_path, "X", pdf, source_url="https://example.com/a.pdf", model_dir=tmp_path)["status"] == "unavailable"
     assert load_queue(tmp_path, "X")["figures"] == []
+
+
+@pytest.mark.parametrize("docling", ["unavailable", "ok"])
+def test_pillar3_script_queues_docling_tables_and_reports_unavailable_without_failing(docling: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    import json
+
+    from scripts import extract_pillar3
+
+    if docling == "ok":
+        table = {"page": 2, "rows": 1, "columns": 1, "markdown": "| a |"}
+        monkeypatch.setattr(dw, "run_docling", lambda *_a, **_k: dw.DoclingResult("ok", pages=("", "t"), tables=(table,)))
+    else:
+        monkeypatch.setattr(dw, "_docling_available", lambda: False)
+
+    def ingest_pdf(root, instrument_id, path, *, source_url, title=None):  # pypdf is an optional extra; same document record as ingest_pdf
+        merge_extraction(Path(root), instrument_id, {"document_id": hashlib.sha256(Path(path).read_bytes()).hexdigest()[:16], "title": title}, [])
+        return {"proposed": 0}
+
+    monkeypatch.setattr(extract_pillar3, "ingest_pdf", ingest_pdf)
+    pdf = tmp_path / "a.pdf"
+    pdf.write_bytes(b"%PDF-1.4")
+
+    assert extract_pillar3.main(["--root", str(tmp_path), "--id", "x", "--file", str(pdf), "--source-url", "https://example.com/a.pdf", "--title", "Owner title"]) == 0
+    tables = json.loads(capsys.readouterr().out)["docling_tables"]
+    queue = load_queue(tmp_path, "X")
+
+    assert tables["status"] == docling and tables["proposed"] == sum(f["metric"] == dw.TABLE_METRIC for f in queue["figures"]) == (docling == "ok")
+    assert [document["title"] for document in queue["documents"]] == ["Owner title"]
 
 
 def test_weights_are_hash_verified_per_file(tmp_path: Path) -> None:
