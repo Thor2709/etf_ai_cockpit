@@ -549,12 +549,15 @@ def _volatility_forecast(returns: pd.DataFrame, weights: pd.Series, coverage: di
     """INT-14 shadow challenger: GJR-GARCH(1,1) annualised volatility of the weighted log return, next 20 sessions."""
 
     base: dict[str, object] = {"model": "gjr_garch", "horizon_sessions": VOLATILITY_FORECAST_HORIZON, "annualised_volatility": None}
-    clean = returns.dropna(how="any")
     if coverage.get("unpriced_instruments"):
         return base | {"status": "unavailable", "reason": "unpriced holdings carry unmeasured risk"}
+    held = [instrument for instrument in returns.columns if weights.get(instrument, 0.0) != 0.0]
+    if not held:
+        return base | {"status": "unavailable", "reason": "no invested weight to forecast"}
+    clean = returns[held].dropna(how="any")
     if len(clean) < MIN_VOLATILITY_FORECAST_OBSERVATIONS:
         return base | {"status": "unavailable", "reason": f"at least {MIN_VOLATILITY_FORECAST_OBSERVATIONS} shared return observations are required"}
-    portfolio = pd.Series(clean @ weights.reindex(clean.columns).fillna(0.0).to_numpy(float), index=clean.index)
+    portfolio = pd.Series(clean @ weights.reindex(held).to_numpy(float), index=clean.index)
     forecast = gjr_garch_variance_forecast(portfolio, VOLATILITY_FORECAST_HORIZON)
     volatility = float(np.sqrt(forecast.variance * ANNUALISATION_FACTOR / VOLATILITY_FORECAST_HORIZON)) if np.isfinite(forecast.variance) else None
     return base | {"annualised_volatility": volatility, "status": forecast.status, "reason": forecast.reason}
@@ -708,6 +711,10 @@ def _unavailable_report(message: str, returns: pd.DataFrame, weights: pd.Series)
     return {
         "status": "unavailable",
         "message": message,
+        "volatility_forecast": {
+            "model": "gjr_garch", "horizon_sessions": VOLATILITY_FORECAST_HORIZON, "annualised_volatility": None,
+            "status": "unavailable", "reason": message,
+        },
         "model_version": ROBUST_RISK_MODEL_VERSION,
         "execution_allowed": False,
         "returns": returns,

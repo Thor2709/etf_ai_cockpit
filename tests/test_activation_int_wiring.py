@@ -78,6 +78,13 @@ def test_int09_startup_snapshot_passes_forecast_bridge_inputs(monkeypatch, synth
     assert kwargs["forecasts"] is not None and kwargs["forecast_history"] is not None and kwargs["holdings"] is not None
     assert "adjusted_close" in kwargs["price_history"].columns
 
+    def vanished() -> None:
+        raise OSError("legacy forecast file removed during the read")
+
+    monkeypatch.setattr(snapshot_builder, "load_forecast_history", vanished)
+    snapshot_builder.build_snapshot()
+    assert calls[-1]["forecast_history"] is None
+
 
 def test_int11_optimiser_page_offers_the_skfolio_methods() -> None:
     from etf_cockpit.app.pages.portfolio_optimiser import portfolio_optimiser_page
@@ -94,6 +101,9 @@ def test_int11_optimiser_page_offers_the_skfolio_methods() -> None:
 
     for label in ("skfolio minimum variance", "skfolio minimum CVaR", "skfolio HRP"):
         assert label in text
+    from etf_cockpit.application.portfolio_optimiser import METHODS, SKFOLIO_METHODS
+
+    assert f"{len(METHODS) + len(SKFOLIO_METHODS)} transparent methods" in text
 
 
 def test_int27_chronos2_has_a_model_card_and_a_forecast_lab_row() -> None:
@@ -108,6 +118,7 @@ def test_int27_chronos2_has_a_model_card_and_a_forecast_lab_row() -> None:
 
 def test_int14_robust_risk_reports_a_garch_volatility_forecast() -> None:
     import numpy as np
+    import pytest
 
     from etf_cockpit.portfolio.robust_risk import build_robust_risk_report
 
@@ -120,12 +131,24 @@ def test_int14_robust_risk_reports_a_garch_volatility_forecast() -> None:
     })
     weights = pd.DataFrame({"etf_id": ["AAA", "BBB"], "target_weight": [0.6, 0.4]})
 
+    short = build_robust_risk_report(prices[prices["date"] >= dates[-40]], weights)["volatility_forecast"]
+    assert short["status"] == "unavailable" and short["annualised_volatility"] is None and short["reason"]
+    for unavailable in (
+        build_robust_risk_report(prices, weights.assign(target_weight=0.0)),  # no invested weight: no 0% forecast
+        build_robust_risk_report(prices[prices["etf_id"] == "AAA"], weights),  # early unavailable report
+    ):
+        assert unavailable["volatility_forecast"]["status"] == "unavailable" and unavailable["volatility_forecast"]["reason"]
+
+    pytest.importorskip("arch")
     forecast = build_robust_risk_report(prices, weights)["volatility_forecast"]
     assert forecast["status"] in {"ok", "warning"} and forecast["horizon_sessions"] == 20
     assert 0.0 < forecast["annualised_volatility"] < 1.0
-
-    short = build_robust_risk_report(prices[prices["date"] >= dates[-40]], weights)["volatility_forecast"]
-    assert short["status"] == "unavailable" and short["annualised_volatility"] is None and short["reason"]
+    unheld = pd.DataFrame({"date": list(dates[-10:]), "etf_id": ["CCC"] * 10, "adjusted_close": [10.0 + index for index in range(10)]})
+    with_unheld = build_robust_risk_report(
+        pd.concat([prices, unheld], ignore_index=True),
+        pd.concat([weights, pd.DataFrame({"etf_id": ["CCC"], "target_weight": [0.0]})], ignore_index=True),
+    )["volatility_forecast"]
+    assert with_unheld["annualised_volatility"] == forecast["annualised_volatility"]
 
 
 def test_int19_macro_context_carries_the_benchmark_stress_probability() -> None:
@@ -149,7 +172,13 @@ def test_int19_macro_context_carries_the_benchmark_stress_probability() -> None:
         prices, benchmark_data_id="BENCH", benchmark_reference=_available_reference(), benchmark_registry=_available_registry(),
     )["stress_probability"]
     assert stress["status"] == "available" and 0.5 < stress["probability"] <= 1.0
-    assert stress["execution_allowed"] is False
+    assert stress["execution_allowed"] is False and stress["as_of"].startswith(str(dates[-1].date()))
+
+    stale_prices = prices[(prices["etf_id"] != "BENCH") | (prices["date"] <= dates[-11])]
+    stale = build_macro_context(
+        stale_prices, benchmark_data_id="BENCH", benchmark_reference=_available_reference(), benchmark_registry=_available_registry(),
+    )["stress_probability"]
+    assert stale["status"] == "unavailable" and "stale" in stale["reason"]
 
     no_benchmark = build_macro_context(prices)["stress_probability"]
     assert no_benchmark["status"] == "unavailable" and no_benchmark["reason"]
@@ -197,7 +226,7 @@ def test_int23_imported_pdf_pages_are_searchable_and_exposed_to_mcp(monkeypatch,
     assert result["execution_allowed"] is False
 
 
-def test_int26_report_export_needs_local_commentary_and_writes_a_grounded_report(tmp_path) -> None:
+def test_int26_report_export_needs_local_commentary_and_writes_a_grounded_report(monkeypatch, tmp_path) -> None:
     from pathlib import Path
 
     from etf_cockpit.app.pages import chatgpt_audit
@@ -207,6 +236,13 @@ def test_int26_report_export_needs_local_commentary_and_writes_a_grounded_report
     view = chatgpt_audit.chatgpt_audit_page(SimpleNamespace(update=lambda: None), state)
     next(item for item in _walk(view.body) if getattr(item, "key", None) == "chatgpt.export-report").on_click(None)
     assert "Local model unavailable" in _texts(view.body)
+
+    state.local_audit_report = {"summary": "Risk is concentrated.", "generated_at": "2026-11-20T10:00:00+00:00"}
+    calls = []
+    monkeypatch.setattr(chatgpt_audit, "export_commentary_report", lambda *args, **kwargs: calls.append(args) or {"status": "written", "path": "r.md"})
+    rebuilt = chatgpt_audit.chatgpt_audit_page(SimpleNamespace(update=lambda: None), state)
+    next(item for item in _walk(rebuilt.body) if getattr(item, "key", None) == "chatgpt.export-report").on_click(None)
+    assert calls == [("Risk is concentrated.", "2026-11-20T10:00:00+00:00")] and "Research report written: r.md" in _texts(rebuilt.body)
 
     result = export_commentary_report("Risk is concentrated.", "2026-11-20T10:00:00+00:00", root=tmp_path)
     assert result["status"] == "written"

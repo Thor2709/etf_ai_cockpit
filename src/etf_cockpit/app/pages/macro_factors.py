@@ -96,7 +96,7 @@ def macro_factors_page(page: ft.Page | None, state: AppState) -> PageView:
             _format_metric(stress_value) if stress_value is not None else None,
             str(stress.get("reason") or "Benchmark stress probability unavailable.")
             if stress_value is None
-            else "Two-state Markov switching, filtered at the cut-off. Context only",
+            else f"Two-state Markov switching, filtered at {str(stress.get('as_of', ''))[:10]}. Context only",
         ),
     ]
     proxy_details = [

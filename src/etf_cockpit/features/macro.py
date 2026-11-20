@@ -37,6 +37,18 @@ def macro_status() -> str:
     return "Local macro context is evidence-only; optional provider refresh is not required."
 
 
+def _benchmark_stress_probability(returns: pd.DataFrame, benchmark_id: str | None) -> dict[str, object]:
+    """Filtered stress probability of the benchmark; stale after the regime's five-session fill limit."""
+
+    unavailable = {"status": "unavailable", "probability": None, "execution_allowed": False}
+    series = returns[benchmark_id].dropna() if benchmark_id in returns.columns else pd.Series(dtype=float)
+    if series.empty:
+        return {**unavailable, "reason": "Canonical benchmark series is unavailable."}
+    if int((returns.index > series.index[-1]).sum()) > 5:
+        return {**unavailable, "reason": f"Benchmark series is stale (last return {series.index[-1].date().isoformat()})."}
+    return filtered_stress_probability(series, series.index[-1])
+
+
 def build_macro_context(
     prices: pd.DataFrame,
     instruments: Iterable[object] = (),
@@ -162,9 +174,7 @@ def build_macro_context(
             "summary": str(regime.get("summary", "Regime unavailable.")),
         },
         # INT-19 shadow context: filtered (never smoothed) high-variance state probability of the benchmark.
-        "stress_probability": filtered_stress_probability(returns[canonical_benchmark_id], latest_date)
-        if canonical_benchmark_id in returns.columns
-        else {"status": "unavailable", "probability": None, "reason": "Canonical benchmark series is unavailable.", "execution_allowed": False},
+        "stress_probability": _benchmark_stress_probability(returns, canonical_benchmark_id),
         "optional_fred": {
             "status": "unavailable",
             "message": "Optional FRED is probe-only and no network request was made.",

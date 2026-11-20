@@ -240,9 +240,8 @@ def chatgpt_audit_page(page: ft.Page, state: AppState) -> PageView:
             state.release_activity(action_id)
             refresh_shell()
 
-    report_source: dict[str, str] = {}
-
     def export_report(_event: ft.ControlEvent) -> None:
+        report_source = getattr(state, "local_audit_report", None)
         if not report_source:
             llm_output.value = "Local model unavailable: generate local commentary first, then export the report."
         else:
@@ -283,7 +282,7 @@ def chatgpt_audit_page(page: ft.Page, state: AppState) -> PageView:
                         generation_time=status.generation_time,
                     )
                 llm_output.value = f"Local commentary saved. {commentary.summary}"
-                report_source.update(summary=commentary.summary, generated_at=str(status.generation_time))
+                state.local_audit_report = {"summary": commentary.summary, "generated_at": str(status.generation_time)}
                 state.local_audit_output = llm_output.value
                 diary_output.value = _thesis_diary_text()
                 state.finish_activity(f"Saved local LLM commentary: {saved_path}", output_path=saved_path, expected_action_id=action_id)

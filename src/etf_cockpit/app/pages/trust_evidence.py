@@ -1253,7 +1253,8 @@ def _disclosure_import_controls(page: ft.Page, state: AppState) -> ft.Control:
             document_checksum = _document_checksum(_latest_document_row(registered, "kid"))
             warning_text = ", ".join(item.code for item in parsed.warnings) or "none"
             _require_disclosure_available("PRIIPs KID import", parsed)
-            chunks = index_imported_pdf(ROOT, retained_path, source_id=f"kid:{instrument_id}")
+            with state.activity_publication(action_id):
+                chunks = index_imported_pdf(ROOT, retained_path, source_id=f"kid:{instrument_id}")
             return f"PRIIPs KID {instrument_id}: records={len(parsed.records)}, confidence={record.extraction_confidence if record else 'unavailable'}, pages={record.source_pages if record else ()}, warnings={warning_text}, checksum={document_checksum[:12]}..., success={parsed.success}, search_chunks={'unavailable' if chunks is None else chunks}."
 
         _run_picker_activity(page, state, result, "Import PRIIPs KID", "Parsing PRIIPs KID", files[0], ".pdf", action)
@@ -1300,7 +1301,8 @@ def _disclosure_import_controls(page: ft.Page, state: AppState) -> ft.Control:
             document_checksum = _document_checksum(_latest_document_row(registered, "methodology"))
             warning_text = ", ".join(item.code for item in parsed.warnings) or "none"
             _require_disclosure_available("Methodology import", parsed)
-            chunks = index_imported_pdf(ROOT, retained_path, source_id=f"methodology:{instrument_id}")
+            with state.activity_publication(action_id):
+                chunks = index_imported_pdf(ROOT, retained_path, source_id=f"methodology:{instrument_id}")
             return f"Methodology {instrument_id}/{provider or 'unknown provider'}: records={len(parsed.records)}, version={record.version if record else 'unavailable'}, pages={record.source_pages if record else ()}, warnings={warning_text}, checksum={document_checksum[:12]}..., success={parsed.success}, search_chunks={'unavailable' if chunks is None else chunks}."
 
         _run_picker_activity(
@@ -1343,7 +1345,8 @@ def _disclosure_import_controls(page: ft.Page, state: AppState) -> ft.Control:
                 publish_guard=lambda: state.activity_publication(action_id),
             )
             warning_text = ", ".join(item.code for item in parsed.warnings) or "none"
-            chunks = index_imported_pdf(ROOT, retained_path, source_id=f"sfdr:{instrument_id}")
+            with state.activity_publication(action_id):
+                chunks = index_imported_pdf(ROOT, retained_path, source_id=f"sfdr:{instrument_id}")
             return f"SFDR {instrument_id}: classification={parsed.records[0].classification if parsed.records else 'unclassified'}, document={document_kind}, warnings={warning_text}, store={document}, search_chunks={'unavailable' if chunks is None else chunks}, score_eligible=false, execution_allowed=false."
 
         _run_picker_activity(page, state, result, "Import SFDR disclosure", "Parsing SFDR disclosure", files[0], ".pdf", action)

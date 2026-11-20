@@ -283,7 +283,7 @@ def portfolio_optimiser_page(page: ft.Page | None, state: AppState) -> PageView:
                 ft.Row([cash, maximum], spacing=theme.SPACE_2, wrap=True),
                 Button.primary("Run comparison", key="portfolio-optimiser.run", on_click=run),
                 status_note,
-                Note(f"{len(METHODS)} transparent methods compared on a held-out local return slice."),
+                Note(f"{len(_PAGE_METHODS)} transparent methods compared on a held-out local return slice."),
             ],
             spacing=theme.SPACE_2,
         ),

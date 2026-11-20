@@ -239,6 +239,10 @@ def _build_snapshot(
             )
         )
     )
+    try:
+        forecast_history = load_forecast_history()
+    except (OSError, ValueError):  # shadow-only input: an unreadable history leaves the bridge unavailable
+        forecast_history = None
     _run_decision_shadow_guard(
         config,
         signals,
@@ -246,7 +250,7 @@ def _build_snapshot(
         latest_features=latest,
         price_history=prices,
         forecasts=forecasts,
-        forecast_history=load_forecast_history(),
+        forecast_history=forecast_history,
         holdings=holdings,
     )
     def load_backtest() -> BacktestReport:
