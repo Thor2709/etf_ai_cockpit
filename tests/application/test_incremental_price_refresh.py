@@ -771,3 +771,62 @@ def test_invalid_adjusted_full_refetch_discards_window_and_keeps_history(monkeyp
     assert "Adjusted close invalid from Yahoo, stored history kept: B." in message
     assert "Validated and committed" in message
     assert provider.calls[1][0] == ("B",)
+
+
+def _run_real_validation(provider: _FakeProvider, monkeypatch, tmp_path: Path, stored: pd.DataFrame):
+    real_validate = data_service.validate_prices
+    clean_path = _prepare(monkeypatch, tmp_path, provider, stored)
+    monkeypatch.setattr(data_service, "validate_prices", real_validate)
+    message = DataService(config=None).refresh_yfinance_data(
+        include_reference_data=False, include_fundamentals=False, incremental=True,
+    )
+    return clean_path, message
+
+
+@pytest.mark.parametrize("returned_again", [True, False])
+def test_stale_instrument_without_new_bar_does_not_block_other_instruments(monkeypatch, tmp_path, returned_again):
+    floor = years_before(_TODAY, 5)
+    shared = date(2026, 10, 30)
+    last_dead_bar = date(2026, 10, 19)  # inside the 14-day overlap window, too old at 2026-11-08
+    stored_dead = _price_frame("DEAD", [_bar(floor), _bar(last_dead_bar)])
+    stored = pd.concat([_price_frame("LIVE", [_bar(floor), _bar(shared)]), stored_dead], ignore_index=True)
+    window = _price_frame("LIVE", [_bar(shared), _bar(_TODAY)])
+    if returned_again:
+        window = pd.concat([window, _price_frame("DEAD", [_bar(last_dead_bar)])], ignore_index=True)
+    provider = _FakeProvider(("LIVE", "DEAD"), [_result(window)])
+
+    clean_path, message = _run_real_validation(provider, monkeypatch, tmp_path, stored)
+
+    final = _stored(clean_path)
+    assert _TODAY in set(final.loc[final.etf_id.eq("LIVE"), "date"])
+    pd.testing.assert_frame_equal(
+        final.loc[final.etf_id.eq("DEAD")].reset_index(drop=True), _stored_from_frame(stored_dead), check_dtype=False,
+    )
+    assert "Validated and committed" in message
+    assert "No new bar, stored history kept (stale): DEAD." in message
+
+
+def test_stale_new_bar_still_blocks_the_commit(monkeypatch, tmp_path):
+    floor = years_before(_TODAY, 5)
+    shared = date(2026, 10, 30)
+    stored = pd.concat(
+        [
+            _price_frame("LIVE", [_bar(floor), _bar(shared)]),
+            _price_frame("LATE", [_bar(floor), _bar(date(2026, 10, 16))]),
+        ],
+        ignore_index=True,
+    )
+    window = pd.concat(
+        [
+            _price_frame("LIVE", [_bar(shared), _bar(_TODAY)]),
+            _price_frame("LATE", [_bar(date(2026, 10, 16)), _bar(date(2026, 10, 19))]),  # new, but already stale
+        ],
+        ignore_index=True,
+    )
+    provider = _FakeProvider(("LIVE", "LATE"), [_result(window)])
+
+    clean_path, message = _run_real_validation(provider, monkeypatch, tmp_path, stored)
+
+    assert _TODAY not in set(_stored(clean_path)["date"])
+    assert "not committed because validation blocked them" in message
+    assert "LATE" in message
