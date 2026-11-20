@@ -196,7 +196,7 @@ def test_b1r_fits_and_scores_on_a_vintage_fixture_that_meets_the_minima(tmp_path
 
 
 def test_feature_vintage_is_written_once_and_the_panel_accepts_it(tmp_path: Path) -> None:
-    from etf_cockpit.features.feature_observations import record_feature_observations
+    from etf_cockpit.application.feature_observations import record_feature_observations
 
     days = pd.bdate_range("2026-07-01", periods=80)
     session = days[-1].date()
@@ -239,7 +239,7 @@ def test_feature_vintage_is_written_once_and_the_panel_accepts_it(tmp_path: Path
 
 
 def test_feature_vintage_ignores_fx_ingested_after_its_known_at(tmp_path: Path) -> None:
-    from etf_cockpit.features.feature_observations import record_feature_observations
+    from etf_cockpit.application.feature_observations import record_feature_observations
 
     days = pd.bdate_range("2026-07-01", periods=80)
     known_at = _at(days[-1], "21:40:00")

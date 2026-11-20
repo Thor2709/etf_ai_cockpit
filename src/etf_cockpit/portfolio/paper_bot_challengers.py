@@ -17,13 +17,16 @@ import pandas as pd
 from etf_cockpit.core.config import load_config
 from etf_cockpit.core.pandas_values import bool_like_or_none
 from etf_cockpit.data.fx_data import load_fx_rates
-from etf_cockpit.features.feature_observations import FX_FILE_RELATIVE, VINTAGE_DIR_RELATIVE, known_prices
 from etf_cockpit.features.feature_pipeline import eur_basis_prices
 from etf_cockpit.features.feature_store import BUILTIN_FEATURES, FeatureStoreError, LocalFeatureStore
 from etf_cockpit.features.panel import PanelContractError, PITPanelInputs, build_pit_panel
 from etf_cockpit.models import cross_sectional_ranker as ranker
 from etf_cockpit.portfolio import paper_bots as bots
+from etf_cockpit.portfolio.paper_bots_execution import PRICE_FILE_RELATIVE
 from etf_cockpit.validation.protocol import ValidationSpec
+
+VINTAGE_DIR_RELATIVE = Path("data") / "derived" / "feature_vintages"
+FX_FILE_RELATIVE = Path("data") / "clean" / "fx.parquet"
 
 _SCOPE = "listing:sp500:all"
 _HORIZON = 63
@@ -50,6 +53,24 @@ def build_challenger_engines(root: Path, cutoff: datetime) -> tuple[dict[str, ob
         report[bots._OPTIMISER_ENGINE_NAME] = {"status": "available"}
     engines[bots._RANKER_SELECTOR], report[bots._RANKER_SELECTOR] = _ranker_scores(root, cutoff, prices)
     return engines, report
+
+
+def known_prices(root: Path, cutoff: datetime) -> pd.DataFrame:
+    """Stored price rows dated and known at or before ``cutoff``; a row (or store) without ``known_at`` is not admitted."""
+
+    path = Path(root) / PRICE_FILE_RELATIVE
+    if not path.is_file():
+        return pd.DataFrame()
+    frame = pd.read_parquet(path)
+    if "known_at" not in frame.columns or not {"etf_id", "date"}.issubset(frame.columns):
+        return frame.iloc[0:0]
+    cut = cutoff.astimezone(timezone.utc)
+    known = frame["known_at"].map(bots._parse_timestamp)
+    dates = pd.to_datetime(frame["date"], errors="coerce").dt.date
+    keep = known.map(lambda value: value is not None and value <= cut) & dates.map(lambda value: pd.notna(value) and value <= cut.date())
+    result = frame.loc[keep].copy()
+    result["date"] = dates.loc[keep]
+    return result
 
 
 def _eur_adjusted_prices(root: Path, cutoff: datetime) -> pd.DataFrame:
