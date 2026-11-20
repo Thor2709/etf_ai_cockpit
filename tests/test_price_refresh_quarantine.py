@@ -90,9 +90,11 @@ def test_full_refresh_rejects_whole_adjusted_series(monkeypatch, tmp_path, inval
 
     assert len(committed) == 1, message
     final = pd.read_parquet(clean_path)
-    pd.testing.assert_frame_equal(final.loc[final.etf_id.eq("A")].reset_index(drop=True), fetched.iloc[[0]])
+    # A new bar is restamped at retrieval; an unchanged stored bar keeps its stamps (C1).
+    unstamped = fetched.columns.drop("available_at")
+    pd.testing.assert_frame_equal(final.loc[final.etf_id.eq("A"), unstamped].reset_index(drop=True), fetched.iloc[[0]][unstamped])
     if has_history:
-        pd.testing.assert_frame_equal(final.loc[final.etf_id.eq("B")].reset_index(drop=True), stored)
+        pd.testing.assert_frame_equal(final.loc[final.etf_id.eq("B"), stored.columns].reset_index(drop=True), stored)
     else:
         assert set(final.etf_id) == {"A"}
         assert "PARTIAL refresh, not ok: no price data for B." in message

@@ -139,7 +139,7 @@ class YFinanceProvider(DataProvider, PriceProvider):
             checkpoint_path=(retrieval_root / "checkpoint.json") if retrieval_root is not None else None,
             max_retries=0,
             adjusted=False,
-            adapter_version="yfinance-download-v2-actions-evidenced",
+            adapter_version="yfinance-download-v3-per-row-actions-evidenced",
             limiter=provider_rate_limiter(self.name, max_calls_per_window=60, window_seconds=60.0),
             encode=encode_frame,
             decode=decode_frame,
@@ -366,6 +366,8 @@ class YFinanceProvider(DataProvider, PriceProvider):
                 "capital_gains": _numeric_frame_column(frame, "Capital Gains", default=0.0),
             }
         )
+        # Per-row action evidence: the download asked for actions and returned this row's dividends and splits.
+        out["actions_evidenced"] = require_actions & out["dividends"].notna() & out["stock_splits"].notna()
         if require_actions and out["adjusted_close"].isna().any():
             raise ValueError("Adjusted close is missing or non-positive.")
         if not require_actions:

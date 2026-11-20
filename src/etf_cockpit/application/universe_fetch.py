@@ -44,6 +44,7 @@ from etf_cockpit.data.import_pipeline import (
     _parquet_bytes,
     _parquet_validator,
     _metadata_to_json,
+    stamp_price_availability,
 )
 from etf_cockpit.data.provenance import metadata_from_frame, sha256_dataframe
 from etf_cockpit.data.universe_store import load_universe
@@ -425,7 +426,9 @@ def _worker(items, options, start, end, result_path, factory):
                 row["provider_attempts"] = frame.attrs.get("provider_attempts", [])
                 frame = _validate_frame(frame, item, start, end, quarantine_ohlc=True)
                 frame["provider"] = frame["source"]
-                if item.kind == "prices":
+                if item.kind == "prices" and "actions_evidenced" not in frame:
+                    # The chain asked for actions and _validate_frame required finite per-row dividends and
+                    # splits; a provider's own per-row value is kept (C1).
                     frame["actions_evidenced"] = True
                 stage = options.staging / f"{item.key}.parquet"
                 atomic_write_bytes(stage, _parquet_bytes(frame), validator=_parquet_validator(len(frame)))
@@ -505,7 +508,8 @@ def promote_staging(options: FetchOptions, rows: list[dict], items: list[FetchIt
             frame = _validated_stage(stage, item, start, end)
             frames[item.kind].append(frame)
         extra, merged = [], {}
-        timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+        now = datetime.now(timezone.utc)
+        timestamp = now.strftime("%Y%m%dT%H%M%S%fZ")
         for kind, batches in frames.items():
             if not batches:
                 continue
@@ -516,6 +520,9 @@ def promote_staging(options: FetchOptions, rows: list[dict], items: list[FetchIt
             combined = pd.concat([stored, incoming], ignore_index=True) if not stored.empty else incoming
             combined[date_column] = pd.to_datetime(combined[date_column])
             combined = combined.drop_duplicates([id_column, date_column], keep="last").sort_values([id_column, date_column]).reset_index(drop=True)
+            if kind == "prices":
+                # Stored-only bars pass as unchanged, so they keep (or recover) their stamps (C1).
+                combined = stamp_price_availability(stored if not stored.empty else None, combined, retrieved_at=now)
             merged[kind] = combined
             payload = _parquet_bytes(combined)
             checksum = sha256_dataframe(combined)
@@ -540,7 +547,9 @@ def promote_staging(options: FetchOptions, rows: list[dict], items: list[FetchIt
                         "universe_revision": revision, "execution_allowed": False,
                         "sources": sorted(incoming["source"].astype(str).unique().tolist()),
                         "requested_start": start.isoformat(), "requested_end": end.isoformat(),
-                        "availability": "per-row fetched_at/ingested_at/available_at retained"}
+                        "availability": ("per-bar ingested_at/known_at/available_at/actions_evidenced from "
+                                         "stamp_price_availability (C1)" if kind == "prices"
+                                         else "per-row fetched_at/ingested_at/available_at retained")}
             meta_path = _destination(root, f"{snapshot_dir}/{timestamp}_{checksum[:12]}_{kind}_metadata.json")
             extra.append(AtomicWriteRequest(meta_path, json.dumps(metadata, indent=2).encode(), _json_validator))
             if kind == "fx":

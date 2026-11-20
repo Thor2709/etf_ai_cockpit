@@ -350,6 +350,7 @@ def test_revised_in_window_bar_replaces_old_bar_and_keeps_old_availability(monke
     stored = _price_frame("AAA", [_bar(floor), _bar(before_window), _bar(revised_day, 100, hour=21)])
     revised = _price_frame("AAA", [_bar(revised_day, 102, adjusted=100, hour=23), _bar(_TODAY)])
     provider = _FakeProvider(("AAA",), [_result(revised)])
+    started = pd.Timestamp.now(tz="UTC")
 
     clean_path, _message = _run(provider, monkeypatch, tmp_path, stored)
 
@@ -357,7 +358,9 @@ def test_revised_in_window_bar_replaces_old_bar_and_keeps_old_availability(monke
     revised_row = final[final["date"].eq(revised_day)].iloc[0]
     prior_row = final[final["date"].eq(before_window)].iloc[0]
     assert revised_row["close"] == 102
-    assert pd.Timestamp(revised_row["available_at"]) == pd.Timestamp("2026-10-30T23:00:00Z")
+    # A revised bar is restamped at retrieval (C1), never at the provider's earlier claim.
+    assert pd.Timestamp(revised_row["available_at"]) == pd.Timestamp(revised_row["known_at"])
+    assert pd.Timestamp(revised_row["known_at"]) >= started
     assert pd.Timestamp(prior_row["available_at"]) == pd.Timestamp("2026-10-15T21:00:00Z")
 
 
@@ -465,6 +468,8 @@ def test_full_refetch_workflow_transition_error_propagates(monkeypatch, tmp_path
 def _stored_from_frame(frame: pd.DataFrame) -> pd.DataFrame:
     result = frame.copy()
     result["date"] = pd.to_datetime(result["date"]).dt.date
+    # An unchanged stored bar keeps its stamps and recovers known_at from ingested_at (C1).
+    result["known_at"] = result["ingested_at"]
     return result
 
 
@@ -709,16 +714,20 @@ def test_invalid_adjusted_window_keeps_original_history(monkeypatch, tmp_path, i
     real_validate = data_service.validate_prices
     clean_path = _prepare(monkeypatch, tmp_path, provider, stored)
     monkeypatch.setattr(data_service, "validate_prices", real_validate)
+    started = pd.Timestamp.now(tz="UTC")
 
     message = DataService(config=None).refresh_yfinance_data(
         include_reference_data=False, include_fundamentals=False, incremental=True,
     )
 
     final = _stored(clean_path)
-    expected_a = pd.concat([stored_a.iloc[:1], window_a], ignore_index=True)
-    pd.testing.assert_frame_equal(
-        final.loc[final.etf_id.eq("A")].reset_index(drop=True), _stored_from_frame(expected_a), check_dtype=False,
-    )
+    expected_a = _stored_from_frame(pd.concat([stored_a.iloc[:1], window_a], ignore_index=True))
+    actual_a = final.loc[final.etf_id.eq("A")].reset_index(drop=True)
+    # The kept bar keeps its stamps; the revised and the new bar are stamped at retrieval (C1).
+    stamps = ["ingested_at", "known_at", "available_at"]
+    pd.testing.assert_frame_equal(actual_a.drop(columns=stamps), expected_a.drop(columns=stamps), check_dtype=False)
+    assert actual_a.loc[0, stamps].tolist() == expected_a.loc[0, stamps].tolist()
+    assert actual_a["known_at"].iloc[1:].ge(started).all()
     if has_history:
         pd.testing.assert_frame_equal(
             final.loc[final.etf_id.eq("B")].reset_index(drop=True), _stored_from_frame(stored_b), check_dtype=False,
