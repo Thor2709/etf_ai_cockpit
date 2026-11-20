@@ -125,6 +125,9 @@ def _refresh(
         refresh_options = {
             "incremental": incremental,
             "include_fundamentals": include_fundamentals,
+            # Without fundamentals (nightly) skip reference metadata (~2 Yahoo calls per ETF);
+            # the full weekly refresh_stock_fundamentals.py run refreshes it.
+            "include_reference_data": include_fundamentals,
         }
         if include_fx:
             refresh_options["include_fx"] = True
