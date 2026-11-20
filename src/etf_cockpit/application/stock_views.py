@@ -13,6 +13,7 @@ from etf_cockpit.analysis import stock_metrics as sm
 from etf_cockpit.analysis import stock_text as tx
 from etf_cockpit.analysis.stock_evidence import METRIC_LABELS, StockEvidence
 from etf_cockpit.analysis.stock_metrics import Metric
+from etf_cockpit.application import sec_evidence_refresh as sec_evidence
 from etf_cockpit.application.score_views import score_coverage
 from etf_cockpit.application.stock_service import snapshot_stock_evidence
 from etf_cockpit.data import stock_notes
@@ -232,6 +233,21 @@ def _fiscal_rows(periods: list[Any], currency: str | None) -> list[dict[str, str
     return rows
 
 
+def _sec_rows(instrument_id: str, universe: Any) -> list[NumberRow]:
+    """SEC evidence stored by the weekly refresh, as known at the universe decision time."""
+
+    when = universe.decision_time
+    sue, detail, reason = sec_evidence.sue_revenue_feature(None, instrument_id, when)
+    cik = universe.snapshots.get(instrument_id, {}).get("cik")
+    insider = sec_evidence.insider_features(None, instrument_id, cik, when)["insider_net_open_market_shares"]
+    return [
+        NumberRow("sue_revenue", "Revenue surprise (SUE)", "—" if sue is None else f"{sue:+.2f}", detail, reason, available=sue is not None),
+        NumberRow("insider_net_open_market_shares", "Insider net open-market shares (90 d)",
+                  "—" if insider.value is None else f"{insider.value:+,.0f}", "Form 4 · officers and directors · SEC EDGAR",
+                  insider.reason, available=insider.status == "ok"),
+    ]
+
+
 def build_stock_page_model(snapshot: Any, instrument_id: str, score_row: Any | None = None) -> StockPageModel:
     """Everything the stock page shows, from the shared evidence; unavailable parts carry their reason."""
 
@@ -268,7 +284,10 @@ def build_stock_page_model(snapshot: Any, instrument_id: str, score_row: Any | N
         model.headline = "No score: the score list has no row for this instrument (add it to the universe and run the algorithms)."
     model.sentences = tx.describe_stock(evidence, cfg_text, int(cfg.get("valuation", {}).get("history_years", 5)))
     for title, keys in NUMBER_GROUPS:
-        model.numbers.append((title, [number_row(evidence.metrics[k], evidence.reporting_currency) for k in keys]))
+        rows = [number_row(evidence.metrics[k], evidence.reporting_currency) for k in keys]
+        if title == "Earnings and returns":
+            rows += _sec_rows(instrument_id, universe)
+        model.numbers.append((title, rows))
     market = universe.prices.get(instrument_id)
     price_line: list[NumberRow] = []
     if market is not None:

@@ -1,7 +1,8 @@
 """Refresh normal-stock fundamentals from free sources (SEC EDGAR when configured, then yfinance).
 
 Usage: python scripts/refresh_stock_fundamentals.py [--root PATH] [--ids A,B]
-Read-only fetches; writes only data/clean/stock_*.parquet under the chosen root.
+Read-only fetches; writes data/clean/stock_*.parquet under the chosen root, then the SEC evidence
+(bitemporal store, raw SEC cache, document chunk store); an SEC evidence error never changes the exit code.
 """
 
 from __future__ import annotations
@@ -36,6 +37,16 @@ def main() -> int:
     print(f"rows added: {report.rows_added}; instruments without data: {len(report.failures)}")
     for key, reason in report.failures.items():
         print(f"  {key}: {reason}")
+    try:
+        from etf_cockpit.application.sec_evidence_refresh import refresh_sec_evidence
+
+        sec = refresh_sec_evidence(config, only_ids=only, progress=print)
+        print(
+            f"SEC evidence added: earnings rows {sec['earnings_rows']}; Form 4 filings {sec['insider_rows']}; "
+            f"10-K chunks indexed {sec['ten_k_chunks']}; targets with a gap: {len(sec['reasons'])}"
+        )
+    except Exception as exc:  # the stock refresh above already ran: keep its exit code
+        print(f"SEC evidence refresh unavailable: {type(exc).__name__}: {exc}")
     return 0
 
 

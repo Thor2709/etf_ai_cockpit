@@ -114,6 +114,8 @@ def _sue(quarters: list[dict], index: int, receipt: datetime) -> dict:
 def _reaction(instrument_id: str, receipt: datetime, exact_acceptance: bool, prices: pd.DataFrame, benchmark: pd.DataFrame) -> dict:
     if not exact_acceptance:
         return {"status": "unavailable", "reason": "sec_acceptance_time_unknown"}
+    if prices.empty:
+        return {"status": "unavailable", "reason": f"{instrument_id}:entry_close_missing"}
     day = receipt.date()
     schedule = xcals.get_calendar("XETR", start=str(day - timedelta(days=10)), end=str(day + timedelta(days=20))).schedule
     after = (schedule["close"] > pd.Timestamp(receipt)).to_numpy().nonzero()[0]
@@ -171,23 +173,40 @@ def compute_earnings_events(
     return {"status": "available" if events else "unavailable", "reason": None if events else "no_quarterly_revenue", "events": events}
 
 
-def record_earnings_events(store: BitemporalStore, instrument_id: str, events: list[dict], *, run_id: str) -> None:
-    """Append available features as observed rows; rows already stored are skipped."""
-    stored = {item.stable_id for item in store.observations(DATASET_ID, entity_id=instrument_id)}
+def record_earnings_events(
+    store: BitemporalStore, instrument_id: str, events: list[dict], *, run_id: str, revised_at: datetime | None = None,
+) -> None:
+    """Append available features as observed rows; rows already stored are skipped.
+
+    With ``revised_at``, a stored row whose release time was unavailable and is now known gets a new
+    revision, available from ``revised_at`` (never earlier), so an earlier decision never sees it.
+    """
+    latest = {}
+    for item in store.observations(DATASET_ID, entity_id=instrument_id):
+        if item.stable_id not in latest or item.revision > latest[item.stable_id].revision:
+            latest[item.stable_id] = item
     for event in events:
         for feature, result in event["features"].items():
             stable_id = f"{event['quarter_end']}:{feature}"
-            if result["status"] != "available" or stable_id in stored:
+            if result["status"] != "available":
                 continue
             value = {"feature": feature, "value": result["value"], "event_key": event["quarter_end"],
                      "event_definition": "sec_receipt", "sec_receipt_time": event["sec_receipt_time"],
                      "public_announcement_time": event.get("public_announcement_time", "unavailable"), "pit_grade": "observed", "inputs": result["inputs"]}
+            revision, available_at = 1, result["available_at"]
+            previous = latest.get(stable_id)
+            if previous is not None:
+                if revised_at is None or previous.value.get("public_announcement_time") != "unavailable" or value["public_announcement_time"] == "unavailable":
+                    continue
+                revision = previous.revision + 1
+                available_at = max(datetime.fromisoformat(previous.available_at), datetime.fromisoformat(result["available_at"]), revised_at)
             store.record_observation(
                 dataset_id=DATASET_ID, entity_id=instrument_id, stable_id=stable_id, value=value,
                 source_id="sec_receipt", source_checksum=hashlib.sha256(
                     json.dumps(value, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest(),
-                revision=1, valid_from=event["sec_receipt_time"], published_at=event["sec_receipt_time"],
-                observed_at=event["sec_receipt_time"], available_at=result["available_at"], run_id=run_id,
+                revision=revision, valid_from=event["sec_receipt_time"], published_at=event["sec_receipt_time"],
+                observed_at=event["sec_receipt_time"], available_at=available_at, run_id=run_id,
+                revised_at=revised_at if revision > 1 else None,
                 availability_confidence="exact" if event["exact_acceptance"] else "inferred",
             )
 

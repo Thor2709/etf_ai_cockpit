@@ -121,6 +121,8 @@ def _filing(ed: SimpleNamespace, source: bytes, forms: tuple[str, ...], known_at
     filing = ed.Filing.from_sgml_text(text)
     if filing.form not in forms:
         raise SecFilingDocumentUnavailable(f"filing form {filing.form} is not {' or '.join(forms)}")
+    if not filing.sgml().html():  # else Filing.html() downloads the homepage primary document
+        raise SecFilingDocumentUnavailable("filing has no stored HTML primary document")
     return filing
 
 
