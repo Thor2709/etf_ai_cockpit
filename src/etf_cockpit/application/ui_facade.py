@@ -315,6 +315,7 @@ from etf_cockpit.application.paper_views import (
 )
 from etf_cockpit.application.identity_views import (
     load_classification_projection,
+    load_identity_hints,
     load_identity_projection,
     load_peer_cohort_projection,
     save_classification_overrides,
@@ -496,6 +497,7 @@ __all__ = [
     "load_fixed_income_screener",
     "load_fixed_income_terms_projection",
     "load_fundamental_evidence",
+    "load_identity_hints",
     "load_identity_projection",
     "load_innovation_projection",
     "load_latest_forecasts",

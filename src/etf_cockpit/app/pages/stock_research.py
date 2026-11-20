@@ -898,7 +898,7 @@ def _stock_statements(state: AppState, key: str, score: object) -> ft.Control | 
         return None
     config = getattr(getattr(state, "snapshot", None), "config", None)
     cards = [
-        *sp.numbers_cards(stock, ("Earnings and returns", "Cash and balance sheet")),
+        *sp.numbers_cards(stock, ("Earnings and returns", "Cash and balance sheet", "Quality and accounting")),
         sp.valuation_card(stock),
         sp.peers_card(stock, config),
         sp.fiscal_history_card(stock),

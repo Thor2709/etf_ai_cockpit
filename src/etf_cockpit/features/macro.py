@@ -15,7 +15,7 @@ from typing import Iterable, Mapping
 import numpy as np
 import pandas as pd
 
-from etf_cockpit.features.regime import build_market_regime, per_series_returns
+from etf_cockpit.features.regime import build_market_regime, filtered_stress_probability, per_series_returns
 from etf_cockpit.portfolio.benchmark_reference import (
     clip_to_decision_window,
     unavailable_reference_projection,
@@ -35,6 +35,18 @@ def macro_status() -> str:
     """Describe the authority boundary of the macro context workspace."""
 
     return "Local macro context is evidence-only; optional provider refresh is not required."
+
+
+def _benchmark_stress_probability(returns: pd.DataFrame, benchmark_id: str | None) -> dict[str, object]:
+    """Filtered stress probability of the benchmark; stale after the regime's five-session fill limit."""
+
+    unavailable = {"status": "unavailable", "probability": None, "execution_allowed": False}
+    series = returns[benchmark_id].dropna() if benchmark_id in returns.columns else pd.Series(dtype=float)
+    if series.empty:
+        return {**unavailable, "reason": "Canonical benchmark series is unavailable."}
+    if int((returns.index > series.index[-1]).sum()) > 5:
+        return {**unavailable, "reason": f"Benchmark series is stale (last return {series.index[-1].date().isoformat()})."}
+    return filtered_stress_probability(series, series.index[-1])
 
 
 def build_macro_context(
@@ -58,15 +70,18 @@ def build_macro_context(
 
     required = {"date", "etf_id", "adjusted_close"}
     reference = dict(benchmark_reference or unavailable_reference_projection())
-    if (benchmark_data_id is not None or benchmark_reference is not None) and validate_benchmark_reference(
-        benchmark_reference,
-        benchmark_data_id,
-        registry=benchmark_registry,
-    ) is None:
-        return _unavailable(
-            "Canonical benchmark/cash resolution is unavailable.",
-            benchmark_reference=reference,
+    canonical_benchmark_id = None
+    if benchmark_data_id is not None or benchmark_reference is not None:
+        canonical_benchmark_id = validate_benchmark_reference(
+            benchmark_reference,
+            benchmark_data_id,
+            registry=benchmark_registry,
         )
+        if canonical_benchmark_id is None:
+            return _unavailable(
+                "Canonical benchmark/cash resolution is unavailable.",
+                benchmark_reference=reference,
+            )
     if prices is None or prices.empty or not required.issubset(prices.columns):
         return _unavailable("No local adjusted-close price snapshot is available.")
     if "is_adjusted" in prices.columns and not prices["is_adjusted"].map(_adjusted_flag_is_true).all():
@@ -158,6 +173,8 @@ def build_macro_context(
             "score_10": regime.get("regime_score_10"),
             "summary": str(regime.get("summary", "Regime unavailable.")),
         },
+        # INT-19 shadow context: filtered (never smoothed) high-variance state probability of the benchmark.
+        "stress_probability": _benchmark_stress_probability(returns, canonical_benchmark_id),
         "optional_fred": {
             "status": "unavailable",
             "message": "Optional FRED is probe-only and no network request was made.",

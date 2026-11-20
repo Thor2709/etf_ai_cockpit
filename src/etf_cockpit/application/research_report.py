@@ -118,6 +118,15 @@ def write_report(report: ResearchReport, destination: Path, chunk_store: Path) -
     return {"status": "written", "path": str(result.destination), "sha256": result.sha256}
 
 
+def export_commentary_report(commentary: str, generated_at: str, *, root: Path) -> dict[str, object]:
+    """INT-26: write local model commentary as a grounded Markdown report under ``root/data/reports``."""
+
+    report = build_research_report("Local model audit commentary", generated_at, (), commentary=commentary)
+    stamp = re.sub(r"[^0-9TZ]", "", report.as_of)
+    data = Path(root) / "data"
+    return write_report(report, data / "reports" / f"research_report_{stamp}.md", data / document_chunks.CHUNK_STORE_NAME)
+
+
 def _metric_token(report: ResearchReport, metric: Metric, as_html: bool) -> str:
     value = format_metric(metric, report.currency)
     if as_html:

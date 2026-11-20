@@ -663,6 +663,8 @@ def risk_page(page: ft.Page | None, state: AppState, *, _deferred: bool = False)
         eligible_holdings,
     )
     robust_risk = build_robust_risk_report(snapshot.prices, allocation, factor_report=factors)
+    volatility_forecast = robust_risk.get("volatility_forecast", {})
+    forecast_volatility = volatility_forecast.get("annualised_volatility")
     factor_history = factors.get("factor_returns", pd.DataFrame())
     attribution = build_performance_attribution(
         snapshot.prices,
@@ -749,7 +751,11 @@ def risk_page(page: ft.Page | None, state: AppState, *, _deferred: bool = False)
                 f"{correlation_window}d" if correlation.attrs.get("status") in {"available", "partial"} else None,
                 "Adjusted-price log returns",
             ),
-            KpiStripItem("Volatility (ann.)", None, "Bootstrap interval unavailable"),
+            KpiStripItem(
+                "Volatility forecast (ann.)",
+                format_percent(forecast_volatility) if forecast_volatility is not None else None,
+                volatility_forecast.get("reason") or "GJR-GARCH(1,1), next 20 sessions",
+            ),
         ],
     )
 

@@ -45,6 +45,7 @@ from etf_cockpit.models.forecast_scores import (
     forecast_return_distributions,
     load_latest_forecasts,
 )
+from etf_cockpit.models.calibration import load_forecast_history
 from etf_cockpit.models.local_weights import LocalModelStatus
 from etf_cockpit.models.registry import (
     model_availability,
@@ -238,12 +239,19 @@ def _build_snapshot(
             )
         )
     )
+    try:
+        forecast_history = load_forecast_history()
+    except (OSError, ValueError):  # shadow-only input: an unreadable history leaves the bridge unavailable
+        forecast_history = None
     _run_decision_shadow_guard(
         config,
         signals,
         decision_time=data_report.as_of_date,
         latest_features=latest,
-        price_history=features,
+        price_history=prices,
+        forecasts=forecasts,
+        forecast_history=forecast_history,
+        holdings=holdings,
     )
     def load_backtest() -> BacktestReport:
         from etf_cockpit.application.backtest_service import _empty_backtest_report, BacktestService

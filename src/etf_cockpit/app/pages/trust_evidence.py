@@ -21,7 +21,7 @@ from etf_cockpit.app.pages._glass import glass
 from etf_cockpit.app.state import ActivityUnavailableError, AppState
 from etf_cockpit.application.instrument_detail_view import normalise_feature_driver_frame
 from etf_cockpit.application.digest import contradiction_digest_records
-from etf_cockpit.core.paths import CLEAN_DIR, STATEMENT_FACTS_PATH
+from etf_cockpit.core.paths import CLEAN_DIR, ROOT, STATEMENT_FACTS_PATH
 from etf_cockpit.core.workflow import WorkflowTransitionError
 from etf_cockpit.application.ui_facade import (
     BENCHMARK_ATTRIBUTION_PATH,
@@ -73,6 +73,7 @@ from etf_cockpit.application.ui_facade import (
 )
 from etf_cockpit.application.diagnostics_views import plugin_status_rows
 from etf_cockpit.application.evidence_documents import _retain_picker_source
+from etf_cockpit.application.research_evidence import index_imported_pdf
 
 SFDR_RECORDS_PATH = CLEAN_DIR / "sfdr_records.parquet"
 
@@ -1252,7 +1253,9 @@ def _disclosure_import_controls(page: ft.Page, state: AppState) -> ft.Control:
             document_checksum = _document_checksum(_latest_document_row(registered, "kid"))
             warning_text = ", ".join(item.code for item in parsed.warnings) or "none"
             _require_disclosure_available("PRIIPs KID import", parsed)
-            return f"PRIIPs KID {instrument_id}: records={len(parsed.records)}, confidence={record.extraction_confidence if record else 'unavailable'}, pages={record.source_pages if record else ()}, warnings={warning_text}, checksum={document_checksum[:12]}..., success={parsed.success}."
+            with state.activity_publication(action_id):
+                chunks = index_imported_pdf(ROOT, retained_path, source_id=f"kid:{instrument_id}")
+            return f"PRIIPs KID {instrument_id}: records={len(parsed.records)}, confidence={record.extraction_confidence if record else 'unavailable'}, pages={record.source_pages if record else ()}, warnings={warning_text}, checksum={document_checksum[:12]}..., success={parsed.success}, search_chunks={'unavailable' if chunks is None else chunks}."
 
         _run_picker_activity(page, state, result, "Import PRIIPs KID", "Parsing PRIIPs KID", files[0], ".pdf", action)
 
@@ -1298,7 +1301,9 @@ def _disclosure_import_controls(page: ft.Page, state: AppState) -> ft.Control:
             document_checksum = _document_checksum(_latest_document_row(registered, "methodology"))
             warning_text = ", ".join(item.code for item in parsed.warnings) or "none"
             _require_disclosure_available("Methodology import", parsed)
-            return f"Methodology {instrument_id}/{provider or 'unknown provider'}: records={len(parsed.records)}, version={record.version if record else 'unavailable'}, pages={record.source_pages if record else ()}, warnings={warning_text}, checksum={document_checksum[:12]}..., success={parsed.success}."
+            with state.activity_publication(action_id):
+                chunks = index_imported_pdf(ROOT, retained_path, source_id=f"methodology:{instrument_id}")
+            return f"Methodology {instrument_id}/{provider or 'unknown provider'}: records={len(parsed.records)}, version={record.version if record else 'unavailable'}, pages={record.source_pages if record else ()}, warnings={warning_text}, checksum={document_checksum[:12]}..., success={parsed.success}, search_chunks={'unavailable' if chunks is None else chunks}."
 
         _run_picker_activity(
             page,
@@ -1340,7 +1345,9 @@ def _disclosure_import_controls(page: ft.Page, state: AppState) -> ft.Control:
                 publish_guard=lambda: state.activity_publication(action_id),
             )
             warning_text = ", ".join(item.code for item in parsed.warnings) or "none"
-            return f"SFDR {instrument_id}: classification={parsed.records[0].classification if parsed.records else 'unclassified'}, document={document_kind}, warnings={warning_text}, store={document}, score_eligible=false, execution_allowed=false."
+            with state.activity_publication(action_id):
+                chunks = index_imported_pdf(ROOT, retained_path, source_id=f"sfdr:{instrument_id}")
+            return f"SFDR {instrument_id}: classification={parsed.records[0].classification if parsed.records else 'unclassified'}, document={document_kind}, warnings={warning_text}, store={document}, search_chunks={'unavailable' if chunks is None else chunks}, score_eligible=false, execution_allowed=false."
 
         _run_picker_activity(page, state, result, "Import SFDR disclosure", "Parsing SFDR disclosure", files[0], ".pdf", action)
 

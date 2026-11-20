@@ -34,7 +34,9 @@ from etf_cockpit.application.chatgpt_review import (
     save_local_audit_commentary,
 )
 from etf_cockpit.application.chatgpt_review import ChatGPTBridge
+from etf_cockpit.application.research_report import export_commentary_report
 from etf_cockpit.application.scope_facade import load_authority_matrix
+from etf_cockpit.core.paths import ROOT
 
 Button = kit.Button.primary
 TextButton = kit.Button.secondary
@@ -238,6 +240,18 @@ def chatgpt_audit_page(page: ft.Page, state: AppState) -> PageView:
             state.release_activity(action_id)
             refresh_shell()
 
+    def export_report(_event: ft.ControlEvent) -> None:
+        report_source = getattr(state, "local_audit_report", None)
+        if not report_source:
+            llm_output.value = "Local model unavailable: generate local commentary first, then export the report."
+        else:
+            result = export_commentary_report(report_source["summary"], report_source["generated_at"], root=ROOT)
+            llm_output.value = (
+                f"Research report written: {result['path']}" if result["status"] == "written"
+                else "Research report not written: " + "; ".join(str(reason) for reason in result["reasons"])
+            )
+        page.update()
+
     def run_local_llm_audit(_event: ft.ControlEvent) -> None:
         action_id = start_activity("Generate local LLM commentary", "Preparing audit context", llm_output)
         if action_id is None:
@@ -268,6 +282,7 @@ def chatgpt_audit_page(page: ft.Page, state: AppState) -> PageView:
                         generation_time=status.generation_time,
                     )
                 llm_output.value = f"Local commentary saved. {commentary.summary}"
+                state.local_audit_report = {"summary": commentary.summary, "generated_at": str(status.generation_time)}
                 state.local_audit_output = llm_output.value
                 diary_output.value = _thesis_diary_text()
                 state.finish_activity(f"Saved local LLM commentary: {saved_path}", output_path=saved_path, expected_action_id=action_id)
@@ -423,6 +438,7 @@ def chatgpt_audit_page(page: ft.Page, state: AppState) -> PageView:
                     [
                         TextButton("Check LM Studio", key="chatgpt.check-llm", on_click=check_llm),
                         Button("Generate commentary", key="chatgpt.generate-commentary", on_click=run_local_llm_audit),
+                        TextButton("Export research report", key="chatgpt.export-report", on_click=export_report),
                     ],
                     spacing=8,
                 ),

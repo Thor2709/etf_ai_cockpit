@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 
 from etf_cockpit.analysis.fixed_income_risk import FixedIncomeRiskRecord
+from etf_cockpit.models.volatility_models import gjr_garch_variance_forecast
 from etf_cockpit.portfolio.factor_risk import _condition_number
 
 
@@ -16,6 +17,8 @@ ANNUALISATION_FACTOR = 252.0
 EQUAL_WEIGHT_FALLBACK_BASIS = "equal_weight_illustrative_fallback_no_allocation_evidence"
 FACTOR_MODEL_VALIDATION_NOTE = "factor_model_excluded_from_oos_selection_fit_window_not_training_only"
 ESTIMATOR_NAMES = ("sample", "ewma", "shrinkage", "robust", "diagonal", "oas", "factor_model")
+VOLATILITY_FORECAST_HORIZON = 20
+MIN_VOLATILITY_FORECAST_OBSERVATIONS = 60
 
 
 def build_robust_risk_report(
@@ -123,6 +126,7 @@ def build_robust_risk_report(
         "bootstrap": bootstrap,
         "regimes": regimes,
         "tail_risk": tail_risk,
+        "volatility_forecast": _volatility_forecast(returns, weights, coverage),
         "diagnostics": diagnostics,
         "warnings": warnings,
         "fixed_income_risk": fixed_income,
@@ -541,6 +545,24 @@ def _bootstrap_uncertainty(returns: pd.DataFrame, weights: pd.Series, *, block_s
     return {"status": "available", "observations": int(len(clean)), "repetitions": int(repetitions), "seed": int(seed), "block_size": int(block), "mean": float(distribution.mean()), "lower_5": float(np.quantile(distribution, 0.05)), "upper_95": float(np.quantile(distribution, 0.95)), "standard_deviation": float(distribution.std(ddof=1))}
 
 
+def _volatility_forecast(returns: pd.DataFrame, weights: pd.Series, coverage: dict[str, object]) -> dict[str, object]:
+    """INT-14 shadow challenger: GJR-GARCH(1,1) annualised volatility of the weighted log return, next 20 sessions."""
+
+    base: dict[str, object] = {"model": "gjr_garch", "horizon_sessions": VOLATILITY_FORECAST_HORIZON, "annualised_volatility": None}
+    if coverage.get("unpriced_instruments"):
+        return base | {"status": "unavailable", "reason": "unpriced holdings carry unmeasured risk"}
+    held = [instrument for instrument in returns.columns if weights.get(instrument, 0.0) != 0.0]
+    if not held:
+        return base | {"status": "unavailable", "reason": "no invested weight to forecast"}
+    clean = returns[held].dropna(how="any")
+    if len(clean) < MIN_VOLATILITY_FORECAST_OBSERVATIONS:
+        return base | {"status": "unavailable", "reason": f"at least {MIN_VOLATILITY_FORECAST_OBSERVATIONS} shared return observations are required"}
+    portfolio = pd.Series(clean @ weights.reindex(held).to_numpy(float), index=clean.index)
+    forecast = gjr_garch_variance_forecast(portfolio, VOLATILITY_FORECAST_HORIZON)
+    volatility = float(np.sqrt(forecast.variance * ANNUALISATION_FACTOR / VOLATILITY_FORECAST_HORIZON)) if np.isfinite(forecast.variance) else None
+    return base | {"annualised_volatility": volatility, "status": forecast.status, "reason": forecast.reason}
+
+
 def _regime_report(returns: pd.DataFrame, weights: pd.Series) -> pd.DataFrame:
     clean = returns.dropna(how="any")
     if clean.empty:
@@ -689,6 +711,10 @@ def _unavailable_report(message: str, returns: pd.DataFrame, weights: pd.Series)
     return {
         "status": "unavailable",
         "message": message,
+        "volatility_forecast": {
+            "model": "gjr_garch", "horizon_sessions": VOLATILITY_FORECAST_HORIZON, "annualised_volatility": None,
+            "status": "unavailable", "reason": message,
+        },
         "model_version": ROBUST_RISK_MODEL_VERSION,
         "execution_allowed": False,
         "returns": returns,
