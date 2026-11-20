@@ -4,17 +4,24 @@ from dataclasses import replace
 from types import SimpleNamespace
 import json
 
+import numpy as np
 import pandas as pd
+import pytest
 
 from etf_cockpit.application import score_backfill
 from etf_cockpit.core.config import load_config
 from etf_cockpit.core.research_states import ResearchState
 from etf_cockpit.core.types import DataQualityIssue
+from etf_cockpit.data.validation import validate_prices
+from etf_cockpit.features.feature_pipeline import compute_features, latest_features
+from etf_cockpit.models.calibration import adjusted_log_return_target
+from etf_cockpit.models.forecast_scores import PRIMARY_MODEL_HORIZON_DAYS, forecast_return_distributions
 from etf_cockpit.signals import signal_pipeline as pipeline
 from etf_cockpit.signals import simple_scores
 from etf_cockpit.signals.gates import evaluate_risk_gates
 from tests._pit_listing import verified_listing_history  # noqa: F401
 from tests.test_bug_fc3_gates_calibration import SIGNAL_DATE, _metadata, _report, _signal
+from tests.test_fix_score_20261023 import DAY, local  # noqa: F401  (fixture: VWCE + LYP6 with offline lookups)
 from tests.test_score_backfill import AS_OF, _eur_ids, _prices, _run
 
 
@@ -28,7 +35,7 @@ def _canonical(**changes):
     return SimpleNamespace(**{**values, **changes})
 
 
-def _generate(monkeypatch, *, caps=None, changes=None):
+def _generate(monkeypatch, *, caps=None, changes=None, drift=-0.2, report=None, **kwargs):
     row = {
         "etf_id": "AAA", "total_score": 0.8, "confidence": 0.8,
         "current_weight": 0.0, "target_weight": 0.2, "hard_band": 0.05,
@@ -39,7 +46,7 @@ def _generate(monkeypatch, *, caps=None, changes=None):
     row.update(changes or {})
     monkeypatch.setattr(pipeline, "component_scores", lambda *a, **k: pd.DataFrame([row]))
     monkeypatch.setattr(pipeline, "allocation_frame", lambda *a: pd.DataFrame([
-        {"etf_id": "AAA", "drift": -0.2, "role": "core", "name": "AAA"},
+        {"etf_id": "AAA", "drift": drift, "role": "core", "name": "AAA"},
     ]))
     monkeypatch.setattr(pipeline, "canonical_score_from_signal_row", lambda *a, **k: _canonical())
     monkeypatch.setattr(pipeline, "portfolio_value", lambda *a: 100_000.0)
@@ -54,9 +61,59 @@ def _generate(monkeypatch, *, caps=None, changes=None):
     })
     return pipeline.generate_signals(
         load_config(), pd.DataFrame([{"etf_id": "AAA"}]),
-        pd.DataFrame([{"etf_id": "AAA", "current_weight": 0.0}]), _report(_metadata()),
-        as_of_date=SIGNAL_DATE, run_id="fix-gate", publish=False, structure_confidence_caps=caps,
+        pd.DataFrame([{"etf_id": "AAA", "current_weight": 0.0}]), report or _report(_metadata()),
+        as_of_date=SIGNAL_DATE, run_id="fix-gate", publish=False, structure_confidence_caps=caps, **kwargs,
     )[0]
+
+
+def _gate_map(signal):
+    return {gate.gate_id: gate for gate in signal.authority_decision.gates}
+
+
+def test_portfolio_only_inputs_fail_portfolio_fit_not_the_research_gates(monkeypatch):
+    # Portfolio target/holdings warnings (ALL-level or on the instrument) are portfolio context, not signal warnings.
+    for scope, code in (
+        ("ALL", "target_total_invalid"), ("AAA", "target_policy_violation"), ("AAA", "current_concentration_violation"),
+        ("ALL", "stale_holdings_warning"), ("AAA", "holding_weight_value_mismatch"),
+    ):
+        report = _report(_metadata(), issues=[DataQualityIssue(scope, "warning", code, "portfolio context")])
+        signal = _generate(monkeypatch, report=report)
+        gates = _gate_map(signal)
+        assert code not in signal.warnings, code
+        assert gates["signal"].passed and not gates["portfolio_fit"].passed, code
+    # A non-target instrument has no target, band or drift; that is portfolio context, not missing research input.
+    signal = _generate(monkeypatch, changes={"current_weight": None, "target_weight": None, "hard_band": None}, drift=None)
+    gates = _gate_map(signal)
+    assert "signal_inputs_unavailable" not in signal.blocked_by
+    assert gates["risk"].passed and gates["signal"].passed and not gates["portfolio_fit"].passed
+    assert signal.action == "hold" and signal.suggested_new_weight is None
+    assert signal.authority_decision.portfolio_review_allowed is False
+
+
+def test_portfolio_only_code_with_block_severity_still_blocks(monkeypatch):
+    report = _report(_metadata(), issues=[DataQualityIssue("AAA", "block", "target_policy_violation", "blocked")])
+    signal = _generate(monkeypatch, report=report)
+    assert "target_policy_violation" in signal.blocked_by
+    assert not _gate_map(signal)["risk"].passed and not _gate_map(signal)["data_quality"].passed
+
+
+def test_signal_gate_uses_the_canonical_non_material_notices(monkeypatch):
+    for code, material in (("return_outlier", False), ("zero_volume", False), ("some_new_warning_code", True)):
+        report = _report(_metadata(), issues=[DataQualityIssue("AAA", "warning", code, "notice")])
+        signal = _generate(monkeypatch, report=report)
+        assert code in signal.warnings
+        assert _gate_map(signal)["signal"].passed is not material, code
+
+
+def test_nan_narrative_warning_ignores_absent_optional_models_and_portfolio_drift(monkeypatch):
+    nan = float("nan")
+    absent = {"score_momentum": 0.5, "score_trend": 0.5, "score_risk": 0.5, "score_baseline_ml": 0.5,
+              "score_toto": nan, "score_timesfm": nan}
+    signal = _generate(monkeypatch, changes=absent, drift=nan, preserve_snapshot_narrative_warning=True)
+    assert "nonfinite_score_narrative_suppressed" not in signal.warnings
+    for key, value, available in (("score_risk", nan, {}), ("score_toto", nan, {"toto_available": True})):
+        signal = _generate(monkeypatch, changes={**absent, key: value}, preserve_snapshot_narrative_warning=True, **available)
+        assert "nonfinite_score_narrative_suppressed" in signal.warnings, key
 
 
 def test_valuation_uses_fresh_stock_value_and_is_not_applicable_to_etfs():
@@ -69,7 +126,7 @@ def test_valuation_uses_fresh_stock_value_and_is_not_applicable_to_etfs():
         ("STOCK", ({**component, "raw_metric": float("nan")},), False),
     ):
         signal = _signal(action="buy", canonical_score=_canonical(asset_type=asset_type, components=components))
-        decision = pipeline._attach_authority(signal, _report(_metadata())).authority_decision
+        decision = pipeline._attach_authority(signal, _report(_metadata()), portfolio_inputs_available=True).authority_decision
         gate = next(gate for gate in decision.gates if gate.gate_id == "valuation")
         assert gate.passed is expected
         assert decision.research_promotion_allowed is expected
@@ -141,7 +198,7 @@ def test_authority_routes_scoped_issues_cost_warnings_and_all_active_risk_and_li
             )
             assert ("portfolio_validation_block" in blocked) == (scope == "ALL")
             assert (code in blocked) == (scope in {"AAA", "ALL"})
-            decision = pipeline._attach_authority(replace(signal, blocked_by=blocked), report).authority_decision
+            decision = pipeline._attach_authority(replace(signal, blocked_by=blocked), report, portfolio_inputs_available=True).authority_decision
             gates = {gate.gate_id: gate for gate in decision.gates}
             assert gates["risk"].passed is (scope == "BBB")
             assert gates["data_quality"].passed is (scope == "BBB")
@@ -156,7 +213,7 @@ def test_authority_routes_scoped_issues_cost_warnings_and_all_active_risk_and_li
         "signal_inputs_unavailable", "expected_drawdown_gate", "model_disagreement",
     )
     for code in codes:
-        decision = pipeline._attach_authority(replace(signal, blocked_by=[code]), _report(_metadata())).authority_decision
+        decision = pipeline._attach_authority(replace(signal, blocked_by=[code]), _report(_metadata()), portfolio_inputs_available=True).authority_decision
         gates = {gate.gate_id: gate for gate in decision.gates}
         cost_only = code.startswith("edge_")
         assert gates["cost"].passed is not cost_only
@@ -289,3 +346,71 @@ def test_configured_equity_certificate_rows_take_native_path_not_generic_scoring
     assert native[0].final_score_10 == 8.0 and native[0].analysis_tier == "sparebanken"
     assert native[0].canonical_score is None and native[0].execution_allowed is False
     assert cutoffs == [SIGNAL_DATE.isoformat()]
+
+
+def _real_board(config, monkeypatch, *, short_id=None):
+    """Real path: price validation, features, generate_signals and the universe score build with a valid forecast."""
+    days = pd.bdate_range(end=DAY, periods=320)
+    rows = []
+    for etf_id, seed, drift in (("VWCE", 7, 0.0008), ("LYP6", 11, 0.0004)):
+        closes = 100.0 * np.exp(np.cumsum(drift + np.random.default_rng(seed).normal(0.0, 0.006, len(days))))
+        rows += [{"etf_id": etf_id, "date": day, "open": close, "close": close, "adjusted_close": close,
+                  "high": close * 1.004, "low": close * 0.996, "volume": 500_000.0, "currency": "EUR", "is_adjusted": True}
+                 for day, close in list(zip(days, closes))[-150 if etf_id == short_id else 0:]]
+    prices = pd.DataFrame(rows)
+    report = validate_prices(prices, config=config)
+    latest = latest_features(compute_features(prices, benchmark_etf_id="VWCE"), report.as_of_date)
+    forecasts = pd.DataFrame([{
+        "model_name": "baseline", "model_id": "baseline-v1", "model_version": "v1", "etf_id": etf_id,
+        "target_id": adjusted_log_return_target(PRIMARY_MODEL_HORIZON_DAYS).target_id,
+        "horizon_days": PRIMARY_MODEL_HORIZON_DAYS, "expected_return": 0.03, "q05_return": -0.04, "q10_return": -0.02,
+        "q25_return": 0.005, "q50_return": 0.03, "q75_return": 0.055, "q90_return": 0.08, "q95_return": 0.10,
+        "coverage_ratio": 0.8, "status": "ok", "model_allowed_in_score": True, "forecast_date": pd.Timestamp(DAY, tz="UTC"),
+    } for etf_id in ("VWCE", "LYP6")])
+    distributions = forecast_return_distributions(forecasts, decision_time=pd.Timestamp(DAY, tz="UTC"))
+    signals = pipeline.generate_signals(
+        config, latest, pd.DataFrame(columns=["etf_id", "current_weight", "market_value_eur"]), report,
+        as_of_date=report.as_of_date, publish=False, forecast_distributions=distributions,
+        preserve_snapshot_narrative_warning=True,
+    )
+    monkeypatch.setattr(simple_scores, "build_correlation_clusters", lambda *a, **k: SimpleNamespace(rows=[]))
+    scores = simple_scores.build_universe_simple_scores(config, signals, forecasts, prices, fx_rates=pd.DataFrame())
+    board = simple_scores.rank_and_finalize_scores(scores, prices, {}, news_inventory={})
+    return report, {row.display_id: row for row in board}
+
+
+@pytest.mark.xfail(strict=True, reason=(
+    "Blocked by gates this fix must not change: canonical coverage 0.354 < minimum 0.50 (the baseline forecast "
+    "component has no as_of_date, so it is never score-eligible) turns the label into insufficient_evidence; and the "
+    "cost gate has no net edge because a hold row has no positive order value (trade_value_eur None)."
+))
+def test_clean_deterministic_row_with_a_valid_forecast_is_promotable(local, monkeypatch):
+    _report_unused, board = _real_board(local, monkeypatch)
+    assert board["VWCE"].research_promotion_allowed is True
+
+
+def test_clean_deterministic_row_fails_only_the_coverage_and_cost_gates(local, monkeypatch):
+    # Known blockers of the strict xfail above; every other research gate of the clean row passes.
+    _report_unused, board = _real_board(local, monkeypatch)
+    gates = {gate.gate_id: gate for gate in board["VWCE"].authority_decision.gates}
+    assert {gate_id for gate_id, gate in gates.items() if not gate.passed} == {"signal", "cost"}
+    assert gates["signal"].message == "Material score warnings: critical_evidence_insufficient"
+    assert board["VWCE"].canonical_score.coverage < 0.5 and board["VWCE"].net_expected_edge_bps is None
+
+
+def test_short_history_row_is_published_but_not_promotable(local, monkeypatch):
+    from etf_cockpit.application.scoreboard_publication import _require_publishable_snapshot
+
+    report, board = _real_board(local, monkeypatch, short_id="LYP6")
+    assert [(issue.etf_id, issue.code) for issue in report.issues if issue.severity == "block"] == [("LYP6", "insufficient_history")]
+    _require_publishable_snapshot(SimpleNamespace(data_report=report, prices=pd.DataFrame({"etf_id": ["VWCE"]}), signals=[], config=local))
+    assert "insufficient_history" in board["LYP6"].warnings
+    assert board["LYP6"].research_promotion_allowed is False
+    assert board["LYP6"].research_state is not ResearchState.RESEARCH_CANDIDATE
+    short = {gate.gate_id: gate for gate in board["LYP6"].authority_decision.gates}
+    assert not short["signal"].passed and "insufficient_history" in short["signal"].message
+    # The short-history block stays on its own row: VWCE's identity and data gates pass and its signal gate
+    # carries only the known coverage warning.
+    clean = {gate.gate_id: gate for gate in board["VWCE"].authority_decision.gates}
+    assert clean["identity"].passed and clean["data_quality"].passed
+    assert clean["signal"].message == "Material score warnings: critical_evidence_insufficient"
