@@ -208,11 +208,6 @@ def test_yfinance_provider_fetches_fx_pairs(monkeypatch) -> None:
 
 
 class _FakeFundsData:
-    fund_overview = {"family": "BlackRock", "legalType": "Exchange Traded Fund"}
-    fund_operations = pd.DataFrame(
-        {"VWCE.DE": [0.002, 0.11], "Category Average": [None, None]},
-        index=pd.Index(["Annual Report Expense Ratio", "Annual Holdings Turnover"], name="Attributes"),
-    )
     top_holdings = pd.DataFrame(
         {"Name": ["NVIDIA Corp", "Apple Inc"], "Holding Percent": [0.054153398, 0.050900698]},
         index=pd.Index(["NVDA", "AAPL"], name="Symbol"),
@@ -220,14 +215,12 @@ class _FakeFundsData:
 
 
 class _FakeTicker:
-    info = {
-        "currency": "EUR",
-        "quoteType": "ETF",
-        "longName": "Vanguard FTSE All-World UCITS ETF USD Accumulating",
-        "fundFamily": "BlackRock",
-        "totalAssets": 123456,
-    }
-    fast_info = {"currency": "EUR", "quoteType": "ETF"}
+    _data = SimpleNamespace(get_raw_json=lambda url, params: {"quoteSummary": {"result": [{
+        "price": {"currency": "EUR", "quoteType": "ETF", "longName": "Vanguard FTSE All-World UCITS ETF USD Accumulating"},
+        "defaultKeyStatistics": {"fundFamily": "BlackRock", "totalAssets": 123456},
+        "fundProfile": {"family": "BlackRock", "legalType": "Exchange Traded Fund",
+                        "feesExpensesInvestment": {"annualReportExpenseRatio": 0.002, "annualHoldingsTurnover": 0.11}},
+    }]}})
     funds_data = _FakeFundsData()
 
 

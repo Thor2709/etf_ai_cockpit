@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -35,6 +36,10 @@ YAHOO_SUFFIX_BY_EXCHANGE = {
 }
 
 YAHOO_SYMBOL_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._=-]{0,31}$")
+
+_QUOTE_SUMMARY_URL = "https://query2.finance.yahoo.com/v10/finance/quoteSummary/"
+# One quoteSummary request replaces Ticker.info, fast_info and funds_data for a metadata row.
+_METADATA_MODULES = "quoteType,summaryDetail,defaultKeyStatistics,price,fundProfile"
 
 
 def classify_provider_error(error: object) -> str:
@@ -101,6 +106,7 @@ class YFinanceProvider(DataProvider, PriceProvider):
                 "configured_ter": etf.ter,
                 "leveraged": etf.leveraged,
                 "inverse": etf.inverse,
+                "instrument_type": etf.instrument_type,
             }
             for etf in config.universe.etfs
         }
@@ -256,10 +262,10 @@ class YFinanceProvider(DataProvider, PriceProvider):
             return ProviderResult(self.name, "etf_metadata", "unavailable", "No Yahoo Finance symbols were configured.")
         rows: list[dict[str, object]] = []
         errors: list[str] = []
-        for etf_id, yahoo_symbol in symbol_map.items():
-            try:
-                rows.append(self._metadata_row(etf_id, yahoo_symbol))
-            except Exception as exc:
+        for (etf_id, yahoo_symbol), (row, exc) in self._per_symbol(symbol_map, self._metadata_row):
+            if exc is None:
+                rows.append(row)
+            else:
                 errors.append(redact_text(f"{etf_id}/{yahoo_symbol}: [{classify_provider_error(exc)}] {type(exc).__name__}: {exc}"))
         if not rows:
             return ProviderResult(self.name, "etf_metadata", "error", "Yahoo Finance returned no usable metadata. " + "; ".join(errors))
@@ -289,10 +295,16 @@ class YFinanceProvider(DataProvider, PriceProvider):
             return ProviderResult(self.name, "etf_holdings", "unavailable", "No Yahoo Finance symbols were configured.")
         rows: list[dict[str, object]] = []
         errors: list[str] = []
-        for etf_id, yahoo_symbol in symbol_map.items():
-            try:
-                rows.extend(self._top_holding_rows(etf_id, yahoo_symbol))
-            except Exception as exc:
+        # Yahoo has no fund holdings for a stock (its quoteSummary has no topHoldings module).
+        funds = {
+            etf_id: yahoo_symbol
+            for etf_id, yahoo_symbol in symbol_map.items()
+            if self.instrument_metadata.get(etf_id, {}).get("instrument_type") != "stock"
+        }
+        for (etf_id, yahoo_symbol), (holdings, exc) in self._per_symbol(funds, self._top_holding_rows):
+            if exc is None:
+                rows.extend(holdings)
+            else:
                 errors.append(f"{etf_id}/{yahoo_symbol}: [{classify_provider_error(exc)}] {type(exc).__name__}: {exc}")
         if not rows:
             return ProviderResult(
@@ -408,18 +420,45 @@ class YFinanceProvider(DataProvider, PriceProvider):
                 currency = currencies.pop()
         return str(currency) if currency is not None and str(currency).strip() else None
 
+    def _per_symbol(self, symbol_map: dict[str, str], read: Any) -> list[tuple[tuple[str, str], tuple[Any, Exception | None]]]:
+        """``read(etf_id, yahoo_symbol)`` per symbol on 4 workers under the shared Yahoo limiter.
+
+        yfinance sends every Ticker request through its one process-wide session (``YfData``).
+        Results keep the ``symbol_map`` order; an error is returned in place of the value."""
+        limiter = provider_rate_limiter(self.name, max_calls_per_window=600, window_seconds=60.0)
+
+        def one(item: tuple[str, str]) -> tuple[Any, Exception | None]:
+            limiter.acquire()
+            try:
+                return read(*item), None
+            except Exception as exc:
+                return None, exc
+
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            return list(zip(symbol_map.items(), pool.map(one, symbol_map.items())))
+
     def _ticker(self, symbol: str) -> Any:
         return _import_yfinance().Ticker(symbol)
 
     def _metadata_row(self, etf_id: str, yahoo_symbol: str) -> dict[str, object]:
         ticker = self._ticker(yahoo_symbol)
-        info = _safe_dict(_safe_getattr(ticker, "info", {}))
-        fast_info = _safe_dict(_safe_getattr(ticker, "fast_info", {}))
-        funds_data = _safe_getattr(ticker, "funds_data", None)
-        fund_overview = _safe_dict(_safe_getattr(funds_data, "fund_overview", {}))
-        fund_operations = _safe_dataframe(_safe_getattr(funds_data, "fund_operations", pd.DataFrame()))
+        summary = _quote_summary(ticker, yahoo_symbol)
+        # Ticker.info merges these modules in the order Yahoo returns them: later modules win, nulls are dropped.
+        info: dict[str, object] = {}
+        for module in ("summaryDetail", "defaultKeyStatistics", "quoteType", "price"):
+            info.update(
+                {key: value.replace("\xa0", " ") if isinstance(value, str) else value
+                 for key, value in _safe_dict(summary.get(module)).items() if value is not None}
+            )
+        fast_info: dict[str, object] = {}
+        if not (info.get("currency") and info.get("quoteType")):
+            # Only without these quoteSummary fields: fast_info reads them from the chart metadata.
+            fast = _safe_getattr(ticker, "fast_info", None)
+            fast_info = {"currency": _safe_getattr(fast, "currency", None), "quoteType": _safe_getattr(fast, "quote_type", None)}
+        fund_overview = _safe_dict(summary.get("fundProfile"))
         configured = self.instrument_metadata.get(etf_id, {})
-        ter = _fund_operation_value(fund_operations, yahoo_symbol, "Annual Report Expense Ratio")
+        # Only the fund's own fees count; feesExpensesInvestmentCat is the peer-group average.
+        ter = _safe_float(_safe_dict(fund_overview.get("feesExpensesInvestment")).get("annualReportExpenseRatio"))
         return {
             "as_of_date": date.today(),
             "etf_id": etf_id,
@@ -467,6 +506,15 @@ class YFinanceProvider(DataProvider, PriceProvider):
                 }
             )
         return rows
+
+
+def _quote_summary(ticker: Any, symbol: str) -> dict[str, object]:
+    """The metadata quoteSummary modules in one request; {} when Yahoo gives no answer."""
+    try:
+        params = {"modules": _METADATA_MODULES, "corsDomain": "finance.yahoo.com", "formatted": "false", "symbol": symbol}
+        return _safe_dict(ticker._data.get_raw_json(_QUOTE_SUMMARY_URL + symbol, params=params)["quoteSummary"]["result"][0])
+    except Exception:
+        return {}
 
 
 def _new_session() -> Any:
@@ -565,16 +613,6 @@ def _safe_getattr(obj: object, name: str, default: object) -> object:
 
 def _safe_dataframe(value: object) -> pd.DataFrame:
     return value if isinstance(value, pd.DataFrame) else pd.DataFrame()
-
-
-def _fund_operation_value(frame: pd.DataFrame, symbol: str, label: str) -> float | None:
-    if frame.empty or label not in frame.index:
-        return None
-    # Only the instrument's own column counts; the other columns (e.g. "Category Average")
-    # describe a peer group and must never be reported as this fund's value.
-    if symbol not in frame.columns:
-        return None
-    return _safe_float(frame.loc[label, symbol])
 
 
 def _safe_float(value: object) -> float | None:
