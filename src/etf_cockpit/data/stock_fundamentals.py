@@ -706,6 +706,16 @@ def refresh_stock_fundamentals(
     report = RefreshReport()
     snapshot_rows: list[dict[str, Any]] = []
     fx_rows: list[dict[str, Any]] = []
+    fx_cache: dict[tuple[str, str], list[tuple[str, float]]] = {}
+
+    def cached_fx(base: str, quote: str) -> list[tuple[str, float]]:
+        """One FX fetch per pair per run; an empty or failed fetch is not kept, so the next stock fetches it again."""
+
+        series = fx_cache.get((base, quote)) or fx_fetch(base, quote)
+        if series:
+            fx_cache[(base, quote)] = series
+        return series
+
     # Yahoo is fetched ahead in 4 threads (one shared session and rate limit); every result is applied here, in target order.
     pool = ThreadPoolExecutor(max_workers=4)
     try:
@@ -760,7 +770,7 @@ def refresh_stock_fundamentals(
                     row.update(instrument_id=target.instrument_id, known_at=result.snapshot.get("known_at") or stamp.isoformat(), source=result.source, status=result.status, reason=result.reason, cik=cik)
                     snapshot_rows.append(row)
                 if result.source == "yfinance" and result.status == "ok":
-                    fx_rows.extend(_needed_fx(result.snapshot, fx_fetch, stamp, cfg))
+                    fx_rows.extend(_needed_fx(result.snapshot, cached_fx, stamp, cfg))
             report.per_instrument[target.instrument_id] = "; ".join(notes) if notes else "ok"
             if notes and target.instrument_id not in stored_rows and not new_rows.get(target.instrument_id):
                 report.failures[target.instrument_id] = "; ".join(notes)

@@ -156,6 +156,38 @@ def test_each_fx_request_acquires_the_shared_yahoo_limiter(monkeypatch) -> None:
     assert {(row["pair"], row["rate"]) for row in rows} == {("USDGBP", 1.1), ("USDEUR", 1.1)}  # values unchanged
 
 
+def test_fx_closes_are_fetched_once_per_pair_and_a_failed_pair_is_fetched_again(tmp_path) -> None:
+    currencies = {"A": ("USD", "USD"), "B": ("USD", "GBP"), "C": ("USD", "GBP"), "D": ("GBp", "GBP"), "E": ("GBP", "USD"), "F": ("GBP", "EUR")}
+    snapshots = {name: {"known_at": KNOWN, "quote_currency": quote, "financial_currency": financial} for name, (quote, financial) in currencies.items()}
+    rates = {"USDEUR": 0.92, "USDGBP": 0.79, "GBPEUR": 1.17, "GBPUSD": 1.27}
+
+    def fake():
+        calls: Counter = Counter()
+
+        def fetch(base: str, quote: str) -> list[tuple[str, float]]:
+            pair = base + quote
+            calls[pair] += 1
+            if calls[pair] == 1 and pair == "USDGBP":  # transient errors: the next stock fetches the pair again
+                raise RuntimeError("transient")
+            if calls[pair] == 1 and pair == "GBPEUR":
+                return []
+            return [("2026-02-26", rates[pair]), ("2026-02-27", rates[pair] + 0.01)]
+
+        return fetch, calls
+
+    fetch, calls = fake()
+    (tmp_path / "data" / "clean").mkdir(parents=True)
+    store.refresh_stock_fundamentals(
+        [store.StockTarget(name, name, name) for name in currencies], root=tmp_path, now=NOW, config=CONFIG, environ={},
+        yfinance_fetch=lambda symbol, _cfg, now: src.FetchResult("yfinance", rows=[_row(2025, 1.0)], snapshot=snapshots[symbol]), fx_fetch=fetch,
+    )
+    assert calls == {"USDEUR": 1, "USDGBP": 2, "GBPEUR": 2, "GBPUSD": 1}
+    uncached, _ = fake()
+    rows = [row for name in currencies for row in store._needed_fx(snapshots[name], uncached, NOW, CONFIG)]
+    expected = store._concat([pd.DataFrame(rows, columns=store.FX_COLUMNS)], store.FX_COLUMNS).drop_duplicates(["pair", "date"], keep="first")
+    assert store.read_fx(tmp_path, include_canonical=False).to_dict("records") == expected.to_dict("records")
+
+
 def test_the_weekly_run_downloads_companyfacts_once_per_cik_and_stores_the_same_output(tmp_path, monkeypatch) -> None:
     from etf_cockpit.application import sec_evidence_refresh as ser
     from etf_cockpit.application.stock_service import refresh_universe_stock_fundamentals
