@@ -8,8 +8,9 @@ signal, never an execution permission.
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 
+import numpy as np
 import pandas as pd
 
 from etf_cockpit.core.config import AppConfig
@@ -170,11 +171,41 @@ def _scope_prices(price_history: pd.DataFrame, instrument_id: str, as_of: object
     return frame.drop_duplicates("_date", keep="last")
 
 
-def _quote_identity_matches(frame: pd.DataFrame, identity_columns: list[str], instrument_id: str) -> pd.Series:
-    populated = pd.DataFrame(
+def _identity_values(frame: pd.DataFrame, identity_columns: list[str]) -> pd.DataFrame:
+    return pd.DataFrame(
         {column: frame[column].map(lambda value: _text(value) if pd.api.types.is_scalar(value) and not pd.isna(value) else None) for column in identity_columns},
         index=frame.index,
     )
+
+
+def price_history_by_instrument(price_history: pd.DataFrame) -> Callable[[object], pd.DataFrame]:
+    """Index ``price_history`` by quote identity once; the lookup returns an instrument's candidate rows in input order.
+
+    A row is in scope for an instrument only when every populated identity column names it (``_scope_prices``), so a
+    row belongs to at most one instrument. ``calculate_etf_liquidity`` on the returned rows gives the same report as on
+    the full frame, without one full-frame identity scan per instrument. With no identity column every row is in scope.
+    """
+
+    identity_columns = [column for column in _QUOTE_ID_COLUMNS if column in price_history.columns]
+    if not identity_columns:
+        return lambda _instrument: price_history
+    values = _identity_values(price_history, identity_columns).to_numpy(dtype=object)
+    present = ~pd.isna(values)
+    first = values[np.arange(len(values)), present.argmax(axis=1)]
+    single = present.any(axis=1) & np.all(~present | (values == first[:, None]), axis=1)
+    labels = np.where(single, first, None)
+    positions = pd.Series(labels, dtype=object).groupby(labels, sort=False).indices
+    empty = price_history.iloc[0:0]
+
+    def rows(instrument: object) -> pd.DataFrame:
+        found = positions.get(str(instrument or "").strip() or "unknown")
+        return empty if found is None else price_history.iloc[found]
+
+    return rows
+
+
+def _quote_identity_matches(frame: pd.DataFrame, identity_columns: list[str], instrument_id: str) -> pd.Series:
+    populated = _identity_values(frame, identity_columns)
     matches = populated.apply(lambda column: column.eq(instrument_id), axis=0)
     has_value = populated.notna()
     conflicting = (has_value & ~matches).any(axis=1)
@@ -578,4 +609,4 @@ def calculate_etf_liquidity(
     )
 
 
-__all__ = ["ETF_ECONOMICS_MODEL_ID", "EtfLiquidityReport", "calculate_etf_liquidity"]
+__all__ = ["ETF_ECONOMICS_MODEL_ID", "EtfLiquidityReport", "calculate_etf_liquidity", "price_history_by_instrument"]
