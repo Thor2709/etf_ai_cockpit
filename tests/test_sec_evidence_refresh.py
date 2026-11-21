@@ -167,7 +167,7 @@ def _filing_documents() -> dict[str, bytes]:
 def _count_8k_parses(monkeypatch) -> list[str]:
     parsed: list[str] = []
     real = ser.fetch_8k
-    monkeypatch.setattr(ser, "fetch_8k", lambda provider, cik, accession: parsed.append(accession) or real(provider, cik, accession))
+    monkeypatch.setattr(ser, "fetch_8k", lambda provider, cik, accession, **kw: parsed.append(accession) or real(provider, cik, accession, **kw))
     return parsed
 
 
@@ -221,6 +221,27 @@ def test_an_8k_full_submission_is_parsed_in_memory_and_only_its_ledger_row_is_ke
     with BitemporalStore(tmp_path) as store:
         (row,) = store.observations(ser.EIGHT_K_DATASET, entity_id="ZZA")
     assert row.source_checksum == row.value["source_sha256"] == hashlib.sha256(documents[EIGHT_K_URL]).hexdigest()
+
+
+def test_the_weekly_8k_parse_skips_the_earnings_tables_so_a_table_failure_still_stores_the_release_time(tmp_path: Path, monkeypatch) -> None:
+    pytest.importorskip("edgar")
+    from etf_cockpit.data import sec_filing_documents as sfd
+
+    real = sfd._edgar()
+
+    def broken_tables(_filing):
+        raise RuntimeError("table parser failed")
+
+    monkeypatch.setattr(sfd, "_edgar", lambda: SimpleNamespace(**{**vars(real), "get_earnings_tables": broken_tables}))
+    source = _filing_documents()[EIGHT_K_URL]
+    with pytest.raises(sfd.SecFilingDocumentUnavailable, match="RuntimeError"):  # the default parse still reads the tables
+        sfd.parse_8k(source, known_at=datetime(2026, 7, 30, 20, 15, tzinfo=timezone.utc))
+    config, _fake, provider = _setup(tmp_path, _filing_documents())
+    report = ser.refresh_sec_evidence(config, root=tmp_path, provider=provider, now=NOW)
+    assert ACC_8K not in report["reasons"].get("ZZA", "")
+    with BitemporalStore(tmp_path) as store:
+        (row,) = store.observations(ser.EIGHT_K_DATASET, entity_id="ZZA")
+    assert row.value["public_announcement_time"] == "2026-07-30T20:05:00+00:00" and row.value["tables"] == []
 
 
 def test_int18_a_failed_8k_is_retried_and_its_release_time_is_then_recorded_as_a_new_revision(tmp_path: Path, monkeypatch) -> None:

@@ -148,11 +148,11 @@ def _stored_submission(provider: SecEdgarProvider, cik: str, accession: str, *, 
     return source, header_known_at(source)
 
 
-def fetch_8k(provider: SecEdgarProvider, cik: str, accession: str) -> EightKFiling:
+def fetch_8k(provider: SecEdgarProvider, cik: str, accession: str, *, tables: bool = True) -> EightKFiling:
     """Fetch (or read the stored) full submission of a listed 8-K and parse it in memory; a fetched one is not written
     (the 8-K ledger row is the record)."""
     source, known_at = _stored_submission(provider, cik, accession, store=False)
-    return parse_8k(source, known_at=known_at)
+    return parse_8k(source, known_at=known_at, tables=tables)
 
 
 def fetch_10k_section_chunks(provider: SecEdgarProvider, cik: str, accession: str) -> list[DocumentChunk]:
@@ -162,24 +162,25 @@ def fetch_10k_section_chunks(provider: SecEdgarProvider, cik: str, accession: st
 
 
 @serialised_parse
-def parse_8k(source: bytes, *, known_at: datetime) -> EightKFiling:
-    """Parse one stored 8-K: its items, earnings-release tables and the explicit release time."""
+def parse_8k(source: bytes, *, known_at: datetime, tables: bool = True) -> EightKFiling:
+    """Parse one stored 8-K: its items, earnings-release tables (skipped when ``tables`` is False) and the explicit release time."""
     known_at = _aware(known_at, "known_at")
     try:
         ed = _edgar()
         filing = _filing(ed, source, ("8-K", "8-K/A"), known_at)
         items = tuple(item.removeprefix("Item ") for item in ed.CurrentReport(filing).items)
-        tables: tuple[EarningsTableCandidate, ...] = ()
+        found: tuple[EarningsTableCandidate, ...] = ()
         announced, reason = UNAVAILABLE, "not_an_earnings_release"
         exhibit = ed.find_earnings_exhibit(filing.attachments) if "2.02" in items else None
         if exhibit is not None:
-            tables = tuple(_candidate(exhibit.document, table) for table in ed.get_earnings_tables(filing))
+            if tables:
+                found = tuple(_candidate(exhibit.document, table) for table in ed.get_earnings_tables(filing))
             announced, reason = _announcement(exhibit.text() or "", known_at)
         elif "2.02" in items:
             reason = "no_earnings_exhibit"
         return EightKFiling(
             accession=str(filing.accession_no), form=str(filing.form), issuer_cik=str(filing.cik).zfill(10),
-            filed_date=str(filing.filing_date), sec_receipt_time=known_at, items=items, tables=tables,
+            filed_date=str(filing.filing_date), sec_receipt_time=known_at, items=items, tables=found,
             public_announcement_time=announced, announcement_reason=reason,
             source_sha256=hashlib.sha256(source).hexdigest(),
         )

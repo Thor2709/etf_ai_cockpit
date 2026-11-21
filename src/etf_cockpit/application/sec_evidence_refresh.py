@@ -208,7 +208,7 @@ def _fetch_target(
             if not (acceptances.get(accession) or {}).get("accepted"):
                 continue
             try:
-                fetched.eight_ks.append((accession, fetch_8k(provider, cik, accession)))
+                fetched.eight_ks.append((accession, fetch_8k(provider, cik, accession, tables=False)))  # the ledger keeps no tables
             except Exception as exc:  # retried on the next run: only a parsed 8-K is stored
                 fetched.eight_ks.append((accession, exc))
         ten_ks = [row for row in filings if row["form"] == "10-K"]
