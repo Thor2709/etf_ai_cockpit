@@ -297,6 +297,22 @@ class SecEdgarProvider:
         denied; an uncached one is fetched once (declared User-Agent, shared rate limit) and kept
         immutably under its sha256. Identity is checked against the header's accession number.
         """
+        url, accession_text, stored, payload, status = self._full_submission(cik, accession)
+        if stored is not None:
+            return stored
+        payload_sha = _sha256(payload)
+        path = self.cache_dir / "filings" / _submission_name(accession_text, payload_sha)
+        with publication_scope(publish_guard):
+            atomic_write_bytes(path, payload, lambda candidate: None)
+        return RawDocument(path, url, datetime.now(timezone.utc), payload_sha, "sec_edgar", "sec_full_submission",
+                           "text/plain", status)
+
+    def read_full_submission(self, cik: str, accession: str) -> bytes:
+        """The bytes of ``fetch_full_submission`` (a stored one without a request), but an uncached one is never written."""
+        return self._full_submission(cik, accession)[3]
+
+    def _full_submission(self, cik: str, accession: str) -> tuple[str, str, RawDocument | None, bytes, int]:
+        """(url, accession, stored document or None, payload, HTTP status): the cache first, else one checked request."""
         cik_text = _normalise_cik(cik)
         accession_text = str(accession or "")
         if not _ACCESSION.fullmatch(accession_text):
@@ -306,18 +322,13 @@ class SecEdgarProvider:
         for path in stored:
             payload = path.read_bytes()
             if path.name == _submission_name(accession_text, _sha256(payload)):
-                return RawDocument(path, url, datetime.fromtimestamp(path.stat().st_mtime, timezone.utc),
-                                   _sha256(payload), "sec_edgar", "sec_full_submission", "text/plain", 200)
+                return url, accession_text, RawDocument(path, url, datetime.fromtimestamp(path.stat().st_mtime, timezone.utc),
+                                                        _sha256(payload), "sec_edgar", "sec_full_submission", "text/plain", 200), payload, 200
         response = self._get_document(url, "text/plain")
         payload = response.payload
         if re.search(rb"ACCESSION NUMBER:\s*" + accession_text.encode(), payload[:4096]) is None:
             raise ValueError("SEC full submission does not carry the requested accession number")
-        payload_sha = _sha256(payload)
-        path = self.cache_dir / "filings" / _submission_name(accession_text, payload_sha)
-        with publication_scope(publish_guard):
-            atomic_write_bytes(path, payload, lambda candidate: None)
-        return RawDocument(path, url, datetime.now(timezone.utc), payload_sha, "sec_edgar", "sec_full_submission",
-                           "text/plain", response.status)
+        return url, accession_text, None, payload, response.status
 
     def import_submissions(
         self,

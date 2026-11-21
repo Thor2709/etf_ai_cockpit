@@ -178,5 +178,9 @@ def test_fetched_and_then_stored_submissions_parse_with_known_at_from_the_header
         raise URLError("network denied")
 
     offline = _provider(tmp_path, denied)  # same cache, no network: the stored submissions still parse
+    assert not list((tmp_path / "filings").glob(f"{ACC_8K}_*"))  # a fetched 8-K is parsed in memory, never written
+    with pytest.raises(sfd.SecFilingDocumentUnavailable, match="not cached"):
+        sfd.fetch_8k(offline, "777001", ACC_8K)
+    live.fetch_full_submission("777001", ACC_8K)  # an 8-K stored earlier is still read without a request
     assert sfd.fetch_8k(offline, "777001", ACC_8K) == filing
     assert [c.source_id for c in sfd.fetch_10k_section_chunks(offline, "777001", ACC_10K)] == [c.source_id for c in chunks]

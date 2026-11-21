@@ -207,6 +207,22 @@ def test_int18_8k_release_time_reaches_the_earnings_rows_and_the_latest_10k_of_a
     assert set(fake.calls[calls:]) <= {FACTS_URL, SUBMISSIONS_URL}  # the 10-K comes from the raw cache
 
 
+def test_an_8k_full_submission_is_parsed_in_memory_and_only_its_ledger_row_is_kept(tmp_path: Path) -> None:
+    import hashlib
+
+    pytest.importorskip("edgar")
+    documents = _filing_documents()
+    config, fake, provider = _setup(tmp_path, documents)
+    ser.refresh_sec_evidence(config, root=tmp_path, provider=provider, now=NOW)
+    assert EIGHT_K_URL in fake.calls
+    stored = [path.name for path in (tmp_path / "sec_cache" / "filings").glob("*")]
+    assert not [name for name in stored if name.startswith(ACC_8K)]  # no raw 8-K on disk
+    assert [name for name in stored if name.startswith(ACC_10K)]  # the position's 10-K stays cached
+    with BitemporalStore(tmp_path) as store:
+        (row,) = store.observations(ser.EIGHT_K_DATASET, entity_id="ZZA")
+    assert row.source_checksum == row.value["source_sha256"] == hashlib.sha256(documents[EIGHT_K_URL]).hexdigest()
+
+
 def test_int18_a_failed_8k_is_retried_and_its_release_time_is_then_recorded_as_a_new_revision(tmp_path: Path, monkeypatch) -> None:
     pytest.importorskip("edgar")
     documents = _filing_documents()

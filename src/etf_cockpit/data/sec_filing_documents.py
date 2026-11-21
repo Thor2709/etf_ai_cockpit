@@ -17,7 +17,8 @@ the INT-23 store, known from the acceptance time.
 ``fetch_8k`` and ``fetch_10k_section_chunks`` are the callers: they take a filing already listed by the
 EDGAR path (CIK and accession), read its full-submission text through :class:`SecEdgarProvider` (cache
 first, then one request under the declared User-Agent and rate limit) and take ``known_at`` from the
-stored header's ACCEPTANCE-DATETIME. With the network denied an uncached filing is unavailable.
+stored header's ACCEPTANCE-DATETIME. With the network denied an uncached filing is unavailable. A fetched
+8-K is parsed in memory and not written (its ledger row is the record); a fetched 10-K is cached.
 """
 
 from __future__ import annotations
@@ -134,9 +135,12 @@ def header_known_at(source: bytes) -> datetime:
     return next(iter(instants))
 
 
-def _stored_submission(provider: SecEdgarProvider, cik: str, accession: str) -> tuple[bytes, datetime]:
+def _stored_submission(provider: SecEdgarProvider, cik: str, accession: str, *, store: bool = True) -> tuple[bytes, datetime]:
     try:
-        source = provider.fetch_full_submission(cik, accession).path.read_bytes()
+        if store:
+            source = provider.fetch_full_submission(cik, accession).path.read_bytes()
+        else:
+            source = provider.read_full_submission(cik, accession)
     except SecEdgarUnavailable as exc:
         raise SecFilingDocumentUnavailable("full submission is not cached and the SEC is unreachable") from exc
     except (SecEdgarError, ValueError, OSError) as exc:
@@ -145,8 +149,9 @@ def _stored_submission(provider: SecEdgarProvider, cik: str, accession: str) -> 
 
 
 def fetch_8k(provider: SecEdgarProvider, cik: str, accession: str) -> EightKFiling:
-    """Fetch (or read the stored) full submission of a listed 8-K and parse it."""
-    source, known_at = _stored_submission(provider, cik, accession)
+    """Fetch (or read the stored) full submission of a listed 8-K and parse it in memory; a fetched one is not written
+    (the 8-K ledger row is the record)."""
+    source, known_at = _stored_submission(provider, cik, accession, store=False)
     return parse_8k(source, known_at=known_at)
 
 
