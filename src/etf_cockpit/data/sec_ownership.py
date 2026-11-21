@@ -13,14 +13,16 @@ from are used directly instead.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
+import functools
 import hashlib
 import os
 from pathlib import Path
 import re
 import tempfile
+import threading
 from types import SimpleNamespace
 from typing import Any
 
@@ -33,6 +35,20 @@ _THIRTEENF_PARTIAL_REPORTS = ("NOTICE", "COMBINATION")
 
 class SecOwnershipUnavailable(RuntimeError):
     """The evidence cannot be produced; the message is the explicit reason."""
+
+
+_PARSE_LOCK = threading.Lock()
+
+
+def serialised_parse(parse: Callable[..., Any]) -> Callable[..., Any]:
+    """One edgartools parse at a time across threads: its thread safety is not verified, and parsing is CPU-bound."""
+
+    @functools.wraps(parse)
+    def run(*args: Any, **kwargs: Any) -> Any:
+        with _PARSE_LOCK:
+            return parse(*args, **kwargs)
+
+    return run
 
 
 def prepare_edgar_environment() -> None:
@@ -102,6 +118,7 @@ class InsiderFiling:
     transactions: tuple[InsiderTransaction, ...]
 
 
+@serialised_parse
 def parse_ownership_xml(xml: bytes, *, accession: str, known_at: datetime) -> InsiderFiling:
     """Parse one Form 3/4/5 document. Form 3 holds no transactions; Form 4/A rows never count."""
     known_at = _aware(known_at, "known_at")

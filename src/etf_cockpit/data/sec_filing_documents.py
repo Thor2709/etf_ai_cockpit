@@ -33,7 +33,7 @@ from zoneinfo import ZoneInfo
 from etf_cockpit.core.values import finite_float_or_none as _number
 from etf_cockpit.data.document_chunks import DocumentChunk, chunk_pages
 from etf_cockpit.data.sec_edgar_provider import SecEdgarError, SecEdgarProvider, SecEdgarUnavailable
-from etf_cockpit.data.sec_ownership import SecOwnershipUnavailable, _aware, prepare_edgar_environment
+from etf_cockpit.data.sec_ownership import SecOwnershipUnavailable, _aware, prepare_edgar_environment, serialised_parse
 
 UNAVAILABLE = "unavailable"
 _DATELINE_CHARS = 400
@@ -161,6 +161,7 @@ def fetch_10k_section_chunks(provider: SecEdgarProvider, cik: str, accession: st
     return parse_10k_section_chunks(source, known_at=known_at)
 
 
+@serialised_parse
 def parse_8k(source: bytes, *, known_at: datetime) -> EightKFiling:
     """Parse one stored 8-K: its items, earnings-release tables and the explicit release time."""
     known_at = _aware(known_at, "known_at")
@@ -188,6 +189,7 @@ def parse_8k(source: bytes, *, known_at: datetime) -> EightKFiling:
         raise SecFilingDocumentUnavailable(f"8-K could not be parsed: {type(exc).__name__}") from exc
 
 
+@serialised_parse
 def parse_10k_section_chunks(source: bytes, *, known_at: datetime) -> list[DocumentChunk]:
     """Risk-factor (page 1) and MD&A (page 2) chunks of one stored 10-K; a missing section adds none."""
     known_at = _aware(known_at, "known_at")

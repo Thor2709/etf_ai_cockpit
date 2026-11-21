@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import suppress
 import json
 from pathlib import Path
 import threading
@@ -87,6 +88,34 @@ def test_targets_are_fetched_at_once_but_recorded_and_reported_in_target_order(t
     assert report["earnings_rows"] > 0
     shared = sorted((start, end) for url, start, end in fake.spans if "0000777005" in url)
     assert all(later[0] >= earlier[1] for earlier, later in zip(shared, shared[1:]))  # one CIK is never fetched twice at once
+
+
+def test_edgartools_parses_never_overlap_across_workers(monkeypatch) -> None:
+    from concurrent.futures import ThreadPoolExecutor
+    from datetime import datetime, timezone
+
+    from etf_cockpit.data import sec_filing_documents as sfd
+    from etf_cockpit.data import sec_ownership as so
+
+    fake = SlowSec({}, delay=0.05)
+
+    def parser():  # a fake edgartools: each parse is one slow "request" that records how many ran at once
+        fake("parse", {})
+        raise so.SecOwnershipUnavailable("fake parser")
+
+    monkeypatch.setattr(sfd, "_edgar", parser)
+    monkeypatch.setattr(so, "_edgar", parser)
+    when = datetime(2026, 7, 30, tzinfo=timezone.utc)
+    parses = [lambda: sfd.parse_8k(b"", known_at=when), lambda: sfd.parse_10k_section_chunks(b"", known_at=when),
+              lambda: so.parse_ownership_xml(b"", accession="0000777001-26-000001", known_at=when)] * 2
+
+    def run(parse) -> None:
+        with suppress(so.SecOwnershipUnavailable):
+            parse()
+
+    with ThreadPoolExecutor(ser._WORKERS) as pool:
+        list(pool.map(run, parses))
+    assert len(fake.spans) == len(parses) and fake.most == 1
 
 
 def test_all_sec_requests_share_one_limit_of_at_most_8_per_second(tmp_path: Path, monkeypatch) -> None:
