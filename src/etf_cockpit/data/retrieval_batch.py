@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import deque
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
@@ -147,9 +148,12 @@ class BatchRetriever(Generic[T]):
         unavailable_ttl_seconds: float = DEFAULT_UNAVAILABLE_TTL_SECONDS,
         unavailable_retry_passes: int = 0,
         retry_cooldown_seconds: float = 60.0,
+        workers: int = 1,
     ) -> None:
         if not str(provider).strip():
             raise ValueError("provider must be non-empty")
+        if workers < 1:
+            raise ValueError("workers must be positive")
         if batch_size < 1:
             raise ValueError("batch_size must be positive")
         if max_retries < 0:
@@ -179,6 +183,8 @@ class BatchRetriever(Generic[T]):
         self.unavailable_ttl_seconds = float(unavailable_ttl_seconds)
         self.unavailable_retry_passes = unavailable_retry_passes
         self.retry_cooldown_seconds = retry_cooldown_seconds
+        self.workers = workers
+        self._write_lock = threading.Lock()
         self._memory_cache: dict[bytes, tuple[bytes, str]] = {}
         self._memory_manifest: dict[str, object] | None = None
 
@@ -247,8 +253,12 @@ class BatchRetriever(Generic[T]):
                     self._write_manifest(manifest)
                     values[symbol] = self._result(symbol, status, attempts, value, retrieved_at)
                     continue
-                values[symbol] = self._fetch(symbol, record, manifest, request, downloader)
+                if self.workers == 1:
+                    values[symbol] = self._fetch(symbol, record, manifest, request, downloader)
                 fetched.append(symbol)
+        if self.workers > 1:
+            values.update(self._fetch_all(fetched, records, manifest, request, downloader))
+            values = {symbol: values[symbol] for symbol in ordered_symbols}
 
         # An empty answer can be transient (provider throttling): after a cool-down, retry the
         # symbols this run fetched as unavailable; stop when a pass recovers nothing.
@@ -260,8 +270,7 @@ class BatchRetriever(Generic[T]):
                 break
             self.sleep(self.retry_cooldown_seconds)
             retried.update(pending)
-            for symbol in pending:
-                values[symbol] = self._fetch(symbol, records[symbol], manifest, request, downloader)
+            values.update(self._fetch_all(pending, records, manifest, request, downloader))
             gained = sum(values[symbol].status == "done" for symbol in pending)
             recovered += gained
             if not gained:
@@ -271,6 +280,24 @@ class BatchRetriever(Generic[T]):
 
         self._write_manifest(manifest)
         return RetrievalBatchResult(run_id, fingerprint, values)
+
+    def _fetch_all(
+        self,
+        symbols: list[str],
+        records: dict[str, dict[str, object]],
+        manifest: dict[str, object],
+        request: dict[str, object],
+        downloader: Callable[[str], T],
+    ) -> dict[str, SymbolRetrieval[T]]:
+        """Fetch ``symbols``; with ``workers`` > 1 the downloads run in threads (checkpoint and cache writes are locked)."""
+
+        def fetch(symbol: str) -> tuple[str, SymbolRetrieval[T]]:
+            return symbol, self._fetch(symbol, records[symbol], manifest, request, downloader)
+
+        if self.workers == 1:
+            return dict(map(fetch, symbols))
+        with ThreadPoolExecutor(max_workers=self.workers) as pool:
+            return dict(pool.map(fetch, symbols))
 
     def _fetch(
         self,
@@ -401,13 +428,14 @@ class BatchRetriever(Generic[T]):
             content = payload.decode("utf-8")
         except UnicodeError as exc:
             raise ValueError("cache encoder must return UTF-8 bytes") from exc
-        if self.cache_dir is None:
-            self._memory_cache[_canonical_json(key)] = (content.encode("utf-8"), retrieved_at)
-            return
-        atomic_write_json(
-            self._cache_path(key),
-            {"key": key, "content": content, "sha256": _sha256(payload), "retrieved_at": retrieved_at},
-        )
+        with self._write_lock:
+            if self.cache_dir is None:
+                self._memory_cache[_canonical_json(key)] = (content.encode("utf-8"), retrieved_at)
+                return
+            atomic_write_json(
+                self._cache_path(key),
+                {"key": key, "content": content, "sha256": _sha256(payload), "retrieved_at": retrieved_at},
+            )
 
     def _load_or_start_manifest(self, request: dict[str, object], fingerprint: str) -> dict[str, object]:
         path = self.checkpoint_path
@@ -487,12 +515,13 @@ class BatchRetriever(Generic[T]):
                 raise RetrievalCheckpointError(f"retrieval checkpoint has an invalid status for {symbol}")
 
     def _write_manifest(self, manifest: dict[str, object]) -> None:
-        self._validate_manifest(manifest, manifest["request"])
-        if self.checkpoint_path is None:
-            self._memory_manifest = manifest
-            return
-        self.checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
-        atomic_write_json(self.checkpoint_path, manifest)
+        with self._write_lock:
+            self._validate_manifest(manifest, manifest["request"])
+            if self.checkpoint_path is None:
+                self._memory_manifest = manifest
+                return
+            self.checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+            atomic_write_json(self.checkpoint_path, manifest)
 
     def _expired(self, retrieved_at: str) -> bool:
         try:
