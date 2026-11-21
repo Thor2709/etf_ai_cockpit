@@ -8,12 +8,17 @@ document chunk store (cache-first). A parsed 8-K and a stored Form 4 are never f
 8-K is retried on the next run and its release time then becomes a new earnings-row revision. Without
 edgartools no filing document is downloaded. Every provider or target error becomes a reason in the
 returned dict; the script holds the top-level guard, so the weekly job exit code is unchanged. Prices are passed empty: the stored prices carry no per-bar ``known_at``, so the filing
-reaction stays unavailable and is not stored.
+reaction stays unavailable and is not stored. Four workers fetch and parse targets at once under the
+provider's one shared rate limit; the main thread alone reads and writes the ledger, in target order,
+so the stored rows and the report are those of a serial run.
 """
 
 from __future__ import annotations
 
+from collections import deque
 from collections.abc import Callable
+from concurrent.futures import Future, ThreadPoolExecutor
+from contextlib import suppress
 import dataclasses
 from datetime import date, datetime, timedelta, timezone
 from importlib.util import find_spec
@@ -21,6 +26,7 @@ import json
 import os
 from pathlib import Path
 import re
+import threading
 from typing import Any
 from urllib.error import HTTPError
 
@@ -37,10 +43,12 @@ from etf_cockpit.data.earnings_surprise import _US, DATASET_ID as EARNINGS_DATAS
 from etf_cockpit.data.earnings_surprise import compute_earnings_events, record_earnings_events
 from etf_cockpit.data.sec_edgar_provider import SecEdgarProvider
 from etf_cockpit.data.sec_filing_documents import EightKFiling, fetch_8k, fetch_10k_section_chunks
+from etf_cockpit.data.sec_filing_documents import _edgar as _documents_parser
 from etf_cockpit.data.sec_ownership import (
     InsiderFiling,
     InsiderTransaction,
     ShadowFeature,
+    _edgar as _ownership_parser,
     _unavailable,
     insider_purchase_features,
     parse_ownership_xml,
@@ -52,6 +60,8 @@ EIGHT_K_DATASET = "sec_8k_releases"
 _FORM4_DAYS = 120
 _MAX_BYTES = 50_000_000  # the same cap as the macro fetches
 _PRICE_COLUMNS = ["instrument_id", "date", "adjusted_close", "known_at"]
+_WORKERS = 4  # targets fetched at once; every SEC request still passes the provider's one shared limiter
+_AHEAD = 16  # targets fetched ahead of the in-order recording: bounds memory while one target is slow
 
 
 def _sec_transport(url: str, headers: dict[str, str]) -> tuple[bytes, int, Any]:
@@ -95,73 +105,153 @@ def refresh_sec_evidence(
     if provider is None:
         try:
             provider = SecEdgarProvider(src.sec_user_agent(cfg, os.environ) or "", cache_dir=root / "data" / "raw" / "sec_edgar",
-                                        transport=_sec_transport, rate_limit_seconds=0.1)
+                                        transport=_sec_transport, rate_limit_seconds=0.13)  # under 8 requests/s with margin
         except ValueError:
             report["reasons"] = {t.instrument_id: "no valid SEC User-Agent configured (set ETF_COCKPIT_SEC_EDGAR_USER_AGENT)" for t in targets}
             return report
     snapshots = sf.read_snapshots(root)
     positions = set(getattr(getattr(config, "targets", None), "positions", None) or {})
     run_id = f"sec_evidence:{now.isoformat()}"
-    with BitemporalStore(root) as ledger:
-        for target in targets:
-            snap = sf.latest_snapshot(target.instrument_id, snapshots, now) or {}
+    with suppress(Exception):  # import the parsers once, here, so workers never import edgartools at once; a failure
+        if find_spec("edgar") is not None:  # is then reported per filing by the workers, as before
+            _documents_parser()
+            _ownership_parser()
+    cik_locks: dict[str, threading.Lock] = {}
+    ahead: deque = deque()
+    with BitemporalStore(root) as ledger, ThreadPoolExecutor(_WORKERS) as pool:
+
+        def start(target: Any) -> None:  # main thread: the ledger is read here, never in a worker
+            iid = target.instrument_id
+            snap = sf.latest_snapshot(iid, snapshots, now) or {}
+            known: tuple[set[str], dict[str, Any]] = (set(), {})
             try:
-                reasons = _refresh_target(provider, ledger, root, target, snap, target.instrument_id in positions, run_id, report, now)
+                known = _known_filings(ledger, iid)
+                job = pool.submit(_fetch_target, provider, target, snap, iid in positions, known, now, cik_locks)
+            except Exception as exc:
+                job = Future()
+                job.set_exception(exc)
+            ahead.append((target, snap, known, job))
+
+        def finish() -> None:  # main thread, in target order: every ledger write and progress message
+            target, snap, known, job = ahead.popleft()
+            try:
+                reasons = _record_target(ledger, root, target.instrument_id, snap, job.result(), known[1], run_id, report, now)
             except Exception as exc:  # one target never stops the weekly job
                 reasons = [f"unexpected: {_why(exc)}"]
             if reasons:
                 report["reasons"][target.instrument_id] = "; ".join(reasons)
             if progress:
                 progress(f"SEC evidence {target.instrument_id}: {report['reasons'].get(target.instrument_id, 'ok')}")
+
+        for target in targets:
+            start(target)
+            if len(ahead) >= _AHEAD:
+                finish()
+        while ahead:
+            finish()
     return report
 
 
-def _refresh_target(
-    provider: SecEdgarProvider, ledger: BitemporalStore, root: Path, target: Any, snap: dict[str, Any], in_positions: bool,
-    run_id: str, report: dict[str, Any], now: datetime,
-) -> list[str]:
-    iid = target.instrument_id
-    country = snap.get("country")
-    if str(country or "").strip().upper() not in _US:
+@dataclasses.dataclass
+class _Fetched:
+    """One target's SEC documents, fetched and parsed in a worker; nothing here is stored yet."""
+
+    facts_path: Path  # parsed in the main thread: a few large companyfacts never wait in memory
+    submissions: dict[str, Any]
+    reasons: list[str]
+    form4: list[InsiderFiling | str] = dataclasses.field(default_factory=list)  # filing order: a filing or its reason
+    eight_ks: list[tuple[str, EightKFiling | Exception]] = dataclasses.field(default_factory=list)
+    ten_k: tuple[str, list | Exception] | None = None
+
+
+def _known_filings(ledger: BitemporalStore, iid: str) -> tuple[set[str], dict[str, Any]]:
+    """The stored Form 4 accessions and parsed 8-Ks of one target."""
+
+    return ({item.stable_id for item in ledger.observations(INSIDER_DATASET, entity_id=iid)},
+            {item.stable_id: item.value for item in ledger.observations(EIGHT_K_DATASET, entity_id=iid)})
+
+
+def _fetch_target(
+    provider: SecEdgarProvider, target: Any, snap: dict[str, Any], in_positions: bool,
+    known: tuple[set[str], dict[str, Any]], now: datetime, cik_locks: dict[str, threading.Lock],
+) -> _Fetched | list[str]:
+    """Worker: every SEC request and parse of one target, without the ledger; a list is the target's only reasons."""
+
+    if str(snap.get("country") or "").strip().upper() not in _US:
         return ["non_us_issuer"]
     cik = target.cik or snap.get("cik")
     if not cik:
         return ["no SEC CIK resolved"]
+    with cik_locks.setdefault(str(cik).lstrip("0"), threading.Lock()):  # share classes never fetch one CIK at once
+        try:
+            facts_path = provider.fetch_companyfacts(cik).path
+            submissions = json.loads(provider.fetch_submissions(cik).path.read_bytes())
+        except Exception as exc:
+            return [f"SEC companyfacts/submissions unavailable: {_why(exc)}"]
+        acceptances = acceptance_index(submissions)
+        filings = _filing_rows(submissions)
+        if find_spec("edgar") is None:  # the document fetches have no use without it: never download them
+            return _Fetched(facts_path, submissions, ["SEC filing documents skipped: edgartools is not installed (optional `sec` extra)"])
+        fetched = _Fetched(facts_path, submissions, [], _fetch_form4(provider, cik, filings, acceptances, known[0], now))
+        for row in filings:
+            accession = row["accession"]
+            if row["form"] != "8-K" or "2.02" not in row["items"].split(",") or accession in known[1]:
+                continue
+            if not (acceptances.get(accession) or {}).get("accepted"):
+                continue
+            try:
+                fetched.eight_ks.append((accession, fetch_8k(provider, cik, accession)))
+            except Exception as exc:  # retried on the next run: only a parsed 8-K is stored
+                fetched.eight_ks.append((accession, exc))
+        ten_ks = [row for row in filings if row["form"] == "10-K"]
+        latest = max(ten_ks, key=lambda row: row["filingDate"])["accession"] if ten_ks else None
+        if in_positions and latest:
+            try:
+                fetched.ten_k = (latest, fetch_10k_section_chunks(provider, cik, latest))
+            except Exception as exc:
+                fetched.ten_k = (latest, exc)
+        return fetched
+
+
+def _record_target(
+    ledger: BitemporalStore, root: Path, iid: str, snap: dict[str, Any], fetched: _Fetched | list[str],
+    parsed: dict[str, Any], run_id: str, report: dict[str, Any], now: datetime,
+) -> list[str]:
+    """Main thread: store one fetched target in the serial order; returns its reasons."""
+
+    if isinstance(fetched, list):
+        return fetched
     try:
-        facts = json.loads(provider.fetch_companyfacts(cik).path.read_bytes())
-        submissions = json.loads(provider.fetch_submissions(cik).path.read_bytes())
+        facts = json.loads(fetched.facts_path.read_bytes())
     except Exception as exc:
         return [f"SEC companyfacts/submissions unavailable: {_why(exc)}"]
-    acceptances = acceptance_index(submissions)
-    filings = _filing_rows(submissions)
-    parser = find_spec("edgar") is not None  # the document fetches have no use without it: never download them
-    reasons = [] if parser else ["SEC filing documents skipped: edgartools is not installed (optional `sec` extra)"]
-    if parser:
-        reasons += _store_form4(provider, ledger, iid, cik, filings, acceptances, run_id, report, now)
-    parsed = {item.stable_id: item.value for item in ledger.observations(EIGHT_K_DATASET, entity_id=iid)}
-    for row in filings:
-        accession = row["accession"]
-        if not parser or row["form"] != "8-K" or "2.02" not in row["items"].split(",") or accession in parsed:
+    reasons = list(fetched.reasons)
+    for item in fetched.form4:
+        if isinstance(item, str):
+            reasons.append(item)
             continue
-        if not (acceptances.get(accession) or {}).get("accepted"):
-            continue
+        record_insider_filing(ledger, iid, item, run_id=run_id)
+        report["insider_rows"] += 1
+    for accession, item in fetched.eight_ks:
         try:
-            parsed[accession] = _record_8k(ledger, iid, accession, fetch_8k(provider, cik, accession), run_id)
+            if isinstance(item, Exception):
+                raise item
+            parsed[accession] = _record_8k(ledger, iid, accession, item, run_id)
         except Exception as exc:  # retried on the next run: only a parsed 8-K is stored
             reasons.append(f"8-K {accession}: {_why(exc)}")
     eight_ks = [_eight_k(value) for value in parsed.values()]
     empty = pd.DataFrame(columns=_PRICE_COLUMNS)
-    result = compute_earnings_events(iid, facts, submissions, empty, empty, country=country, eight_ks=eight_ks)
+    result = compute_earnings_events(iid, facts, fetched.submissions, empty, empty, country=snap.get("country"), eight_ks=eight_ks)
     if result["status"] != "available":
         reasons.append(str(result["reason"]))
     before = len(ledger.observations(EARNINGS_DATASET, entity_id=iid))
     record_earnings_events(ledger, iid, result["events"], run_id=run_id, revised_at=now)
     report["earnings_rows"] += len(ledger.observations(EARNINGS_DATASET, entity_id=iid)) - before
-    ten_ks = [row for row in filings if row["form"] == "10-K"]
-    latest = max(ten_ks, key=lambda row: row["filingDate"])["accession"] if ten_ks else None
-    if parser and in_positions and latest:
+    if fetched.ten_k is not None:
+        latest, chunks = fetched.ten_k
         try:
-            chunks = fetch_10k_section_chunks(provider, cik, latest)
+            if isinstance(chunks, Exception):
+                raise chunks
             report["ten_k_chunks"] += index_document(root / "data" / CHUNK_STORE_NAME, chunks)
         except Exception as exc:
             reasons.append(f"10-K {latest}: {_why(exc)}")
@@ -194,14 +284,12 @@ def _filing_rows(submissions: dict[str, Any]) -> list[dict[str, str]]:
     return [{"accession": accession, **{name: str(values[i] or "") for name, values in columns.items()}} for i, accession in enumerate(accessions)]
 
 
-def _store_form4(
-    provider: SecEdgarProvider, ledger: BitemporalStore, iid: str, cik: str, filings: list[dict[str, str]],
-    acceptances: dict, run_id: str, report: dict[str, Any], now: datetime,
-) -> list[str]:
-    """Fetch, parse and store each Form 4 filed in the last 120 days that is not stored yet."""
+def _fetch_form4(
+    provider: SecEdgarProvider, cik: str, filings: list[dict[str, str]], acceptances: dict, stored: set[str], now: datetime,
+) -> list[InsiderFiling | str]:
+    """Fetch and parse each Form 4 filed in the last 120 days that is not stored yet; a str is why one is missing."""
 
-    reasons: list[str] = []
-    stored = {item.stable_id for item in ledger.observations(INSIDER_DATASET, entity_id=iid)}
+    out: list[InsiderFiling | str] = []
     since = (now - timedelta(days=_FORM4_DAYS)).date().isoformat()
     for row in filings:
         accession = row["accession"]
@@ -209,19 +297,16 @@ def _store_form4(
             continue
         accepted = (acceptances.get(accession) or {}).get("accepted")
         if not accepted:
-            reasons.append(f"Form 4 {accession}: no acceptance time")
+            out.append(f"Form 4 {accession}: no acceptance time")
             continue
         name = re.sub(r"^xslF345X\d\d/", "", row["primaryDocument"])
         url = f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/{accession.replace('-', '')}/{name}"
         try:
             xml = provider.fetch_filing_document(url).path.read_bytes()
-            filing = parse_ownership_xml(xml, accession=accession, known_at=datetime.fromisoformat(accepted))
+            out.append(parse_ownership_xml(xml, accession=accession, known_at=datetime.fromisoformat(accepted)))
         except Exception as exc:
-            reasons.append(f"Form 4 {accession}: {_why(exc)}")
-            continue
-        record_insider_filing(ledger, iid, filing, run_id=run_id)
-        report["insider_rows"] += 1
-    return reasons
+            out.append(f"Form 4 {accession}: {_why(exc)}")
+    return out
 
 
 def record_insider_filing(ledger: BitemporalStore, instrument_id: str, filing: InsiderFiling, *, run_id: str) -> None:
