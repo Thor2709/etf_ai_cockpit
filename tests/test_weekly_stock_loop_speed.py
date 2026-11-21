@@ -3,9 +3,11 @@ target order, one store concat, one price index in the metrics step, one SEC tic
 
 from __future__ import annotations
 
+from collections import Counter
+import json
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pandas as pd
 
@@ -130,3 +132,42 @@ def test_the_sec_ticker_file_is_downloaded_once_per_run(tmp_path, monkeypatch) -
              environ={"ETF_COCKPIT_SEC_EDGAR_USER_AGENT": "test agent"}, edgar_fetch=lambda *_a, **_k: src.FetchResult("sec_edgar", status="no_statements"),
              esef_fetch=lambda *_a, **_k: src.FetchResult("esef", status="unavailable"))
     assert downloads == [src.SEC_TICKERS_URL]
+
+
+def test_the_weekly_run_downloads_companyfacts_once_per_cik_and_stores_the_same_output(tmp_path, monkeypatch) -> None:
+    from etf_cockpit.application import sec_evidence_refresh as ser
+    from etf_cockpit.application.stock_service import refresh_universe_stock_fundamentals
+    from etf_cockpit.data.bitemporal import BitemporalStore
+    from etf_cockpit.data.earnings_surprise import DATASET_ID
+    from etf_cockpit.data.sec_edgar_provider import SecEdgarProvider
+    from tests.test_sec_evidence_parallel import CIKS, _documents, _setup
+    from tests.test_sec_evidence_refresh import AGENT, NOW as SEC_NOW, FakeSec
+
+    documents = _documents()
+    tickers = {str(i): {"ticker": iid, "cik_str": cik} for i, (iid, cik) in enumerate(CIKS.items())}
+    direct: list[str] = []
+    monkeypatch.setattr(src, "http_get_json", lambda url, _agent: direct.append(url) or (tickers if url == src.SEC_TICKERS_URL else json.loads(documents[url])))
+    monkeypatch.setenv("ETF_COCKPIT_SEC_EDGAR_USER_AGENT", AGENT)
+    monkeypatch.setattr(ser, "find_spec", lambda _name: None)
+
+    def weekly(root, shared: bool):  # shared=False is the head 9d22ef62 path: each step downloads on its own
+        config, fake = _setup(root), FakeSec(documents)
+        direct.clear()
+        provider = SecEdgarProvider(AGENT, cache_dir=root / "sec_cache", transport=fake, rate_limit_seconds=0, reuse_companyfacts=shared)
+        # the stock loop runs before the snapshots _setup seeds, so the SEC step reads their country, as after a yfinance fetch
+        refresh_universe_stock_fundamentals(config, root=root, now=SEC_NOW - timedelta(days=30), chain=("sec_edgar",),
+                                            sec_provider=provider if shared else None)
+        ser.refresh_sec_evidence(config, root=root, provider=provider, now=SEC_NOW)
+        with BitemporalStore(root) as ledger:
+            rows = [(r.entity_id, r.stable_id, r.revision, r.value, r.valid_from, r.available_at, r.status)
+                    for iid in CIKS for r in ledger.observations(DATASET_ID, entity_id=iid)]
+        facts = Counter(url for url in [*direct, *fake.calls] if "companyfacts" in url)
+        return store.read_periods(root), store.read_snapshots(root), rows, facts
+
+    head, shared = weekly(tmp_path / "head", False), weekly(tmp_path / "shared", True)
+    assert sum(head[3].values()) == 2 * len(CIKS)  # each step downloads every target's companyfacts
+    assert shared[3] == Counter(set(head[3]))  # one request per CIK across both steps
+    assert len(shared[0]) and shared[2]
+    pd.testing.assert_frame_equal(head[0], shared[0])
+    pd.testing.assert_frame_equal(head[1], shared[1])
+    assert head[2] == shared[2]

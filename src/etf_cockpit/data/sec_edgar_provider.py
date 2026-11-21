@@ -76,14 +76,20 @@ def parse_reported_shares(payload: Mapping[str, Any], *, source_ref: str) -> lis
 def fetch_stock_fundamentals(
     cik: str, config: Mapping[str, Any], *, user_agent: str | None,
     fetch: Callable[..., Any] | None = None, sleep: Callable[[float], None] | None = None,
+    provider: SecEdgarProvider | None = None,
 ) -> Any:
-    """Keep the existing statement adapter and extract DEI from the same response."""
+    """Keep the existing statement adapter and extract DEI from the same response.
+
+    With ``provider`` the companyfacts come through it, so a later step of the same run can reuse its file."""
     from etf_cockpit.data import stock_sources as src
 
     reported: list[dict[str, Any]] = []
 
     def capture(url: str, agent: str) -> Any:
-        payload = (fetch or src.http_get_json)(url, agent)
+        if provider is not None:
+            payload = json.loads(provider.fetch_companyfacts(cik).path.read_bytes())
+        else:
+            payload = (fetch or src.http_get_json)(url, agent)
         reported.extend(parse_reported_shares(payload, source_ref=url))
         return payload
 
@@ -166,6 +172,7 @@ class SecEdgarProvider:
         max_retries: int = 1,
         monotonic: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], None] = time.sleep,
+        reuse_companyfacts: bool = False,
     ) -> None:
         cleaned_agent = str(user_agent or "").strip()
         if not _valid_user_agent(cleaned_agent):
@@ -187,6 +194,8 @@ class SecEdgarProvider:
         self._last_request_at: float | None = None
         self._authority_ledger: OrderedDict[tuple[str, str, str, str], _SessionGeneration] = OrderedDict()
         self._partial_sessions: OrderedDict[tuple[str, str, str], tuple[object, ...]] = OrderedDict()
+        # One weekly run: a companyfacts document this provider fetched is returned again without a request.
+        self._companyfacts: dict[str, RawDocument] | None = {} if reuse_companyfacts else None
 
     def fetch_companyfacts(
         self,
@@ -195,6 +204,8 @@ class SecEdgarProvider:
         publish_guard: PublicationScopeFactory | None = None,
     ) -> RawDocument:
         cik_text = _normalise_cik(cik)
+        if self._companyfacts is not None and cik_text in self._companyfacts:
+            return self._companyfacts[cik_text]
         document = self._fetch(
             f"{self.BASE_URL}/api/xbrl/companyfacts/CIK{cik_text}.json",
             f"companyfacts_{cik_text}.json",
@@ -202,6 +213,8 @@ class SecEdgarProvider:
             cik_text,
             publish_guard=publish_guard,
         )
+        if self._companyfacts is not None:
+            self._companyfacts[cik_text] = document
         return document
 
     def fetch_submissions(

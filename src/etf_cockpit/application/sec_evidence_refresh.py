@@ -80,6 +80,15 @@ def _sec_transport(url: str, headers: dict[str, str]) -> tuple[bytes, int, Any]:
     return payload, status, response_headers
 
 
+def sec_provider(root: Path | None = None, *, reuse_companyfacts: bool = False) -> SecEdgarProvider:
+    """The weekly job's SEC provider; ValueError without a valid SEC User-Agent."""
+
+    root = Path(root or ROOT)
+    return SecEdgarProvider(src.sec_user_agent(sf.load_stock_config(root), os.environ) or "", cache_dir=root / "data" / "raw" / "sec_edgar",
+                            transport=_sec_transport, rate_limit_seconds=0.13,  # under 8 requests/s with margin
+                            reuse_companyfacts=reuse_companyfacts)
+
+
 def _why(exc: Exception) -> str:
     return f"{type(exc).__name__}: {exc}"[:160]
 
@@ -104,8 +113,7 @@ def refresh_sec_evidence(
     report: dict[str, Any] = {"earnings_rows": 0, "insider_rows": 0, "ten_k_chunks": 0, "reasons": {}}
     if provider is None:
         try:
-            provider = SecEdgarProvider(src.sec_user_agent(cfg, os.environ) or "", cache_dir=root / "data" / "raw" / "sec_edgar",
-                                        transport=_sec_transport, rate_limit_seconds=0.13)  # under 8 requests/s with margin
+            provider = sec_provider(root)
         except ValueError:
             report["reasons"] = {t.instrument_id: "no valid SEC User-Agent configured (set ETF_COCKPIT_SEC_EDGAR_USER_AGENT)" for t in targets}
             return report

@@ -34,14 +34,20 @@ def main() -> int:
     config = load_config()
     only = {item.strip() for item in args.ids.split(",") if item.strip()} or None
     chain = [item.strip() for item in args.sources.split(",") if item.strip()] or None
-    report = refresh_universe_stock_fundamentals(config, only_ids=only, progress=print, chain=chain)
+    try:  # one provider for both steps: each CIK's companyfacts is downloaded once per run
+        from etf_cockpit.application.sec_evidence_refresh import sec_provider
+
+        provider = sec_provider(reuse_companyfacts=True)
+    except Exception:  # no valid SEC User-Agent (or the SEC module fails): each step keeps its own path and reason
+        provider = None
+    report = refresh_universe_stock_fundamentals(config, only_ids=only, progress=print, chain=chain, sec_provider=provider)
     print(f"rows added: {report.rows_added}; instruments without data: {len(report.failures)}")
     for key, reason in report.failures.items():
         print(f"  {key}: {reason}")
     try:
         from etf_cockpit.application.sec_evidence_refresh import refresh_sec_evidence
 
-        sec = refresh_sec_evidence(config, only_ids=only, progress=print)
+        sec = refresh_sec_evidence(config, only_ids=only, progress=print, provider=provider)
         print(
             f"SEC evidence added: earnings rows {sec['earnings_rows']}; Form 4 filings {sec['insider_rows']}; "
             f"10-K chunks indexed {sec['ten_k_chunks']}; targets with a gap: {len(sec['reasons'])}"

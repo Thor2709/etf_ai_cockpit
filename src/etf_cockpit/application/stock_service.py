@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from datetime import datetime
+import functools
 from pathlib import Path
 from typing import Any
 
@@ -37,11 +38,13 @@ def refresh_universe_stock_fundamentals(
     progress: Callable[[str], None] | None = None,
     now: datetime | None = None,
     chain: Sequence[str] | None = None,
+    sec_provider: Any = None,
 ) -> store.RefreshReport:
     """Fetch fundamentals for every normal stock (filings first, then yfinance); read-only free sources.
 
     ``chain`` restricts the configured source chain (never extends it): a point-in-time history backfill passes
     ``("sec_edgar",)`` so restated, fetch-dated yfinance rows are not written next to the as-originally-filed facts.
+    ``sec_provider`` fetches the SEC companyfacts, so the SEC evidence step of the same run can reuse them.
     """
 
     cfg = store.load_stock_config(root)
@@ -54,7 +57,8 @@ def refresh_universe_stock_fundamentals(
     targets = store.targets_from_universe(universe_rows(config), excluded_sectors=(cfg.get("scope", {}) or {}).get("excluded_sectors", []))
     if only_ids:
         targets = [t for t in targets if t.instrument_id in only_ids]
-    return store.refresh_stock_fundamentals(targets, root=root, now=now, config=cfg, progress=progress)
+    edgar = {"edgar_fetch": functools.partial(store.fetch_sec_fundamentals, provider=sec_provider)} if sec_provider else {}
+    return store.refresh_stock_fundamentals(targets, root=root, now=now, config=cfg, progress=progress, **edgar)
 
 
 def refresh_user_peer(ticker: str, *, root: Path | None = None, now: datetime | None = None) -> store.RefreshReport:
