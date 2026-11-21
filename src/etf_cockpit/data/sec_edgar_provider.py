@@ -21,6 +21,7 @@ import time
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
+import zlib
 
 from etf_cockpit.core.atomic_io import atomic_write_bytes, atomic_write_json
 from etf_cockpit.core.values import string_dict_or_empty as _headers_dict
@@ -131,6 +132,7 @@ class _SessionGeneration:
 
 
 _SEC_MIN_INTERVAL = 0.1  # SEC fair access: at most 10 requests per second on live requests
+_MAX_DECODED_BYTES = 50_000_000  # the weekly transport's response cap, applied again to a decompressed gzip body
 _RATE_LOCK = threading.RLock()
 _SHARED_LAST_REQUEST: dict[Callable[[], float], float] = {}
 
@@ -611,12 +613,13 @@ class SecEdgarProvider:
         raise SecEdgarUnavailable("SEC request unavailable") from last_error
 
     def _request(self, url: str, headers: dict[str, str]) -> _Response:
+        headers = {**headers, "Accept-Encoding": "gzip"}  # a smaller download; every caller still gets the plain bytes
         if self.transport is not None:
-            return _normalise_response(self.transport(url, headers))
+            return _decoded(_normalise_response(self.transport(url, headers)))
         request = Request(url, headers=headers)
         try:
             with urlopen(request, timeout=self.timeout) as response:
-                return _Response(response.read(), int(response.status), _headers_dict(response.headers))
+                return _decoded(_Response(response.read(), int(response.status), _headers_dict(response.headers)))
         except HTTPError as exc:
             if exc.code == 304:
                 return _Response(b"", 304, _headers_dict(exc.headers))
@@ -691,6 +694,23 @@ def _normalise_response(value: Any) -> _Response:
         payload = value.read()
         return _Response(bytes(payload), int(getattr(value, "status", 200)), _headers_dict(getattr(value, "headers", {})))
     raise TypeError("SEC transport must return bytes, response tuple or response object")
+
+
+def _decoded(response: _Response) -> _Response:
+    """A 2xx gzip body decompressed in a bounded stream, refused past the size cap or when cut short; others unchanged."""
+    encoding = next((value for key, value in response.headers.items() if key.lower() == "content-encoding"), "")
+    if encoding.strip().lower() != "gzip" or not 200 <= response.status < 300:
+        return response
+    decoder = zlib.decompressobj(zlib.MAX_WBITS | 16)
+    try:
+        payload = decoder.decompress(response.payload, _MAX_DECODED_BYTES + 1)
+    except zlib.error as exc:
+        raise ValueError("SEC gzip response is corrupt") from exc
+    if len(payload) > _MAX_DECODED_BYTES:
+        raise ValueError("SEC response is above the size cap after decompression")
+    if not decoder.eof or decoder.unused_data:
+        raise ValueError("SEC gzip response is truncated or has trailing data")
+    return _Response(payload, response.status, response.headers)
 
 
 def _parse_json(payload: bytes) -> dict[str, Any]:
