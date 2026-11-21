@@ -21,7 +21,9 @@ def _run(root: Path, workers: int) -> tuple[dict[str, tuple[str, object]], int, 
 
     def download(symbol: str) -> object:
         with lock:
-            calls.append(symbol); active[0] += 1; peak[0] = max(peak[0], active[0])
+            calls.append(symbol)
+            active[0] += 1
+            peak[0] = max(peak[0], active[0])
         time.sleep(0.02)
         with lock:
             active[0] -= 1
