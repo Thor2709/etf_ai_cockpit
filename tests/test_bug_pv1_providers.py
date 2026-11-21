@@ -32,7 +32,7 @@ from etf_cockpit.data.source_policy import SourcePolicyError, load_source_polici
 from etf_cockpit.data.stooq_provider import StooqProvider
 from etf_cockpit.data.tiingo_provider import TiingoProvider
 from etf_cockpit.data.twelvedata_provider import RateLimiter, TwelveDataProvider
-from etf_cockpit.data.yfinance_provider import YFinanceProvider, _fund_operation_value
+from etf_cockpit.data.yfinance_provider import YFinanceProvider
 from etf_cockpit.signals.simple_scores import _price_liquidity_lookup
 
 UTC = timezone.utc
@@ -41,37 +41,21 @@ UTC = timezone.utc
 # --------------------------------------------------------------------------- yfinance
 
 
-class _FundsData:
-    def __init__(self, operations: pd.DataFrame) -> None:
-        self.fund_overview = {"family": "Fam", "legalType": "ETF"}
-        self.fund_operations = operations
-        self.top_holdings = pd.DataFrame()
-
-
-def _ticker_factory(operations: pd.DataFrame):
-    class _Ticker:
-        info = {"currency": "EUR", "quoteType": "ETF", "longName": "Fund"}
-        fast_info = {"currency": "EUR"}
-        funds_data = _FundsData(operations)
-
-    return lambda _symbol: _Ticker()
-
-
-def _operations(own: float | None, category: float | None) -> pd.DataFrame:
-    return pd.DataFrame(
-        {"VWCE.DE": [own], "Category Average": [category]},
-        index=pd.Index(["Annual Report Expense Ratio"], name="Attributes"),
-    )
+def _ticker_factory(own: float | None, category: float | None):
+    profile = {"family": "Fam", "legalType": "ETF", "feesExpensesInvestment": {"annualReportExpenseRatio": own},
+               "feesExpensesInvestmentCat": {"annualReportExpenseRatio": category}}
+    summary = {"quoteSummary": {"result": [{"price": {"currency": "EUR", "quoteType": "ETF", "longName": "Fund"}, "fundProfile": profile}]}}
+    return lambda _symbol: SimpleNamespace(_data=SimpleNamespace(get_raw_json=lambda url, params: summary))
 
 
 def test_a102_n001_missing_own_symbol_ter_never_takes_category_average(monkeypatch) -> None:
-    frame = _operations(None, 0.0075)
-    assert _fund_operation_value(frame, "VWCE.DE", "Annual Report Expense Ratio") is None
-    assert _fund_operation_value(_operations(0.002, 0.0075), "VWCE.DE", "Annual Report Expense Ratio") == 0.002
-    assert _fund_operation_value(frame, "OTHER.DE", "Annual Report Expense Ratio") is None
-
-    monkeypatch.setitem(sys.modules, "yfinance", SimpleNamespace(Ticker=_ticker_factory(frame)))
     section = ProviderSection(symbols_map={"VWCE": "VWCE.DE"})
+    monkeypatch.setitem(sys.modules, "yfinance", SimpleNamespace(Ticker=_ticker_factory(0.002, 0.0075)))
+    own = YFinanceProvider(section).fetch_etf_metadata([])
+    assert own.data is not None and own.data.iloc[0]["ter"] == 0.002
+    assert own.data.iloc[0]["ter_source"] == "provider_own_column"
+
+    monkeypatch.setitem(sys.modules, "yfinance", SimpleNamespace(Ticker=_ticker_factory(None, 0.0075)))
 
     configured = YFinanceProvider(section, instrument_metadata={"VWCE": {"configured_ter": 0.002}}).fetch_etf_metadata([])
     assert configured.data is not None
