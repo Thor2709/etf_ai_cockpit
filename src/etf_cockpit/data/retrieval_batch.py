@@ -253,9 +253,12 @@ class BatchRetriever(Generic[T]):
                     self._write_manifest(manifest)
                     values[symbol] = self._result(symbol, status, attempts, value, retrieved_at)
                     continue
+                if self.workers == 1:
+                    values[symbol] = self._fetch(symbol, record, manifest, request, downloader)
                 fetched.append(symbol)
-        values.update(self._fetch_all(fetched, records, manifest, request, downloader))
-        values = {symbol: values[symbol] for symbol in ordered_symbols}
+        if self.workers > 1:
+            values.update(self._fetch_all(fetched, records, manifest, request, downloader))
+            values = {symbol: values[symbol] for symbol in ordered_symbols}
 
         # An empty answer can be transient (provider throttling): after a cool-down, retry the
         # symbols this run fetched as unavailable; stop when a pass recovers nothing.
@@ -291,7 +294,7 @@ class BatchRetriever(Generic[T]):
         def fetch(symbol: str) -> tuple[str, SymbolRetrieval[T]]:
             return symbol, self._fetch(symbol, records[symbol], manifest, request, downloader)
 
-        if self.workers == 1 or len(symbols) < 2:
+        if self.workers == 1:
             return dict(map(fetch, symbols))
         with ThreadPoolExecutor(max_workers=self.workers) as pool:
             return dict(pool.map(fetch, symbols))

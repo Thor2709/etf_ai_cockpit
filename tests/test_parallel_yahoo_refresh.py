@@ -31,12 +31,17 @@ def _run(root: Path, workers: int) -> tuple[dict[str, tuple[str, object]], int, 
             raise RuntimeError("boom")
         return None if symbol == "EMPTY" else {"symbol": symbol}
 
-    retriever = BatchRetriever(provider="test", cache_dir=root / "cache", checkpoint_path=root / "checkpoint.json",
-                               max_retries=0, workers=workers, sleep=lambda _seconds: None, unavailable_retry_passes=1)
+    def retriever() -> BatchRetriever[object]:
+        return BatchRetriever(provider="test", cache_dir=root / "cache", checkpoint_path=root / "checkpoint.json",
+                              max_retries=0, workers=workers, sleep=lambda _seconds: None, unavailable_retry_passes=1)
+
     symbols = [f"S{i}" for i in range(12)] + ["EMPTY", "BAD"]
-    result = retriever.retrieve(symbols, start="2026-11-06", end="2026-11-21", downloader=download)
-    again = retriever.retrieve(symbols, start="2026-11-06", end="2026-11-21", downloader=download)
-    assert {s: r.status for s, r in again.symbols.items()} == {s: r.status for s, r in result.symbols.items()}
+    result = retriever().retrieve(symbols, start="2026-11-06", end="2026-11-21", downloader=download)
+    first_calls = len(calls)
+    resumed = retriever().retrieve(symbols, start="2026-11-06", end="2026-11-21", downloader=download)
+    assert calls[first_calls:] == ["BAD"]  # a fresh retriever resumes from the checkpoint: only the failed symbol again
+    view = lambda r: [(s, x.status, x.value) for s, x in r.symbols.items()]  # noqa: E731
+    assert view(resumed) == view(result)
     return {s: (r.status, r.value) for s, r in result.symbols.items()}, peak[0], calls
 
 
@@ -56,10 +61,10 @@ def test_yahoo_downloads_share_one_session(tmp_path: Path, monkeypatch: pytest.M
         return pd.DataFrame({"Open": [1.0], "High": [1.0], "Low": [1.0], "Close": [1.0], "Adj Close": [1.0], "Volume": [1.0],
                              "Dividends": [0.0], "Stock Splits": [0.0]}, index=pd.to_datetime(["2026-11-19"]))
 
-    shared = object()
+    created: list[object] = []
     monkeypatch.setattr(yfinance_provider, "_import_yfinance", lambda: SimpleNamespace(download=download))
-    monkeypatch.setattr(yfinance_provider, "_new_session", lambda: shared)
+    monkeypatch.setattr(yfinance_provider, "_new_session", lambda: created.append(object()) or created[-1])
     provider = yfinance_provider.YFinanceProvider(ProviderSection(symbols_map={"A": "A.DE", "B": "B.DE", "C": "C.PA"}),
                                                   retrieval_root=tmp_path)
     assert provider.fetch_prices([], date(2026, 11, 6), date(2026, 11, 21)).ok
-    assert len(sessions) == 3 and all(session is shared for session in sessions)
+    assert len(created) == 1 and len(sessions) == 3 and all(session is created[0] for session in sessions)
