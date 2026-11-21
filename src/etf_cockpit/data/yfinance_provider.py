@@ -142,7 +142,8 @@ class YFinanceProvider(DataProvider, PriceProvider):
             max_retries=0,
             adjusted=False,
             adapter_version="yfinance-download-v3-per-row-actions-evidenced",
-            limiter=provider_rate_limiter(self.name, max_calls_per_window=60, window_seconds=60.0),
+            # 2026-11-21 ramp test: 360 serial requests at this limit ran at 113/min with no throttling.
+            limiter=provider_rate_limiter(self.name, max_calls_per_window=120, window_seconds=60.0),
             encode=encode_frame,
             decode=decode_frame,
             is_available=lambda frame: frame is not None and not frame.empty,
@@ -373,6 +374,11 @@ class YFinanceProvider(DataProvider, PriceProvider):
         )
         # Per-row action evidence: the download asked for actions and returned this row's dividends and splits.
         out["actions_evidenced"] = require_actions & out["dividends"].notna() & out["stock_splits"].notna()
+        # Yahoo serves the latest session unfinished (no close yet): that row is not a completed bar, so it is dropped.
+        # Any other missing adjusted close still rejects the instrument.
+        unfinished = out["close"].isna() & out["adjusted_close"].isna()
+        if not out.empty and unfinished.iloc[-1]:
+            out = out.iloc[:-1]
         if require_actions and out["adjusted_close"].isna().any():
             raise ValueError("Adjusted close is missing or non-positive.")
         if not require_actions:

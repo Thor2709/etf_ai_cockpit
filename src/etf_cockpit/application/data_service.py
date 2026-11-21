@@ -383,6 +383,16 @@ def _refresh_yfinance_fx(
     return messages
 
 
+def _rows_by_instrument(frame: pd.DataFrame) -> Callable[[str], pd.DataFrame]:
+    """Index ``frame`` by ``etf_id`` once; the lookup returns the rows a per-instrument ``etf_id`` mask selects, in order."""
+
+    if "etf_id" not in frame.columns:
+        return lambda _instrument_id: frame.iloc[0:0]
+    positions = frame.groupby(frame["etf_id"].astype(str).to_numpy(), sort=False).indices
+    empty = frame.iloc[0:0]
+    return lambda instrument_id: frame.iloc[positions[instrument_id]] if instrument_id in positions else empty
+
+
 def _merge_incremental_price_result(
     provider: YFinanceProvider,
     window_result: ProviderResult,
@@ -424,16 +434,14 @@ def _merge_incremental_price_result(
         if not missing_from_carry.empty:
             preserved = pd.concat([preserved, missing_from_carry], ignore_index=True)
 
+    stored_rows = _rows_by_instrument(stored_data)
+    window_rows = _rows_by_instrument(window_data)
     incremental_ids: list[str] = []
     full_ids: list[str] = []
     full_reason_counts = {"no overlap": 0, "adjusted mismatch": 0, "currency mismatch": 0}
     for instrument_id in sorted(window_ids):
-        old_rows = (
-            stored_data[stored_data["etf_id"].astype(str).eq(instrument_id)].copy()
-            if "etf_id" in stored_data.columns
-            else stored_data.iloc[0:0].copy()
-        )
-        new_rows = window_data[window_data["etf_id"].astype(str).eq(instrument_id)].copy()
+        old_rows = stored_rows(instrument_id).copy()
+        new_rows = window_rows(instrument_id).copy()
         full_reason = _incremental_full_reason(old_rows, new_rows)
         if full_reason is None:
             incremental_ids.append(instrument_id)
@@ -466,13 +474,10 @@ def _merge_incremental_price_result(
                 full_data = full_data[~full_data["etf_id"].astype(str).isin(failed_full_ids)]
 
     parts = [preserved] if not preserved.empty else []
+    full_rows = _rows_by_instrument(full_data)
     for instrument_id in sorted(window_ids):
-        old_rows = (
-            stored_data[stored_data["etf_id"].astype(str).eq(instrument_id)].copy()
-            if "etf_id" in stored_data.columns
-            else stored_data.iloc[0:0].copy()
-        )
-        new_rows = window_data[window_data["etf_id"].astype(str).eq(instrument_id)].copy()
+        old_rows = stored_rows(instrument_id).copy()
+        new_rows = window_rows(instrument_id).copy()
         if instrument_id in incremental_ids:
             old_dates = _normalised_price_dates(old_rows)
             new_dates = set(_normalised_price_dates(new_rows).dropna())
@@ -483,7 +488,7 @@ def _merge_incremental_price_result(
             parts.extend((old_rows, new_rows))
             continue
 
-        refreshed_rows = full_data[full_data["etf_id"].astype(str).eq(instrument_id)] if "etf_id" in full_data.columns else full_data
+        refreshed_rows = full_rows(instrument_id)
         # A failed full refetch must not mix its window rows with the stored adjustment basis.
         parts.append(refreshed_rows if not refreshed_rows.empty else old_rows)
 
