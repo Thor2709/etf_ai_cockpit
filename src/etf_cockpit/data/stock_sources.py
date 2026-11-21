@@ -27,6 +27,7 @@ from etf_cockpit.analysis.stock_metrics import (
 )
 from etf_cockpit.core.paths import STATEMENT_FACTS_PATH
 from etf_cockpit.core.values import finite_float_or_none as _number
+from etf_cockpit.data.retrieval_batch import provider_rate_limiter
 from etf_cockpit.data.yfinance_provider import classify_provider_error
 from etf_cockpit.parsers.esef_ixbrl import PER_SHARE_VERIFIED
 
@@ -151,10 +152,9 @@ def fetch_yfinance(
 ) -> FetchResult:
     """Annual and quarterly statements plus profile and analyst snapshot for one Yahoo symbol."""
 
+    labels = {**IDENTITY_YF_LABELS, **(config.get("yfinance_labels", {}) or {})}
     if ticker_factory is None:
-        import yfinance  # imported lazily: optional runtime dependency, already a production requirement
-
-        ticker_factory = yfinance.Ticker
+        ticker_factory = functools.partial(YahooTicker, labels={label for names in labels.values() for label in names})
     known_at = now.astimezone(timezone.utc).isoformat()
     ref = f"yfinance:{symbol}"
     result = FetchResult("yfinance")
@@ -205,7 +205,6 @@ def fetch_yfinance(
             return pd.DataFrame()
         return value if value is not None else pd.DataFrame()
 
-    labels = {**IDENTITY_YF_LABELS, **(config.get("yfinance_labels", {}) or {})}
     annual = _statement_rows(
         [frame("income_stmt"), frame("cashflow"), frame("balance_sheet")], labels, "FY", financial_currency, known_at, ref
     )
@@ -242,6 +241,164 @@ def fetch_yfinance(
         snapshot["reason"] = result.reason
     result.snapshot = snapshot
     return result
+
+
+def _yahoo_json(url: str, params: Mapping[str, Any]) -> Any:
+    """One Yahoo request on yfinance's shared session (crumb and cookie), under the process-wide Yahoo rate limit."""
+
+    from yfinance.data import YfData  # imported lazily: optional runtime dependency, already a production requirement
+
+    provider_rate_limiter("yfinance", max_calls_per_window=600, window_seconds=60.0).acquire()
+    return YfData().get_raw_json(url, params=dict(params))
+
+
+# yfinance.Ticker statement property -> (fundamentals_keys table, time scale, row-label acronyms), as in yfinance 1.5.1
+_YAHOO_STATEMENTS = {
+    "income_stmt": ("financials", "annual", ["EBIT", "EBITDA", "EPS", "NI"]),
+    "quarterly_income_stmt": ("financials", "quarterly", ["EBIT", "EBITDA", "EPS", "NI"]),
+    "cashflow": ("cash-flow", "annual", ["PPE"]),
+    "quarterly_cashflow": ("cash-flow", "quarterly", ["PPE"]),
+    "balance_sheet": ("balance-sheet", "annual", ["PPE"]),
+    "quarterly_balance_sheet": ("balance-sheet", "quarterly", ["PPE"]),
+}
+
+
+class YahooTicker:
+    """The part of ``yfinance.Ticker`` that ``fetch_yfinance`` reads, in 3 Yahoo requests instead of about 10.
+
+    One quoteSummary request (the ``info`` modules plus earningsTrend), the v7 quote that ``info`` merges in, and one
+    fundamentals time series for the configured row labels only. Parsing follows yfinance 1.5.1 (``Quote._fetch_info``,
+    ``Financials._get_financials_time_series``, ``Analysis._get_periodic_df``), so the values are the same. Not fetched:
+    the trailingPegRatio request of ``info`` and the statement rows that no label asks for. Errors are hidden as with
+    yfinance's default ``hide_exceptions``.
+    """
+
+    def __init__(self, symbol: str, *, labels: set[str]) -> None:
+        self.symbol = symbol
+        self._labels = labels
+        self._summary: Any = None
+        self._series: Any = None
+
+    def _get(self, url: str, params: Mapping[str, Any]) -> Any:
+        from yfinance._http import HTTPError
+
+        try:
+            return _yahoo_json(url, params)
+        except HTTPError:  # yfinance: an HTTP error status leaves that part of ``info`` empty
+            return None
+
+    @functools.cached_property
+    def info(self) -> dict[str, Any]:
+        from yfinance.config import YfConfig
+        from yfinance.const import _BASE_URL_, _QUERY1_URL_
+
+        locale = {"lang": YfConfig.locale.lang, "region": YfConfig.locale.region}
+        modules = "financialData,quoteType,defaultKeyStatistics,assetProfile,summaryDetail,earningsTrend"
+        self._summary = self._get(f"{_BASE_URL_}/v10/finance/quoteSummary/{self.symbol}", {
+            "modules": modules, "corsDomain": "finance.yahoo.com", "formatted": "false", "symbol": self.symbol, **locale})
+        quote = self._get(f"{_QUERY1_URL_}/v7/finance/quote?", {"symbols": self.symbol, "formatted": "false", **locale})
+        result = dict(self._summary or {})
+        if quote is not None:
+            result.update(quote)
+        merged: dict[str, Any] = {}
+        for key in ("quoteSummary", "quoteResponse"):
+            found = result.get(key, {}).get("result", [])
+            if len(found) > 0:
+                found[0]["symbol"] = self.symbol
+                match = next((item for item in found if item.get("symbol") == self.symbol), None)
+                if match:
+                    merged.update(match)
+        flat: dict[str, Any] = {}
+        for key, value in merged.items():
+            if isinstance(value, dict):
+                flat.update({k: (86400 if k == "maxAge" and v == 1 else v) for k, v in value.items() if v is not None})
+            elif value is not None:
+                flat[key] = value
+        return {key: _yahoo_format(key, value) for key, value in flat.items()}
+
+    def _trend(self, key: str) -> pd.DataFrame:
+        try:
+            trend = self._summary["quoteSummary"]["result"][0]["earningsTrend"]["trend"]
+        except (TypeError, KeyError):
+            trend = []
+        data = [{"period": item["period"], **{k: v["raw"] for k, v in item[key].items() if isinstance(v, dict) and len(v) > 0}}
+                for item in trend[:4]]
+        return pd.DataFrame(data).set_index("period") if data else pd.DataFrame()
+
+    @property
+    def eps_trend(self) -> pd.DataFrame:
+        return self._trend("epsTrend")
+
+    @property
+    def eps_revisions(self) -> pd.DataFrame:
+        return self._trend("epsRevisions")
+
+    def __getattr__(self, name: str) -> pd.DataFrame:
+        if name not in _YAHOO_STATEMENTS:
+            raise AttributeError(name)
+        try:
+            return self._statement(*_YAHOO_STATEMENTS[name])
+        except Exception:  # yfinance: a failed statement table is an empty table
+            return pd.DataFrame()
+
+    def _keys(self, statement: str, acronyms: list[str]) -> list[str]:
+        from yfinance import const, utils
+
+        return [key for key in const.fundamentals_keys[statement] if utils.camel2title([key], sep=" ", acronyms=acronyms)[0] in self._labels]
+
+    def _statement(self, statement: str, scale: str, acronyms: list[str]) -> pd.DataFrame:
+        from yfinance import utils
+
+        keys = self._keys(statement, acronyms)
+        wanted = {scale + key for key in keys}
+        timestamps: set[int] = set()
+        unpacked: dict[str, Any] = {}
+        for entry in self._timeseries():
+            if (entry.get("meta") or {}).get("type", [None])[0] not in wanted:
+                continue
+            for key, value in entry.items():
+                if key == "timestamp":
+                    timestamps.update(value)
+                elif key != "meta":
+                    unpacked[key] = value
+        frame = pd.DataFrame(columns=pd.to_datetime(sorted(timestamps), unit="s"), index=list(unpacked))
+        for key, values in unpacked.items():
+            frame.loc[key] = {pd.Timestamp(item["asOfDate"]): item["reportedValue"]["raw"] for item in values}
+        frame.index = frame.index.str.replace("^" + scale, "", regex=True)
+        for column in frame.columns:
+            frame[column] = frame[column].astype("float")
+        frame = frame.reindex([key for key in keys if key in frame.index])
+        frame = frame[sorted(frame.columns, reverse=True)]
+        frame.index = utils.camel2title(frame.index, sep=" ", acronyms=acronyms)
+        return frame
+
+    def _timeseries(self) -> list[dict[str, Any]]:
+        if self._series is None:
+            types = sorted({scale + key for statement, scale, acronyms in _YAHOO_STATEMENTS.values() for key in self._keys(statement, acronyms)})
+            try:
+                payload = _yahoo_json(
+                    f"https://query2.finance.yahoo.com/ws/fundamentals-timeseries/v1/finance/timeseries/{self.symbol}",
+                    {"symbol": self.symbol, "type": ",".join(types), "period1": int(datetime(2016, 12, 31).timestamp()),
+                     "period2": int(pd.Timestamp.now("UTC").ceil("D").timestamp())},
+                )
+                self._series = (payload.get("timeseries") or {}).get("result") or []
+            except Exception as exc:  # one failed request fails every statement table, without six retries
+                self._series = exc
+        if isinstance(self._series, Exception):
+            raise self._series
+        return self._series
+
+
+def _yahoo_format(key: str | None, value: Any) -> Any:
+    """yfinance ``_fetch_info._format``: a {raw, fmt} pair becomes its raw value; a non-breaking space becomes a space."""
+
+    if isinstance(value, dict) and "raw" in value and "fmt" in value:
+        return value["fmt"] if key in {"regularMarketTime", "postMarketTime"} else value["raw"]
+    if isinstance(value, list):
+        return [_yahoo_format(None, item) for item in value]
+    if isinstance(value, dict):
+        return {k: _yahoo_format(k, item) for k, item in value.items()}
+    return value.replace("\xa0", " ") if isinstance(value, str) else value
 
 
 def _analyst_fields(ticker: Any) -> dict[str, Any]:
