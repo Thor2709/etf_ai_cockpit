@@ -427,6 +427,7 @@ def fetch_fx_rates(base: str, quote: str, *, days: int = 20, ticker_factory: Cal
         import yfinance
 
         ticker_factory = yfinance.Ticker
+    provider_rate_limiter("yfinance", max_calls_per_window=600, window_seconds=60.0).acquire()  # the same limit as _yahoo_json
     history = ticker_factory(f"{base}{quote}=X").history(period=f"{max(days, 5)}d")
     if history is None or history.empty:
         return []

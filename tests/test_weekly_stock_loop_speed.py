@@ -134,6 +134,28 @@ def test_the_sec_ticker_file_is_downloaded_once_per_run(tmp_path, monkeypatch) -
     assert downloads == [src.SEC_TICKERS_URL]
 
 
+def test_each_fx_request_acquires_the_shared_yahoo_limiter(monkeypatch) -> None:
+    events: list[str] = []
+
+    class Limiter:
+        def acquire(self) -> None:
+            events.append("acquire")
+
+    class Ticker:
+        def __init__(self, symbol: str):
+            self.symbol = symbol
+
+        def history(self, period: str) -> pd.DataFrame:
+            events.append(self.symbol)
+            return pd.DataFrame({"Close": [1.1]}, index=pd.to_datetime(["2026-03-02"]))
+
+    monkeypatch.setattr(src, "provider_rate_limiter", lambda name, **kw: Limiter() if (name, kw) == ("yfinance", {"max_calls_per_window": 600, "window_seconds": 60.0}) else None)
+    fetch = lambda base, quote: src.fetch_fx_rates(base, quote, ticker_factory=Ticker)  # noqa: E731
+    rows = store._needed_fx({"quote_currency": "USD", "financial_currency": "GBP"}, fetch, NOW, CONFIG)
+    assert events == ["acquire", "USDGBP=X", "acquire", "USDEUR=X"]
+    assert {(row["pair"], row["rate"]) for row in rows} == {("USDGBP", 1.1), ("USDEUR", 1.1)}  # values unchanged
+
+
 def test_the_weekly_run_downloads_companyfacts_once_per_cik_and_stores_the_same_output(tmp_path, monkeypatch) -> None:
     from etf_cockpit.application import sec_evidence_refresh as ser
     from etf_cockpit.application.stock_service import refresh_universe_stock_fundamentals
