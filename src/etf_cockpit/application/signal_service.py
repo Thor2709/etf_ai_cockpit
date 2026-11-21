@@ -213,12 +213,16 @@ def _run_decision_shadow_guard(
     try:
         liquidity_reports = {}
         if price_history is not None:
-            from etf_cockpit.features.etf_economics import calculate_etf_liquidity
+            from etf_cockpit.features import etf_economics
 
+            try:  # scope the history once; on failure keep the per-instrument full-frame path
+                rows_for = etf_economics.price_history_by_instrument(price_history)
+            except Exception:
+                rows_for = lambda _instrument: price_history  # noqa: E731
             for instrument in config.universe.enabled_ids:
                 try:
-                    liquidity_reports[instrument] = calculate_etf_liquidity(
-                        config, price_history, instrument, as_of=decision_time
+                    liquidity_reports[instrument] = etf_economics.calculate_etf_liquidity(
+                        config, rows_for(instrument), instrument, as_of=decision_time
                     )
                 except Exception:
                     liquidity_reports[instrument] = None
