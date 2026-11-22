@@ -17,7 +17,8 @@ the INT-23 store, known from the acceptance time.
 ``fetch_8k`` and ``fetch_10k_section_chunks`` are the callers: they take a filing already listed by the
 EDGAR path (CIK and accession), read its full-submission text through :class:`SecEdgarProvider` (cache
 first, then one request under the declared User-Agent and rate limit) and take ``known_at`` from the
-stored header's ACCEPTANCE-DATETIME. With the network denied an uncached filing is unavailable.
+stored header's ACCEPTANCE-DATETIME. With the network denied an uncached filing is unavailable. A fetched
+8-K is parsed in memory and not written (its ledger row is the record); a fetched 10-K is cached.
 """
 
 from __future__ import annotations
@@ -32,7 +33,7 @@ from zoneinfo import ZoneInfo
 from etf_cockpit.core.values import finite_float_or_none as _number
 from etf_cockpit.data.document_chunks import DocumentChunk, chunk_pages
 from etf_cockpit.data.sec_edgar_provider import SecEdgarError, SecEdgarProvider, SecEdgarUnavailable
-from etf_cockpit.data.sec_ownership import SecOwnershipUnavailable, _aware, prepare_edgar_environment
+from etf_cockpit.data.sec_ownership import SecOwnershipUnavailable, _aware, prepare_edgar_environment, serialised_parse
 
 UNAVAILABLE = "unavailable"
 _DATELINE_CHARS = 400
@@ -134,9 +135,12 @@ def header_known_at(source: bytes) -> datetime:
     return next(iter(instants))
 
 
-def _stored_submission(provider: SecEdgarProvider, cik: str, accession: str) -> tuple[bytes, datetime]:
+def _stored_submission(provider: SecEdgarProvider, cik: str, accession: str, *, store: bool = True) -> tuple[bytes, datetime]:
     try:
-        source = provider.fetch_full_submission(cik, accession).path.read_bytes()
+        if store:
+            source = provider.fetch_full_submission(cik, accession).path.read_bytes()
+        else:
+            source = provider.read_full_submission(cik, accession)
     except SecEdgarUnavailable as exc:
         raise SecFilingDocumentUnavailable("full submission is not cached and the SEC is unreachable") from exc
     except (SecEdgarError, ValueError, OSError) as exc:
@@ -144,10 +148,11 @@ def _stored_submission(provider: SecEdgarProvider, cik: str, accession: str) -> 
     return source, header_known_at(source)
 
 
-def fetch_8k(provider: SecEdgarProvider, cik: str, accession: str) -> EightKFiling:
-    """Fetch (or read the stored) full submission of a listed 8-K and parse it."""
-    source, known_at = _stored_submission(provider, cik, accession)
-    return parse_8k(source, known_at=known_at)
+def fetch_8k(provider: SecEdgarProvider, cik: str, accession: str, *, tables: bool = True) -> EightKFiling:
+    """Fetch (or read the stored) full submission of a listed 8-K and parse it in memory; a fetched one is not written
+    (the 8-K ledger row is the record)."""
+    source, known_at = _stored_submission(provider, cik, accession, store=False)
+    return parse_8k(source, known_at=known_at, tables=tables)
 
 
 def fetch_10k_section_chunks(provider: SecEdgarProvider, cik: str, accession: str) -> list[DocumentChunk]:
@@ -156,24 +161,26 @@ def fetch_10k_section_chunks(provider: SecEdgarProvider, cik: str, accession: st
     return parse_10k_section_chunks(source, known_at=known_at)
 
 
-def parse_8k(source: bytes, *, known_at: datetime) -> EightKFiling:
-    """Parse one stored 8-K: its items, earnings-release tables and the explicit release time."""
+@serialised_parse
+def parse_8k(source: bytes, *, known_at: datetime, tables: bool = True) -> EightKFiling:
+    """Parse one stored 8-K: its items, earnings-release tables (skipped when ``tables`` is False) and the explicit release time."""
     known_at = _aware(known_at, "known_at")
     try:
         ed = _edgar()
         filing = _filing(ed, source, ("8-K", "8-K/A"), known_at)
         items = tuple(item.removeprefix("Item ") for item in ed.CurrentReport(filing).items)
-        tables: tuple[EarningsTableCandidate, ...] = ()
+        found: tuple[EarningsTableCandidate, ...] = ()
         announced, reason = UNAVAILABLE, "not_an_earnings_release"
         exhibit = ed.find_earnings_exhibit(filing.attachments) if "2.02" in items else None
         if exhibit is not None:
-            tables = tuple(_candidate(exhibit.document, table) for table in ed.get_earnings_tables(filing))
+            if tables:
+                found = tuple(_candidate(exhibit.document, table) for table in ed.get_earnings_tables(filing))
             announced, reason = _announcement(exhibit.text() or "", known_at)
         elif "2.02" in items:
             reason = "no_earnings_exhibit"
         return EightKFiling(
             accession=str(filing.accession_no), form=str(filing.form), issuer_cik=str(filing.cik).zfill(10),
-            filed_date=str(filing.filing_date), sec_receipt_time=known_at, items=items, tables=tables,
+            filed_date=str(filing.filing_date), sec_receipt_time=known_at, items=items, tables=found,
             public_announcement_time=announced, announcement_reason=reason,
             source_sha256=hashlib.sha256(source).hexdigest(),
         )
@@ -183,6 +190,7 @@ def parse_8k(source: bytes, *, known_at: datetime) -> EightKFiling:
         raise SecFilingDocumentUnavailable(f"8-K could not be parsed: {type(exc).__name__}") from exc
 
 
+@serialised_parse
 def parse_10k_section_chunks(source: bytes, *, known_at: datetime) -> list[DocumentChunk]:
     """Risk-factor (page 1) and MD&A (page 2) chunks of one stored 10-K; a missing section adds none."""
     known_at = _aware(known_at, "known_at")

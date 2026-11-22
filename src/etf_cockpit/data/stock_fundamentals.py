@@ -13,10 +13,14 @@ Source order comes from ``configs/stock_fundamentals_v1.yaml``: filings first, t
 
 from __future__ import annotations
 
+import functools
 import json
 import math
 import os
+import threading
+from collections import deque
 from collections.abc import Callable, Iterable, Mapping, Sequence
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -112,7 +116,7 @@ def _read(path: Path, columns: Sequence[str]) -> pd.DataFrame:
         return pd.DataFrame(columns=list(columns))
     for column in columns:
         if column not in frame.columns:
-            frame[column] = pd.NA
+            frame[column] = math.nan  # as a later write stores it; pd.NA made `value or ""` raise in the period merge
     return frame
 
 
@@ -638,6 +642,10 @@ def fx_rate(
 # ---------------------------------------------------------------------------------------------
 
 
+_SEC_WORKERS = 8  # requests take ~0.4-1 s; 8 in flight keep the shared SEC limiter (~8 requests/s) busy
+_SEC_AHEAD = 16  # targets fetched ahead of the in-order apply: bounds the parsed results held in memory
+
+
 def refresh_stock_fundamentals(
     targets: Sequence[StockTarget],
     *,
@@ -648,7 +656,7 @@ def refresh_stock_fundamentals(
     yfinance_fetch: Callable[..., src.FetchResult] = src.fetch_yfinance,
     edgar_fetch: Callable[..., src.FetchResult] = fetch_sec_fundamentals,
     esef_fetch: Callable[..., src.FetchResult] = fetch_esef_fundamentals,
-    cik_resolver: Callable[..., str | None] = src.resolve_cik,
+    cik_resolver: Callable[..., str | None] | None = None,
     fx_fetch: Callable[..., list[tuple[str, float]]] = src.fetch_fx_rates,
     progress: Callable[[str], None] | None = None,
 ) -> RefreshReport:
@@ -659,8 +667,26 @@ def refresh_stock_fundamentals(
     env = os.environ if environ is None else environ
     chain = list((cfg.get("sources", {}) or {}).get("chain", ["sec_edgar", "esef", "yfinance"]))
     agent = src.sec_user_agent(cfg, env)
+    if cik_resolver is None:  # the SEC ticker file is downloaded once per run, not once per target
+        cik_resolver = functools.partial(src.resolve_cik, fetch=functools.cache(src.http_get_json))
     paths = store_paths(root)
-    periods = read_fundamentals(root)
+    stored = read_fundamentals(root)
+    stored_rows = stored.groupby(stored["instrument_id"].astype(str).to_numpy(), sort=False).indices
+    new_rows: dict[str, list[dict[str, Any]]] = {}
+    added_rows: list[dict[str, Any]] = []
+
+    def append(instrument_id: str, rows: Iterable[Mapping[str, Any]]) -> int:
+        """``append_period_rows`` on this instrument's stored and new rows only; the store is concatenated once, at the end."""
+
+        mine = stored.iloc[stored_rows[instrument_id]] if instrument_id in stored_rows else stored.iloc[0:0]
+        extra = new_rows.setdefault(instrument_id, [])
+        frame = _concat([mine, pd.DataFrame(extra, columns=PERIOD_COLUMNS)], PERIOD_COLUMNS) if extra else mine
+        combined, count = append_period_rows(frame, instrument_id, rows)
+        records = combined.iloc[len(combined) - count:].to_dict("records") if count else []
+        extra.extend(records)
+        added_rows.extend(records)
+        return count
+
     snapshots = read_snapshots(root)
     for _, legacy in snapshots.iterrows():
         analyst = {name: legacy.get(name) for name in ANALYST_FIELDS if name in snapshots.columns}
@@ -681,68 +707,116 @@ def refresh_stock_fundamentals(
             "known_at": known_at,
             **analyst,
         }
-        periods, _migrated = append_period_rows(periods, str(legacy.get("instrument_id") or ""), [migrated])
+        append(str(legacy.get("instrument_id") or ""), [migrated])
     fx = read_fx(root, include_canonical=False)
     report = RefreshReport()
     snapshot_rows: list[dict[str, Any]] = []
     fx_rows: list[dict[str, Any]] = []
-    for target in targets:
-        notes: list[str] = []
-        cik = target.cik
-        for source in chain:
-            if source == "sec_edgar":
-                if cik is None and agent:
-                    try:
-                        cik = cik_resolver(target.yahoo_symbol, agent)
-                    except Exception as exc:
-                        notes.append(f"SEC ticker lookup failed: {str(exc)[:80]}")
-                if cik is None:
-                    if "." not in target.yahoo_symbol:  # a non-US listing has no CIK: not a gap worth reporting
-                        notes.append("SEC EDGAR skipped: " + ("no CIK resolved" if agent else "no SEC User-Agent configured (set ETF_COCKPIT_SEC_EDGAR_USER_AGENT)"))
+    fx_cache: dict[tuple[str, str], list[tuple[str, float]]] = {}
+
+    def cached_fx(base: str, quote: str) -> list[tuple[str, float]]:
+        """One FX fetch per pair per run; an empty or failed fetch is not kept, so the next stock fetches it again."""
+
+        series = fx_cache.get((base, quote)) or fx_fetch(base, quote)
+        if series:
+            fx_cache[(base, quote)] = series
+        return series
+
+    cik_locks: dict[str, threading.Lock] = {}
+
+    def sec_fetch(cik: str) -> src.FetchResult:
+        """Worker: network, parse and the provider's per-CIK cache files. Share classes of one CIK wait here, so the per-run cache answers the second."""
+
+        with cik_locks.setdefault(str(cik).lstrip("0"), threading.Lock()):
+            return edgar_fetch(cik, cfg, user_agent=agent)
+
+    def start_sec(target: StockTarget) -> tuple[str | None, str | None, Future | None]:
+        """Main thread: the CIK (the ticker file is fetched once, here) and its companyfacts fetch in a worker."""
+
+        cik, note = target.cik, None
+        if "sec_edgar" not in chain:
+            return cik, None, None
+        if cik is None and agent:
+            try:
+                cik = cik_resolver(target.yahoo_symbol, agent)
+            except Exception as exc:
+                note = f"SEC ticker lookup failed: {str(exc)[:80]}"
+        return cik, note, (sec_pool.submit(sec_fetch, cik) if cik is not None else None)
+
+    # Yahoo is fetched ahead in 4 threads (one shared session and rate limit); SEC companyfacts at most _SEC_AHEAD targets
+    # ahead in _SEC_WORKERS threads (the provider's shared limiter). Every result is applied here, in target order.
+    # The default SEC fetch has no shared limiter, only fetch_edgar's sleep per call: its requests stay serial, in one worker.
+    pool = ThreadPoolExecutor(max_workers=4)
+    sec_pool = ThreadPoolExecutor(max_workers=1 if edgar_fetch is fetch_sec_fundamentals else _SEC_WORKERS)
+    try:
+        yahoo = pool.map(lambda target: yfinance_fetch(target.yahoo_symbol, cfg, now=stamp), targets) if "yfinance" in chain else iter(())
+        sec_ahead = deque(start_sec(target) for target in targets[:_SEC_AHEAD])
+        for index, target in enumerate(targets):
+            if index + _SEC_AHEAD < len(targets):
+                sec_ahead.append(start_sec(targets[index + _SEC_AHEAD]))
+            resolved, lookup_note, sec_job = sec_ahead.popleft()
+            notes: list[str] = []
+            cik = target.cik
+            for source in chain:
+                if source == "sec_edgar":
+                    cik = resolved
+                    if lookup_note:
+                        notes.append(lookup_note)
+                    if sec_job is None:
+                        if "." not in target.yahoo_symbol:  # a non-US listing has no CIK: not a gap worth reporting
+                            notes.append("SEC EDGAR skipped: " + ("no CIK resolved" if agent else "no SEC User-Agent configured (set ETF_COCKPIT_SEC_EDGAR_USER_AGENT)"))
+                        continue
+                    result = sec_job.result()
+                elif source == "esef":
+                    result = esef_fetch(target.instrument_id, cfg, root=root)
+                    if result.status == "unavailable":  # nothing imported for this issuer (e.g. a US filer): not a gap worth reporting
+                        continue
+                elif source == "yfinance":
+                    result = next(yahoo)
+                else:
                     continue
-                result = edgar_fetch(cik, cfg, user_agent=agent)
-            elif source == "esef":
-                result = esef_fetch(target.instrument_id, cfg, root=root)
-                if result.status == "unavailable":  # nothing imported for this issuer (e.g. a US filer): not a gap worth reporting
-                    continue
-            elif source == "yfinance":
-                result = yfinance_fetch(target.yahoo_symbol, cfg, now=stamp)
-            else:
-                continue
-            periods, added = append_period_rows(periods, target.instrument_id, result.rows)
-            report.rows_added += added
-            if result.source == "yfinance":
-                analyst = {name: result.snapshot.get(name) for name in ANALYST_FIELDS}
-                if any(value is not None and not pd.isna(value) for value in analyst.values()):
-                    known_at = result.snapshot.get("known_at") or stamp.isoformat()
-                    known_day = as_utc(known_at)
-                    if known_day is not None:
-                        analyst_row = {
-                                "period_end": known_day.date().isoformat(),
-                                "period_type": "ANALYST",
-                                "fiscal_year": known_day.year,
-                                "currency": result.snapshot.get("financial_currency") or "",
-                                "source": result.source,
-                                "source_ref": "",
-                                "known_at": known_at,
-                                **analyst,
-                            }
-                        periods, _analyst_added = append_period_rows(periods, target.instrument_id, [analyst_row])
-            if result.status != "ok":
-                notes.append(f"{result.source}: {result.reason or result.status}")
-            elif result.statement_errors:  # partial statements are recorded, never swallowed
-                notes.append(f"{result.source}: {result.reason or 'partial statements'}")
-            if result.snapshot:
-                row = {column: result.snapshot.get(column) for column in SNAPSHOT_COLUMNS}
-                row.update(instrument_id=target.instrument_id, known_at=result.snapshot.get("known_at") or stamp.isoformat(), source=result.source, status=result.status, reason=result.reason, cik=cik)
-                snapshot_rows.append(row)
-            if result.source == "yfinance" and result.status == "ok":
-                fx_rows.extend(_needed_fx(result.snapshot, fx_fetch, stamp, cfg))
-        report.per_instrument[target.instrument_id] = "; ".join(notes) if notes else "ok"
-        if notes and not any(True for _ in periods[periods["instrument_id"].astype(str) == target.instrument_id].itertuples()):
-            report.failures[target.instrument_id] = "; ".join(notes)
-        if progress:
-            progress(f"{target.instrument_id}: {report.per_instrument[target.instrument_id]}")
+                report.rows_added += append(target.instrument_id, result.rows)
+                if result.source == "yfinance":
+                    analyst = {name: result.snapshot.get(name) for name in ANALYST_FIELDS}
+                    if any(value is not None and not pd.isna(value) for value in analyst.values()):
+                        known_at = result.snapshot.get("known_at") or stamp.isoformat()
+                        known_day = as_utc(known_at)
+                        if known_day is not None:
+                            analyst_row = {
+                                    "period_end": known_day.date().isoformat(),
+                                    "period_type": "ANALYST",
+                                    "fiscal_year": known_day.year,
+                                    "currency": result.snapshot.get("financial_currency") or "",
+                                    "source": result.source,
+                                    "source_ref": "",
+                                    "known_at": known_at,
+                                    **analyst,
+                                }
+                            append(target.instrument_id, [analyst_row])
+                if result.status != "ok":
+                    notes.append(f"{result.source}: {result.reason or result.status}")
+                elif result.statement_errors:  # partial statements are recorded, never swallowed
+                    notes.append(f"{result.source}: {result.reason or 'partial statements'}")
+                if result.snapshot:
+                    row = {column: result.snapshot.get(column) for column in SNAPSHOT_COLUMNS}
+                    row.update(instrument_id=target.instrument_id, known_at=result.snapshot.get("known_at") or stamp.isoformat(), source=result.source, status=result.status, reason=result.reason, cik=cik)
+                    snapshot_rows.append(row)
+                if result.source == "yfinance" and result.status == "ok":
+                    fx_rows.extend(_needed_fx(result.snapshot, cached_fx, stamp, cfg))
+            report.per_instrument[target.instrument_id] = "; ".join(notes) if notes else "ok"
+            if notes and target.instrument_id not in stored_rows and not new_rows.get(target.instrument_id):
+                report.failures[target.instrument_id] = "; ".join(notes)
+            if progress:
+                progress(f"{target.instrument_id}: {report.per_instrument[target.instrument_id]}")
+    finally:  # cancel both queues before any join; each pool is shut down even if the other's shutdown raises
+        try:
+            sec_pool.shutdown(wait=False, cancel_futures=True)
+        finally:
+            try:
+                pool.shutdown(cancel_futures=True)
+            finally:
+                sec_pool.shutdown()
+    periods = _concat([stored, pd.DataFrame(added_rows, columns=PERIOD_COLUMNS)], PERIOD_COLUMNS) if added_rows else stored
     _write(paths["periods"], periods)
     if snapshot_rows:
         _write(paths["snapshots"], _concat([snapshots, pd.DataFrame(snapshot_rows, columns=SNAPSHOT_COLUMNS)], SNAPSHOT_COLUMNS))
@@ -793,10 +867,12 @@ def produce_constituent_metrics(
     frame, snapshots, fx = read_periods(root), read_snapshots(root), read_fx(root)
     prices = with_as_traded_factors(pd.read_parquet(price_path)) if price_path.is_file() else pd.DataFrame()
     wanted = sorted({str(item) for item in instrument_ids})
+    by_instrument = prices.groupby(prices["etf_id"].astype(str).to_numpy(), sort=False).indices if "etf_id" in prices else {}
     rows: list[dict[str, Any]] = []
     for instrument in sorted(set(wanted) & set(frame["instrument_id"].astype(str))):
         periods = periods_for(instrument, frame, chain)
-        history = _price_frame(prices, instrument)
+        found = by_instrument.get(instrument)
+        history = prices.iloc[0:0] if found is None else _price_frame(prices.iloc[found], instrument)
         # a price bar is usable once its availability stamp is reached; no stamp means unusable
         available = pd.to_datetime(history["available_at"], errors="coerce", utc=True) if "available_at" in history else None
         for known in sorted({period.known_at for period in periods}):

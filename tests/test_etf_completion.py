@@ -332,7 +332,8 @@ def test_yfinance_metadata_fetcher_offline_preserves_aum(monkeypatch):
     config = load_config()
     config.universe.etfs = [config.universe.by_id()["VWCE"]]
     provider = YFinanceProvider.from_config(config)
-    ticker = SimpleNamespace(info={"totalAssets": 100_000_000, "currency": "USD"}, fast_info={}, funds_data=None)
+    summary = {"quoteSummary": {"result": [{"summaryDetail": {"totalAssets": 100_000_000, "currency": "USD"}, "quoteType": {"quoteType": "ETF"}}]}}
+    ticker = SimpleNamespace(_data=SimpleNamespace(get_raw_json=lambda url, params: summary), funds_data=None)
     calls = []
     def offline_ticker(symbol):
         calls.append(symbol)

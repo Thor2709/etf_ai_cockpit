@@ -226,3 +226,47 @@ def test_sec_provider_retains_immutable_raw_generations(tmp_path: Path) -> None:
     assert first.path.read_bytes() == first_payload
     assert second.path.read_bytes() == second_payload
     assert first.sha256 != second.sha256
+
+
+def test_sec_requests_ask_for_gzip_and_every_caller_sees_the_plain_bytes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import gzip
+
+    import etf_cockpit.data.sec_edgar_provider as sec_provider
+
+    plain = json.dumps({"cik": "0000789019", "facts": {"pad": "x" * 2000}}).encode()
+    sent: list[str | None] = []
+
+    class Response:
+        status = 200
+
+        def __init__(self, body: bytes, headers: dict[str, str]):
+            self.body, self.headers = body, headers
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc):
+            return False
+
+        def read(self) -> bytes:
+            return self.body
+
+    replies = [Response(gzip.compress(plain), {"Content-Encoding": "gzip"}), Response(plain, {})]
+
+    def urlopen(request, timeout):
+        sent.append(request.get_header("Accept-encoding"))
+        return replies.pop(0)
+
+    monkeypatch.setattr(sec_provider, "urlopen", urlopen)
+    provider = SecEdgarProvider("ETF AI Cockpit tests research@company.org", cache_dir=tmp_path, rate_limit_seconds=0)
+    zipped = provider.fetch_companyfacts("789019")
+    unzipped = provider.fetch_submissions("789019")  # a body without Content-Encoding passes through
+    assert sent == ["gzip", "gzip"]
+    assert zipped.path.read_bytes() == unzipped.path.read_bytes() == plain
+    assert zipped.sha256 == unzipped.sha256
+
+    monkeypatch.setattr(sec_provider, "_MAX_DECODED_BYTES", 1000)  # the cap counts decompressed bytes, not wire bytes
+    replies.append(Response(gzip.compress(plain), {"Content-Encoding": "gzip"}))
+    assert len(gzip.compress(plain)) < 1000 < len(plain)
+    with pytest.raises(ValueError, match="size cap"):
+        provider._get_document("https://www.sec.gov/Archives/edgar/data/789019/x.txt", "text/plain")

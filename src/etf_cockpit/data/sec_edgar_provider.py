@@ -21,6 +21,7 @@ import time
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
+import zlib
 
 from etf_cockpit.core.atomic_io import atomic_write_bytes, atomic_write_json
 from etf_cockpit.core.values import string_dict_or_empty as _headers_dict
@@ -76,14 +77,20 @@ def parse_reported_shares(payload: Mapping[str, Any], *, source_ref: str) -> lis
 def fetch_stock_fundamentals(
     cik: str, config: Mapping[str, Any], *, user_agent: str | None,
     fetch: Callable[..., Any] | None = None, sleep: Callable[[float], None] | None = None,
+    provider: SecEdgarProvider | None = None,
 ) -> Any:
-    """Keep the existing statement adapter and extract DEI from the same response."""
+    """Keep the existing statement adapter and extract DEI from the same response.
+
+    With ``provider`` the companyfacts come through it, so a later step of the same run can reuse its file."""
     from etf_cockpit.data import stock_sources as src
 
     reported: list[dict[str, Any]] = []
 
     def capture(url: str, agent: str) -> Any:
-        payload = (fetch or src.http_get_json)(url, agent)
+        if provider is not None:
+            payload = json.loads(provider.fetch_companyfacts(cik).path.read_bytes())
+        else:
+            payload = (fetch or src.http_get_json)(url, agent)
         reported.extend(parse_reported_shares(payload, source_ref=url))
         return payload
 
@@ -125,6 +132,7 @@ class _SessionGeneration:
 
 
 _SEC_MIN_INTERVAL = 0.1  # SEC fair access: at most 10 requests per second on live requests
+_MAX_DECODED_BYTES = 50_000_000  # the weekly transport's response cap, applied again to a decompressed gzip body
 _RATE_LOCK = threading.RLock()
 _SHARED_LAST_REQUEST: dict[Callable[[], float], float] = {}
 
@@ -166,6 +174,7 @@ class SecEdgarProvider:
         max_retries: int = 1,
         monotonic: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], None] = time.sleep,
+        reuse_companyfacts: bool = False,
     ) -> None:
         cleaned_agent = str(user_agent or "").strip()
         if not _valid_user_agent(cleaned_agent):
@@ -187,6 +196,8 @@ class SecEdgarProvider:
         self._last_request_at: float | None = None
         self._authority_ledger: OrderedDict[tuple[str, str, str, str], _SessionGeneration] = OrderedDict()
         self._partial_sessions: OrderedDict[tuple[str, str, str], tuple[object, ...]] = OrderedDict()
+        # One weekly run: a companyfacts document this provider fetched is returned again without a request.
+        self._companyfacts: dict[str, RawDocument] | None = {} if reuse_companyfacts else None
 
     def fetch_companyfacts(
         self,
@@ -195,6 +206,8 @@ class SecEdgarProvider:
         publish_guard: PublicationScopeFactory | None = None,
     ) -> RawDocument:
         cik_text = _normalise_cik(cik)
+        if self._companyfacts is not None and cik_text in self._companyfacts:
+            return self._companyfacts[cik_text]
         document = self._fetch(
             f"{self.BASE_URL}/api/xbrl/companyfacts/CIK{cik_text}.json",
             f"companyfacts_{cik_text}.json",
@@ -202,6 +215,8 @@ class SecEdgarProvider:
             cik_text,
             publish_guard=publish_guard,
         )
+        if self._companyfacts is not None:
+            self._companyfacts[cik_text] = document
         return document
 
     def fetch_submissions(
@@ -284,6 +299,22 @@ class SecEdgarProvider:
         denied; an uncached one is fetched once (declared User-Agent, shared rate limit) and kept
         immutably under its sha256. Identity is checked against the header's accession number.
         """
+        url, accession_text, stored, payload, status = self._full_submission(cik, accession)
+        if stored is not None:
+            return stored
+        payload_sha = _sha256(payload)
+        path = self.cache_dir / "filings" / _submission_name(accession_text, payload_sha)
+        with publication_scope(publish_guard):
+            atomic_write_bytes(path, payload, lambda candidate: None)
+        return RawDocument(path, url, datetime.now(timezone.utc), payload_sha, "sec_edgar", "sec_full_submission",
+                           "text/plain", status)
+
+    def read_full_submission(self, cik: str, accession: str) -> bytes:
+        """The bytes of ``fetch_full_submission`` (a stored one without a request), but an uncached one is never written."""
+        return self._full_submission(cik, accession)[3]
+
+    def _full_submission(self, cik: str, accession: str) -> tuple[str, str, RawDocument | None, bytes, int]:
+        """(url, accession, stored document or None, payload, HTTP status): the cache first, else one checked request."""
         cik_text = _normalise_cik(cik)
         accession_text = str(accession or "")
         if not _ACCESSION.fullmatch(accession_text):
@@ -293,18 +324,13 @@ class SecEdgarProvider:
         for path in stored:
             payload = path.read_bytes()
             if path.name == _submission_name(accession_text, _sha256(payload)):
-                return RawDocument(path, url, datetime.fromtimestamp(path.stat().st_mtime, timezone.utc),
-                                   _sha256(payload), "sec_edgar", "sec_full_submission", "text/plain", 200)
+                return url, accession_text, RawDocument(path, url, datetime.fromtimestamp(path.stat().st_mtime, timezone.utc),
+                                                        _sha256(payload), "sec_edgar", "sec_full_submission", "text/plain", 200), payload, 200
         response = self._get_document(url, "text/plain")
         payload = response.payload
         if re.search(rb"ACCESSION NUMBER:\s*" + accession_text.encode(), payload[:4096]) is None:
             raise ValueError("SEC full submission does not carry the requested accession number")
-        payload_sha = _sha256(payload)
-        path = self.cache_dir / "filings" / _submission_name(accession_text, payload_sha)
-        with publication_scope(publish_guard):
-            atomic_write_bytes(path, payload, lambda candidate: None)
-        return RawDocument(path, url, datetime.now(timezone.utc), payload_sha, "sec_edgar", "sec_full_submission",
-                           "text/plain", response.status)
+        return url, accession_text, None, payload, response.status
 
     def import_submissions(
         self,
@@ -587,12 +613,13 @@ class SecEdgarProvider:
         raise SecEdgarUnavailable("SEC request unavailable") from last_error
 
     def _request(self, url: str, headers: dict[str, str]) -> _Response:
+        headers = {**headers, "Accept-Encoding": "gzip"}  # a smaller download; every caller still gets the plain bytes
         if self.transport is not None:
-            return _normalise_response(self.transport(url, headers))
+            return _decoded(_normalise_response(self.transport(url, headers)))
         request = Request(url, headers=headers)
         try:
             with urlopen(request, timeout=self.timeout) as response:
-                return _Response(response.read(), int(response.status), _headers_dict(response.headers))
+                return _decoded(_Response(response.read(), int(response.status), _headers_dict(response.headers)))
         except HTTPError as exc:
             if exc.code == 304:
                 return _Response(b"", 304, _headers_dict(exc.headers))
@@ -667,6 +694,23 @@ def _normalise_response(value: Any) -> _Response:
         payload = value.read()
         return _Response(bytes(payload), int(getattr(value, "status", 200)), _headers_dict(getattr(value, "headers", {})))
     raise TypeError("SEC transport must return bytes, response tuple or response object")
+
+
+def _decoded(response: _Response) -> _Response:
+    """A 2xx gzip body decompressed in a bounded stream, refused past the size cap or when cut short; others unchanged."""
+    encoding = next((value for key, value in response.headers.items() if key.lower() == "content-encoding"), "")
+    if encoding.strip().lower() != "gzip" or not 200 <= response.status < 300:
+        return response
+    decoder = zlib.decompressobj(zlib.MAX_WBITS | 16)
+    try:
+        payload = decoder.decompress(response.payload, _MAX_DECODED_BYTES + 1)
+    except zlib.error as exc:
+        raise ValueError("SEC gzip response is corrupt") from exc
+    if len(payload) > _MAX_DECODED_BYTES:
+        raise ValueError("SEC response is above the size cap after decompression")
+    if not decoder.eof or decoder.unused_data:
+        raise ValueError("SEC gzip response is truncated or has trailing data")
+    return _Response(payload, response.status, response.headers)
 
 
 def _parse_json(payload: bytes) -> dict[str, Any]:
