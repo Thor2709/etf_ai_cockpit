@@ -92,7 +92,7 @@ def test_headline_actions_and_tuner_read_the_same_v3_yaml_weights(tmp_path: Path
     (copy / "score_engine_v3.yaml").write_text(yaml.safe_dump(edited, sort_keys=False), encoding="utf-8")
     assert headline_evidence_weights("ETF", path=copy / "score_engine_v3.yaml")["momentum"] == 0.15
     assert load_config(copy).models.ensemble["weights"]["momentum"] == 0.15
-    assert load_tuning_registry(copy / "tuning_v1.yaml").current_values()["ensemble.momentum"] == 0.15
+    assert load_tuning_registry(copy / "tuning_v1.yaml").current_values()["score.etf.headline.momentum"] == 0.15
 
 
 def test_weights_fail_closed_when_the_yaml_does_not_carry_them(tmp_path: Path) -> None:

@@ -69,6 +69,6 @@ def test_tuner_proposes_at_most_5_percent_of_the_time_when_no_knob_has_an_edge(t
 
 def test_tuner_still_proposes_a_planted_optimum(tmp_path) -> None:
     current = load_tuning_registry(DEFAULT_REGISTRY_PATH).current_values()
-    target = dict(current) | {"score.etf.expected_return.baseline": 0.7, "score.etf.expected_return.timesfm": 0.1}
-    # A strong base (level 2) keeps the absolute DSR test passable; scale 1 keeps the trial Sharpe spread moderate.
-    assert _decisions(tmp_path, target, runs=3, level=2.0, scale=1.0) == ["propose_change"] * 3
+    target = dict(current) | {"score.etf.headline.risk": 0.4583, "score.etf.headline.liquidity_cost": 0.2417}  # group total kept
+    # A strong base (level 6) keeps the absolute DSR test passable against the spread of 60 trials over 10 knobs.
+    assert _decisions(tmp_path, target, runs=3, level=6.0, scale=4.0) == ["propose_change"] * 3

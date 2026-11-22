@@ -1,16 +1,14 @@
 # Tunable-knob registry for bounded parameter optimisation (issue #262).
 # Read-only: the tuner reads the CURRENT value of every knob from its source file and never
 # writes to any settings file; output is a proposal artefact only (execution_allowed=false).
-# PSF: momentum+trend are one price-strength family capped at 30% of the weight table, so their upper bounds sum to the
-# cap and relative_strength (weight 0) has no knob. Bounds/step are conservative +/-0.10 around today's weights (clamped to [0, 1]); weights that
-# share a `group` are rescaled to keep the group's current total. `model` marks knobs whose
-# evidence depends on an optional forecast model, so pretraining cutoffs apply to them.
-# NS1: every knob reads configs/score_engine_v3.yaml, the single weight source. score.etf.headline.*
-# are the headline evidence composite (asset_policies.ETF.headline_evidence), ensemble.* the
-# action/gate composite (action_composite.weights; no rebalance term), score.etf.expected_return.*
-# the separate model-forecast domain. No knob exists for the STOCK weights or the group blend.
+# OD-5 scope: the headline evidence weights of ETF and STOCK only (asset_policies.<ETF|STOCK>.headline_evidence in
+# configs/score_engine_v3.yaml, the single weight source); no action-composite, model-forecast or per-sector knobs.
+# Each policy's knobs are one group rescaled to the policy's current total (1.0), so every grid combination is
+# feasible. PSF: momentum+trend are one price-strength family capped at 30% of the table; their upper bounds are
+# today's values (which sum to the cap), so no combination exceeds it. Other bounds are +/-0.10 around today's
+# weights; weights at 0 today (relative_strength, etf_exposure, analyst_revision, forecasts) have no knob.
 schema_version: 1
-version: tuning-v1
+version: tuning-v2
 defaults:
   search:
     max_trials: 60
@@ -33,92 +31,13 @@ defaults:
     embargo: 0
     final_test_size: 60    # reserved tail, never used for tuning or evaluation
 parameters:
-  - key: score.etf.headline.momentum
-    file: score_engine_v3.yaml
-    path: [asset_policies, ETF, headline_evidence, momentum]
-    lower: 0.1
-    upper: 0.165
-    step: 0.05
-    group: score.etf.headline
-  - key: score.etf.headline.trend
-    file: score_engine_v3.yaml
-    path: [asset_policies, ETF, headline_evidence, trend]
-    lower: 0.08
-    upper: 0.135
-    step: 0.05
-    group: score.etf.headline
-  # FPQ: no etf_exposure knob: concentration is a risk-role term and its headline weight is fixed at 0.
-  - key: score.etf.expected_return.baseline
-    file: score_engine_v3.yaml
-    path: [asset_policies, ETF, expected_return, baseline]
-    lower: 0.5
-    upper: 0.7
-    step: 0.05
-    group: score.etf.expected_return
-  - key: score.etf.expected_return.timesfm
-    file: score_engine_v3.yaml
-    path: [asset_policies, ETF, expected_return, timesfm]
-    lower: 0.1
-    upper: 0.3
-    step: 0.05
-    group: score.etf.expected_return
-    model: timesfm
-  - key: score.etf.expected_return.toto
-    file: score_engine_v3.yaml
-    path: [asset_policies, ETF, expected_return, toto]
-    lower: 0.1
-    upper: 0.3
-    step: 0.05
-    group: score.etf.expected_return
-    model: toto
-  - key: ensemble.momentum
-    file: score_engine_v3.yaml
-    path: [action_composite, weights, momentum]
-    lower: 0.1
-    upper: 0.155
-    step: 0.05
-    group: ensemble.weights
-  - key: ensemble.trend
-    file: score_engine_v3.yaml
-    path: [action_composite, weights, trend]
-    lower: 0.05
-    upper: 0.115
-    step: 0.05
-    group: ensemble.weights
-  - key: ensemble.risk
-    file: score_engine_v3.yaml
-    path: [action_composite, weights, risk]
-    lower: 0.0
-    upper: 0.2
-    step: 0.05
-    group: ensemble.weights
-  - key: ensemble.toto
-    file: score_engine_v3.yaml
-    path: [action_composite, weights, toto]
-    lower: 0.05
-    upper: 0.25
-    step: 0.05
-    group: ensemble.weights
-    model: toto
-  - key: ensemble.timesfm
-    file: score_engine_v3.yaml
-    path: [action_composite, weights, timesfm]
-    lower: 0.0
-    upper: 0.2
-    step: 0.05
-    group: ensemble.weights
-    model: timesfm
-  - key: ensemble.baseline_ml
-    file: score_engine_v3.yaml
-    path: [action_composite, weights, baseline_ml]
-    lower: 0.0
-    upper: 0.15
-    step: 0.05
-    group: ensemble.weights
-  - key: ensemble.chatgpt_thesis
-    file: score_engine_v3.yaml
-    path: [action_composite, weights, chatgpt_thesis]
-    lower: 0.0
-    upper: 0.15
-    step: 0.05
-    group: ensemble.weights
+  - {key: score.etf.headline.momentum, file: score_engine_v3.yaml, path: [asset_policies, ETF, headline_evidence, momentum], lower: 0.1, upper: 0.165, step: 0.05, group: score.etf.headline}
+  - {key: score.etf.headline.trend, file: score_engine_v3.yaml, path: [asset_policies, ETF, headline_evidence, trend], lower: 0.08, upper: 0.135, step: 0.05, group: score.etf.headline}
+  - {key: score.etf.headline.risk, file: score_engine_v3.yaml, path: [asset_policies, ETF, headline_evidence, risk], lower: 0.3083, upper: 0.5083, step: 0.05, group: score.etf.headline}
+  - {key: score.etf.headline.liquidity_cost, file: score_engine_v3.yaml, path: [asset_policies, ETF, headline_evidence, liquidity_cost], lower: 0.1917, upper: 0.3917, step: 0.05, group: score.etf.headline}
+  - {key: score.stock.headline.momentum, file: score_engine_v3.yaml, path: [asset_policies, STOCK, headline_evidence, momentum], lower: 0.1242, upper: 0.1742, step: 0.05, group: score.stock.headline}
+  - {key: score.stock.headline.trend, file: score_engine_v3.yaml, path: [asset_policies, STOCK, headline_evidence, trend], lower: 0.0758, upper: 0.1258, step: 0.05, group: score.stock.headline}
+  - {key: score.stock.headline.risk, file: score_engine_v3.yaml, path: [asset_policies, STOCK, headline_evidence, risk], lower: 0.0787069238, upper: 0.2787069238, step: 0.05, group: score.stock.headline}
+  - {key: score.stock.headline.liquidity_cost, file: score_engine_v3.yaml, path: [asset_policies, STOCK, headline_evidence, liquidity_cost], lower: 0.0489408789, upper: 0.2489408789, step: 0.05, group: score.stock.headline}
+  - {key: score.stock.headline.stock_value, file: score_engine_v3.yaml, path: [asset_policies, STOCK, headline_evidence, stock_value], lower: 0.0787069238, upper: 0.2787069238, step: 0.05, group: score.stock.headline}
+  - {key: score.stock.headline.stock_quality, file: score_engine_v3.yaml, path: [asset_policies, STOCK, headline_evidence, stock_quality], lower: 0.0936452735, upper: 0.2936452735, step: 0.05, group: score.stock.headline}
