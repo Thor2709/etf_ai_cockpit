@@ -5,7 +5,8 @@ SEC-receipt earnings features and the Form 4 filings of the last 120 days (from 
 time) in the bitemporal store. An 8-K with item 2.02 adds only the printed release time to the
 earnings rows. For the target positions, the latest 10-K risk-factor and MD&A sections go to the
 document chunk store (cache-first). A parsed 8-K and a stored Form 4 are never fetched again; a failed
-8-K is retried on the next run and its release time then becomes a new earnings-row revision. Without
+8-K filed in the last 120 days is retried on the next run and its release time then becomes a new
+earnings-row revision; an older 8-K is never fetched, so its earnings rows keep the release time unavailable. Without
 edgartools no filing document is downloaded. Every provider or target error becomes a reason in the
 returned dict; the script holds the top-level guard, so the weekly job exit code is unchanged. Prices are passed empty: the stored prices carry no per-bar ``known_at``, so the filing
 reaction stays unavailable and is not stored. Eight workers fetch and parse targets at once under the
@@ -58,6 +59,7 @@ from etf_cockpit.data.sec_pit_facts import acceptance_index
 INSIDER_DATASET = "sec_insider_filings"
 EIGHT_K_DATASET = "sec_8k_releases"
 _FORM4_DAYS = 120
+_EIGHT_K_DAYS = 120  # only an item-2.02 8-K filed in this window is fetched
 _MAX_BYTES = 50_000_000  # the same cap as the macro fetches
 _PRICE_COLUMNS = ["instrument_id", "date", "adjusted_close", "known_at"]
 _WORKERS = 8  # targets fetched at once; every SEC request still passes the provider's one shared limiter
@@ -201,9 +203,10 @@ def _fetch_target(
         if find_spec("edgar") is None:  # the document fetches have no use without it: never download them
             return _Fetched(facts_path, submissions, ["SEC filing documents skipped: edgartools is not installed (optional `sec` extra)"])
         fetched = _Fetched(facts_path, submissions, [], _fetch_form4(provider, cik, filings, acceptances, known[0], now))
+        since = (now - timedelta(days=_EIGHT_K_DAYS)).date().isoformat()
         for row in filings:
             accession = row["accession"]
-            if row["form"] != "8-K" or "2.02" not in row["items"].split(",") or accession in known[1]:
+            if row["form"] != "8-K" or "2.02" not in row["items"].split(",") or accession in known[1] or row["filingDate"] < since:
                 continue
             if not (acceptances.get(accession) or {}).get("accepted"):
                 continue
