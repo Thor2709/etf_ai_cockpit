@@ -3,6 +3,7 @@ from __future__ import annotations
 from copy import deepcopy
 from datetime import date, timedelta
 from functools import lru_cache
+import itertools
 import json
 import os
 from pathlib import Path
@@ -58,6 +59,34 @@ class ETFConfig(BaseModel):
             raise ValueError(f"role must be one of {ALLOWED_ROLES}")
         return value
 
+    def __setattr__(self, name: str, value: Any) -> None:
+        super().__setattr__(name, value)
+        global _ETF_EDIT
+        _ETF_EDIT = next(_ETF_EDITS)  # an edited instrument invalidates every universe index
+
+
+_ETF_EDITS = itertools.count(1)
+_ETF_EDIT = 0
+
+
+class _UniverseIndex:
+    """``by_id`` and ``enabled_ids`` of one state of ``UniverseConfig.etfs``."""
+
+    def __init__(self, etfs: list[ETFConfig]) -> None:
+        self.edit = _ETF_EDIT
+        self.items = tuple(etfs)  # holds the items, so their ids stay unique while the index lives
+        self.ids = tuple(map(id, self.items))
+        self.by_id = {etf.id: etf for etf in self.items}
+        # The enabled universe is the scoring/provider boundary.  Research-
+        # only, unsupported-frequency and high-risk records remain visible in
+        # configuration but cannot silently enter normal workflows.
+        self.enabled_ids = [
+            etf.id
+            for etf in self.items
+            if etf.enabled
+            and support_decision(etf.instrument_type, etf.data_policy, etf.leveraged, etf.inverse).score_eligible
+        ]
+
 
 class UniverseConfig(BaseModel):
     etfs: list[ETFConfig]
@@ -73,17 +102,17 @@ class UniverseConfig(BaseModel):
             ids.add(key)
         return self
 
+    def _index(self) -> _UniverseIndex:
+        # Built once per state: a new or reordered list, an added or removed item, or an edited item rebuilds it.
+        # Kept in __dict__ outside the model fields, so equality and serialisation do not see it.
+        index = self.__dict__.get("_universe_index")
+        if index is None or index.edit != _ETF_EDIT or index.ids != tuple(map(id, self.etfs)):
+            index = self.__dict__["_universe_index"] = _UniverseIndex(self.etfs)
+        return index
+
     @property
     def enabled_ids(self) -> list[str]:
-        # The enabled universe is the scoring/provider boundary.  Research-
-        # only, unsupported-frequency and high-risk records remain visible in
-        # configuration but cannot silently enter normal workflows.
-        return [
-            etf.id
-            for etf in self.etfs
-            if etf.enabled
-            and support_decision(etf.instrument_type, etf.data_policy, etf.leveraged, etf.inverse).score_eligible
-        ]
+        return list(self._index().enabled_ids)
 
     @property
     def configured_enabled_ids(self) -> list[str]:
@@ -91,7 +120,11 @@ class UniverseConfig(BaseModel):
         return [etf.id for etf in self.etfs if etf.enabled]
 
     def by_id(self) -> dict[str, ETFConfig]:
-        return {etf.id: etf for etf in self.etfs}
+        return dict(self._index().by_id)
+
+    def find(self, instrument_id: str) -> ETFConfig | None:
+        """The configured instrument with this id, without copying the ``by_id`` dict."""
+        return self._index().by_id.get(instrument_id)
 
 
 class TargetPosition(BaseModel):

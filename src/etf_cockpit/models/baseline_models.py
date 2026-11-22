@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 
 import numpy as np
 import pandas as pd
@@ -36,7 +36,8 @@ def observed_history_is_sparse(series: pd.Series) -> bool:
     if len(days) < 2:
         return False
     days = (days.tz_convert("UTC").tz_localize(None) if days.tz is not None else days).normalize()
-    weekdays = len(pd.bdate_range(days[0], days[-1]))
+    # Mon-Fri days from the first to the last date, both included (the length of pd.bdate_range; 0 when reversed).
+    weekdays = max(0, int(np.busday_count(days[0].date(), days[-1].date() + timedelta(days=1))))
     return bool(
         int(pd.Series(days).diff().dt.days.max()) > MAX_OBSERVED_GAP_DAYS
         or (weekdays > 1 and len(days) / weekdays < 1 - MAX_MISSING_SESSION_SHARE)

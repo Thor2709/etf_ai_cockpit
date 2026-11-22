@@ -230,14 +230,8 @@ def estimate_execution_cost(
         order_type = "market"
     session_name = str(session or "continuous").strip().lower() or "continuous"
     session_multiplier = 1.25 if session_name in {"open", "close", "auction", "overnight"} else 1.0
-    configured_listing = next(
-        (
-            str(getattr(item, "exchange", "") or "").strip()
-            for item in getattr(getattr(config, "universe", None), "etfs", [])
-            if str(getattr(item, "id", "")) == instrument and str(getattr(item, "exchange", "") or "").strip()
-        ),
-        "unknown",
-    )
+    configured = config.universe.find(instrument)
+    configured_listing = str(configured.exchange or "").strip() if configured is not None else ""
     listing_name = str(listing or configured_listing or "unknown").strip() or "unknown"
 
     spread_configured_for_instrument = _valid_quote(per_instrument.get("spread_bps")) is not None

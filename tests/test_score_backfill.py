@@ -445,7 +445,7 @@ def test_worker_init_overrides_inherited_cuda_devices(monkeypatch) -> None:
     monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "0")
     monkeypatch.setattr(score_backfill, "_WORKER_STATE", {})
     score_backfill._worker_init(_config(), pd.DataFrame(), None, "test", None, ListingHistory())
-    assert os.environ["CUDA_VISIBLE_DEVICES"] == ""
+    assert os.environ["CUDA_VISIBLE_DEVICES"] == "-1"  # "" deletes the variable on Windows and leaves the GPU visible
 
 
 @pytest.mark.parametrize("supports_holdings,has_known_at", [(False, True), (True, True), (True, False)])

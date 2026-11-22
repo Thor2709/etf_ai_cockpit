@@ -59,8 +59,10 @@ def build_quality_momentum_frame(
         return _empty_frame(signal_date, "unavailable_missing_adjusted_prices")
     fundamental_rows = _latest_rows(fundamentals, signal_date)
     records: list[dict[str, object]] = []
+    histories = dict(tuple(price_frame.groupby("instrument_id", sort=False)))  # each id's rows, in frame order
+    no_rows = price_frame.iloc[0:0]
     for instrument_id in ids:
-        history = price_frame.loc[price_frame["instrument_id"] == instrument_id].sort_values("date")
+        history = histories.get(instrument_id, no_rows).sort_values("date")
         momentum_raw = _latest_momentum(history)
         row = fundamental_rows.get(instrument_id)
         record: dict[str, object] = {

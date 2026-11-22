@@ -119,7 +119,7 @@ def generate_signals(
     signals: list[SignalResult] = []
     for _, row in scored.sort_values("total_score", ascending=False).iterrows():
         structure_cap = _structure_cap_for_row(structure_confidence_caps, str(row["etf_id"]))
-        identity = config.universe.by_id().get(str(row["etf_id"]))
+        identity = config.universe.find(str(row["etf_id"]))
         if identity is not None and identity.instrument_type in {"stock", "equity_certificate"}:
             structure_cap = None  # These are the explicit non-fund types in structure_cap_scope.
         structure_provenance = (
