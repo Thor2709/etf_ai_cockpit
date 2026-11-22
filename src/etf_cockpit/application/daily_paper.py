@@ -3,16 +3,17 @@
 Order, all under the shared app/MCP writer lock (acquired without waiting):
 
 a. S&P 500 capture (a failure is logged; tomorrow's readiness then fails).
-b. S = the latest VWCE session before today and no later than the stored snapshot's report date. No new session
+b. S = the latest VWCE session before today and no later than the as-of date a snapshot build would report on the
+   stored prices (read without the build). No new session
    (S already has a forward run from an earlier night) skips b-f with stage ``no_new_session``. Otherwise
    t_S = clock and the forward score run of S is stored with ``run_completed_at`` = t_S; its feature vintage follows.
 c. Readiness of S on that run (H). A FAIL skips d-f.
 d. Paper enabled and kill switch off? Otherwise skip e-f (stage ``paper_disabled`` / ``paper_kill_switch_active``).
 e. Recorder bound to (S, H); f. execution and the AI paper account (``ai-paper``, EUR 40,000, EUR 0 monthly).
-g. Refresh, forecast, rescore and publish (UI only) run whatever b-f did; a b-f failure keeps a non-zero exit code.
-   The forecast runs the configured request. A forecast failure is a stage failure after the committed refresh;
-   rescore and publish still run, and a cache not bound to the refreshed prices is not read (forecast_scores
-   binding, maximum_forecast_age_days).
+g. Refresh, rescore and publish (UI only) run whatever b-f did; a b-f failure keeps a non-zero exit code.
+   The forecast stage is parked (OD-8: forecast weight 0, every row unavailable); ``_forecast`` stays for manual
+   runs. Rescore and publish do not read a cache not bound to the refreshed prices (forecast_scores binding,
+   maximum_forecast_age_days), so the forecasts read as unavailable.
 
 ``--dry-run`` runs a-c and g and skips d-f. Synthetic sample data is disabled for this workflow. The external AI
 client remains responsible for AI proposals through the existing MCP paper controls.
@@ -37,6 +38,7 @@ from etf_cockpit.application.headless_session import (
     HeadlessSession,
     HeadlessWriterBusyError,
     cross_process_writer_guard,
+    require_storage_root,
 )
 from etf_cockpit.application.paper_manual_order import load_paper_controls_status
 from etf_cockpit.application.score_backfill import CALENDAR_INSTRUMENT_ID, backfill_score_history
@@ -44,7 +46,10 @@ from etf_cockpit.core.config import load_config
 from etf_cockpit.core.session_log import redact_text
 from etf_cockpit.core.settings_bundle import load_settings_bundle
 from etf_cockpit.data import sp500_capture
+from etf_cockpit.data.duckdb_store import load_prices
 from etf_cockpit.data.score_history_backfill import FORWARD_PROVENANCE, STORE_PROVENANCES, load_backfill_score_history
+from etf_cockpit.data.trade_candidate_analysis import load_candidate_price_snapshot
+from etf_cockpit.data.validation import REQUIRED_PRICE_COLUMNS
 from etf_cockpit.models.forecast_scores import configured_forecast_request_identity
 from etf_cockpit.portfolio.paper_bot_challengers import build_challenger_engines
 from etf_cockpit.portfolio.paper_bots import run_paper_bots
@@ -136,8 +141,7 @@ def _refresh(
         message = service.refresh_yfinance_data(publish_guard=session.activity_publication)
     if not getattr(service, "last_operation_succeeded", True):
         raise RuntimeError(str(message))
-    session.refresh_snapshot()
-    return session, str(message)
+    return session, str(message)  # no snapshot build here: _rescore builds the one publish reads (SP-2)
 
 
 def _forecast(session: HeadlessSession) -> str:
@@ -176,13 +180,6 @@ def _publish(session: HeadlessSession) -> Path:
     return path
 
 
-def _as_day(value: object) -> date | None:
-    parsed = pd.to_datetime(value, errors="coerce", utc=True)
-    if pd.isna(parsed):
-        return None
-    return parsed.date()
-
-
 def _capture(root: Path, clock: Callable[[], datetime]) -> dict[str, Any]:
     """Step a: fetch first, so the capture is stamped after the page is in hand; a failure is only logged."""
 
@@ -195,15 +192,36 @@ def _capture(root: Path, clock: Callable[[], datetime]) -> dict[str, Any]:
         return {"status": "failed", "reason": redact_text(f"capture failed: {type(exc).__name__}: {exc}")[:400]}
 
 
-def _latest_completed_session(inputs: data_readiness.ReadinessInputs, snapshot: object, now: datetime) -> date:
+def _build_as_of(config: Any) -> date:
+    """The as-of date a snapshot build reports for the stored prices, without the build (SP-2).
+
+    The rows of build_snapshot (enabled ids, plus retained candidate prices of enabled ids without stored prices)
+    and the as-of rule of validate_prices: the latest parsable date, or today when no usable row is left. An enabled
+    id is never empty, so validate_prices' empty-id filter drops nothing here.
+    """
+
+    ids = set(config.universe.enabled_ids)
+    prices = load_prices(config=config)
+    if not prices.empty and "etf_id" in prices:
+        prices = prices[prices["etf_id"].astype(str).isin(ids)]
+    candidates = load_candidate_price_snapshot()
+    if not candidates.empty and {"etf_id", "date"}.issubset(candidates.columns):
+        existing = set(prices.get("etf_id", pd.Series(dtype=str)).astype(str))
+        candidates = candidates.loc[candidates["etf_id"].astype(str).isin(ids - existing)]
+        if not candidates.empty:
+            prices = pd.concat([prices, candidates], ignore_index=True, sort=False)
+    if prices.empty or not REQUIRED_PRICE_COLUMNS.issubset(prices.columns):
+        return date.today()
+    dates = pd.to_datetime(prices["date"], errors="coerce").dropna()
+    return max(dates.dt.date) if not dates.empty else date.today()
+
+
+def _latest_completed_session(inputs: data_readiness.ReadinessInputs, report_date: date, now: datetime) -> date:
     frame = inputs.prices
     if not isinstance(frame, pd.DataFrame) or frame.empty or not {"etf_id", "date"}.issubset(frame.columns):
         raise ValueError("No usable benchmark prices are available for the readiness gate.")
     benchmark = frame.loc[frame["etf_id"].astype(str).eq(CALENDAR_INSTRUMENT_ID), "date"]
     dates = pd.to_datetime(benchmark, errors="coerce", utc=True).dropna().dt.date
-    report_date = _as_day(getattr(getattr(snapshot, "data_report", None), "as_of_date", None))
-    if report_date is None:
-        raise ValueError("The stored snapshot has no verified decision date.")
     completed = [day for day in dates if day < now.astimezone(timezone.utc).date() and day <= report_date]
     if not completed:
         raise ValueError("No completed benchmark decision session is available.")
@@ -222,10 +240,10 @@ def _is_new_session(history: pd.DataFrame, session: date) -> bool:
 def _decision_session(root: Path, clock: Callable[[], datetime]) -> tuple[date, bool]:
     """Step b: S from the stored data (no provider call), and whether S is a new session."""
 
-    session = _new_session(root)
-    session.refresh_snapshot()
+    require_storage_root(root)  # the store read below is import-scoped, as the replaced build checked
+    report_date = _build_as_of(_new_session(root).snapshot.config)
     now = clock()
-    day = _latest_completed_session(data_readiness.load_inputs(root), session.snapshot, now)
+    day = _latest_completed_session(data_readiness.load_inputs(root), report_date, now)
     return day, _is_new_session(load_backfill_score_history(root, STORE_PROVENANCES), day)
 
 
@@ -349,10 +367,6 @@ def run_daily_paper(
                 stage = failure.stage
             try:  # step g runs whatever the paper stages did (SDD C8)
                 session, details["refresh"] = _call("refresh", lambda: _refresh(resolved_root, **refresh_options))
-                try:  # a forecast failure keeps the committed refresh and still lets rescore and publish run
-                    details["forecast"] = _call("forecast", lambda: _forecast(session))
-                except _StageFailure as exc:
-                    failure = failure or exc
                 details["rescore"] = _call("rescore", lambda: _rescore(session))
                 _call("publish", lambda: _publish(session))
             except _StageFailure as exc:

@@ -346,7 +346,7 @@ def test_transport_maps_304_to_a_response_and_refuses_a_body_above_50_mb(monkeyp
         ser._sec_transport(FACTS_URL, {})
 
 
-def test_weekly_fundamentals_script_runs_the_sec_evidence_refresh_after_the_fundamentals(monkeypatch, capsys) -> None:
+def test_weekly_fundamentals_script_parks_the_sec_evidence_and_keeps_companyfacts(monkeypatch) -> None:
     import sys
 
     from etf_cockpit.application import stock_service
@@ -354,21 +354,15 @@ def test_weekly_fundamentals_script_runs_the_sec_evidence_refresh_after_the_fund
     from scripts import refresh_stock_fundamentals as script
 
     order = []
+    provider = object()
     monkeypatch.setattr(sys, "argv", ["refresh_stock_fundamentals.py", "--ids", "ZZA"])
     monkeypatch.setattr(config_module, "load_config", lambda: "cfg")
+    monkeypatch.setattr(ser, "sec_provider", lambda **_k: provider)
     monkeypatch.setattr(stock_service, "refresh_universe_stock_fundamentals",
-                        lambda *a, **k: order.append(("fundamentals", a, k["only_ids"])) or SimpleNamespace(rows_added=0, failures={}))
-    monkeypatch.setattr(ser, "refresh_sec_evidence",
-                        lambda *a, **k: order.append(("sec", a, k["only_ids"])) or {"earnings_rows": 0, "insider_rows": 0, "ten_k_chunks": 0, "reasons": {}})
+                        lambda *a, **k: order.append(("fundamentals", a, k["only_ids"], k["sec_provider"])) or SimpleNamespace(rows_added=0, failures={}))
+    monkeypatch.setattr(ser, "refresh_sec_evidence", lambda *a, **k: order.append("sec evidence"))
     assert script.main() == 0
-    assert order == [("fundamentals", ("cfg",), {"ZZA"}), ("sec", ("cfg",), {"ZZA"})]
-
-    def broken(*_a, **_k):
-        raise OSError("store locked")
-
-    monkeypatch.setattr(ser, "refresh_sec_evidence", broken)
-    assert script.main() == 0  # the weekly job keeps its exit code
-    assert "SEC evidence refresh unavailable: OSError: store locked" in capsys.readouterr().out
+    assert order == [("fundamentals", ("cfg",), {"ZZA"}, provider)]  # companyfacts come through the SEC provider
 
 
 def test_full_weekly_fundamentals_run_refreshes_etf_reference_data(monkeypatch, capsys) -> None:

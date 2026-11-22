@@ -19,7 +19,7 @@ _SESSION = date(2026, 11, 2)
 _SNAPSHOT = "b" * 64
 _FULL_ORDER = [
     "capture", "decision_session", "score_run", "readiness", "feature_vintage", "paper_gate", "challengers",
-    "paper_bots", "paper_bot_execution", "ai_account", "refresh", "forecast", "rescore", "publish",
+    "paper_bots", "paper_bot_execution", "ai_account", "refresh", "rescore", "publish",
 ]
 
 
@@ -75,7 +75,7 @@ def test_readiness_fail_skips_the_paper_stages_and_still_refreshes(monkeypatch, 
     assert result.exit_code == 1
     assert result.stage == "readiness"
     assert events == [
-        "capture", "decision_session", "score_run", "readiness", "feature_vintage", "refresh", "forecast", "rescore", "publish",
+        "capture", "decision_session", "score_run", "readiness", "feature_vintage", "refresh", "rescore", "publish",
     ]
     paper_root = tmp_path / "data" / "operations" / "paper"
     assert not paper_root.exists()
@@ -111,7 +111,7 @@ def test_paper_disabled_or_no_new_session_skips_the_paper_stages_and_exits_zero(
 
     assert result.exit_code == 0 and result.stage == stage
     assert "paper_bots" not in events and "ai_account" not in events
-    assert events[-4:] == ["refresh", "forecast", "rescore", "publish"]
+    assert events[-3:] == ["refresh", "rescore", "publish"]
     if stage == "paper_disabled":
         assert result.details["paper_enabled"] is False and "readiness" in events
     else:
@@ -136,7 +136,7 @@ def test_partial_is_accepted_only_for_challengers_without_a_new_trade(monkeypatc
     result = daily_paper.run_daily_paper(tmp_path, now=_NOW)
     assert result.exit_code == 1 and result.stage == "paper_bots"
     assert "partial not accepted: B1" in result.details["error"]
-    assert "paper_bot_execution" not in events and events[-4:] == ["refresh", "forecast", "rescore", "publish"]
+    assert "paper_bot_execution" not in events and events[-3:] == ["refresh", "rescore", "publish"]
 
 
 def test_capture_is_stamped_after_the_page_is_in_hand_and_a_failure_is_only_logged(monkeypatch, tmp_path: Path) -> None:
@@ -173,6 +173,35 @@ def test_a_new_session_is_one_later_than_the_latest_forward_run() -> None:
     assert daily_paper._is_new_session(history, date(2026, 11, 2))
 
 
+def test_the_decision_session_reads_the_build_as_of_without_a_build(monkeypatch) -> None:
+    import pandas as pd
+
+    from etf_cockpit.data.validation import validate_prices
+
+    vwce = daily_paper.CALENDAR_INSTRUMENT_ID
+    bar = {"open": 1.0, "high": 1.0, "low": 1.0, "close": 1.0, "adjusted_close": 1.0, "volume": 1, "currency": "EUR"}
+    stored = pd.DataFrame([{**bar, "etf_id": vwce, "date": date(2026, 11, 2)}, {**bar, "etf_id": "OFF", "date": date(2026, 11, 9)}])
+    candidates = pd.DataFrame([
+        {**bar, "etf_id": vwce, "date": "2026-11-06"},  # the id has stored prices: the build drops the row
+        {**bar, "etf_id": "NEW", "date": "2026-11-04"},  # an enabled id without stored prices: the build adds it
+        {**bar, "etf_id": "NEW", "date": "not a date"},  # validate_prices drops an unparsable date
+    ])
+    build_frame = pd.concat([stored.iloc[[0]], candidates.iloc[[1, 2]]], ignore_index=True)  # the rows build_snapshot validates
+    build_as_of = validate_prices(build_frame).as_of_date
+    config = SimpleNamespace(universe=SimpleNamespace(enabled_ids=(vwce, "NEW")))
+    session = SimpleNamespace(snapshot=SimpleNamespace(config=config), refresh_snapshot=lambda: pytest.fail("no snapshot build"))
+    calendar = pd.DataFrame({"etf_id": vwce, "date": pd.date_range("2026-11-02", "2026-11-05").date})
+    monkeypatch.setattr(daily_paper, "_new_session", lambda _root: session)
+    monkeypatch.setattr(daily_paper, "load_prices", lambda *, config: stored.copy())
+    monkeypatch.setattr(daily_paper, "load_candidate_price_snapshot", lambda: candidates.copy())
+    monkeypatch.setattr(daily_paper.data_readiness, "load_inputs", lambda _root: SimpleNamespace(prices=calendar))
+    monkeypatch.setattr(daily_paper, "load_backfill_score_history", lambda _root, _provenances: pd.DataFrame())
+
+    assert build_as_of == date(2026, 11, 4)  # S is bounded by the as-of: 2026-11-05 is a later completed session
+    now = datetime(2026, 11, 7, 12, tzinfo=timezone.utc)
+    assert daily_paper._decision_session(daily_paper.require_storage_root(), lambda: now) == (build_as_of, True)
+
+
 def test_an_unexpected_error_in_the_paper_stages_blocks_the_run_and_still_refreshes(monkeypatch, tmp_path: Path) -> None:
     events: list[str] = []
     _wire_pipeline(monkeypatch, events)
@@ -182,19 +211,18 @@ def test_an_unexpected_error_in_the_paper_stages_blocks_the_run_and_still_refres
 
     assert result.exit_code == 1 and result.stage == "paper_stages"
     assert "KeyError" in result.details["error"]
-    assert events[-4:] == ["refresh", "forecast", "rescore", "publish"]
+    assert events[-3:] == ["refresh", "rescore", "publish"]
 
 
-def test_a_forecast_failure_is_a_stage_failure_after_the_committed_refresh(monkeypatch, tmp_path: Path) -> None:
+def test_the_nightly_does_not_run_the_parked_forecast_stage(monkeypatch, tmp_path: Path) -> None:
     events: list[str] = []
     _wire_pipeline(monkeypatch, events)
-    monkeypatch.setattr(daily_paper, "_forecast", lambda _session: (_ for _ in ()).throw(RuntimeError("baseline failed")))
+    monkeypatch.setattr(daily_paper, "_forecast", lambda _session: (_ for _ in ()).throw(AssertionError("forecast ran")))
 
     result = daily_paper.run_daily_paper(tmp_path, now=_NOW)
 
-    assert result.exit_code == 1 and result.stage == "forecast"
-    assert "baseline failed" in result.details["error"] and result.details["refresh"] == "prices refreshed"
-    assert events[-3:] == ["refresh", "rescore", "publish"]
+    assert result.exit_code == 0 and result.stage == "complete", result.details
+    assert "forecast" not in result.details and events == _FULL_ORDER
 
 
 def test_a_failed_refresh_keeps_the_full_error_text(monkeypatch, tmp_path: Path) -> None:
@@ -256,7 +284,7 @@ def test_an_active_kill_switch_skips_the_recorder_and_exits_zero(monkeypatch, tm
 
     assert result.exit_code == 0 and result.stage == "paper_kill_switch_active"
     assert result.details["paper_enabled"] is True  # paper is enabled; the kill switch is not "disabled"
-    assert "paper_bots" not in events and events[-4:] == ["refresh", "forecast", "rescore", "publish"]
+    assert "paper_bots" not in events and events[-3:] == ["refresh", "rescore", "publish"]
 
 
 def test_unreadable_paper_controls_block_the_run_and_still_refresh(monkeypatch, tmp_path: Path) -> None:
@@ -266,7 +294,7 @@ def test_unreadable_paper_controls_block_the_run_and_still_refresh(monkeypatch, 
     result = daily_paper.run_daily_paper(tmp_path, now=_NOW)
 
     assert result.exit_code == 1 and result.stage == "paper_gate"
-    assert "paper_bots" not in events and events[-4:] == ["refresh", "forecast", "rescore", "publish"]
+    assert "paper_bots" not in events and events[-3:] == ["refresh", "rescore", "publish"]
 
 
 def test_ai_account_is_idempotent_and_does_not_add_cash_on_second_run(monkeypatch, tmp_path: Path) -> None:
@@ -372,7 +400,7 @@ def test_decisions_bound_to_another_run_than_the_readiness_pass_are_rejected(mon
     assert result.exit_code == 1
     assert result.stage == "paper_bots"
     assert "recorded snapshot differs from H" in result.details["error"]
-    assert "paper_bot_execution" not in events and events[-4:] == ["refresh", "forecast", "rescore", "publish"]
+    assert "paper_bot_execution" not in events and events[-3:] == ["refresh", "rescore", "publish"]
 
 
 def test_paper_bot_config_remains_exactly_four_families() -> None:
