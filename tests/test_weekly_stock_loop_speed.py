@@ -227,41 +227,57 @@ def test_the_weekly_run_downloads_companyfacts_once_per_cik_and_stores_the_same_
     assert head[2] == shared[2]
 
 
-def test_sec_companyfacts_are_fetched_ahead_in_workers_once_per_cik_and_applied_in_target_order(tmp_path) -> None:
+def test_sec_companyfacts_are_fetched_ahead_in_workers_once_per_cik_and_applied_in_target_order(tmp_path, monkeypatch) -> None:
     names = ["A", "B", "C", "D", "E", "F", "G"]
     ciks = {"A": "1", "B": "2", "C": "3", "D": "3", "E": "5", "G": "7"}  # C and D: two share classes of one CIK; F has none
-    lock, running, peak, threads = threading.Lock(), [0], [0], set()
-    cache: dict[str, src.FetchResult] = {}
-    requests: Counter = Counter()
 
-    def edgar(cik: str, _cfg: dict, *, user_agent: str) -> src.FetchResult:
-        with lock:
-            running[0] += 1
-            peak[0] = max(peak[0], running[0])
-            threads.add(threading.get_ident())
-        if cik not in cache:  # like the provider's per-run companyfacts cache: check, request, keep
-            time.sleep(0.05)
-            requests[cik] += 1
-            status = "error" if cik == "5" else "ok"
-            cache[cik] = src.FetchResult("sec_edgar", rows=[{**_row(2024, float(cik)), "source": "sec_edgar"}], status=status,
-                                         reason="companyfacts request failed" if status == "error" else "", snapshot={"source": "sec_edgar", "cik": cik})
-        time.sleep(0.02 * (8 - int(cik)))  # the first target finishes last
-        with lock:
-            running[0] -= 1
-        return cache[cik]
+    def run(root):  # a fresh fake per run, like the provider's per-run companyfacts cache
+        lock, running, peak, threads = threading.Lock(), [0], [0], set()
+        cache: dict[str, src.FetchResult] = {}
+        requests: Counter = Counter()
 
-    report = _refresh(tmp_path, names, lambda symbol, _cfg, now: _ok([_row(2025, 100.0 + names.index(symbol))]),
-                      environ={"ETF_COCKPIT_SEC_EDGAR_USER_AGENT": "test agent"}, edgar_fetch=edgar,
-                      cik_resolver=lambda symbol, _agent: ciks.get(symbol),
-                      esef_fetch=lambda *_a, **_k: src.FetchResult("esef", status="unavailable"))
-    assert peak[0] > 1 and threading.get_ident() not in threads
+        def edgar(cik: str, _cfg: dict, *, user_agent: str) -> src.FetchResult:
+            with lock:
+                running[0] += 1
+                peak[0] = max(peak[0], running[0])
+                threads.add(threading.get_ident())
+            if cik not in cache:  # check, request, keep
+                time.sleep(0.05)
+                requests[cik] += 1
+                status = "error" if cik == "5" else "ok"
+                cache[cik] = src.FetchResult("sec_edgar", rows=[{**_row(2024, float(cik)), "source": "sec_edgar"}], status=status,
+                                             reason="companyfacts request failed" if status == "error" else "", snapshot={"source": "sec_edgar", "cik": cik})
+            time.sleep(0.02 * (8 - int(cik)))  # the first target finishes last
+            with lock:
+                running[0] -= 1
+            return cache[cik]
+
+        def yahoo(symbol: str, _cfg: dict, now: datetime) -> src.FetchResult:
+            return src.FetchResult("yfinance", rows=[_row(2025, 100.0 + names.index(symbol))],
+                                   snapshot={"known_at": KNOWN, "quote_currency": "USD", "financial_currency": "USD"})
+
+        (root / "data" / "clean").mkdir(parents=True)
+        report = store.refresh_stock_fundamentals(
+            [store.StockTarget(name, name, name) for name in names], root=root, now=NOW, config=CONFIG,
+            environ={"ETF_COCKPIT_SEC_EDGAR_USER_AGENT": "test agent"}, yfinance_fetch=yahoo, edgar_fetch=edgar,
+            cik_resolver=lambda symbol, _agent: ciks.get(symbol), fx_fetch=lambda _base, _quote: [("2026-02-27", 0.92)],
+            esef_fetch=lambda *_a, **_k: src.FetchResult("esef", status="unavailable"))
+        stores = {path.name: pd.read_parquet(path) for path in sorted((root / "data" / "clean").glob("*.parquet"))}
+        return report, stores, peak[0], threads, requests
+
+    report, stores, peak, threads, requests = run(tmp_path / "pool")
+    assert peak > 1 and threading.get_ident() not in threads
+    monkeypatch.setattr(store, "_SEC_WORKERS", 1)
+    serial_report, serial_stores, serial_peak, _, _ = run(tmp_path / "serial")
+    assert serial_peak == 1
     assert requests == {cik: 1 for cik in ciks.values()}
-    assert list(report.per_instrument) == names
+    assert list(report.per_instrument) == names and report.per_instrument == serial_report.per_instrument
     assert report.per_instrument["E"] == "sec_edgar: companyfacts request failed"
     assert report.per_instrument["F"] == "SEC EDGAR skipped: no CIK resolved"
-    periods = store.read_periods(tmp_path)
+    assert (report.rows_added, report.failures) == (serial_report.rows_added, serial_report.failures)
+    assert {"stock_fundamentals.parquet", "stock_snapshots.parquet", "stock_fx.parquet", "constituent_metrics.parquet"} <= set(stores) and list(stores) == list(serial_stores)
+    for name, frame in stores.items():  # every store the refresh writes, complete and in row order
+        pd.testing.assert_frame_equal(frame, serial_stores[name])
+    periods = store.read_periods(tmp_path / "pool")
     assert list(zip(periods["instrument_id"], periods["source"], periods["revenue"])) == [
         row for name in names for row in ([(name, "sec_edgar", float(ciks[name]))] if name in ciks else []) + [(name, "yfinance", 100.0 + names.index(name))]]
-    snapshots = store.read_snapshots(tmp_path)
-    assert list(zip(snapshots["instrument_id"], snapshots["source"], snapshots["cik"])) == [
-        row for name in names for row in ([(name, "sec_edgar", ciks[name])] if name in ciks else []) + [(name, "yfinance", ciks.get(name))]]

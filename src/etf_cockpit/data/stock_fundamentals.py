@@ -808,9 +808,14 @@ def refresh_stock_fundamentals(
                 report.failures[target.instrument_id] = "; ".join(notes)
             if progress:
                 progress(f"{target.instrument_id}: {report.per_instrument[target.instrument_id]}")
-    finally:
-        pool.shutdown(cancel_futures=True)
-        sec_pool.shutdown(cancel_futures=True)
+    finally:  # cancel both queues before any join; each pool is shut down even if the other's shutdown raises
+        try:
+            sec_pool.shutdown(wait=False, cancel_futures=True)
+        finally:
+            try:
+                pool.shutdown(cancel_futures=True)
+            finally:
+                sec_pool.shutdown()
     periods = _concat([stored, pd.DataFrame(added_rows, columns=PERIOD_COLUMNS)], PERIOD_COLUMNS) if added_rows else stored
     _write(paths["periods"], periods)
     if snapshot_rows:
