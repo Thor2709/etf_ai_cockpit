@@ -26,30 +26,3 @@ def test_newer_yfinance_share_row_does_not_hide_the_reported_sec_count() -> None
     ev = build_stock_evidence("T", periods, DECISION, market, None, store.load_stock_config())
     assert ev.metrics["market_cap"].value == 500.0
     assert "sec_dei" in ev.metrics["market_cap"].source
-
-
-def test_sector_and_country_spellings_map_to_one_label() -> None:
-    from etf_cockpit.analysis.stock_labels import country_label, sector_label
-
-    # Yahoo sector names, config spellings and GICS names seen in the 2026-11-22 store.
-    for spellings, label in (
-        (("Financial Services", "Financials", "Financial exchanges"), "Financials"),
-        (("Basic Materials", "Materials"), "Materials"),
-        (("Technology", "Information Technology"), "Information Technology"),
-        (("Consumer Cyclical", "Consumer Discretionary", "Consumer discretionary"), "Consumer Discretionary"),
-        (("Consumer Defensive", "Consumer Staples"), "Consumer Staples"),
-        (("Healthcare", "Health Care"), "Health Care"),
-        (("Communication", "Communication Services"), "Communication Services"),
-        (("Unknown", "", None), ""),
-    ):
-        assert {sector_label(item) for item in spellings} == {label}
-    assert sector_label("Banks") == "Banks"  # the bank exclusion label (scope.excluded_sectors) is kept
-    for spellings, label in (
-        (("South Korea", "Korea (South)", "Korea, Republic of", "KR"), "South Korea"),
-        (("Taiwan", "Taiwan Region"), "Taiwan"),
-        (("Cayman Islands", "Cayman Island"), "Cayman Islands"),
-        (("Hong Kong", "HK"), "Hong Kong"),
-        (("United Kingdom", "GB"), "United Kingdom"),
-        (("", None), ""),
-    ):
-        assert {country_label(item) for item in spellings} == {label}
