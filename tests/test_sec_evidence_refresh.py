@@ -275,6 +275,24 @@ def test_int18_a_failed_8k_is_retried_and_its_release_time_is_then_recorded_as_a
     assert ACC_8K not in parsed and announcement()[0] == announced
 
 
+def test_only_an_item_202_8k_filed_in_the_last_120_days_is_fetched(tmp_path: Path, monkeypatch) -> None:
+    pytest.importorskip("edgar")
+    now = datetime(2027, 9, 3, 12, tzinfo=timezone.utc)  # ACC_8K (filed 2026-07-30) is 400 days old
+    recent = "0000777001-27-000011"  # filed 30 days before now
+    documents = _sec_documents((
+        (ACC_8K, "8-K", "2026-07-30", "2026-07-30T20:15:00.000Z", "2.02,9.01", "ex991.htm"),
+        (recent, "8-K", "2027-08-04", "2027-08-04T20:15:00.000Z", "2.02", "ex991.htm"),
+    ))
+    documents[EIGHT_K_URL] = (FIXTURES / "sec_filing_documents" / "8k_earnings.txt").read_bytes()
+    config, _fake, provider = _setup(tmp_path, documents)
+    parsed = _count_8k_parses(monkeypatch)
+    ser.refresh_sec_evidence(config, root=tmp_path, provider=provider, now=now)
+    assert parsed == [recent]
+    with BitemporalStore(tmp_path) as store:
+        stored = {o.stable_id: o.value for o in store.observations(DATASET_ID, entity_id="ZZA")}
+    assert stored["2026-06-30:sue_revenue"]["public_announcement_time"] == "unavailable"
+
+
 def test_empty_prices_build_no_trading_calendar(monkeypatch) -> None:
     from etf_cockpit.data import earnings_surprise
 
