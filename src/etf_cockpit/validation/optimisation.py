@@ -32,6 +32,14 @@ from etf_cockpit.validation.tuning_registry import TuningDefaults, TuningRegistr
 OPTIMISATION_SCHEMA_VERSION = "optimisation.v1"
 _ENTITY_TRIAL = "optimisation.trial"
 _ENTITY_SUMMARY = "optimisation.summary"
+_ENTITY_JUDGEMENT = "optimisation.judgement"
+# OD-4 validation gate of a tuning proposal (module constants: the tuning registry has no keys for them).
+_GATE_MIN_DEFLATED_SHARPE = 0.95
+_GATE_MAX_PBO = 0.2
+_GATE_MAX_FDR = 0.10  # Benjamini-Yekutieli q
+_GATE_BOOTSTRAP_REPETITIONS = 1000
+_USEFUL_EDGE_PER_YEAR = 0.01  # owner "useful edge" X: +1%/yr net vs VWCE
+_USEFUL_EDGE_UNITS = "net_return_vs_vwce"  # an evaluator declares its units with an ``edge_units`` attribute
 _SECRET_KEY = re.compile(r"(?:api[_-]?key|access[_-]?token|client[_-]?secret|password|passwd|authorization|bearer|secret|token)", re.I)
 TrialStatus = Literal["completed", "pruned", "failed", "cancelled"]
 
@@ -703,12 +711,16 @@ def run_walk_forward_tuning(
     ``evaluate(parameters, indices, context)`` returns a higher-is-better score
     for the given sample indices and must be point-in-time (an index may only
     use information available at that sample's date).  Tuning sees only the
-    tuning window; the purged gap, the evaluation window and the reserved final
-    tail are never passed to the search.  The candidate is proposed only if it
-    beats the current settings out of sample by the configured margin, after a
-    change penalty, in enough evaluation blocks; otherwise the decision is
-    ``keep_current``.  Missing or unverifiable evidence gives ``unavailable``.
-    Settings files are never written.
+    tuning window; the purged gap, the evaluation folds and the final test are
+    never passed to the search.  Every completed or pruned trial is then scored
+    per date (after the change penalty) and judged by one registered
+    ``validation.protocol`` evaluation: the fold-selected trial is proposed only
+    if it is promotion-eligible there and passes the OD-4 gate (bootstrap
+    lower_5 above the margin, DSR, PBO, Benjamini-Yekutieli q, a positive final
+    test margin and the useful edge in net return vs VWCE per year); otherwise
+    the decision is ``keep_current``.  The final test is consumed once; an
+    identical resume reuses the stored judgement.  Missing or unverifiable
+    evidence gives ``unavailable``.  Settings files are never written.
 
     The whole run (search plus out-of-sample judging) shares ``max_seconds``: the
     search may use ``_SEARCH_TIME_FRACTION`` of it. Every evaluator call checks
@@ -753,17 +765,23 @@ def run_walk_forward_tuning(
         return unavailable("sample_dates_must_be_dates")
     if any(later <= earlier for earlier, later in zip(dates, dates[1:])):
         return unavailable("sample_dates_not_strictly_increasing")
+    # The protocol's strict split: tune | purge | eval_blocks folds | horizon gap | final test (scored once).
     try:
-        spec = ValidationSpec(1, split.eval_size, split.horizon, split.embargo, split.final_test_size, seed=config.search.seed)
-        fold = build_walk_forward_splits(len(dates), spec, strict_label_purge=False)[0]
+        spec = ValidationSpec(
+            guards.eval_blocks, split.eval_size // max(1, guards.eval_blocks), split.horizon, split.embargo, split.final_test_size,
+            bootstrap_repetitions=_GATE_BOOTSTRAP_REPETITIONS, seed=config.search.seed,
+            periods_per_year=(len(dates) - 1) * 365.25 / (dates[-1] - dates[0]).days if len(dates) > 1 else None,
+        )
+        folds = build_walk_forward_splits(len(dates), spec, strict_label_purge=True)
     except ValueError as exc:
         return unavailable(f"insufficient_samples: {exc}")
-    tune, evaluation = fold.train_indices, fold.validation_indices
+    tune = folds[0].train_indices
+    evaluation = tuple(index for fold in folds for index in fold.validation_indices)
     windows: dict[str, object] = {
         "tune": _window(dates, tune),
-        "purged_gap": len(fold.purged_indices),
+        "purged_gap": len(folds[0].purged_indices),
         "evaluation": _window(dates, evaluation),
-        "reserved_final_tail": split.final_test_size,
+        "final_test": _window(dates, range(len(dates) - split.final_test_size, len(dates))),
     }
     if len(tune) < guards.min_tune_samples:
         return unavailable(f"insufficient_tuning_samples: {len(tune)} < {guards.min_tune_samples}", windows)
@@ -862,45 +880,159 @@ def run_walk_forward_tuning(
     if all(abs(candidate[key] - current[key]) <= 1e-12 for key in current):
         return decide("keep_current", "candidate_equals_current")
 
-    blocks = _blocks(evaluation, guards.eval_blocks)
-    cost = penalty * registry.distance_from_current(candidate)
+    judgement_key = f"{search_run_id}:" + hashlib.sha256(
+        json.dumps([bound_identity, summary.search_fingerprint], sort_keys=True, default=str).encode("utf-8")
+    ).hexdigest()[:24]
+    with TransactionalStore(root) as store:
+        stored = store.get(_ENTITY_JUDGEMENT, judgement_key)
+    if stored is not None:  # identical resume: the final test is consumed once, its judgement is reused
+        judged = stored.payload
+        search["peak_memory_mb"] = max(float(search["peak_memory_mb"]), float(judged["peak_memory_mb"]))  # incl. the judging calls
+        chosen =registry.materialise(judged["candidate"]) if judged["candidate"] is not None else None
+        return decide(judged["decision"], judged["reason"], chosen, judged["oos"])
 
+    # Every completed or pruned search trial is one member of the family the statistics correct for.
+    family: dict[str, Mapping[str, float]] = {}
+    for row in rows:
+        if row.get("status") in {"completed", "pruned"}:
+            try:
+                family[str(row["trial_id"])] = registry.materialise(row["parameters"])  # type: ignore[arg-type]
+            except Exception as exc:
+                return unavailable(f"candidate_not_reconstructable: {type(exc).__name__}", windows, evidence, search)
+    # The judged series keeps two (plus embargo) tuning dates as its unscored training rows, so its own strict split
+    # puts the folds and the final test on the same dates as above.
+    judged_indices = tuple(range(max(0, tune[-1] - 1 - split.embargo), len(dates)))
+    per_session = getattr(evaluate, "per_session", None)  # optional: one score per sample date in one call
     oos_context = DevelopmentOnlyContext(search_run_id)
 
-    def oos_score(parameters: Mapping[str, float], block: Sequence[int]) -> float:
+    def judged_series(parameters: Mapping[str, float]) -> list[float]:
+        values: list[float] = []
+
+        def score_all(context: DevelopmentOnlyContext) -> float:
+            if per_session is not None:
+                every = per_session(parameters)
+                values.extend(_finite(every[index]) for index in judged_indices)
+            else:
+                values.extend(_finite(evaluate(parameters, (index,), context)) for index in judged_indices)
+            return 0.0
+
         try:
-            return run_guard.call(lambda context: evaluate(parameters, block, context), oos_context)
+            run_guard.call(score_all, oos_context)
         finally:
             search["peak_memory_mb"] = max(float(search["peak_memory_mb"]), run_guard.peak_memory_mb)
+        cost = penalty * registry.distance_from_current(parameters)
+        return [value - cost for value in values]
 
     try:
-        current_scores = [oos_score(current, block) for block in blocks]
-        candidate_scores = [oos_score(candidate, block) for block in blocks]
+        scores = {trial_id: judged_series(parameters) for trial_id, parameters in family.items()}
     except _MemoryQuotaExceeded:
         return unavailable("out_of_sample_memory_quota_exceeded", windows, evidence, search)
     except TrialInterrupted:
         return unavailable("out_of_sample_interrupted", windows, evidence, search)
     except Exception as exc:  # category only: raw messages may carry secrets and are never exported
         return unavailable(f"out_of_sample_evaluation_failed: {type(exc).__name__}", windows, evidence, search)
-    margins = [cand - cur - cost for cand, cur in zip(candidate_scores, current_scores)]
-    wins = sum(margin > guards.min_improvement for margin in margins)
-    mean_margin = sum(margins) / len(margins)
-    win_fraction = wins / len(margins)
-    oos = {
-        "blocks": len(blocks),
-        "current_scores": current_scores,
-        "candidate_scores": candidate_scores,
-        "change_cost": cost,
-        "margins_after_cost": margins,
-        "mean_margin_after_cost": mean_margin,
-        "block_wins": wins,
-        "win_fraction": win_fraction,
-        "required_win_fraction": guards.min_block_win_fraction,
-        "required_margin": guards.min_improvement,
+    judged_folds = build_walk_forward_splits(len(judged_indices), spec, strict_label_purge=True)
+    fold_means = {
+        trial_id: [sum(values[i] for i in fold.validation_indices) / len(fold.validation_indices) for fold in judged_folds]
+        for trial_id, values in scores.items()
     }
-    if mean_margin > guards.min_improvement and win_fraction >= guards.min_block_win_fraction:
-        return decide("propose_change", "beat_current_out_of_sample", candidate, oos)
-    return decide("keep_current", "did_not_beat_current_out_of_sample", candidate, oos)
+    # The protocol's selection rule (best mean of fold means, ties by id), frozen before the final test is read.
+    selected = max(fold_means, key=lambda key: (sum(fold_means[key]) / len(fold_means[key]), key))
+    judged_dates = [dates[index] for index in judged_indices]
+    report = _registered_judgement(
+        root, search_run_id, scores, spec, judged_dates, selected,
+        identity=[objective_identity if identity_verified else search_run_id, bound_identity["dates_sha256"], base_inputs["registry_fingerprint"]],
+        parameters={trial_id: dict(item) for trial_id, item in family.items()},
+    )
+    bootstrap = report.uncertainty
+    final = {row.trial_id: row.final_test_score for row in report.trials}
+    final_margin = None if final.get(selected) is None or final.get("baseline") is None else final[selected] - final["baseline"]
+    edge_units = getattr(evaluate, "edge_units", None)
+    mean_margin = bootstrap.get("mean")
+    annual_edge = (
+        float(mean_margin) * float(spec.periods_per_year) / split.horizon
+        if isinstance(mean_margin, (int, float)) and spec.periods_per_year else None
+    )
+    margins = [cand - cur for cand, cur in zip(fold_means[selected], fold_means["baseline"])]
+    checks = {
+        "promotion_eligible": report.promotion_eligible,
+        "bootstrap_lower_5_above_margin": float(bootstrap.get("lower_5", -math.inf)) > guards.min_improvement,
+        "deflated_sharpe": report.deflated_sharpe is not None and report.deflated_sharpe >= _GATE_MIN_DEFLATED_SHARPE,
+        "probability_of_backtest_overfitting": (
+            report.probability_of_backtest_overfitting is not None and report.probability_of_backtest_overfitting <= _GATE_MAX_PBO
+        ),
+        "false_discovery_rate": report.false_discovery_rate is not None and report.false_discovery_rate <= _GATE_MAX_FDR,
+        "final_test_same_sign": final_margin is not None and final_margin > 0,
+        # The useful-edge threshold is in net return vs VWCE per year; other objective units cannot show it.
+        "useful_edge": edge_units == _USEFUL_EDGE_UNITS and annual_edge is not None and annual_edge >= _USEFUL_EDGE_PER_YEAR,
+    }
+    oos = {
+        "method": "validation.protocol registered evaluation: DSR, PBO, Benjamini-Yekutieli q, paired block bootstrap",
+        "family_trials": len(scores),
+        "selected_trial_id": selected,
+        "evaluation_id": bootstrap.get("evaluation_id"),
+        "holdout_status": report.holdout_status,
+        "bootstrap": {key: bootstrap.get(key) for key in ("mean", "lower_5", "upper_95", "p_value", "block_size", "repetitions")},
+        "deflated_sharpe": report.deflated_sharpe,
+        "probability_of_backtest_overfitting": report.probability_of_backtest_overfitting,
+        "false_discovery_rate": report.false_discovery_rate,
+        "final_test_margin": final_margin,
+        "edge_units": edge_units,
+        "annualised_edge": annual_edge,
+        "checks": checks,
+        "thresholds": {
+            "min_deflated_sharpe": _GATE_MIN_DEFLATED_SHARPE, "max_pbo": _GATE_MAX_PBO, "max_fdr": _GATE_MAX_FDR,
+            "useful_edge_per_year": _USEFUL_EDGE_PER_YEAR, "useful_edge_units": _USEFUL_EDGE_UNITS,
+            "required_margin": guards.min_improvement,
+        },
+        # Descriptive only (not a gate): fold means after the change penalty.
+        "current_scores": fold_means["baseline"],
+        "candidate_scores": fold_means[selected],
+        "margins_after_cost": margins,
+        "block_wins": sum(margin > guards.min_improvement for margin in margins),
+        "win_fraction": sum(margin > guards.min_improvement for margin in margins) / len(margins),
+    }
+    if selected == "baseline":
+        decision, reason, chosen = "keep_current", "current_selected_on_evaluation_folds", None
+    elif all(checks.values()):
+        decision, reason, chosen = "propose_change", "passed_validation_gate", family[selected]
+    else:
+        decision, reason, chosen = "keep_current", "failed_validation_gate:" + ",".join(key for key, ok in checks.items() if not ok), family[selected]
+    stored_payload = json.loads(json.dumps(
+        {"decision": decision, "reason": reason, "candidate": None if chosen is None else dict(chosen), "oos": oos,
+         "peak_memory_mb": search["peak_memory_mb"]}, default=str
+    ))
+    with TransactionalStore(root) as store:
+        store.put(_ENTITY_JUDGEMENT, judgement_key, stored_payload)
+    return decide(decision, reason, chosen, stored_payload["oos"])
+
+
+def _registered_judgement(
+    root: Path, search_run_id: str, scores: Mapping[str, Sequence[float]], spec: ValidationSpec, dates: Sequence[date],
+    selected: str, *, identity: Sequence[object], parameters: Mapping[str, Mapping[str, float]],
+):
+    """One registered protocol evaluation: the family is verified, the final test is consumed once per window."""
+
+    from etf_cockpit.features.training_centre import LocalTrainingRegistry  # lazy: training_centre imports this module
+    from etf_cockpit.validation.protocol import evaluate_trials
+
+    def digest(value: object) -> str:
+        return hashlib.sha256(json.dumps(value, sort_keys=True, default=str).encode("utf-8")).hexdigest()
+
+    data_hash = digest([list(identity), spec.fingerprint])
+    registry = LocalTrainingRegistry(root)
+    experiment = registry.create_experiment("tuner-validation-gate", experiment_id=f"tuner-gate-{data_hash[:24]}")
+    run_id = f"{search_run_id}.judge"[-160:]
+    registry.create_run(
+        str(experiment["experiment_id"]), run_id=run_id, dataset_hash=data_hash, feature_hash=digest(sorted(scores)),
+        code_hash=digest(TUNING_PROPOSAL_SCHEMA_VERSION), environment_hash=digest("local"),
+    )
+    comparators = ("baseline",) if selected != "baseline" else ()
+    return evaluate_trials(
+        scores, registry=registry, run_id=run_id, spec=spec, date_labels=list(dates), parameters=parameters,
+        frozen_candidate_id=selected if comparators else None, predeclared_comparator_ids=comparators,
+        holdout_id=f"tuner-final-{data_hash[:24]}" if comparators else None,
+    )
 
 
 def render_tuning_report(proposal: TuningProposal) -> str:
