@@ -329,21 +329,22 @@ def latest_balance(periods: Sequence[Period], names: Sequence[str]) -> Period | 
 
 
 def latest_reported_shares(periods: Sequence[Period], decision_time: datetime) -> Period | None:
-    """Latest publication known at the decision, then its most recent instant.
+    """Latest reported-share publication known at the decision, then its most recent instant.
 
-    Only explicit reported-share provenance qualifies. A derived count, provider
-    snapshot or ambiguous latest filing fails closed without an older fallback.
+    Only explicit reported-share provenance (sec_dei, esef_reported) qualifies; a provider or
+    statement count never hides it. A derived count or ambiguous latest filing fails closed
+    without an older fallback.
     """
     candidates = [p for p in periods if (p.period_type == "SHARES" or "shares_outstanding" in p.values
                                         or "shares_outstanding" in p.value_status)
+                  and p.source_of("shares_outstanding") in ("sec_dei", "esef_reported")
                   and p.known_at <= decision_time and (p.available_at or p.known_at) <= decision_time
                   and p.period_end <= (p.available_at or p.known_at).date()]
     if not candidates:
         return None
     latest_key = max((p.available_at or p.known_at, p.period_end) for p in candidates)
     latest = [p for p in candidates if (p.available_at or p.known_at, p.period_end) == latest_key]
-    if any(p.source_of("shares_outstanding") not in ("sec_dei", "esef_reported")
-           or p.status_of("shares_outstanding") != "observed" or not p.has("shares_outstanding")
+    if any(p.status_of("shares_outstanding") != "observed" or not p.has("shares_outstanding")
            or p.values["shares_outstanding"] <= 0 for p in latest):
         return None
     return latest[0] if len({p.values["shares_outstanding"] for p in latest}) == 1 else None
