@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import math
 import threading
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
@@ -20,7 +20,7 @@ import pandas as pd
 
 from etf_cockpit.analysis import stock_metrics as sm
 from etf_cockpit.analysis.stock_evidence import AnalystInputs, MarketInputs, StockEvidence, build_stock_evidence, metric_freshness_reason
-from etf_cockpit.analysis.stock_peers import PeerPick, PeerProfile, auto_peers, cohort_members, effective_peers
+from etf_cockpit.analysis.stock_peers import COHORT_LEVELS, PeerIndex, PeerPick, PeerProfile, auto_peers, effective_peers
 from etf_cockpit.core.frame_signature import columns_key
 from etf_cockpit.core.paths import ROOT
 from etf_cockpit.data import stock_fundamentals as store
@@ -183,40 +183,56 @@ def as_traded_close(frame: pd.DataFrame, when: date) -> tuple[float | None, str 
     Missing or ambiguous action evidence fails closed, including legacy rows.
     """
 
+    return _as_traded_closes(frame)(when)
+
+
+def _as_traded_closes(frame: pd.DataFrame) -> Callable[[date], tuple[float | None, str | None]]:
+    """``as_traded_close`` for one frame: the checks that do not depend on the date run once, in the same order."""
+
+    def fails(reason: str) -> Callable[[date], tuple[float | None, str | None]]:
+        return lambda _when: (None, reason)
+
     if frame.empty or not {"date", "close"} <= set(frame.columns):
-        return None, "no stored close for the valuation date"
+        return fails("no stored close for the valuation date")
     if "etf_id" in frame and frame["etf_id"].nunique(dropna=False) != 1:
-        return None, "ambiguous instrument in valuation price history"
+        return fails("ambiguous instrument in valuation price history")
     if "actions_evidenced" not in frame or not frame["actions_evidenced"].map(
         lambda value: isinstance(value, (bool, np.bool_)) and bool(value)
     ).all():
-        return None, "actions_evidence_missing: as-traded valuation price is unavailable"
+        return fails("actions_evidence_missing: as-traded valuation price is unavailable")
     if "stock_splits" not in frame:
-        return None, "split_history_missing: as-traded valuation price is unavailable"
+        return fails("split_history_missing: as-traded valuation price is unavailable")
     dates = pd.to_datetime(frame["date"], errors="coerce", utc=True).dt.date
     if dates.isna().any() or dates.duplicated().any():
-        return None, "ambiguous dates in valuation split history"
-    rows = frame.loc[dates == when]
-    if rows.empty:
-        return None, "no stored close for the valuation date"
-    close = sm._finite(rows.iloc[0]["close"])
-    if close is None or close <= 0:
-        return None, "stored valuation close is missing or non-positive"
+        return fails("ambiguous dates in valuation split history")
+    position = {day: index for index, day in enumerate(dates)}
     splits = pd.to_numeric(frame["stock_splits"], errors="coerce")
-    if splits.isna().any() or not np.isfinite(splits).all() or (splits < 0).any():
-        return None, "split_history_invalid: as-traded valuation price is unavailable"
-    # Zero is the provider's explicit no-event marker. A split on d is already
-    # reflected in d's traded price, so only strictly later events are reversed.
-    if "as_traded_split_factor" in frame:
-        factor = sm._finite(rows.iloc[0]["as_traded_split_factor"])
-        if factor is None or factor <= 0:
-            return None, "split_history_invalid: full-series split factor is unavailable"
-    else:
-        factor = math.prod(float(ratio) for ratio in splits[(dates > when) & (splits != 0)])
-    value = sm._finite(close * factor)
-    if value is None or value <= 0:
-        return None, "split_history_invalid: restored valuation price is non-finite or non-positive"
-    return value, None
+    splits_invalid = bool(splits.isna().any() or not np.isfinite(splits).all() or (splits < 0).any())
+
+    def close_on(when: date) -> tuple[float | None, str | None]:
+        index = position.get(when)
+        if index is None:
+            return None, "no stored close for the valuation date"
+        row = frame.iloc[index]
+        close = sm._finite(row["close"])
+        if close is None or close <= 0:
+            return None, "stored valuation close is missing or non-positive"
+        if splits_invalid:
+            return None, "split_history_invalid: as-traded valuation price is unavailable"
+        # Zero is the provider's explicit no-event marker. A split on d is already
+        # reflected in d's traded price, so only strictly later events are reversed.
+        if "as_traded_split_factor" in frame:
+            factor = sm._finite(row["as_traded_split_factor"])
+            if factor is None or factor <= 0:
+                return None, "split_history_invalid: full-series split factor is unavailable"
+        else:
+            factor = math.prod(float(ratio) for ratio in splits[(dates > when) & (splits != 0)])
+        value = sm._finite(close * factor)
+        if value is None or value <= 0:
+            return None, "split_history_invalid: restored valuation price is non-finite or non-positive"
+        return value, None
+
+    return close_on
 
 
 def market_inputs(
@@ -232,12 +248,15 @@ def market_inputs(
     minor = (config.get("reporting", {}) or {}).get("minor_currency_units", {}) or {}
     if frame.empty:
         return MarketInputs(unavailable_reason="no stored price rows for this instrument")
-    known = frame[frame["date"].map(lambda d: datetime.combine(d.date() + timedelta(days=1), time(0), tzinfo=timezone.utc) <= decision_time)]
+    days = frame["date"].dt.tz_localize(None) if frame["date"].dt.tz is not None else frame["date"]  # the stored day, as d.date()
+    # a stored day is known from the next midnight UTC
+    known = frame[days.dt.normalize() + pd.Timedelta(days=1) <= pd.Timestamp(decision_time).tz_convert("UTC").tz_localize(None)]
     if known.empty:
         return MarketInputs(unavailable_reason="no stored price is known at the decision time")
     last = known.iloc[-1]
     price_date = last["date"].date()
-    close, price_reason = as_traded_close(frame, price_date)
+    close_on = _as_traded_closes(frame)
+    close, price_reason = close_on(price_date)
     quote = (snapshot or {}).get("quote_currency") or (str(last.get("currency")) if pd.notna(last.get("currency")) else "")
     quote_major, _factor = sm.minor_unit(str(quote), minor)
     fx_rate = None
@@ -271,7 +290,7 @@ def market_inputs(
     series = tuple(
         (index.date(), value)
         for index in month_ends.index
-        if (value := as_traded_close(frame, index.date())[0]) is not None
+        if (value := close_on(index.date())[0]) is not None
     )
     shares = sm._finite((snapshot or {}).get("shares_outstanding"))
     snap_time = sm.as_utc((snapshot or {}).get("known_at"))
@@ -349,9 +368,12 @@ def build_universe_evidence(
     records = [record for record in records if not record.invalid_lifecycle and (record.lifecycle_date is None or decision_time.date() <= record.lifecycle_date)]
     cfg = dict(config) if config is not None else store.load_stock_config(root)
     chain = list((cfg.get("sources", {}) or {}).get("chain", ["sec_edgar", "esef", "yfinance"]))
-    periods_frame = store.read_fundamentals(root)
+    periods_frame, built = _read_fundamentals(root, chain)
     snapshots = store.read_snapshots(root)
     fx = store.read_fx(root)
+    # each frame is grouped by id once (the same rows as a per-id filter of the whole frame)
+    periods_rows, snapshot_rows = store.group_rows(periods_frame), store.group_rows(snapshots)
+    price_rows = store.group_rows(prices, "etf_id") if prices is not None and not prices.empty and "etf_id" in prices else lambda _iid: prices
     result = UniverseEvidence(decision_time, config=cfg, excluded=excluded)
     user_picks = load_user_peers(root)
     result.user_peers = user_picks
@@ -362,9 +384,11 @@ def build_universe_evidence(
     analysts: dict[str, Mapping[str, Any] | None] = {}
     for record in all_records:
         iid = record.instrument_id
-        periods = store.periods_for(iid, periods_frame, chain)
-        snapshot = store.latest_snapshot(iid, snapshots, decision_time)
-        analyst = store.latest_analyst(iid, periods_frame, decision_time)
+        periods = built.get(iid)
+        if periods is None:
+            periods = built[iid] = store.periods_for(iid, periods_rows(iid), chain)
+        snapshot = store.latest_snapshot(iid, snapshot_rows(iid), decision_time)
+        analyst = store.latest_analyst(iid, periods_rows(iid), decision_time)
         analysts[iid] = analyst
         reporting = None
         known = sm.known_periods(periods, decision_time)
@@ -374,11 +398,11 @@ def build_universe_evidence(
             frame = pd.DataFrame()
             market = _market_from_snapshot(snapshot, decision_time)
         else:
-            frame = _price_frame(prices, iid)
+            frame = _price_frame(price_rows(iid), iid)
             market = market_inputs(frame, snapshot, reporting, decision_time, fx, cfg)
-        reason = store.no_data_reason(iid, snapshots, decision_time, bool(known))
+        reason = store.no_data_reason(iid, snapshot_rows(iid), decision_time, bool(known))
         result.snapshots[iid] = snapshot or {}
-        result.periods[iid] = sm.known_periods(periods, decision_time)
+        result.periods[iid] = known
         result.prices[iid] = market
         result.names[iid] = (snapshot or {}).get("long_name") if iid.startswith("peer:") and snapshot else record.name
         first[iid] = build_stock_evidence(iid, periods, decision_time, market, analyst_inputs(analyst), cfg, no_data_reason=reason)
@@ -402,25 +426,32 @@ def build_universe_evidence(
     }
     # Non-bank financials are not scored by the industrial ratios, so they must not shape industrial peer cohorts either.
     candidates = [profile for profile in (result.profiles[r.instrument_id] for r in records) if not is_non_bank_financial_sector(getattr(profile, "sector", None))]
+    index = PeerIndex(candidates)
+    # One cohort per bucket, shared by its members; the stock's own value is in it, and the evidence build skips it.
+    cohort_buckets: dict[tuple[str, str] | None, dict[str, dict[str, float]]] = {}
+    names = dict(result.names)
+    first_order = {pid: position for position, pid in enumerate(first)}
     for record in records:
         iid = record.instrument_id
-        automatic = auto_peers(result.profiles[iid], candidates, cfg)
+        profile = result.profiles[iid]
+        automatic = auto_peers(profile, index.classified(profile), cfg)
         result.auto_peers[iid] = automatic
         picks = [p if (p in first or p in ids) else f"peer:{p}" for p in user_picks.get(iid, [])]
-        names = {k: v for k, v in result.names.items()}
         chosen = effective_peers(automatic, picks, names, iid)
         result.peers[iid] = chosen
-        members = {p.instrument_id for p in chosen}
-        scoped = {key: {pid: value for pid, value in values.items() if pid in members} for key, values in peer_values.items()}
-        periods = store.periods_for(iid, periods_frame, chain)
-        snapshot = store.latest_snapshot(iid, snapshots, decision_time)
-        cohorts = {
-            level: {key: {pid: cohort_metrics[key][pid] for pid in ids if pid in cohort_metrics[key]} for key in COHORT_METRIC_KEYS}
-            for level, ids in cohort_members(result.profiles[iid], candidates).items()
-        }
+        members = sorted({p.instrument_id for p in chosen} & first_order.keys(), key=first_order.__getitem__)  # peer values are in this order
+        scoped = {key: {pid: values[pid] for pid in members if pid in values} for key, values in peer_values.items()}
+        periods = built[iid]
+        cohorts = {}
+        for level in COHORT_LEVELS:
+            bucket = index.bucket(level, profile)
+            if bucket not in cohort_buckets:
+                bucket_ids = [item.instrument_id for item in index.members(level, profile)]
+                cohort_buckets[bucket] = {key: {pid: cohort_metrics[key][pid] for pid in bucket_ids if pid in cohort_metrics[key]} for key in COHORT_METRIC_KEYS}
+            cohorts[level] = cohort_buckets[bucket]
         result.evidence[iid] = with_sector_route(build_stock_evidence(
             iid, periods, decision_time, result.prices[iid], analyst_inputs(analysts[iid]), cfg,
-            peer_values=scoped, cohort_values=cohorts, no_data_reason=store.no_data_reason(iid, snapshots, decision_time, bool(sm.known_periods(periods, decision_time))),
+            peer_values=scoped, cohort_values=cohorts, no_data_reason=store.no_data_reason(iid, snapshot_rows(iid), decision_time, bool(sm.known_periods(periods, decision_time))),
         ), getattr(result.profiles[iid], "sector", None))
     for pid, evidence in first.items():
         if pid.startswith("peer:"):
@@ -466,6 +497,35 @@ def _market_from_snapshot(snapshot: Mapping[str, Any] | None, decision_time: dat
 
 _CACHE: dict[str, Any] = {}
 _LOCK = threading.Lock()
+_PERIODS: dict[str, Any] = {}  # periods_for per id for one fundamentals file state and chain (in memory only)
+
+
+def _file_stamp(path: Path) -> tuple[str, int, int] | None:
+    try:
+        stat = path.stat()
+    except OSError:
+        return None
+    return str(path), stat.st_mtime_ns, stat.st_size
+
+
+def _read_fundamentals(root: Path | None, chain: Sequence[str]) -> tuple[pd.DataFrame, dict[str, list[sm.Period]]]:
+    """The fundamentals rows, and the ``periods_for`` results already built from this file state.
+
+    ``periods_for`` has no decision-time input, so later sessions of a run reuse them. They are shared only when the
+    file did not change during the read; a new file state starts empty.
+    """
+
+    path = store.store_paths(root)["periods"]
+    stamp = _file_stamp(path)
+    frame = store.read_fundamentals(root)
+    if stamp is None or stamp != _file_stamp(path):
+        return frame, {}
+    key = (stamp, tuple(chain))
+    with _LOCK:
+        if _PERIODS.get("key") != key:
+            _PERIODS.clear()
+            _PERIODS.update(key=key, periods={})
+        return frame, _PERIODS["periods"]
 
 
 def get_universe_evidence(
