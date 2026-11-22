@@ -17,8 +17,10 @@ import functools
 import json
 import math
 import os
+import threading
+from collections import deque
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -640,6 +642,10 @@ def fx_rate(
 # ---------------------------------------------------------------------------------------------
 
 
+_SEC_WORKERS = 8  # requests take ~0.4-1 s; 8 in flight keep the shared SEC limiter (~8 requests/s) busy
+_SEC_AHEAD = 16  # targets fetched ahead of the in-order apply: bounds the parsed results held in memory
+
+
 def refresh_stock_fundamentals(
     targets: Sequence[StockTarget],
     *,
@@ -716,25 +722,51 @@ def refresh_stock_fundamentals(
             fx_cache[(base, quote)] = series
         return series
 
-    # Yahoo is fetched ahead in 4 threads (one shared session and rate limit); every result is applied here, in target order.
+    cik_locks: dict[str, threading.Lock] = {}
+
+    def sec_fetch(cik: str) -> src.FetchResult:
+        """Worker: network, parse and the provider's per-CIK cache files. Share classes of one CIK wait here, so the per-run cache answers the second."""
+
+        with cik_locks.setdefault(str(cik).lstrip("0"), threading.Lock()):
+            return edgar_fetch(cik, cfg, user_agent=agent)
+
+    def start_sec(target: StockTarget) -> tuple[str | None, str | None, Future | None]:
+        """Main thread: the CIK (the ticker file is fetched once, here) and its companyfacts fetch in a worker."""
+
+        cik, note = target.cik, None
+        if "sec_edgar" not in chain:
+            return cik, None, None
+        if cik is None and agent:
+            try:
+                cik = cik_resolver(target.yahoo_symbol, agent)
+            except Exception as exc:
+                note = f"SEC ticker lookup failed: {str(exc)[:80]}"
+        return cik, note, (sec_pool.submit(sec_fetch, cik) if cik is not None else None)
+
+    # Yahoo is fetched ahead in 4 threads (one shared session and rate limit); SEC companyfacts at most _SEC_AHEAD targets
+    # ahead in _SEC_WORKERS threads (the provider's shared limiter). Every result is applied here, in target order.
+    # The default SEC fetch has no shared limiter, only fetch_edgar's sleep per call: its requests stay serial, in one worker.
     pool = ThreadPoolExecutor(max_workers=4)
+    sec_pool = ThreadPoolExecutor(max_workers=1 if edgar_fetch is fetch_sec_fundamentals else _SEC_WORKERS)
     try:
         yahoo = pool.map(lambda target: yfinance_fetch(target.yahoo_symbol, cfg, now=stamp), targets) if "yfinance" in chain else iter(())
-        for target in targets:
+        sec_ahead = deque(start_sec(target) for target in targets[:_SEC_AHEAD])
+        for index, target in enumerate(targets):
+            if index + _SEC_AHEAD < len(targets):
+                sec_ahead.append(start_sec(targets[index + _SEC_AHEAD]))
+            resolved, lookup_note, sec_job = sec_ahead.popleft()
             notes: list[str] = []
             cik = target.cik
             for source in chain:
                 if source == "sec_edgar":
-                    if cik is None and agent:
-                        try:
-                            cik = cik_resolver(target.yahoo_symbol, agent)
-                        except Exception as exc:
-                            notes.append(f"SEC ticker lookup failed: {str(exc)[:80]}")
-                    if cik is None:
+                    cik = resolved
+                    if lookup_note:
+                        notes.append(lookup_note)
+                    if sec_job is None:
                         if "." not in target.yahoo_symbol:  # a non-US listing has no CIK: not a gap worth reporting
                             notes.append("SEC EDGAR skipped: " + ("no CIK resolved" if agent else "no SEC User-Agent configured (set ETF_COCKPIT_SEC_EDGAR_USER_AGENT)"))
                         continue
-                    result = edgar_fetch(cik, cfg, user_agent=agent)
+                    result = sec_job.result()
                 elif source == "esef":
                     result = esef_fetch(target.instrument_id, cfg, root=root)
                     if result.status == "unavailable":  # nothing imported for this issuer (e.g. a US filer): not a gap worth reporting
@@ -778,6 +810,7 @@ def refresh_stock_fundamentals(
                 progress(f"{target.instrument_id}: {report.per_instrument[target.instrument_id]}")
     finally:
         pool.shutdown(cancel_futures=True)
+        sec_pool.shutdown(cancel_futures=True)
     periods = _concat([stored, pd.DataFrame(added_rows, columns=PERIOD_COLUMNS)], PERIOD_COLUMNS) if added_rows else stored
     _write(paths["periods"], periods)
     if snapshot_rows:

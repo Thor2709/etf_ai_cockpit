@@ -225,3 +225,43 @@ def test_the_weekly_run_downloads_companyfacts_once_per_cik_and_stores_the_same_
     pd.testing.assert_frame_equal(head[0], shared[0])
     pd.testing.assert_frame_equal(head[1], shared[1])
     assert head[2] == shared[2]
+
+
+def test_sec_companyfacts_are_fetched_ahead_in_workers_once_per_cik_and_applied_in_target_order(tmp_path) -> None:
+    names = ["A", "B", "C", "D", "E", "F", "G"]
+    ciks = {"A": "1", "B": "2", "C": "3", "D": "3", "E": "5", "G": "7"}  # C and D: two share classes of one CIK; F has none
+    lock, running, peak, threads = threading.Lock(), [0], [0], set()
+    cache: dict[str, src.FetchResult] = {}
+    requests: Counter = Counter()
+
+    def edgar(cik: str, _cfg: dict, *, user_agent: str) -> src.FetchResult:
+        with lock:
+            running[0] += 1
+            peak[0] = max(peak[0], running[0])
+            threads.add(threading.get_ident())
+        if cik not in cache:  # like the provider's per-run companyfacts cache: check, request, keep
+            time.sleep(0.05)
+            requests[cik] += 1
+            status = "error" if cik == "5" else "ok"
+            cache[cik] = src.FetchResult("sec_edgar", rows=[{**_row(2024, float(cik)), "source": "sec_edgar"}], status=status,
+                                         reason="companyfacts request failed" if status == "error" else "", snapshot={"source": "sec_edgar", "cik": cik})
+        time.sleep(0.02 * (8 - int(cik)))  # the first target finishes last
+        with lock:
+            running[0] -= 1
+        return cache[cik]
+
+    report = _refresh(tmp_path, names, lambda symbol, _cfg, now: _ok([_row(2025, 100.0 + names.index(symbol))]),
+                      environ={"ETF_COCKPIT_SEC_EDGAR_USER_AGENT": "test agent"}, edgar_fetch=edgar,
+                      cik_resolver=lambda symbol, _agent: ciks.get(symbol),
+                      esef_fetch=lambda *_a, **_k: src.FetchResult("esef", status="unavailable"))
+    assert peak[0] > 1 and threading.get_ident() not in threads
+    assert requests == {cik: 1 for cik in ciks.values()}
+    assert list(report.per_instrument) == names
+    assert report.per_instrument["E"] == "sec_edgar: companyfacts request failed"
+    assert report.per_instrument["F"] == "SEC EDGAR skipped: no CIK resolved"
+    periods = store.read_periods(tmp_path)
+    assert list(zip(periods["instrument_id"], periods["source"], periods["revenue"])) == [
+        row for name in names for row in ([(name, "sec_edgar", float(ciks[name]))] if name in ciks else []) + [(name, "yfinance", 100.0 + names.index(name))]]
+    snapshots = store.read_snapshots(tmp_path)
+    assert list(zip(snapshots["instrument_id"], snapshots["source"], snapshots["cik"])) == [
+        row for name in names for row in ([(name, "sec_edgar", ciks[name])] if name in ciks else []) + [(name, "yfinance", ciks.get(name))]]
