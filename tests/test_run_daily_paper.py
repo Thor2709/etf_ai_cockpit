@@ -173,32 +173,46 @@ def test_a_new_session_is_one_later_than_the_latest_forward_run() -> None:
     assert daily_paper._is_new_session(history, date(2026, 11, 2))
 
 
-def test_the_decision_session_reads_the_build_as_of_without_a_build(monkeypatch) -> None:
+def test_the_decision_session_reads_the_build_as_of_without_a_build(monkeypatch, synthetic_sample_opt_in) -> None:
+    from datetime import timedelta
+
     import pandas as pd
 
-    from etf_cockpit.data.validation import validate_prices
+    from etf_cockpit.application import data_service, snapshot_builder
+    from etf_cockpit.data import duckdb_store
 
-    vwce = daily_paper.CALENDAR_INSTRUMENT_ID
-    bar = {"open": 1.0, "high": 1.0, "low": 1.0, "close": 1.0, "adjusted_close": 1.0, "volume": 1, "currency": "EUR"}
-    stored = pd.DataFrame([{**bar, "etf_id": vwce, "date": date(2026, 11, 2)}, {**bar, "etf_id": "OFF", "date": date(2026, 11, 9)}])
+    real_load = duckdb_store.load_prices
+    stored = real_load(config=daily_paper.load_config())
+    ids = sorted(set(stored["etf_id"].astype(str)) & set(daily_paper.load_config().universe.enabled_ids))
+    kept, dropped = ids[0], ids[1]
+    last = max(stored["date"])
+    bar = stored.loc[stored["etf_id"].astype(str).eq(dropped)].iloc[-1].to_dict()
     candidates = pd.DataFrame([
-        {**bar, "etf_id": vwce, "date": "2026-11-06"},  # the id has stored prices: the build drops the row
-        {**bar, "etf_id": "NEW", "date": "2026-11-04"},  # an enabled id without stored prices: the build adds it
-        {**bar, "etf_id": "NEW", "date": "not a date"},  # validate_prices drops an unparsable date
+        {**bar, "etf_id": dropped, "date": (last + timedelta(days=2)).isoformat()},  # enabled, no stored prices: added
+        {**bar, "etf_id": dropped, "date": "not a date"},  # validate_prices drops an unparsable date
+        {**bar, "etf_id": kept, "date": (last + timedelta(days=9)).isoformat()},  # the id has stored prices: dropped
+        {**bar, "etf_id": "NOT-ENABLED", "date": (last + timedelta(days=9)).isoformat()},  # not enabled: dropped
     ])
-    build_frame = pd.concat([stored.iloc[[0]], candidates.iloc[[1, 2]]], ignore_index=True)  # the rows build_snapshot validates
-    build_as_of = validate_prices(build_frame).as_of_date
-    config = SimpleNamespace(universe=SimpleNamespace(enabled_ids=(vwce, "NEW")))
-    session = SimpleNamespace(snapshot=SimpleNamespace(config=config), refresh_snapshot=lambda: pytest.fail("no snapshot build"))
-    calendar = pd.DataFrame({"etf_id": vwce, "date": pd.date_range("2026-11-02", "2026-11-05").date})
+
+    def without_dropped(*args, **kwargs):
+        frame = real_load(*args, **kwargs)
+        return frame.loc[frame["etf_id"].astype(str).ne(dropped)].copy()
+
+    for module in (data_service, daily_paper):
+        monkeypatch.setattr(module, "load_prices", without_dropped)
+    for module in (snapshot_builder, daily_paper):
+        monkeypatch.setattr(module, "load_candidate_price_snapshot", lambda: candidates.copy())
+    snapshot = snapshot_builder.build_snapshot()  # the real builder on the same fixture
+    build_as_of = snapshot.data_report.as_of_date
+
+    assert daily_paper._build_as_of(snapshot.config) == build_as_of == last + timedelta(days=2)
+    session = SimpleNamespace(snapshot=SimpleNamespace(config=snapshot.config), refresh_snapshot=lambda: pytest.fail("no snapshot build"))
+    calendar = pd.DataFrame({"etf_id": daily_paper.CALENDAR_INSTRUMENT_ID, "date": [build_as_of + timedelta(days=d) for d in (-1, 0, 1)]})
     monkeypatch.setattr(daily_paper, "_new_session", lambda _root: session)
-    monkeypatch.setattr(daily_paper, "load_prices", lambda *, config: stored.copy())
-    monkeypatch.setattr(daily_paper, "load_candidate_price_snapshot", lambda: candidates.copy())
     monkeypatch.setattr(daily_paper.data_readiness, "load_inputs", lambda _root: SimpleNamespace(prices=calendar))
     monkeypatch.setattr(daily_paper, "load_backfill_score_history", lambda _root, _provenances: pd.DataFrame())
-
-    assert build_as_of == date(2026, 11, 4)  # S is bounded by the as-of: 2026-11-05 is a later completed session
-    now = datetime(2026, 11, 7, 12, tzinfo=timezone.utc)
+    now = datetime.combine(build_as_of + timedelta(days=3), datetime.min.time(), tzinfo=timezone.utc)
+    # S is bounded by the as-of: the next calendar day is also a completed session
     assert daily_paper._decision_session(daily_paper.require_storage_root(), lambda: now) == (build_as_of, True)
 
 

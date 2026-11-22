@@ -12,8 +12,8 @@ d. Paper enabled and kill switch off? Otherwise skip e-f (stage ``paper_disabled
 e. Recorder bound to (S, H); f. execution and the AI paper account (``ai-paper``, EUR 40,000, EUR 0 monthly).
 g. Refresh, rescore and publish (UI only) run whatever b-f did; a b-f failure keeps a non-zero exit code.
    The forecast stage is parked (OD-8: forecast weight 0, every row unavailable); ``_forecast`` stays for manual
-   runs. Rescore and publish do not read a cache not bound to the refreshed prices (forecast_scores binding,
-   maximum_forecast_age_days), so the forecasts read as unavailable.
+   runs. Rescore and publish read a cache only when it passes the cache rules (forecast_scores binding,
+   maximum_forecast_age_days); without a fresh manual run the forecasts read as unavailable.
 
 ``--dry-run`` runs a-c and g and skips d-f. Synthetic sample data is disabled for this workflow. The external AI
 client remains responsible for AI proposals through the existing MCP paper controls.

@@ -35,9 +35,9 @@ and readiness then fails closed.
 Night D (job 21:30 UTC = 22:30 CET); all paper stages hold the cross-process writer guard
  21:30  a. S&P capture: fetch page -> bind -> ledger capture (snapshot_date=D, known_at~21:31)
            -> census rows [D, D+1)          (failure: logged; tomorrow's readiness fails)
- ~21:32 b. S = latest VWCE session < D and <= report_date, where report_date = data_report.as_of_date
-           of a HeadlessSession.refresh_snapshot() build on the stored data (no provider call),
-           made before step g. The stored data are the prices committed by night D-1's refresh.
+ ~21:32 b. S = latest VWCE session < D and <= report_date, where report_date = the data_report.as_of_date
+           a snapshot build would report on the stored data, read without the build (`_build_as_of`:
+           the build's rows, the validate_prices as-of rule; no provider call), made before step g. The stored data are the prices committed by night D-1's refresh.
            No new session (S <= as_of_date of the latest stored forward run): skip b-f with
            reason no_new_session (not an error), continue with g.
            t_S = clock. Forward score run(S) (guard: every consumed known_at <= t_S),
@@ -50,10 +50,10 @@ Night D (job 21:30 UTC = 22:30 CET); all paper stages hold the cross-process wri
         f. execution: fill intents for sessions F with d < F < as_of.date(); AI account
  ~21:45 g. refresh prices + FX (2.5-3.5 h)  -> stamps (C1); bars of D for tomorrow's S = D
            g runs whatever b-f do (finally-style); a failure in b-f keeps the exit code non-zero
-        g2. forecasts of the enabled universe on the refreshed prices with the request the scores read: the
-           baseline always; optional models only as configured (shadow_optional_models). An absent or failing
-           optional model gives unavailable/failed rows, not a stage failure. A stage failure keeps the
-           committed refresh; h still runs and reads no unbound cache.
+           No snapshot build after the refresh; h builds the one snapshot publish reads.
+        g2. forecasts: parked (OD-8, forecast weight 0). The nightly runs no forecast stage; a manual run
+           (`_forecast`, scripts/run_forecasts.py) may still write a cache, and h reads it only when it
+           passes the cache rules (price binding, maximum_forecast_age_days), else as unavailable.
            Not an input of b (the forward score run computes its own point-in-time baseline).
         h. live rescore + publish (UI only)
 Day F (first VWCE session after d)

@@ -346,23 +346,31 @@ def test_transport_maps_304_to_a_response_and_refuses_a_body_above_50_mb(monkeyp
         ser._sec_transport(FACTS_URL, {})
 
 
-def test_weekly_fundamentals_script_parks_the_sec_evidence_and_keeps_companyfacts(monkeypatch) -> None:
+def test_weekly_fundamentals_script_parks_the_sec_evidence_and_keeps_companyfacts(tmp_path: Path, monkeypatch) -> None:
     import sys
 
     from etf_cockpit.application import stock_service
     from etf_cockpit.core import config as config_module
+    from etf_cockpit.data import stock_sources
+    from etf_cockpit.data.stock_fundamentals import read_periods
     from scripts import refresh_stock_fundamentals as script
 
-    order = []
-    provider = object()
-    monkeypatch.setattr(sys, "argv", ["refresh_stock_fundamentals.py", "--ids", "ZZA"])
-    monkeypatch.setattr(config_module, "load_config", lambda: "cfg")
-    monkeypatch.setattr(ser, "sec_provider", lambda **_k: provider)
-    monkeypatch.setattr(stock_service, "refresh_universe_stock_fundamentals",
-                        lambda *a, **k: order.append(("fundamentals", a, k["only_ids"], k["sec_provider"])) or SimpleNamespace(rows_added=0, failures={}))
-    monkeypatch.setattr(ser, "refresh_sec_evidence", lambda *a, **k: order.append("sec evidence"))
+    config, fake, provider = _setup(tmp_path, _sec_documents())
+    real_refresh = stock_service.refresh_universe_stock_fundamentals
+    monkeypatch.setattr(sys, "argv", ["refresh_stock_fundamentals.py", "--ids", "ZZA", "--sources", "sec_edgar"])
+    monkeypatch.setattr(config_module, "load_config", lambda: config)
+    monkeypatch.setenv("ETF_COCKPIT_SEC_EDGAR_USER_AGENT", AGENT)
+    tickers = {"0": {"ticker": "ZZA", "cik_str": 777001}}
+    monkeypatch.setattr(stock_sources, "http_get_json",
+                        lambda url, _agent: tickers if url == stock_sources.SEC_TICKERS_URL else pytest.fail(f"direct request: {url}"))
+    monkeypatch.setattr(ser, "sec_provider", lambda **_k: provider)  # the SEC transport is the fake
+    monkeypatch.setattr(stock_service, "refresh_universe_stock_fundamentals", lambda *a, **k: real_refresh(*a, root=tmp_path, now=NOW, **k))
+    monkeypatch.setattr(ser, "refresh_sec_evidence", lambda *_a, **_k: pytest.fail("the SEC evidence refresh is parked"))
+
     assert script.main() == 0
-    assert order == [("fundamentals", ("cfg",), {"ZZA"}, provider)]  # companyfacts come through the SEC provider
+    assert FACTS_URL in fake.calls and all("/Archives/" not in url for url in fake.calls)  # no Form 4 / 8-K / 10-K document
+    periods = read_periods(tmp_path)
+    assert not periods.loc[periods["instrument_id"].eq("ZZA") & periods["source"].eq("sec_edgar")].empty  # companyfacts used
 
 
 def test_full_weekly_fundamentals_run_refreshes_etf_reference_data(monkeypatch, capsys) -> None:
