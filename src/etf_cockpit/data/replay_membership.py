@@ -29,6 +29,7 @@ import numpy as np
 
 from etf_cockpit.core.config import AppConfig, load_config
 from etf_cockpit.data.duckdb_store import SYNTHETIC_PRICE_SOURCES
+from etf_cockpit.data.import_pipeline import RECONSTRUCTED_PIT, reconstructed_price_availability
 
 
 MEMBERSHIP_POLICY = "replay_listing_membership.v1"
@@ -55,6 +56,7 @@ class MembershipSnapshot:
     fingerprint: str
     delisting_unverified_ids: tuple[str, ...] = ()
     observed_trading_ids: tuple[str, ...] = ()
+    pit_basis: str | None = None  # RECONSTRUCTED_PIT when observed trading admitted an id
 
 
 @dataclass(frozen=True)
@@ -70,6 +72,8 @@ class ListingHistory:
     def with_observed_trading(self, prices: pd.DataFrame, config: AppConfig) -> ListingHistory:
         """Attach ETF-only provider observations; missing knowledge/provenance fails closed.
 
+        Availability follows the one reconstructed PIT rule (``reconstructed_price_availability``, OD-1 = b): a
+        stamped bar counts at its session close, so a later refetch cannot erase an ETF's past.
         The five-business-day window is the backfill's existing staleness gate.
         Explicit synthetic/fill flags and non-trading rows cannot prove listing.
         Stored listing records retain precedence over these observations.
@@ -78,7 +82,7 @@ class ListingHistory:
         if not required.issubset(prices.columns):
             return replace(self, observed_trading={})
         etfs = {key for key, item in config.universe.by_id().items() if item.instrument_type.casefold() == "etf"}
-        frame = prices.loc[prices["etf_id"].isin(etfs)].copy()
+        frame = reconstructed_price_availability(prices.loc[prices["etf_id"].isin(etfs)])
         source = frame["source"].astype("string").str.strip().str.casefold()
         genuine = source.notna() & source.ne("") & ~source.isin(SYNTHETIC_PRICE_SOURCES)
         genuine &= ~source.str.contains("synthetic|sample|fill|interpolat", na=True)
@@ -99,6 +103,7 @@ class ListingHistory:
                 continue
             observations.setdefault(str(row["etf_id"]), []).append({
                 "date": day.isoformat(), "available_at": known.isoformat(), "source": str(row["source"]),
+                "pit_basis": RECONSTRUCTED_PIT,
             })
         return replace(self, observed_trading={
             key: tuple(sorted(rows, key=lambda row: (row["date"], row["available_at"], row["source"])))
@@ -236,6 +241,7 @@ class ListingHistory:
         fingerprint = hashlib.sha256(json.dumps(material, sort_keys=True).encode()).hexdigest()
         return MembershipSnapshot(
             tuple(key for key in ids if key in active), unverified, reasons, fingerprint, delisting_unverified, tuple(observed),
+            RECONSTRUCTED_PIT if observed else None,
         )
 
     def fingerprint(self) -> str:

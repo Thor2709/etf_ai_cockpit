@@ -38,6 +38,34 @@ uniform `adjusted_close` re-base is not a revision. A legacy bar with
 `ingested_at` and no `known_at` gets `known_at := ingested_at`; a bar without
 stamps stays unstamped and is unavailable to every stamped reader.
 
+### Reconstructed replay availability (amendment 2026-11-22, owner decision OD-1 = b)
+
+A refetch that sees a small revision restamps the bar at the fetch time, so the
+stored stamps alone shrink the strict past (97 of 142 tradable ETFs on
+2024-06-28). Historical replay therefore reads prices through one rule,
+`reconstructed_price_availability` in `data/import_pipeline.py`:
+
+- a stamped bar counts as known and available at its session close
+  (23:59:59 UTC), with its values as fetched (adjusted); an earlier stored
+  stamp (a live fetch before the close) stays;
+- an unstamped bar, or a stamp without a timezone, stays unavailable;
+- every row it returns carries `pit_basis = "reconstructed"`, and results built
+  from it keep that label;
+- it applies at read time only. Stored `known_at` and `available_at` stamps are
+  never rewritten; live readers keep them.
+
+Replay readers: ETF admission (`ListingHistory.with_observed_trading`), rank
+validation and the backtest. Other sources under the same decision: Yahoo FX
+counts at its close (`stamp_fx_availability`); ECB reference rates at their
+publish time (no ECB rate feeds the FX store yet, and `ecb_provider` still marks
+its rows `inferred`); S&P 500 membership changes at their effective date; SEC
+data at its filed date.
+Reconstructed rows count as historical evidence for proof and tuning. Their
+values can include later revisions: a later dividend or split rescales earlier
+adjusted values (returns are unchanged), and a vendor correction shows at its
+original session. The label keeps this visible, and promotion of a change still
+needs forward confirmation.
+
 ## Consequences
 
 As-of queries and replay require versioned evidence. ISSUE-0153 must resolve
