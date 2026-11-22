@@ -70,10 +70,10 @@ class ListingHistory:
     observed_trading: dict[str, tuple[dict[str, object], ...]] = field(default_factory=dict)
 
     def with_observed_trading(self, prices: pd.DataFrame, config: AppConfig) -> ListingHistory:
-        """Attach ETF-only provider observations; missing knowledge/provenance fails closed.
+        """Attach ETF-only provider observations; missing provenance fails closed.
 
         Availability follows the one reconstructed PIT rule (``reconstructed_price_availability``, OD-1 = b): a
-        stamped bar counts at its session close, so a later refetch cannot erase an ETF's past.
+        genuine bar counts at its session close, so a later refetch cannot erase an ETF's past.
         The five-business-day window is the backfill's existing staleness gate.
         Explicit synthetic/fill flags and non-trading rows cannot prove listing.
         Stored listing records retain precedence over these observations.

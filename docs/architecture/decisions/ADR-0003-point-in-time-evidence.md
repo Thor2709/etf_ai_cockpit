@@ -45,10 +45,15 @@ stored stamps alone shrink the strict past (97 of 142 tradable ETFs on
 2024-06-28). Historical replay therefore reads prices through one rule,
 `reconstructed_price_availability` in `data/import_pipeline.py`:
 
-- a stamped bar counts as known and available at its session close
+- every fetched bar counts as known and available at its session close
   (23:59:59 UTC), with its values as fetched (adjusted); an earlier stored
   stamp (a live fetch before the close) stays;
-- an unstamped bar, or a stamp without a timezone, stays unavailable;
+- a genuine bar with an empty stamp, or a stamp without a timezone, also counts
+  at its session close (fork A, 2026-11-22: 21,157 of 4,615,340 genuine bars);
+- 23:59:59 UTC is the project's session-close convention: the same as the
+  ingest stamp (`stamp_price_availability`) and the replay decision time
+  (`score_backfill`, `rank_validation`), so a bar is never visible before the
+  decision time of its own session;
 - every row it returns carries `pit_basis = "reconstructed"`, and results built
   from it keep that label;
 - it applies at read time only. Stored `known_at` and `available_at` stamps are

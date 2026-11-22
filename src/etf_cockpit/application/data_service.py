@@ -34,6 +34,7 @@ from etf_cockpit.data.fx_data import (
     commit_fx_import,
     fx_data_inventory,
     load_fx_rates,
+    major_currency,
     validate_fx_rates,
 )
 from etf_cockpit.data.import_pipeline import (
@@ -291,10 +292,15 @@ def _refresh_yfinance_fx(
     *,
     start_date: date,
     full_history: bool,
+    prices: pd.DataFrame,
     end_date: date,
     publish_guard: PublicationScopeFactory | None,
 ) -> list[str]:
-    """A pair without rows, or every pair on a max-history run, is fetched from the price ``start_date`` (D3)."""
+    """FX at least as deep as the prices (D3).
+
+    A pair without rows, every pair on a max-history run, and a pair whose oldest row is later than the oldest price
+    session in its currency (beyond the overlap) are fetched from that price start; other pairs from the overlap.
+    """
 
     base_currency = str(config.targets.base_currency).strip().upper()
     currencies = sorted(
@@ -315,11 +321,22 @@ def _refresh_yfinance_fx(
         return ["FX not refreshed: " + ", ".join(pairs) + "."]
     stored_pairs = _fx_pair_series(stored)
     stored_dates = _fx_date_series(stored)
+    price_starts: dict[str, date] = {}
+    if {"date", "currency"}.issubset(prices.columns):
+        dates = pd.to_datetime(prices["date"], errors="coerce").groupby(prices["currency"].astype(str)).min().dropna()
+        for label, oldest in dates.items():
+            if (currency := major_currency(label)) is not None:
+                price_starts[currency] = min(price_starts.get(currency, oldest.date()), oldest.date())
     pair_windows: dict[date, list[str]] = {}
     for pair in pairs:
         pair_dates = stored_dates.loc[stored_pairs.eq(pair)].dropna()
-        incremental = not full_history and not pair_dates.empty
-        start = max(pair_dates) - timedelta(days=FX_OVERLAP_DAYS) if incremental else start_date
+        needed = price_starts.get(pair.split("/")[0])
+        if full_history or pair_dates.empty:
+            start = start_date
+        elif needed is not None and min(pair_dates) > needed + timedelta(days=FX_OVERLAP_DAYS):
+            start = needed
+        else:
+            start = max(pair_dates) - timedelta(days=FX_OVERLAP_DAYS)
         pair_windows.setdefault(start, []).append(pair)
 
     failed_pairs: set[str] = set()
@@ -505,6 +522,11 @@ def _merge_incremental_price_result(
             continue
 
         refreshed_rows = full_rows(instrument_id)
+        old_dates, new_dates = (_normalised_price_dates(rows).dropna() for rows in (old_rows, refreshed_rows))
+        if not old_dates.empty and not new_dates.empty and new_dates.min() > old_dates.min():
+            # A refetch that does not reach the oldest stored session would erase history: it failed (D1).
+            refreshed_rows = refreshed_rows.iloc[0:0]
+            failed_full_ids.add(instrument_id)
         # A failed full refetch must not mix its window rows with the stored adjustment basis.
         parts.append(refreshed_rows if not refreshed_rows.empty else old_rows)
 
@@ -830,6 +852,7 @@ class DataService:
                     self.config,
                     start_date=start_date,
                     full_history=years is None,
+                    prices=result.data,
                     end_date=end_date,
                     publish_guard=publish_guard,
                 )

@@ -96,9 +96,9 @@ def stamp_price_availability(stored: pd.DataFrame | None, incoming: pd.DataFrame
 def reconstructed_price_availability(prices: pd.DataFrame) -> pd.DataFrame:
     """The one reconstructed PIT rule for historical replay (owner decision OD-1 = b; ADR-0003).
 
-    Read time only: returns a copy and never writes back, so the stored fetch stamps stay. A stamped bar counts as
-    known and available at its session close (23:59:59 UTC) with its values as fetched (adjusted); an earlier stored
-    stamp (a live fetch) stays. An unstamped or tz-naive stamp stays unavailable. Every row gets
+    Read time only: returns a copy and never writes back, so the stored fetch stamps stay. Every fetched bar counts as
+    known and available at its session close (23:59:59 UTC) with its values as fetched (adjusted), also when its stamp
+    is empty or has no timezone; an earlier stored stamp (a live fetch) stays. Every row gets
     ``pit_basis = "reconstructed"``. Replay readers only; live readers keep the stored stamps.
     """
 
@@ -107,7 +107,7 @@ def reconstructed_price_availability(prices: pd.DataFrame) -> pd.DataFrame:
     for column in ("known_at", "available_at"):
         if column in out:
             stamp = _aware_utc(out[column])
-            out[column] = stamp.where(stamp.isna() | stamp.le(close), close)
+            out[column] = stamp.where(stamp.le(close), close)
     out["pit_basis"] = RECONSTRUCTED_PIT
     return out
 
@@ -119,7 +119,7 @@ def _session_close(sessions: pd.Series) -> pd.Series:
 
 
 def _aware_utc(values: pd.Series) -> pd.Series:
-    """UTC stamps; an unparseable or tz-naive value is NaT (it states no knowledge time)."""
+    """UTC stamps; an unparseable or tz-naive value is NaT (it states no usable knowledge time)."""
 
     if isinstance(values.dtype, pd.DatetimeTZDtype):
         return values.dt.tz_convert("UTC")
