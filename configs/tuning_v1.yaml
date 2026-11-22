@@ -8,7 +8,7 @@
 # today's values (which sum to the cap), so no combination exceeds it. Other bounds are +/-0.10 around today's
 # weights; weights at 0 today (relative_strength, etf_exposure, analyst_revision, forecasts) have no knob.
 schema_version: 1
-version: tuning-v2
+version: tuning-v1
 defaults:
   search:
     max_trials: 60
