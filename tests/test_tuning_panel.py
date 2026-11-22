@@ -80,24 +80,47 @@ def test_loader_keeps_missing_cells_as_nan_clamps_and_rejects_duplicates() -> No
         assert np.isnan(value) == ((panel.sessions[s], panel.instruments[i], panel.components[k]) not in stored)
     assert np.isnan(panel.fwd[~panel.gate & np.isnan(panel.adv)]).all()  # a session/instrument without a row
     assert load_tuning_panel(comp, out, daily).checksum == panel.checksum
-    changed = comp.copy(); changed.loc[1, "raw_score"] += 0.01
+    changed = comp.copy()
+    changed.loc[1, "raw_score"] += 0.01
     assert load_tuning_panel(changed, out, daily).checksum != panel.checksum
     with pytest.raises(ValueError, match="duplicate"):
         load_tuning_panel(pd.concat([comp, comp.iloc[:1]]), out, daily)
 
 
+def test_loader_keeps_an_all_missing_benchmark_and_rejects_a_mixed_one() -> None:
+    comp, out, daily = _long_rows(3, 5)
+    first, second = sorted(set(out["decision_session"]))[:2]
+    out.loc[out["decision_session"].eq(first), "benchmark_net_return"] = math.nan
+    panel = load_tuning_panel(comp, out, daily)
+    assert np.isnan(panel.bench[0]) and np.isfinite(panel.bench[1:]).all()
+    mixed = out.copy()
+    mixed.loc[mixed.index[mixed["decision_session"].eq(second)][0], "benchmark_net_return"] = math.nan
+    with pytest.raises(ValueError, match="benchmark"):
+        load_tuning_panel(comp, mixed, daily)
+
+
+@pytest.mark.parametrize("column", ["instrument_id", "component_key"])
+@pytest.mark.parametrize("bad", [None, math.nan, ""])
+def test_loader_rejects_missing_keys_before_casting_them_to_text(column: str, bad: object) -> None:
+    comp, out, daily = _long_rows(2, 3)
+    comp[column] = comp[column].astype(object)
+    comp.loc[0, column] = bad
+    with pytest.raises(ValueError, match="missing"):
+        load_tuning_panel(comp, out, daily)
+
+
 def test_panel_trial_takes_at_most_0_8_seconds_on_a_small_panel() -> None:
     rng = np.random.default_rng(5)
-    S, I = 120, 600
-    days = [date(2020, 1, 1) + timedelta(days=position) for position in range(S)]
-    key = pd.MultiIndex.from_product([days, [f"I{n:04d}" for n in range(I)]], names=["decision_session", "instrument_id"]).to_frame(index=False)
+    n_sessions, n_instruments = 120, 600
+    days = [date(2020, 1, 1) + timedelta(days=position) for position in range(n_sessions)]
+    key = pd.MultiIndex.from_product([days, [f"I{n:04d}" for n in range(n_instruments)]], names=["decision_session", "instrument_id"]).to_frame(index=False)
     comp = pd.concat([key.assign(component_key=name, raw_score=rng.normal(0, 0.8, len(key)), eligible=True) for name in COMPONENTS])
     out = key.assign(gate=True, net_forward_return=rng.normal(0, 0.05, len(key)), benchmark_net_return=0.004, adv=1e6)
     daily = key.rename(columns={"decision_session": "date"}).assign(daily_return=0.0)
     objective = PanelRankIc(load_tuning_panel(comp, out, daily), WEIGHTS, "score.etf.headline")
     started = time.perf_counter()
     for trial in range(5):
-        objective({"score.etf.headline.momentum": 0.1 + 0.01 * trial}, range(S), None)
+        objective({"score.etf.headline.momentum": 0.1 + 0.01 * trial}, range(n_sessions), None)
     assert (time.perf_counter() - started) / 5 <= 0.8
 
 

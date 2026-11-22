@@ -20,6 +20,7 @@ from etf_cockpit.analysis.decision.rank_validation import (
     load_rank_validation_policy,
     rank_validation_metrics,
 )
+from etf_cockpit.validation.protocol import ValidationSpec, _paired_block_bootstrap
 
 
 def _oracle_forward_return(prices, instrument_id, cutoff, holding_period_sessions, *, target_session=None):
@@ -175,6 +176,19 @@ def test_rank_metrics_report_the_minimum_detectable_ic_and_a_block_bootstrap_int
     interval = metrics["rank_ic_ci"]
     assert interval["status"] == "available" and interval["observations"] == len(ic)
     assert interval["lower_5"] <= metrics["rank_ic_mean"] <= interval["upper_95"]
+
+
+def test_rank_ic_interval_blocks_cover_the_holding_period_of_overlapping_returns() -> None:
+    frame = _ic_rows(60)
+    day = pd.to_datetime(frame["decision_date"])
+    regime = np.where(((day - day.min()).dt.days // 15) % 2 == 0, 1.0, -1.0)  # IC sign persists for 15 dates
+    frame["net_return"] = regime * frame["score"] * 0.01 + frame["net_return"] * 0.1
+    policy = replace(load_rank_validation_policy(), minimum_universe_support=2, top_n=1, bottom_n=1, holding_period_sessions=15)
+    metrics = rank_validation_metrics(frame, "QV", policy=policy)
+    interval = metrics["rank_ic_ci"]
+    short = _paired_block_bootstrap(np.asarray([item["rank_ic"] for item in metrics["per_decision"]]), ValidationSpec(), paired_with="zero")
+    assert interval["block_size"] >= policy.holding_period_sessions > short["block_size"]
+    assert interval["upper_95"] - interval["lower_5"] > short["upper_95"] - short["lower_5"]
 
 
 def test_validation_is_underpowered_when_only_the_decision_count_is_short(monkeypatch) -> None:

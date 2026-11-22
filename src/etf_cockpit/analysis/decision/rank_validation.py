@@ -1074,7 +1074,10 @@ def _rank_metrics(rows: pd.DataFrame, ranker: str, policy: RankValidationPolicy)
             (policy.significance_t + NormalDist().inv_cdf(0.8)) * stdev(ic_values) / math.sqrt(len(ic_values))
             if len(ic_values) >= 2 else None
         ),
-        "rank_ic_ci": _paired_block_bootstrap(np.asarray(ic_values, dtype=float), ValidationSpec(), paired_with="zero"),
+        # Blocks cover the holding period: forward returns of nearby decision dates overlap.
+        "rank_ic_ci": _paired_block_bootstrap(
+            np.asarray(ic_values, dtype=float), ValidationSpec(horizon=policy.holding_period_sessions), paired_with="zero"
+        ),
         "rank_ic_positive_fraction": sum(value > 0 for value in ic_values) / len(ic_values),
         "top_net_return_mean": fmean(top_values),
         "bottom_net_return_mean": fmean(float(item["bottom_net_return"]) for item in daily),

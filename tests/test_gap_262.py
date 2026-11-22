@@ -101,7 +101,6 @@ def test_walk_forward_never_shows_evaluation_or_final_data_to_the_search(tmp_pat
     assert windows["tune"]["end"] < windows["evaluation"]["start"]
     assert windows["purged_gap"] == DEFAULTS.split.horizon
     assert max(search_indices) < eval_start - DEFAULTS.split.horizon + 1
-    seen_all = {i for _, idx in calls for i in idx}
     assert {len(idx) for _, idx in calls if max(idx) >= n - DEFAULTS.split.final_test_size} == {1}  # final test: judging pass only, date by date
     oos_calls = [idx for _, idx in calls if min(idx) >= eval_start]
     assert oos_calls and all(min(idx) >= eval_start for idx in oos_calls)  # evaluation blocks only after tuning

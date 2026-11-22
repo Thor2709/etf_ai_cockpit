@@ -42,13 +42,15 @@ def _require(frame: pd.DataFrame, name: str, columns: Sequence[str], keys: Seque
     if missing:
         raise ValueError(f"{name} rows lack columns {missing}")
     frame = frame.loc[:, list(columns)].copy()
+    if frame[list(keys)].isna().any().any() or frame[list(keys)].astype(str).eq("").any().any():
+        raise ValueError(f"{name} rows have missing keys {list(keys)}")
     for key in keys:
         if key in {"decision_session", "date"}:
             frame[key] = pd.to_datetime(frame[key]).dt.date
         else:
             frame[key] = frame[key].astype(str)
-    if frame[list(keys)].isna().any().any() or frame.duplicated(list(keys)).any():
-        raise ValueError(f"{name} rows have missing or duplicate keys {list(keys)}")
+    if frame.duplicated(list(keys)).any():
+        raise ValueError(f"{name} rows have duplicate keys {list(keys)}")
     return frame
 
 
@@ -70,27 +72,27 @@ def load_tuning_panel(components: pd.DataFrame, outcomes: pd.DataFrame, returns:
     instruments = tuple(sorted(set(comp["instrument_id"]) | set(out["instrument_id"]) | set(daily["instrument_id"])))
     keys = tuple(sorted(set(comp["component_key"])))
     s_of, d_of, i_of, k_of = (pd.Index(labels) for labels in (sessions, days, instruments, keys))
-    S, D, I, K = len(sessions), len(days), len(instruments), len(keys)
+    n_sessions, n_days, n_instruments, n_keys = len(sessions), len(days), len(instruments), len(keys)
 
-    raw = np.full((S, I, K), np.nan)
-    eligible = np.zeros((S, I, K), dtype=bool)
+    raw = np.full((n_sessions, n_instruments, n_keys), np.nan)
+    eligible = np.zeros((n_sessions, n_instruments, n_keys), dtype=bool)
     at = (s_of.get_indexer(comp["decision_session"]), i_of.get_indexer(comp["instrument_id"]), k_of.get_indexer(comp["component_key"]))
     values = pd.to_numeric(comp["raw_score"], errors="coerce").to_numpy(dtype=float, na_value=np.nan)
     raw[at] = np.clip(values, -1.0, 1.0)
     eligible[at] = comp["eligible"].astype(bool).to_numpy() & np.isfinite(values)
 
-    gate = np.zeros((S, I), dtype=bool)
-    fwd, adv = np.full((S, I), np.nan), np.full((S, I), np.nan)
+    gate = np.zeros((n_sessions, n_instruments), dtype=bool)
+    fwd, adv = np.full((n_sessions, n_instruments), np.nan), np.full((n_sessions, n_instruments), np.nan)
     at2 = (s_of.get_indexer(out["decision_session"]), i_of.get_indexer(out["instrument_id"]))
     gate[at2] = out["gate"].astype(bool).to_numpy()
     fwd[at2] = pd.to_numeric(out["net_forward_return"], errors="coerce").to_numpy(dtype=float, na_value=np.nan)
     adv[at2] = pd.to_numeric(out["adv"], errors="coerce").to_numpy(dtype=float, na_value=np.nan)
-    bench_rows = pd.to_numeric(out["benchmark_net_return"], errors="coerce").groupby(out["decision_session"]).agg(["min", "max"])
-    if (bench_rows["min"] != bench_rows["max"]).any():
+    bench_rows = pd.to_numeric(out["benchmark_net_return"], errors="coerce").groupby(out["decision_session"])
+    if (bench_rows.nunique(dropna=False) > 1).any():  # all-NaN is one missing value; a NaN next to a value disagrees
         raise ValueError("outcome rows disagree on a session's benchmark return")
-    bench = bench_rows["min"].reindex(list(sessions)).to_numpy(dtype=float, na_value=np.nan)
+    bench = bench_rows.first().reindex(list(sessions)).to_numpy(dtype=float, na_value=np.nan)
 
-    ret = np.full((D, I), np.nan)
+    ret = np.full((n_days, n_instruments), np.nan)
     ret[d_of.get_indexer(daily["date"]), i_of.get_indexer(daily["instrument_id"])] = (
         pd.to_numeric(daily["daily_return"], errors="coerce").to_numpy(dtype=float, na_value=np.nan)
     )
