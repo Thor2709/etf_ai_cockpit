@@ -102,7 +102,7 @@ def test_panel_trial_takes_at_most_0_8_seconds_on_a_small_panel() -> None:
 
 
 def test_walk_forward_cli_tunes_on_a_panel_directory(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    comp, out, daily = _long_rows(460, 12, seed=3)
+    comp, out, daily = _long_rows(480, 12, seed=3)  # strict tuner split: 260 tuning sessions >= 250
     panel_dir = tmp_path / "panel"
     panel_dir.mkdir()
     for name, frame in (("components", comp), ("outcomes", out), ("returns", daily)):
