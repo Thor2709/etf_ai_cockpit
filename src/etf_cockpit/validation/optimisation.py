@@ -277,15 +277,19 @@ class OptimisationLedger:
     def __init__(self, root: Path):
         self.root = Path(root).resolve()
 
-    def record(self, trial: TrialRecord) -> dict[str, object]:
+    def record(self, trial: TrialRecord, store: TransactionalStore | None = None) -> dict[str, object]:
+        """Write one trial in its own transaction; ``store`` is an already open store of this root (one open per run)."""
+
+        if store is None:
+            with TransactionalStore(self.root) as opened:
+                return self.record(trial, opened)
         payload = trial.to_dict()
-        with TransactionalStore(self.root) as store:
-            existing = store.get(_ENTITY_TRIAL, f"{trial.run_id}:{trial.trial_id}")
-            if existing is not None:
-                if existing.payload == payload:
-                    return existing.payload
-                raise OptimisationError(f"trial already exists with different evidence: {trial.trial_id}")
-            return store.put(_ENTITY_TRIAL, f"{trial.run_id}:{trial.trial_id}", payload).payload
+        existing = store.get(_ENTITY_TRIAL, f"{trial.run_id}:{trial.trial_id}")
+        if existing is not None:
+            if existing.payload == payload:
+                return existing.payload
+            raise OptimisationError(f"trial already exists with different evidence: {trial.trial_id}")
+        return store.put(_ENTITY_TRIAL, f"{trial.run_id}:{trial.trial_id}", payload).payload
 
     def list(self, run_id: str) -> tuple[dict[str, object], ...]:
         with TransactionalStore(self.root) as store:
@@ -369,55 +373,57 @@ def run_bounded_optimisation(
     rng = random.Random(int(definition.seed))
     best_seen: float | None = None
     stale = 0
-    for sequence in range(int(definition.max_trials)):
-        trial_id = "baseline" if sequence == 0 else f"trial-{sequence:04d}"
-        if refine_after is not None and sequence >= int(refine_after):
-            parameters = _refined_parameters(values, existing, int(definition.seed), sequence)
-        else:
-            parameters = _parameters_for_sequence(values, rng, sequence)
-        if trial_id in existing:
-            if cancel_check is not None and cancel_check():
+    with TransactionalStore(ledger.root) as store:  # one open per run; each trial is still its own transaction
+        for sequence in range(int(definition.max_trials)):
+            trial_id = "baseline" if sequence == 0 else f"trial-{sequence:04d}"
+            if refine_after is not None and sequence >= int(refine_after):
+                parameters = _refined_parameters(values, existing, int(definition.seed), sequence)
+            else:
+                parameters = _parameters_for_sequence(values, rng, sequence)
+            if trial_id in existing:
+                if cancel_check is not None and cancel_check():
+                    stop_reason = "cancel_requested"
+                    break
+            else:
+                if existing and clock() >= deadline:  # the baseline always runs, so a run is never empty
+                    stop_reason = "time_quota_exceeded"
+                    break
+                history = [item["intermediate"] for item in existing.values() if item.get("status") == "completed" and item.get("intermediate")]
+                existing[trial_id] = _evaluate_trial(
+                    ledger,
+                    run_id,
+                    trial_id,
+                    sequence,
+                    parameters,
+                    objective,
+                    context,
+                    definition,
+                    prune_below,
+                    cancel_check,
+                    pruning,
+                    history,
+                    clock,
+                    deadline,
+                    search_fingerprint,
+                    store,
+                )
+                peak_memory = max(peak_memory, float(existing[trial_id].get("peak_memory_mb", 0.0)))
+            trial = existing[trial_id]
+            if trial["status"] == "cancelled":
                 stop_reason = "cancel_requested"
                 break
-        else:
-            if existing and clock() >= deadline:  # the baseline always runs, so a run is never empty
+            if trial["status"] == "completed" and trial.get("score") is not None and (best_seen is None or float(trial["score"]) > best_seen):
+                best_seen, stale = float(trial["score"]), 0
+            else:
+                stale += 1
+            if patience is not None and stale >= int(patience):
+                stop_reason = "no_improvement"
+                break
+            if clock() >= deadline:
                 stop_reason = "time_quota_exceeded"
                 break
-            history = [item["intermediate"] for item in existing.values() if item.get("status") == "completed" and item.get("intermediate")]
-            existing[trial_id] = _evaluate_trial(
-                ledger,
-                run_id,
-                trial_id,
-                sequence,
-                parameters,
-                objective,
-                context,
-                definition,
-                prune_below,
-                cancel_check,
-                pruning,
-                history,
-                clock,
-                deadline,
-                search_fingerprint,
-            )
-            peak_memory = max(peak_memory, float(existing[trial_id].get("peak_memory_mb", 0.0)))
-        trial = existing[trial_id]
-        if trial["status"] == "cancelled":
-            stop_reason = "cancel_requested"
-            break
-        if trial["status"] == "completed" and trial.get("score") is not None and (best_seen is None or float(trial["score"]) > best_seen):
-            best_seen, stale = float(trial["score"]), 0
         else:
-            stale += 1
-        if patience is not None and stale >= int(patience):
-            stop_reason = "no_improvement"
-            break
-        if clock() >= deadline:
-            stop_reason = "time_quota_exceeded"
-            break
-    else:
-        stop_reason = "quota_reached"
+            stop_reason = "quota_reached"
 
     rows = tuple(existing.values())
     completed = [item for item in rows if item.get("status") == "completed" and item.get("score") is not None]
@@ -464,6 +470,7 @@ def _evaluate_trial(
     clock: Callable[[], float],
     deadline: float,
     search_fingerprint: str = "",
+    store: TransactionalStore | None = None,
 ) -> dict[str, object]:
     started = clock()
     intermediate: dict[str, float] = {}
@@ -522,7 +529,7 @@ def _evaluate_trial(
         intermediate=intermediate,
         search_fingerprint=search_fingerprint,
     )
-    return ledger.record(record)
+    return ledger.record(record, store)
 
 
 def _validate_parameter_space(parameter_space: Mapping[str, Sequence[object]]) -> dict[str, tuple[object, ...]]:
