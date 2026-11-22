@@ -1,9 +1,10 @@
 """Run bounded parameter tuning and write a proposal artefact plus report.
 
 Output is advisory only: the run reads current settings, writes a JSON proposal and a
-Markdown report under --output-dir, and never changes a settings file.  Only the
-synthetic mode is wired; walk-forward on real history stays unavailable until a
-point-in-time objective is supplied and the owner defines acceptance.
+Markdown report under --output-dir, and never changes a settings file.  The synthetic
+mode uses a planted objective.  Walk-forward mode tunes the ETF headline weights on a
+point-in-time component panel (``--panel`` directory with components/outcomes/returns parquet files,
+see ``validation.tuning_panel``) with the session rank-IC objective.
 """
 
 from __future__ import annotations
@@ -15,7 +16,10 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+import pandas as pd  # noqa: E402
+
 from etf_cockpit.core.atomic_io import atomic_write_bytes, atomic_write_json  # noqa: E402
+from etf_cockpit.signals.simple_scores import headline_weights  # noqa: E402
 from etf_cockpit.validation.optimisation import (  # noqa: E402
     TuningProposal,
     render_tuning_report,
@@ -23,6 +27,7 @@ from etf_cockpit.validation.optimisation import (  # noqa: E402
     synthetic_tuning_fixture,
 )
 from etf_cockpit.core.paths import CONFIG_DIR  # noqa: E402
+from etf_cockpit.validation.tuning_panel import PanelRankIc, load_tuning_panel  # noqa: E402
 from etf_cockpit.validation.tuning_registry import DEFAULT_REGISTRY_PATH, TuningRegistryError, load_tuning_registry  # noqa: E402
 
 _FORBIDDEN_NAMES = (".owner-root", "models", "configs")
@@ -77,6 +82,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--mode", choices=("synthetic", "walk-forward"), default="synthetic")
     parser.add_argument("--run-id", default="tuning-run")
     parser.add_argument("--samples", type=int, default=800, help="synthetic sample count")
+    parser.add_argument("--panel", type=Path, help="walk-forward: directory with components/outcomes/returns.parquet")
     args = parser.parse_args(argv)
     registry_path = args.registry.resolve()
     output_dir = args.output_dir.resolve()
@@ -90,10 +96,15 @@ def main(argv: list[str] | None = None) -> int:
         print(f"tuning_status=unavailable reason={exc}")
         return 2
     if args.mode == "walk-forward":
-        print("tuning_status=unavailable reason=real_history_objective_not_wired (acceptance is owner-defined)")
-        return 2
-    dates, evaluate = synthetic_tuning_fixture(registry, _planted(registry), n_samples=args.samples)
-    proposal = run_walk_forward_tuning(output_dir / "store", args.run_id, registry, evaluate, dates, data_provenance="synthetic")
+        if args.panel is None:
+            print("tuning_status=unavailable reason=walk_forward_needs_panel")
+            return 2
+        panel = load_tuning_panel(*(pd.read_parquet(args.panel / f"{name}.parquet") for name in ("components", "outcomes", "returns")))
+        evaluate = PanelRankIc(panel, headline_weights("ETF"), "score.etf.headline")
+        proposal = run_walk_forward_tuning(output_dir / "store", args.run_id, registry, evaluate, list(panel.sessions))
+    else:
+        dates, evaluate = synthetic_tuning_fixture(registry, _planted(registry), n_samples=args.samples)
+        proposal = run_walk_forward_tuning(output_dir / "store", args.run_id, registry, evaluate, dates, data_provenance="synthetic")
     json_path, markdown_path = _write(output_dir, proposal)
     print(f"tuning_status={proposal.decision} reasons={','.join(proposal.reasons)} applied=false json={json_path} report={markdown_path}")
     return 0 if proposal.decision != "unavailable" else 1
