@@ -14,4 +14,5 @@ def test_stripped_text_equals_the_old_string_form():
         index=range(100, 124), dtype=object,
     )
 
-    assert _stripped_text(values).equals(values.astype(str).str.strip())
+    for case in (values, pd.Series([None, np.nan], dtype=object), values.iloc[0:0]):
+        assert _stripped_text(case).equals(case.astype(str).str.strip())

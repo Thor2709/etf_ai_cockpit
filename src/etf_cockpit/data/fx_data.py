@@ -274,9 +274,14 @@ def prefer_ecb_rates(frame: pd.DataFrame) -> pd.DataFrame:
 def _stripped_text(values: pd.Series) -> pd.Series:
     """``values.astype(str).str.strip()``, computed once per distinct value (E1 P4)."""
 
-    codes, uniques = pd.factorize(values, use_na_sentinel=False)
-    text = np.asarray(pd.Index(uniques, dtype=object).astype(str).str.strip(), dtype=object)
-    return pd.Series(text[codes], index=values.index, dtype=object)
+    codes, uniques = pd.factorize(values)
+    distinct = np.asarray(pd.Index(uniques, dtype=object).astype(str).str.strip(), dtype=object)
+    text = np.empty(len(values), dtype=object)
+    present = codes >= 0
+    text[present] = distinct[codes[present]]
+    # None and NaN print differently, so missing values keep their own text.
+    text[~present] = values[~present].astype(str).str.strip().to_numpy()
+    return pd.Series(text, index=values.index, dtype=object)
 
 
 def _effective_availability(frame: pd.DataFrame, ingested: pd.Series) -> tuple[pd.Series, str | None]:
