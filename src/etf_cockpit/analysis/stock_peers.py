@@ -37,8 +37,15 @@ def size_band(market_cap_eur_bn: float | None, edges: Sequence[float]) -> int | 
     return sum(1 for edge in edges if market_cap_eur_bn >= edge)
 
 
+def _key(text: str) -> str | None:
+    """The trait match rule as a lookup key: an empty trait never matches."""
+
+    return text.strip().casefold() if text else None
+
+
 def _same(left: str, right: str) -> bool:
-    return bool(left) and bool(right) and left.strip().casefold() == right.strip().casefold()
+    key = _key(left)
+    return key is not None and key == _key(right)
 
 
 def auto_peers(target: PeerProfile, candidates: Sequence[PeerProfile], config: Mapping[str, object]) -> list[PeerPick]:
@@ -101,10 +108,42 @@ def cohort_members(target: PeerProfile, candidates: Sequence[PeerProfile]) -> di
     whatever its sector. Empty traits never match (an unclassified stock has no industry/sector cohort).
     """
 
-    others = [item for item in candidates if item.instrument_id != target.instrument_id]
+    index = PeerIndex(candidates)
     return {
-        "industry": tuple(item.instrument_id for item in others if _same(getattr(target, "industry", ""), getattr(item, "industry", ""))),
-        "sector": tuple(item.instrument_id for item in others if _same(getattr(target, "sector", ""), getattr(item, "sector", ""))),
-        "region": tuple(item.instrument_id for item in others if _same(getattr(target, "region", ""), getattr(item, "region", ""))),
-        "universe": tuple(item.instrument_id for item in others),
+        level: tuple(item.instrument_id for item in index.members(level, target) if item.instrument_id != target.instrument_id)
+        for level in COHORT_LEVELS
     }
+
+
+class PeerIndex:
+    """Candidates bucketed once by industry, sector and region (the ``_same`` rule): peers and cohorts are looked up,
+    not scanned from every candidate for every stock."""
+
+    def __init__(self, candidates: Sequence[PeerProfile]) -> None:
+        self.candidates = tuple(candidates)
+        self._positions: dict[tuple[str, str] | None, list[int]] = {}  # never a None key: an empty trait has no bucket
+        for position, candidate in enumerate(self.candidates):
+            for level in COHORT_LEVELS:
+                bucket = self.bucket(level, candidate)
+                if bucket is not None:
+                    self._positions.setdefault(bucket, []).append(position)
+
+    @staticmethod
+    def bucket(level: str, profile: PeerProfile) -> tuple[str, str] | None:
+        """The bucket of ``profile`` at a cohort level; None for an empty trait. Every profile is in the universe bucket."""
+
+        if level == "universe":
+            return level, ""
+        key = _key(getattr(profile, level, ""))
+        return None if key is None else (level, key)
+
+    def members(self, level: str, target: PeerProfile) -> list[PeerProfile]:
+        """Candidates in the bucket of ``target`` at ``level``, in candidate order; the target itself is not removed."""
+
+        return [self.candidates[position] for position in self._positions.get(self.bucket(level, target), ())]
+
+    def classified(self, target: PeerProfile) -> list[PeerProfile]:
+        """Candidates that share the industry or the sector, in candidate order: no other one can be an automatic peer."""
+
+        positions = {*self._positions.get(self.bucket("industry", target), ()), *self._positions.get(self.bucket("sector", target), ())}
+        return [self.candidates[position] for position in sorted(positions)]

@@ -544,19 +544,35 @@ def periods_for(instrument_id: str, frame: pd.DataFrame, chain: Sequence[str], *
     return periods + reported
 
 
+def group_rows(frame: pd.DataFrame, column: str = "instrument_id") -> Callable[[str], pd.DataFrame]:
+    """The rows of one id, as ``frame[frame[column].astype(str) == id]`` gives them (same rows, same order), grouped once."""
+
+    positions = frame.groupby(frame[column].astype(str).to_numpy(), sort=False).indices
+    empty = frame.iloc[0:0]
+
+    def rows(instrument_id: str) -> pd.DataFrame:
+        found = positions.get(str(instrument_id))
+        return empty if found is None else frame.iloc[found]
+
+    return rows
+
+
 def latest_snapshot(instrument_id: str, snapshots: pd.DataFrame, decision_time: datetime, *, ok_only: bool = True) -> dict[str, Any] | None:
     mine = snapshots[snapshots["instrument_id"].astype(str) == str(instrument_id)]
     if ok_only:
         mine = mine[mine["status"].astype(str) == "ok"]
-    best: dict[str, Any] | None = None
+    best: int | None = None
     best_time: datetime | None = None
-    for _, row in mine.iterrows():
-        known = as_utc(row.get("known_at"))
+    for position, value in enumerate(mine["known_at"]):
+        known = as_utc(value)
         if known is None or known > decision_time:
             continue
         if best_time is None or known >= best_time:
-            best, best_time = {k: (None if pd.isna(v) else v) for k, v in row.items()}, known
-    return best
+            best, best_time = position, known
+    if best is None:
+        return None
+    row = next(mine.iloc[[best]].iterrows())[1]  # the values exactly as a row of iterrows gives them
+    return {k: (None if pd.isna(v) else v) for k, v in row.items()}
 
 
 def latest_analyst(instrument_id: str, periods: pd.DataFrame, decision_time: datetime) -> dict[str, Any] | None:
@@ -868,9 +884,11 @@ def produce_constituent_metrics(
     prices = with_as_traded_factors(pd.read_parquet(price_path)) if price_path.is_file() else pd.DataFrame()
     wanted = sorted({str(item) for item in instrument_ids})
     by_instrument = prices.groupby(prices["etf_id"].astype(str).to_numpy(), sort=False).indices if "etf_id" in prices else {}
+    frame_rows, snapshot_rows = group_rows(frame), group_rows(snapshots)
     rows: list[dict[str, Any]] = []
     for instrument in sorted(set(wanted) & set(frame["instrument_id"].astype(str))):
-        periods = periods_for(instrument, frame, chain)
+        periods = periods_for(instrument, frame_rows(instrument), chain)
+        own_snapshots = snapshot_rows(instrument)
         found = by_instrument.get(instrument)
         history = prices.iloc[0:0] if found is None else _price_frame(prices.iloc[found], instrument)
         # a price bar is usable once its availability stamp is reached; no stamp means unusable
@@ -880,7 +898,7 @@ def produce_constituent_metrics(
             if not visible:
                 continue
             bars = history[available <= known] if available is not None else history.iloc[0:0]
-            market = market_inputs(bars, latest_snapshot(instrument, snapshots, known), visible[-1].currency, known, fx, cfg)
+            market = market_inputs(bars, latest_snapshot(instrument, own_snapshots, known), visible[-1].currency, known, fx, cfg)
             evidence = build_stock_evidence(instrument, periods, known, market, None, cfg)
             as_of_date = visible[-1].period_end.isoformat()
             row: dict[str, Any] = {

@@ -5,11 +5,15 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timezone
 import hashlib
+import itertools
 import json
+import math
 import random
 import statistics
 from statistics import NormalDist
 from typing import Mapping, Sequence
+
+import numpy as np
 
 from etf_cockpit.core.values import is_finite_number as _finite
 from etf_cockpit.data.classification import (
@@ -718,20 +722,27 @@ def bootstrap_percentile_interval(
         raise PeerCohortError("bootstrap samples must be positive")
     if not 0.0 <= lower_quantile <= upper_quantile <= 1.0:
         raise PeerCohortError("bootstrap quantiles must satisfy 0 <= lower <= upper <= 1")
-    rng = random.Random(seed)
-    population = list(range(len(pairs)))
+    # Each draw is ``random.Random(seed).choices(range(count), weights=probabilities, k=count)``, all draws at once:
+    # numpy replays Python's MT19937 stream from the copied state, with the same bisect rule and the same arithmetic.
+    count = len(pairs)
     probabilities = [weight for _, weight in pairs]
-    draws: list[float] = []
+    cumulative = list(itertools.accumulate(probabilities))
+    total = cumulative[-1] + 0.0
+    if not math.isfinite(total):
+        raise ValueError("Total of weights must be finite")  # as random.choices
+    state = random.Random(seed).getstate()[1]
+    stream = np.random.MT19937(0)
+    stream.state = {"bit_generator": "MT19937", "state": {"key": np.array(state[:624], dtype=np.uint32), "pos": state[624]}}
+    uniforms = np.random.Generator(stream).random(samples * count).reshape(samples, count)
+    indices = np.minimum(np.searchsorted(np.array(cumulative), uniforms * total, side="right"), count - 1)
+    sample_values = np.array([value for value, _ in pairs])[indices]
+    below = (sample_values < target).sum(axis=1).tolist()
+    tied = (sample_values == target).sum(axis=1).tolist()
     n = effective_sample_size(probabilities)  # same shrinkage mass as the point estimate
-    for _ in range(samples):
-        indices = rng.choices(population, weights=probabilities, k=len(pairs))
-        sample_values = [pairs[index][0] for index in indices]
-        rank = weighted_empirical_cdf(sample_values, [1.0] * len(indices), target)
-        draws.append(
-            (n * rank + shrinkage_strength * parent_percentile)
-            / (n + shrinkage_strength)
-        )
-    draws.sort()
+    draws = sorted(
+        (n * ((low + 0.5 * tie) / count) + shrinkage_strength * parent_percentile) / (n + shrinkage_strength)
+        for low, tie in zip(below, tied)
+    )  # the unit-weight mid-rank of each sample, then the shrinkage, in Python floats as before
     return draws[int(lower_quantile * (samples - 1))], draws[int(upper_quantile * (samples - 1))]
 
 
