@@ -61,7 +61,7 @@ from etf_cockpit.data.news_context import NEWS_CLEAN_PATH, load_news_items
 from etf_cockpit.data.universe_store import support_decision
 from etf_cockpit.data.yfinance_provider import yfinance_symbol_map_from_config
 from etf_cockpit.data.universe_store import load_universe
-from etf_cockpit.features.crowding import ClusterReport, build_correlation_clusters
+from etf_cockpit.features.crowding import ClusterReport, CorrelationMatrix, build_correlation_clusters
 from etf_cockpit.features.cash_comparison import (
     adjusted_endpoint_available_at,
     validate_cash_comparison_result,
@@ -933,10 +933,11 @@ def build_simple_instrument_scores(
         benchmark_registry=benchmark_registry,
         peer_member_ids=peer_member_ids,
     )
+    enabled = set(config.universe.enabled_ids)
     metadata: dict[str, object] = {
         etf.id: {"sector": etf.sector, "theme": etf.theme}
         for etf in config.universe.etfs
-        if etf.id in config.universe.enabled_ids
+        if etf.id in enabled
     }
     benchmark_attribution = build_benchmark_attribution_lookup(
         prices,
@@ -1006,11 +1007,12 @@ def rank_and_finalize_scores(
     metadata: Mapping[str, object],
     *,
     news_inventory: Mapping[str, int] | None = None,
+    correlations: CorrelationMatrix | ClusterReport | None = None,
 ) -> list[SimpleInstrumentScore]:
     """Order, rank and attach crowding, identity, classification, evidence, authority and canonical score (one path).
 
     ``news_inventory`` None reads the stored news counts (live); a historical caller passes ``{}`` because the stored
-    news inventory carries no point-in-time view.
+    news inventory carries no point-in-time view. ``correlations`` is the session's ``correlation_matrix(prices)``.
     """
 
     identity_conflicts = _identity_conflict_reasons(score.display_id for score in scores)
@@ -1042,6 +1044,7 @@ def rank_and_finalize_scores(
         metadata,
         ranked_instruments=ranked_instruments,
         weights={instrument_id: 1.0 for instrument_id in ranked_instruments},
+        matrix=correlations,
     )
     ranked_crowding_lookup = {row.instrument_id: row for row in ranked_crowding.rows}
     news_lookup = _news_inventory_lookup() if news_inventory is None else news_inventory
@@ -5416,7 +5419,18 @@ def _analysis_decision_time(value: object, decision_date: date | None) -> dateti
     return parsed.to_pydatetime()
 
 
+_ISO_DATE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
+
+
 def _parse_date(value: object) -> date | None:
+    # Fast path, same result as pandas: an ISO date string or a plain date inside the pandas Timestamp years.
+    if type(value) is str and _ISO_DATE.fullmatch(value) and 1678 <= int(value[:4]) <= 2261:
+        try:
+            return date.fromisoformat(value)
+        except ValueError:  # pandas coerces an impossible date to NaT
+            return None
+    if type(value) is date and 1678 <= value.year <= 2261:
+        return value
     try:
         parsed = pd.to_datetime(value, errors="coerce")
     except (TypeError, ValueError, OverflowError):

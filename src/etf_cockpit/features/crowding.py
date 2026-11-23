@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from collections.abc import Sequence
 from typing import Any, Mapping
 
+import numpy as np
 import pandas as pd
 
 from etf_cockpit.core.values import finite_float_or_none as _safe_float
@@ -52,39 +53,37 @@ class ClusterReport:
     top_ranked_theme_warning: str = "no_theme_concentration_warning"
 
 
-def build_correlation_clusters(
+@dataclass(frozen=True, eq=False)
+class CorrelationMatrix:
+    """Returns and pairwise correlations of one price window; each cluster build on those prices can reuse it."""
+
+    as_of: str | None
+    returns: pd.DataFrame
+    instrument_ids: tuple[str, ...]
+    correlations: np.ndarray
+    pair_counts: np.ndarray
+    min_pair_samples: int
+
+
+def correlation_matrix(
     prices: pd.DataFrame,
-    metadata: Mapping[str, Any] | None = None,
     *,
     window: int = 120,
-    ranked_instruments: Sequence[str] | Mapping[str, float] | None = None,
-    weights: Mapping[str, float] | None = None,
     as_of: object | None = None,
     historical: bool = False,
-) -> ClusterReport:
-    """Build deterministic connected correlation clusters from adjusted prices.
-
-    ``as_of`` caps the price history (nothing after it is read). In ``historical`` mode an
-    explicit ``as_of`` is required: without it the report is unavailable, because an
-    unanchored window would silently use whatever data happens to be loaded (look-ahead).
-    Ranked weights are only used where evidenced; a missing weight is never replaced by an
-    equal weight.
-
-    The function accepts both the canonical long price panel and a wide test or
-    research frame. Missing values are never fabricated; pairwise correlations
-    are only used when each pair has enough clean return observations.
-    """
+) -> CorrelationMatrix | ClusterReport:
+    """The correlation inputs of :func:`build_correlation_clusters`, or its unavailable report."""
 
     if window < 2:
         return _unavailable(window, "Correlation window must contain at least two price observations.")
     if historical and (as_of is None or str(as_of).strip() == ""):
         return _unavailable(window, "Historical crowding requires an explicit as_of date; none was supplied.")
-    frame = _price_frame(prices)
+    cutoff = None if as_of is None else _as_of_timestamp(as_of)
+    frame = _price_frame(prices, window=window, cutoff=cutoff)
     if frame.empty:
         return _unavailable(window, "No clean adjusted-price observations are available.")
     frame = frame.sort_index()
     if as_of is not None:
-        cutoff = _as_of_timestamp(as_of)
         if cutoff is None:
             return _unavailable(window, "The crowding as_of is not a valid date.")
         frame = frame.loc[frame.index <= cutoff]
@@ -98,14 +97,51 @@ def build_correlation_clusters(
     corr = returns.corr(min_periods=min_pair_samples)
     if corr.empty or len(returns) < min_pair_samples or corr.dropna(how="all").shape[1] < 2:
         return _unavailable(window, f"Fewer than {min_pair_samples} clean return observations are available.", as_of=_as_of(frame.index))
+    return CorrelationMatrix(
+        as_of=_as_of(frame.index),
+        returns=returns,
+        instrument_ids=tuple(str(value) for value in corr.columns),
+        correlations=corr.to_numpy(dtype=float),
+        pair_counts=_pair_observation_counts(returns).to_numpy(),
+        min_pair_samples=min_pair_samples,
+    )
 
-    instrument_ids = [str(value) for value in corr.columns]
+
+def build_correlation_clusters(
+    prices: pd.DataFrame,
+    metadata: Mapping[str, Any] | None = None,
+    *,
+    window: int = 120,
+    ranked_instruments: Sequence[str] | Mapping[str, float] | None = None,
+    weights: Mapping[str, float] | None = None,
+    as_of: object | None = None,
+    historical: bool = False,
+    matrix: CorrelationMatrix | ClusterReport | None = None,
+) -> ClusterReport:
+    """Build deterministic connected correlation clusters from adjusted prices.
+
+    ``as_of`` caps the price history (nothing after it is read). In ``historical`` mode an
+    explicit ``as_of`` is required: without it the report is unavailable, because an
+    unanchored window would silently use whatever data happens to be loaded (look-ahead).
+    Ranked weights are only used where evidenced; a missing weight is never replaced by an
+    equal weight.
+
+    The function accepts both the canonical long price panel and a wide test or
+    research frame. Missing values are never fabricated; pairwise correlations
+    are only used when each pair has enough clean return observations.
+
+    ``matrix`` is :func:`correlation_matrix` of the same prices, window and as_of; it skips the rebuild.
+    """
+
+    built = correlation_matrix(prices, window=window, as_of=as_of, historical=historical) if matrix is None else matrix
+    if isinstance(built, ClusterReport):
+        return built
+    returns, min_pair_samples, as_of_text = built.returns, built.min_pair_samples, built.as_of
+    correlations, pair_counts = built.correlations, built.pair_counts
+    instrument_ids = list(built.instrument_ids)
     parent = {instrument_id: instrument_id for instrument_id in instrument_ids}
-    for left_index, left in enumerate(instrument_ids):
-        for right in instrument_ids[left_index + 1 :]:
-            value = _safe_float(corr.loc[left, right])
-            if value is not None and value >= 0.80:
-                _union(parent, left, right)
+    for left, right in zip(*np.nonzero(np.triu(correlations >= 0.80, 1))):  # the pairs of the row-major pair loop
+        _union(parent, instrument_ids[left], instrument_ids[right])
 
     groups: dict[str, list[str]] = {}
     for instrument_id in instrument_ids:
@@ -123,8 +159,8 @@ def build_correlation_clusters(
         )
     top_ranked_theme_concentration, top_ranked_theme_warning = _ranked_theme_concentration(labels, normalised_weights)
     risk_by_cluster = _cluster_risk_contributions(returns, groups, normalised_weights, min_pair_samples)
-    pair_counts = _pair_observation_counts(returns)
     risk_covariance_unavailable = bool(normalised_weights) and risk_by_cluster is None
+    position = {instrument_id: index for index, instrument_id in enumerate(instrument_ids)}
     rows: list[ClusterRow] = []
     for members in sorted(groups.values(), key=lambda values: values[0]):
         members = tuple(sorted(members))
@@ -147,19 +183,13 @@ def build_correlation_clusters(
         if dominant_theme:
             cluster_label += f" ({dominant_theme})"
         for instrument_id in members:
-            peers = corr[instrument_id].drop(labels=[instrument_id], errors="ignore").dropna()
-            valid_peer_values = []
-            pair_sample_counts: list[int] = []
-            for peer in peers.index:
-                pair_count = (
-                    int(pair_counts.loc[instrument_id, peer])
-                    if pair_counts is not None
-                    else int(returns[[instrument_id, peer]].dropna().shape[0])
-                )
-                if pair_count >= min_pair_samples:
-                    valid_peer_values.append(float(peers.loc[peer]))
-                    pair_sample_counts.append(pair_count)
-            clean_sample_size = int(returns[instrument_id].notna().sum())
+            index = position[instrument_id]
+            # Peers in matrix order: a correlation exists and the pair has enough joint observations.
+            valid = ~np.isnan(correlations[:, index]) & (pair_counts[index] >= min_pair_samples)
+            valid[index] = False
+            valid_peer_values = correlations[valid, index].tolist()
+            pair_sample_counts = pair_counts[index][valid].tolist()
+            clean_sample_size = int(pair_counts[index, index])
             average_peer = _safe_float(sum(valid_peer_values) / len(valid_peer_values)) if valid_peer_values else None
             row_warning = cluster_warning
             if average_peer is None and (clean_sample_size < min_pair_samples or not valid_peer_values):
@@ -181,7 +211,7 @@ def build_correlation_clusters(
                     sector=item.get("sector"),
                     theme_warning=theme_warning,
                     members=members,
-                    as_of=_as_of(frame.index),
+                    as_of=as_of_text,
                     pair_sample_size=pair_sample_size,
                     ranking_weight=normalised_weights.get(instrument_id) if normalised_weights else None,
                     cluster_weight=cluster_weight,
@@ -194,7 +224,7 @@ def build_correlation_clusters(
             )
     return ClusterReport(
         rows=tuple(rows),
-        as_of=_as_of(frame.index),
+        as_of=as_of_text,
         window=window,
         status="partial" if risk_covariance_unavailable else "available",
         sample_size=int(len(returns)),
@@ -215,7 +245,7 @@ def _pair_observation_counts(returns: pd.DataFrame) -> pd.DataFrame | None:
     """Return rows with both returns observed for every column pair in one matrix product.
 
     Equals ``returns[[a, b]].dropna().shape[0]`` per pair without the O(n^2) frame
-    slices; ``None`` (caller falls back to the slice) when column labels repeat.
+    slices; ``None`` when column labels repeat (a cluster price frame cannot repeat them).
     """
 
     if not returns.columns.is_unique:
@@ -358,17 +388,25 @@ def _cluster_risk_contributions(
     return {cluster_id: round(value / total, 6) for cluster_id, value in raw_contributions.items()}
 
 
-def _price_frame(prices: pd.DataFrame) -> pd.DataFrame:
+def _price_frame(prices: pd.DataFrame, *, window: int, cutoff: pd.Timestamp | None) -> pd.DataFrame:
     if not isinstance(prices, pd.DataFrame) or prices.empty:
         return pd.DataFrame()
     if {"etf_id", "date", "adjusted_close"}.issubset(prices.columns):
-        clean = prices.copy()
+        clean = prices[["etf_id", "date", "adjusted_close"]].copy()
         clean["date"] = pd.to_datetime(clean["date"], errors="coerce")
         clean["adjusted_close"] = pd.to_numeric(clean["adjusted_close"], errors="coerce")
         clean = clean.dropna(subset=["date", "adjusted_close", "etf_id"])
         if clean.empty:
             return pd.DataFrame()
-        return clean.pivot_table(index="date", columns="etf_id", values="adjusted_close", aggfunc="last").sort_index()
+        # Pivot only the last ``window`` clean dates up to the cutoff (the caller reads no other row); every
+        # instrument with a clean row stays a column, as in a pivot of the full history.
+        instrument_ids = pd.Index(sorted(pd.unique(clean["etf_id"])), name="etf_id")
+        dates = clean["date"] if cutoff is None else clean["date"].loc[clean["date"] <= cutoff]
+        distinct = np.unique(dates.to_numpy())
+        if len(distinct) > window:
+            clean = clean.loc[clean["date"] >= distinct[-window]]
+        pivot = clean.pivot_table(index="date", columns="etf_id", values="adjusted_close", aggfunc="last")
+        return pivot.sort_index().reindex(columns=instrument_ids)
     clean = prices.copy()
     clean.index = pd.to_datetime(clean.index, errors="coerce")
     clean = clean.loc[clean.index.notna()]

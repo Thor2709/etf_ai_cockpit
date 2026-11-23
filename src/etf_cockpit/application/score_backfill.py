@@ -55,7 +55,7 @@ from etf_cockpit.data.score_history_backfill import (
 )
 from etf_cockpit.data.trust_artifacts import build_score_history_frame
 from etf_cockpit.data.validation import validate_prices
-from etf_cockpit.features.crowding import build_correlation_clusters
+from etf_cockpit.features.crowding import build_correlation_clusters, correlation_matrix
 from etf_cockpit.features.feature_pipeline import eur_basis_prices, latest_features
 from etf_cockpit.features.regime import build_benchmark_attribution_lookup, build_market_regime, build_portfolio_fit_lookup
 from etf_cockpit.core.types import DataQualityReport, ForecastResult
@@ -404,7 +404,7 @@ _WORKER_STATE: dict[str, Any] = {}
 def _worker_init(config: AppConfig, prices: pd.DataFrame, fx_rates: pd.DataFrame | None, registry_signature: str, excluded: Mapping[str, str] | None, membership: ListingHistory, reference_order_value_eur: float | None = None) -> None:
     import os
 
-    os.environ["CUDA_VISIBLE_DEVICES"] = ""
+    os.environ["CUDA_VISIBLE_DEVICES"] = "-1"  # an empty value deletes the variable on Windows: the GPU stays visible
     _WORKER_STATE.update(config=config, prices=prices, fx=fx_rates, registry=registry_signature, excluded=excluded, membership=membership, reference=reference_order_value_eur)
 
 
@@ -562,9 +562,13 @@ def score_as_of(
             publish=False,
         )
     )
+    enabled = set(config.universe.enabled_ids)
     metadata: dict[str, object] = {
-        item.id: {"sector": item.sector, "theme": item.theme} for item in config.universe.etfs if item.id in config.universe.enabled_ids
+        item.id: {"sector": item.sector, "theme": item.theme} for item in config.universe.etfs if item.id in enabled
     }
+    # One correlation matrix for both cluster builds: ``known`` holds no row after ``as_of``, so the ranked build's
+    # uncapped window is the same window.
+    correlations = correlation_matrix(known, as_of=as_of)
     benchmark_args = dict(
         benchmark_id=context.benchmark_data_id,
         benchmark_reference=context.projection,
@@ -594,7 +598,7 @@ def score_as_of(
         portfolio_fit=build_portfolio_fit_lookup(known, **benchmark_args),
         benchmark_attribution=build_benchmark_attribution_lookup(known, metadata=metadata, **benchmark_args),
         cash_comparison_lookup={},
-        crowding=build_correlation_clusters(known, metadata, as_of=as_of),
+        crowding=build_correlation_clusters(known, metadata, as_of=as_of, matrix=correlations),
         backtest_trust={},
     )
     no_lineage = {score.display_id for score in scores if score.canonical_score is None}
@@ -602,7 +606,9 @@ def score_as_of(
     eligibility = _eligibility_log(log_config, as_of, log_known, report, features, scores, excluded, fx_rates, no_lineage)
     eligibility = _membership_log(eligibility, snapshot)
     eligible_ids = set(eligibility.loc[eligibility["eligible"], "instrument_id"])
-    ranked = rank_and_finalize_scores([score for score in scores if score.display_id in eligible_ids], known, metadata, news_inventory={})
+    ranked = rank_and_finalize_scores(
+        [score for score in scores if score.display_id in eligible_ids], known, metadata, news_inventory={}, correlations=correlations,
+    )
     if not ranked:
         return None, eligibility
     run = _history_run(
@@ -722,7 +728,8 @@ def _liquidity_gate(config: AppConfig, known: pd.DataFrame, fx_rates: pd.DataFra
     A window that cannot be converted to EUR fails the gate (never assumed liquid).
     """
 
-    gated = {item.id for item in config.universe.etfs if item.instrument_type in LIQUIDITY_GATED_TYPES and item.id in config.universe.enabled_ids}
+    enabled = set(config.universe.enabled_ids)
+    gated = {item.id for item in config.universe.etfs if item.instrument_type in LIQUIDITY_GATED_TYPES and item.id in enabled}
     window = known.loc[known["etf_id"].astype(str).isin(gated)]
     if window.empty:
         return {}

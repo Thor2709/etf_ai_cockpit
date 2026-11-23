@@ -60,7 +60,7 @@ def _native_currency(config: AppConfig, frame: pd.DataFrame, instrument_id: str)
     """Return the instrument's native quote currency, or None if unknown or conflicting."""
 
     currencies: set[str] = set()
-    configured = config.universe.by_id().get(instrument_id)
+    configured = config.universe.find(instrument_id)
     if configured is not None and _text(configured.currency):
         currencies.add(str(configured.currency).strip().upper())
     if "currency" in frame.columns:
