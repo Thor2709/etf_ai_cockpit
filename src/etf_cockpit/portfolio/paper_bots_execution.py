@@ -27,6 +27,7 @@ import yaml
 from etf_cockpit.core.config import load_config
 from etf_cockpit.core.paths import CONFIG_DIR, ROOT
 from etf_cockpit.data.fx_data import build_fx_rate_snapshot, fx_cross_rate, load_fx_rates
+from etf_cockpit.data.import_pipeline import reconstructed_price_availability
 from etf_cockpit.data.local_storage import (
     StorageRevisionConflict,
     StorageSchemaError,
@@ -130,6 +131,7 @@ class ExecutionRunResult:
     warnings: tuple[str, ...] = ()
     label: str | None = None
     survivorship_unverified: bool = False
+    pit_basis: str | None = None  # "reconstructed" when the replay book read bars under the reconstructed PIT rule
 
 
 class _SplitNotKnown(PaperLedgerError):
@@ -167,6 +169,8 @@ class PriceBook:
         self._dates: dict[str, list[date]] = {}
         self._frame = pd.DataFrame()
         self._per_bar_knowledge = isinstance(frame, pd.DataFrame) and "known_at" in frame.columns
+        basis = frame["pit_basis"].dropna().unique() if isinstance(frame, pd.DataFrame) and "pit_basis" in frame.columns else ()
+        self.pit_basis: str | None = str(basis[0]) if len(basis) == 1 else None
         if not isinstance(frame, pd.DataFrame) or frame.empty:
             self.error = self.error or "Price history is empty."
             return
@@ -194,7 +198,11 @@ class PriceBook:
             self._dates[str(instrument)] = sorted(rows)
 
     @classmethod
-    def from_root(cls, root: Path, *, benchmark_id: str = "VWCE", with_observations: bool = False) -> "PriceBook":
+    def from_root(
+        cls, root: Path, *, benchmark_id: str = "VWCE", with_observations: bool = False, reconstructed: bool = False,
+    ) -> "PriceBook":
+        """``reconstructed`` (replay readers only): bars are read under the reconstructed PIT rule (OD-1 = b)."""
+
         path = Path(root) / PRICE_FILE_RELATIVE
         opens = Path(root) / SESSION_OPENS_RELATIVE
         try:
@@ -204,6 +212,8 @@ class PriceBook:
             return cls(None, known_at=None, benchmark_id=benchmark_id, error=f"Price history unavailable: {type(exc).__name__}.")
         if "known_at" not in frame.columns:
             return cls(None, known_at=None, benchmark_id=benchmark_id, error="Per-bar price known_at is unavailable.")
+        if reconstructed:
+            frame = reconstructed_price_availability(frame)
         return cls(frame, known_at=None, benchmark_id=benchmark_id, observations=observations)
 
     @property

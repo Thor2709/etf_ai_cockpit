@@ -60,7 +60,8 @@ stored stamps alone shrink the strict past (97 of 142 tradable ETFs on
   never rewritten; live readers keep them.
 
 Replay readers: ETF admission (`ListingHistory.with_observed_trading`), rank
-validation and the backtest. Other sources under the same decision: Yahoo FX
+validation, the backtest and the paper-bot replay book
+(`PriceBook.from_root(reconstructed=True)`; the run result carries `pit_basis`). Other sources under the same decision: Yahoo FX
 counts at its close (`stamp_fx_availability`); ECB reference rates at their
 publish time (no ECB rate feeds the FX store yet, and `ecb_provider` still marks
 its rows `inferred`); S&P 500 membership changes at their effective date; SEC
