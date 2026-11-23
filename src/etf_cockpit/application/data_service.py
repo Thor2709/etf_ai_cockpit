@@ -829,11 +829,24 @@ class DataService:
                 str(issue.etf_id) for issue in report.issues
                 if issue.severity == "block" and issue.code == "stale_data" and str(issue.etf_id) in no_new_bar_ids
             })
+            # A new instrument (no stored rows) with only stale bars is left out: stale bars never enter the store.
+            stored_ids = set(stored_now["etf_id"].astype(str)) if "etf_id" in stored_now.columns else set()
+            new_stale = sorted({
+                str(issue.etf_id) for issue in report.issues
+                if issue.severity == "block" and issue.code == "stale_data" and str(issue.etf_id) not in stored_ids
+            })
             block_issues = [
                 f"{issue.etf_id}: {issue.message}" for issue in report.issues
                 if issue.severity == "block" and issue.code not in commit_tolerated
                 and not (issue.code == "stale_data" and str(issue.etf_id) in stale_kept)
+                and str(issue.etf_id) not in new_stale
             ]
+            if new_stale:
+                data = result.data.loc[~result.data["etf_id"].astype(str).isin(new_stale)].reset_index(drop=True)
+                metadata = dataclasses.replace(result.metadata, checksum=sha256_dataframe(data)) if result.metadata else None
+                result = dataclasses.replace(result, data=data, metadata=metadata)
+                partial_missing = tuple(sorted(set(partial_missing) | set(new_stale)))
+                messages.append("New instrument with only stale bars, not committed: " + ", ".join(new_stale) + ".")
             if stale_kept:
                 # A tolerated instrument commits exactly its stored rows: no gap fill, revision or deletion.
                 tolerated = result.data["etf_id"].astype(str).isin(stale_kept)
