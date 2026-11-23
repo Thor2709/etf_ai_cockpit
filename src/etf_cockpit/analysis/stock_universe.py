@@ -19,6 +19,7 @@ import numpy as np
 import pandas as pd
 
 from etf_cockpit.analysis import stock_metrics as sm
+from etf_cockpit.analysis.stock_labels import country_label, sector_label
 from etf_cockpit.analysis.stock_evidence import AnalystInputs, MarketInputs, StockEvidence, build_stock_evidence, metric_freshness_reason
 from etf_cockpit.analysis.stock_peers import COHORT_LEVELS, PeerIndex, PeerPick, PeerProfile, auto_peers, effective_peers
 from etf_cockpit.core.frame_signature import columns_key
@@ -362,9 +363,9 @@ def _profile(record: StockRecord, snapshot: Mapping[str, Any] | None, fx: pd.Dat
     return PeerProfile(
         record.instrument_id,
         record.name,
-        str((snapshot or {}).get("sector") or record.sector or ""),
+        sector_label((snapshot or {}).get("sector")) or sector_label(record.sector),  # one label per spelling
         str((snapshot or {}).get("industry") or ""),
-        record.region,
+        country_label(record.region) or country_label((snapshot or {}).get("country")),
         cap_eur,
     )
 

@@ -1,5 +1,6 @@
 """Wave 2 train F: stock value inputs (2026-11-23)."""
 
+from dataclasses import replace
 from datetime import date, datetime, timezone
 
 import pandas as pd
@@ -102,3 +103,17 @@ def test_full_history_action_fetch_heals_unchanged_legacy_bars():
     pd.testing.assert_frame_equal(healed.drop(columns="actions_evidenced"), stored.drop(columns="actions_evidenced"))
     value, reason = as_traded_close(healed, date(2022, 10, 17))
     assert value == pytest.approx(118.88) and reason is None
+
+
+def test_cohort_profile_uses_one_sector_and_country_label():
+    from etf_cockpit.analysis.stock_universe import StockRecord, _profile
+
+    decision = datetime(2026, 11, 22, tzinfo=timezone.utc)
+    config = load_stock_config()
+    record = StockRecord("X", "X", "X", "USD", "KR", "Information Technology")
+    profile = _profile(record, {"sector": "Technology", "country": "South Korea"}, pd.DataFrame(), config, decision)
+    assert (profile.sector, profile.region) == ("Information Technology", "South Korea")
+    # A blank config region is filled from the snapshot country; a blank snapshot sector falls back to the config.
+    blank = replace(record, region="", sector="Consumer Cyclical")
+    profile = _profile(blank, {"sector": "", "country": "Korea, Republic of"}, pd.DataFrame(), config, decision)
+    assert (profile.sector, profile.region) == ("Consumer Discretionary", "South Korea")
