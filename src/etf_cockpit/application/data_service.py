@@ -184,6 +184,37 @@ def _history_start(end_date: date, years: int | None) -> date:
     return start if pd.isna(oldest) else min(start, oldest.date())
 
 
+def _short_refetch_ids(stored: pd.DataFrame, fetched: pd.DataFrame) -> set[str]:
+    """Ids whose fetched series starts after their oldest stored session: such a refetch would erase history (D1)."""
+
+    if not {"etf_id", "date"}.issubset(stored.columns) or not {"etf_id", "date"}.issubset(fetched.columns):
+        return set()
+    oldest = [
+        _normalised_price_dates(frame).groupby(frame["etf_id"].astype(str)).min().dropna() for frame in (stored, fetched)
+    ]
+    common = oldest[0].index.intersection(oldest[1].index)
+    return {str(instrument_id) for instrument_id in common if oldest[1][instrument_id] > oldest[0][instrument_id]}
+
+
+def _keep_stored_coverage(result: ProviderResult) -> tuple[ProviderResult, list[str]]:
+    """A non-incremental refresh keeps the stored series of each id whose fetch is shorter (same rule as the full refetch)."""
+
+    path = CLEAN_DIR / "prices.parquet"
+    if result.data is None or not path.is_file():
+        return result, []
+    try:
+        short = sorted(_short_refetch_ids(pd.read_parquet(path, columns=["etf_id", "date"]), result.data))
+        stored = pd.read_parquet(path, filters=[("etf_id", "in", short)]) if short else None
+    except Exception:
+        return result, []  # an unreadable store has no history to keep
+    if stored is None:
+        return result, []
+    kept = stored.assign(date=_normalised_price_dates(stored))
+    data = pd.concat([result.data.loc[~result.data["etf_id"].astype(str).isin(short)], kept], ignore_index=True)
+    metadata = dataclasses.replace(result.metadata, checksum=sha256_dataframe(data)) if result.metadata else None
+    return dataclasses.replace(result, data=data, metadata=metadata), short
+
+
 def _latest_sessions(frame: pd.DataFrame, as_of: date) -> pd.Series:
     sessions = _normalised_price_dates(frame).dropna()
     sessions = sessions[sessions <= as_of]
@@ -508,6 +539,7 @@ def _merge_incremental_price_result(
 
     parts = [preserved] if not preserved.empty else []
     full_rows = _rows_by_instrument(full_data)
+    short_ids = _short_refetch_ids(stored_data, full_data)
     for instrument_id in sorted(window_ids):
         old_rows = stored_rows(instrument_id).copy()
         new_rows = window_rows(instrument_id).copy()
@@ -522,8 +554,7 @@ def _merge_incremental_price_result(
             continue
 
         refreshed_rows = full_rows(instrument_id)
-        old_dates, new_dates = (_normalised_price_dates(rows).dropna() for rows in (old_rows, refreshed_rows))
-        if not old_dates.empty and not new_dates.empty and new_dates.min() > old_dates.min():
+        if instrument_id in short_ids:
             # A refetch that does not reach the oldest stored session would erase history: it failed (D1).
             refreshed_rows = refreshed_rows.iloc[0:0]
             failed_full_ids.add(instrument_id)
@@ -748,6 +779,9 @@ class DataService:
                 partial_missing = tuple(getattr(result, "missing_ids", ()))
                 if partial_missing and result.data is not None:
                     result = dataclasses.replace(result, status="ok")  # fresh + stored rows are real data; success stays False
+                result, short_kept = _keep_stored_coverage(result)
+                if short_kept:
+                    messages.append("Full refetch unavailable for: " + ", ".join(short_kept) + ".")
             rejected_ids: set[str] = set()
             for rejected_frame in (adjusted_quarantined, full_quarantined):
                 if rejected_frame is not None:
