@@ -42,7 +42,6 @@ REQUIRED_HOLDINGS_COLUMNS = {
 }
 
 
-@lru_cache(maxsize=1 << 16)
 def invalid_ohlc_mask(frame: pd.DataFrame) -> pd.Series:
     """Rows with impossible OHLC values; the one rule for both the import quarantine and the validation block."""
     return (
@@ -56,6 +55,7 @@ def invalid_ohlc_mask(frame: pd.DataFrame) -> pd.Series:
     )
 
 
+@lru_cache(maxsize=1 << 16)
 def _business_days_between(start: date, end: date) -> int:
     if start >= end:
         return 0
