@@ -29,10 +29,14 @@ from etf_cockpit.data.stock_peer_picks import load_user_peers
 
 LIVE_GRACE_DAYS = 5
 SECTOR_ROUTE_MISSING = "sector_route_missing"
-# Insurers, exchanges and diversified financials have no dedicated fundamentals route yet. Banks are excluded from the
-# generic route by ``scope.excluded_sectors`` (the Sparebank scorecard owns them) and never match here.
+# Financial sectors are routed by the stored (Yahoo) industry. Banks are excluded from the generic route by
+# ``scope.excluded_sectors`` (the Sparebank scorecard owns them) and never match the sector test.
 _NON_BANK_FINANCIAL_TOKENS = ("financ", "insur", "assurance")
 _BANK_TOKENS = ("bank", "savings")
+# Fee businesses: the generic value and quality metrics fit them (OD-9 = b).
+FEE_BASED_FINANCIAL_INDUSTRIES = frozenset({"asset management", "financial data & stock exchanges", "insurance brokers"})
+FINANCIAL_SET_NOT_BUILT = "unavailable: bank/insurer metric set not built"
+FINANCIAL_INDUSTRY_MISSING = "unavailable: industry missing"
 
 
 def is_non_bank_financial_sector(sector: object) -> bool:
@@ -42,6 +46,17 @@ def is_non_bank_financial_sector(sector: object) -> bool:
     if not text or any(token in text for token in _BANK_TOKENS):
         return False
     return any(token in text for token in _NON_BANK_FINANCIAL_TOKENS)
+
+
+def financial_route_reason(sector: object, industry: object = None) -> str | None:
+    """None when the generic metric set applies; else why value and quality are unavailable (a blank industry fails closed)."""
+
+    if not is_non_bank_financial_sector(sector):
+        return None
+    text = "" if _blank(industry) else str(industry).strip().casefold()
+    if not text:
+        return FINANCIAL_INDUSTRY_MISSING
+    return None if text in FEE_BASED_FINANCIAL_INDUSTRIES else FINANCIAL_SET_NOT_BUILT
 
 PEER_METRIC_KEYS = ("pe", "ev_ebit", "ev_sales", "pb", "roe", "ebit_margin", "fcf_yield", "dividend_yield", "revenue_cagr")
 COHORT_METRIC_KEYS = ("pe", "earnings_yield", "fcf_yield", "ebit_ev_yield", "roe", "roic", "ebit_margin", "net_debt_to_ebitda", "fcf_conversion", "revenue_cagr")
@@ -438,8 +453,8 @@ def build_universe_evidence(
         }
         for key in COHORT_METRIC_KEYS
     }
-    # Non-bank financials are not scored by the industrial ratios, so they must not shape industrial peer cohorts either.
-    candidates = [profile for profile in (result.profiles[r.instrument_id] for r in records) if not is_non_bank_financial_sector(getattr(profile, "sector", None))]
+    # Financials without the generic route are not scored by the industrial ratios, so they must not shape the cohorts either.
+    candidates = [profile for profile in (result.profiles[r.instrument_id] for r in records) if financial_route_reason(getattr(profile, "sector", None), getattr(profile, "industry", None)) is None]
     index = PeerIndex(candidates)
     # One cohort per bucket, shared by its members; the stock's own value is in it, and the evidence build skips it.
     cohort_buckets: dict[tuple[str, str] | None, dict[str, dict[str, float]]] = {}
@@ -466,17 +481,18 @@ def build_universe_evidence(
         result.evidence[iid] = with_sector_route(build_stock_evidence(
             iid, periods, decision_time, result.prices[iid], analyst_inputs(analysts[iid]), cfg,
             peer_values=scoped, cohort_values=cohorts, no_data_reason=store.no_data_reason(iid, snapshot_rows(iid), decision_time, bool(sm.known_periods(periods, decision_time))),
-        ), getattr(result.profiles[iid], "sector", None))
+        ), getattr(profile, "sector", None), getattr(profile, "industry", None))
     for pid, evidence in first.items():
         if pid.startswith("peer:"):
             result.evidence[pid] = evidence
     return result
 
 
-def with_sector_route(evidence: StockEvidence, sector: object) -> StockEvidence:
-    """Non-bank financials have no fundamentals route: value and quality are unavailable (analyst revision is sector-neutral)."""
+def with_sector_route(evidence: StockEvidence, sector: object, industry: object = None) -> StockEvidence:
+    """Financials without the generic route: value and quality are unavailable (analyst revision is sector-neutral)."""
 
-    if not is_non_bank_financial_sector(sector):
+    reason = financial_route_reason(sector, industry)
+    if reason is None:
         return evidence
     unavailable = {}
     for key in ("stock_value", "stock_quality"):
@@ -486,14 +502,20 @@ def with_sector_route(evidence: StockEvidence, sector: object) -> StockEvidence:
             score_10=None,
             inputs=(),
             freshness="unavailable",
-            why=f"{part.label}: {SECTOR_ROUTE_MISSING}: non-bank financials have no dedicated fundamentals route yet, "
-            "and the generic industrial ratios (ROE, ROIC, net debt/EBITDA, EBIT margin) do not apply to them.",
+            why=financial_route_why(part.label, reason),
             band_low=None,
             band_high=None,
             label_stable=None,
             band_basis=None,
         )
     return replace(evidence, components={**evidence.components, **unavailable})
+
+
+def financial_route_why(label: str, reason: str) -> str:
+    return (
+        f"{label}: {SECTOR_ROUTE_MISSING}: {reason}; only fee-based financials (asset managers, exchanges and data, "
+        "insurance brokers) use the generic ratios (ROE, ROIC, net debt/EBITDA, EBIT margin)."
+    )
 
 
 def _market_from_snapshot(snapshot: Mapping[str, Any] | None, decision_time: datetime) -> MarketInputs:

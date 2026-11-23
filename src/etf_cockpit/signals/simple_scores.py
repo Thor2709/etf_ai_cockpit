@@ -30,9 +30,9 @@ from etf_cockpit.analysis.cyclical_sector_adapters import (
 )
 from etf_cockpit.analysis.stock_evidence import StockEvidence, band_is_label_stable, label_boundaries_from, linear_score
 from etf_cockpit.analysis.stock_universe import (
-    SECTOR_ROUTE_MISSING,
+    financial_route_reason,
+    financial_route_why,
     get_universe_evidence,
-    is_non_bank_financial_sector,
     live_decision_time,
     records_from_config,
     with_as_traded_factors,
@@ -1778,8 +1778,9 @@ def build_universe_simple_scores(
     )
     kid_records = {} if as_of_sources is not None else _kid_record_lookup()
     product_lookups: dict[date | None, tuple[dict[str, dict[str, object]], dict[str, dict[str, list[float]]]]] = {}
+    stock_industries: dict[str, str] = {}
     stock_evidence, stock_evidence_error = _stock_evidence_lookup(
-        config, signals, prices, decision_time=stock_decision_time
+        config, signals, prices, decision_time=stock_decision_time, industries=stock_industries
     )
     symbol_map = yfinance_symbol_map_from_config(config)
     etf_lookup = config.universe.by_id()
@@ -1890,6 +1891,7 @@ def build_universe_simple_scores(
                     instrument_id=signal.etf_id,
                     decision_time=_full_decision_time(signal),
                     sector=identity.sector,
+                    industry=stock_industries.get(signal.etf_id),
                 )
                 if stock_like
                 else [
@@ -2217,11 +2219,11 @@ def build_candidate_simple_scores(
         if asset_type == "ETF":
             component_rows.append(_etf_exposure_component(etf_exposure.get(instrument_id), decision_date))
             component_rows.append(_etf_product_quality_component(None, None, decision_date))
-        elif is_non_bank_financial_sector(row.get("sector")):
+        elif (route_reason := financial_route_reason(row.get("sector"), row.get("industry"))) is not None:
             component_rows.extend(
                 [
-                    _sector_route_missing_component("stock_value"),
-                    _sector_route_missing_component("stock_quality"),
+                    _sector_route_missing_component("stock_value", route_reason),
+                    _sector_route_missing_component("stock_quality", route_reason),
                     _optional_score_component(
                         "analyst_revision",
                         row.get("analyst_revision_score_10"),
@@ -3584,8 +3586,12 @@ def _stock_evidence_lookup(
     prices: pd.DataFrame,
     *,
     decision_time: datetime | None = None,
+    industries: dict[str, str] | None = None,
 ) -> tuple[dict[str, StockEvidence], str | None]:
-    """Evidence of every normal stock from the canonical fundamentals store (one build per decision day)."""
+    """Evidence of every normal stock from the canonical fundamentals store (one build per decision day).
+
+    ``industries``, when given, receives the stored industry of each stock (the financials route reads it).
+    """
 
     try:
         newest = latest_signal(signals)
@@ -3593,7 +3599,10 @@ def _stock_evidence_lookup(
         records = records_from_config(config)
         if not records:
             return {}, None
-        return get_universe_evidence(records, prices, live_decision_time(as_of) if decision_time is None else decision_time).evidence, None
+        universe = get_universe_evidence(records, prices, live_decision_time(as_of) if decision_time is None else decision_time)
+        if industries is not None:
+            industries.update({iid: profile.industry for iid, profile in universe.profiles.items()})
+        return universe.evidence, None
     except Exception as exc:  # a broken store must not stop scoring: the reason is shown on each component
         return {}, f"stock fundamentals could not be evaluated ({type(exc).__name__}: {str(exc)[:100]})"
 
@@ -3606,15 +3615,17 @@ def _stock_fundamental_components(
     instrument_id: str | None = None,
     decision_time: object | None = None,
     sector: object | None = None,
+    industry: object | None = None,
 ) -> list[SimpleScoreComponent]:
     """Value, quality and analyst-revision components of one stock; a missing one states why.
 
-    Non-bank financials (insurers, exchanges, diversified financials) have no dedicated fundamentals route yet: the
-    generic industrial ROE/ROIC/ND-EBITDA/EBIT-margin evidence is meaningless for them, so value and quality are
-    ``unavailable`` with reason ``sector_route_missing`` (analyst revisions are sector-neutral and stay as they are).
+    Financials are routed by their stored industry: fee-based ones use the generic set; banks, insurers and other
+    lenders (and a financial with no industry) get value and quality ``unavailable`` with reason ``sector_route_missing``
+    (analyst revisions are sector-neutral and stay as they are).
     """
 
-    route_missing = is_non_bank_financial_sector(sector)
+    route_reason = financial_route_reason(sector, industry)
+    route_missing = route_reason is not None
     cyclical = None if route_missing else _cyclical_stock_components(
         cyclical_projection,
         instrument_id=instrument_id,
@@ -3659,7 +3670,7 @@ def _stock_fundamental_components(
     output = []
     for key, authority in (("stock_value", "medium"), ("stock_quality", "medium"), ("analyst_revision", "low")):
         if route_missing and key in {"stock_value", "stock_quality"}:
-            output.append(_sector_route_missing_component(key))
+            output.append(_sector_route_missing_component(key, route_reason))
             continue
         if evidence is None:
             reason = error or "no fundamentals evidence was built for this instrument (it is not in the stock universe)"
@@ -3706,15 +3717,9 @@ def _stock_fundamental_components(
     return output
 
 
-def _sector_route_missing_component(key: str) -> SimpleScoreComponent:
+def _sector_route_missing_component(key: str, reason: str) -> SimpleScoreComponent:
     return replace(
-        _optional_score_component(
-            key,
-            None,
-            f"{COMPONENT_LABELS[key]}: {SECTOR_ROUTE_MISSING}: non-bank financials have no dedicated fundamentals route yet, "
-            "and the generic industrial ratios (ROE, ROIC, net debt/EBITDA, EBIT margin) do not apply to them.",
-            authority="medium",
-        ),
+        _optional_score_component(key, None, financial_route_why(COMPONENT_LABELS[key], reason), authority="medium"),
         freshness_status="unavailable",
     )
 
