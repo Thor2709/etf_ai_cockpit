@@ -42,21 +42,215 @@ fn max_drawdown(x: &[f64], w: usize, out: &mut [f64]) {
     }
 }
 
-#[pyfunction]
-fn rolling_max_drawdown<'py>(py: Python<'py>, prices: PyReadonlyArray1<'py, f64>, offsets: PyReadonlyArray1<'py, i64>, window: usize) -> PyResult<Bound<'py, PyArray1<f64>>> {
-    if window == 0 {
-        return Err(PyValueError::new_err("window must be at least 1"));
+/// pandas 2.3 `rolling(window, min_periods=window).mean()` (aggregations.pyx `roll_mean`: Kahan add/remove).
+fn rolling_mean_pd(v: &[f64], w: usize, out: &mut [f64]) {
+    let (mut nobs, mut sum, mut neg, mut comp_add, mut comp_rem, mut same, mut prev) = (0i64, 0.0f64, 0i64, 0.0f64, 0.0f64, 0i64, 0.0f64);
+    for i in 0..v.len() {
+        let (s, e) = ((i + 1).saturating_sub(w), i + 1);
+        let from = if i == 0 || s >= i {
+            (nobs, sum, neg, comp_add, comp_rem, same, prev) = (0, 0.0, 0, 0.0, 0.0, 0, v[s]);
+            s
+        } else {
+            for &x in &v[i.saturating_sub(w)..s] {
+                if x == x {
+                    nobs -= 1;
+                    let y = -x - comp_rem;
+                    let t = sum + y;
+                    comp_rem = t - sum - y;
+                    sum = t;
+                    if x.is_sign_negative() {
+                        neg -= 1;
+                    }
+                }
+            }
+            i
+        };
+        for &x in &v[from..e] {
+            if x == x {
+                nobs += 1;
+                let y = x - comp_add;
+                let t = sum + y;
+                comp_add = t - sum - y;
+                sum = t;
+                if x.is_sign_negative() {
+                    neg += 1;
+                }
+                same = if x == prev { same + 1 } else { 1 };
+                prev = x;
+            }
+        }
+        out[i] = if nobs >= w as i64 && nobs > 0 {
+            let r = sum / nobs as f64;
+            if same >= nobs {
+                prev
+            } else if (neg == 0 && r < 0.0) || (neg == nobs && r > 0.0) {
+                0.0
+            } else {
+                r
+            }
+        } else {
+            f64::NAN
+        };
     }
-    let (x, off) = (prices.as_slice()?, offsets.as_slice()?);
+}
+
+/// pandas 2.3 `rolling(window, min_periods=window).std()` (ddof 1; `roll_var`: Welford with Kahan, then zsqrt).
+fn rolling_std_pd(v: &[f64], w: usize, out: &mut [f64]) {
+    let (mut nobs, mut mean, mut ssq, mut comp_add, mut comp_rem, mut same, mut prev) = (0i64, 0.0f64, 0.0f64, 0.0f64, 0.0f64, 0i64, 0.0f64);
+    for i in 0..v.len() {
+        let (s, e) = ((i + 1).saturating_sub(w), i + 1);
+        let from = if i == 0 || s >= i {
+            (nobs, mean, ssq, comp_add, comp_rem, same, prev) = (0, 0.0, 0.0, 0.0, 0.0, 0, v[s]);
+            s
+        } else {
+            for &x in &v[i.saturating_sub(w)..s] {
+                if x == x {
+                    nobs -= 1;
+                    if nobs != 0 {
+                        let prev_mean = mean - comp_rem;
+                        let y = x - comp_rem;
+                        let t = y - mean;
+                        comp_rem = t + mean - y;
+                        mean -= t / nobs as f64;
+                        ssq -= (x - prev_mean) * (x - mean);
+                    } else {
+                        mean = 0.0;
+                        ssq = 0.0;
+                    }
+                }
+            }
+            i
+        };
+        for &x in &v[from..e] {
+            if x == x {
+                nobs += 1;
+                same = if x == prev { same + 1 } else { 1 };
+                prev = x;
+                let prev_mean = mean - comp_add;
+                let y = x - comp_add;
+                let t = y - mean;
+                comp_add = t + mean - y;
+                mean += t / nobs as f64;
+                ssq += (x - prev_mean) * (x - mean);
+            }
+        }
+        out[i] = if nobs >= w as i64 && nobs > 1 {
+            let var = if same >= nobs { 0.0 } else { ssq / (nobs - 1) as f64 };
+            if var < 0.0 { 0.0 } else { var.sqrt() }
+        } else {
+            f64::NAN
+        };
+    }
+}
+
+/// pandas 2.3 `ewm(alpha, adjust=False, ignore_na=True).mean()` (aggregations.pyx `ewm`, min_periods 1);
+/// `alpha` is the one pandas uses: 1 / (1 + com) with com = (1 - alpha) / alpha.
+fn ewm_mean_pd(v: &[f64], alpha: f64, out: &mut [f64]) {
+    if v.is_empty() {
+        return;
+    }
+    let old_factor = 1.0 - alpha;
+    let mut weighted = v[0];
+    let mut nobs = (weighted == weighted) as i64;
+    out[0] = if nobs >= 1 { weighted } else { f64::NAN };
+    let mut old_wt = 1.0f64;
+    for i in 1..v.len() {
+        let cur = v[i];
+        let observed = cur == cur;
+        nobs += observed as i64;
+        if weighted == weighted {
+            if observed {
+                old_wt *= old_factor;
+                if weighted != cur {
+                    weighted = old_wt * weighted + alpha * cur;
+                    weighted /= old_wt + alpha;
+                }
+                old_wt = 1.0;
+            }
+        } else if observed {
+            weighted = cur;
+        }
+        out[i] = if nobs >= 1 { weighted } else { f64::NAN };
+    }
+}
+
+/// pandas 2.3 `rolling(window, min_periods).median()` (`roll_median_c`): median of the non-NaN values.
+fn rolling_median_pd(v: &[f64], w: usize, min_periods: usize, out: &mut [f64]) {
+    let mut buf: Vec<f64> = Vec::with_capacity(w);
+    for i in 0..v.len() {
+        buf.clear();
+        buf.extend(v[(i + 1).saturating_sub(w)..=i].iter().copied().filter(|x| x == x));
+        let n = buf.len();
+        out[i] = if n >= min_periods && n > 0 {
+            buf.sort_by(|a, b| a.total_cmp(b));
+            if n % 2 == 1 { buf[n / 2] } else { (buf[n / 2] + buf[n / 2 - 1]) / 2.0 }
+        } else {
+            f64::NAN
+        };
+    }
+}
+
+/// Run `kernel` on each group; the pandas kernels first see inf as NaN, as pandas `_prep_values` does.
+fn per_group<'py>(
+    py: Python<'py>,
+    values: &PyReadonlyArray1<'py, f64>,
+    offsets: &PyReadonlyArray1<'py, i64>,
+    inf_as_nan: bool,
+    kernel: impl Fn(&[f64], &mut [f64]) + Sync,
+) -> PyResult<Bound<'py, PyArray1<f64>>> {
+    let (x, off) = (values.as_slice()?, offsets.as_slice()?);
     let spans = groups(x.len(), off)?;
     let out = py.detach(|| {
+        let x: Vec<f64> = if inf_as_nan { x.iter().map(|&a| if a.is_infinite() { f64::NAN } else { a }).collect() } else { x.to_vec() };
         let mut out = vec![f64::NAN; x.len()];
         for (a, b) in spans {
-            max_drawdown(&x[a..b], window, &mut out[a..b]);
+            kernel(&x[a..b], &mut out[a..b]);
         }
         out
     });
     Ok(out.into_pyarray(py))
+}
+
+fn check_window(window: usize) -> PyResult<()> {
+    if window == 0 {
+        return Err(PyValueError::new_err("window must be at least 1"));
+    }
+    Ok(())
+}
+
+#[pyfunction]
+fn rolling_max_drawdown<'py>(py: Python<'py>, prices: PyReadonlyArray1<'py, f64>, offsets: PyReadonlyArray1<'py, i64>, window: usize) -> PyResult<Bound<'py, PyArray1<f64>>> {
+    check_window(window)?;
+    per_group(py, &prices, &offsets, false, |g, o| max_drawdown(g, window, o))
+}
+
+#[pyfunction]
+fn rolling_mean<'py>(py: Python<'py>, values: PyReadonlyArray1<'py, f64>, offsets: PyReadonlyArray1<'py, i64>, window: usize) -> PyResult<Bound<'py, PyArray1<f64>>> {
+    check_window(window)?;
+    per_group(py, &values, &offsets, true, |g, o| rolling_mean_pd(g, window, o))
+}
+
+#[pyfunction]
+fn rolling_std<'py>(py: Python<'py>, values: PyReadonlyArray1<'py, f64>, offsets: PyReadonlyArray1<'py, i64>, window: usize) -> PyResult<Bound<'py, PyArray1<f64>>> {
+    check_window(window)?;
+    per_group(py, &values, &offsets, true, |g, o| rolling_std_pd(g, window, o))
+}
+
+#[pyfunction]
+fn ewm_mean<'py>(py: Python<'py>, values: PyReadonlyArray1<'py, f64>, offsets: PyReadonlyArray1<'py, i64>, alpha: f64) -> PyResult<Bound<'py, PyArray1<f64>>> {
+    if !(alpha > 0.0 && alpha <= 1.0) {
+        return Err(PyValueError::new_err("alpha must satisfy 0 < alpha <= 1"));
+    }
+    per_group(py, &values, &offsets, true, |g, o| ewm_mean_pd(g, alpha, o))
+}
+
+#[pyfunction]
+fn rolling_median<'py>(py: Python<'py>, values: PyReadonlyArray1<'py, f64>, offsets: PyReadonlyArray1<'py, i64>, window: usize, min_periods: usize) -> PyResult<Bound<'py, PyArray1<f64>>> {
+    check_window(window)?;
+    if min_periods > window {
+        return Err(PyValueError::new_err("min_periods must be <= window"));
+    }
+    per_group(py, &values, &offsets, true, |g, o| rolling_median_pd(g, window, min_periods, o))
 }
 
 /// Pairwise-complete Pearson correlation of the columns of `matrix` (rows = dates): pandas 2.3
@@ -117,6 +311,10 @@ fn nancorr<'py>(py: Python<'py>, matrix: PyReadonlyArray2<'py, f64>, min_periods
 #[pymodule]
 fn etf_kernels(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(rolling_max_drawdown, m)?)?;
+    m.add_function(wrap_pyfunction!(rolling_mean, m)?)?;
+    m.add_function(wrap_pyfunction!(rolling_std, m)?)?;
+    m.add_function(wrap_pyfunction!(ewm_mean, m)?)?;
+    m.add_function(wrap_pyfunction!(rolling_median, m)?)?;
     m.add_function(wrap_pyfunction!(nancorr, m)?)?;
     Ok(())
 }
