@@ -91,7 +91,7 @@ def run_historical_replay(
                 "unavailable", "replay", bots._time_text(cutoff),
                 reason=f"Paper bot data readiness blocked:\n{readiness_failure}", label=track.label,
             )
-        membership = ListingHistory.from_root(project_root)
+        membership = ListingHistory.from_root(project_root, reconstructed=True)  # same rule as the backfill (OD-1 = b)
         book = price_book if price_book is not None else execution.PriceBook.from_root(project_root, reconstructed=True)
         if survivorship_mode != STRICT_MODE:
             membership = membership.with_price_history(book.first_price_dates(), survivorship_mode)

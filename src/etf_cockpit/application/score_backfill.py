@@ -40,7 +40,7 @@ from etf_cockpit.core.config import AppConfig, load_config
 from etf_cockpit.core.values import finite_float_or_none
 from etf_cockpit.core.versioning import build_version_registry
 from etf_cockpit.data.duckdb_store import load_prices
-from etf_cockpit.data.fx_data import fx_rates_for_prices
+from etf_cockpit.data.fx_data import fx_cross_rate_memo, fx_rates_for_prices
 from etf_cockpit.data.reference_data import load_reference_dataset
 from etf_cockpit.data.score_history_backfill import (
     BACKFILL_PROVENANCE,
@@ -267,7 +267,7 @@ def backfill_score_history(
         raise ValueError("a forward score run scores exactly one session (start == end)")
     say = progress or (lambda _message: None)
     config = config or load_config()
-    membership = ListingHistory.from_root(root)
+    membership = ListingHistory.from_root(root, reconstructed=True)  # replay track: licensed history at its effective dates (OD-1 = b)
     config = _historical_config(config, membership)
     frame = load_prices(config=config) if prices is None else prices.copy()
     if frame.empty or not {"etf_id", "date", "adjusted_close"}.issubset(frame.columns):
@@ -384,23 +384,26 @@ def backfill_score_history(
                 raise
             unavailable.update({session.isoformat(): f"{type(exc).__name__}: {str(exc)[:200]}" for _index, session in todo})
             as_traded, todo = frame, []
-        for index, session, outcome in _score_sessions(config, as_traded, todo, fx, registry_signature, excluded, workers, membership, completed_at, reference_order_value):
-            say(f"[{index}/{len(sessions)}] scored as of {session}")
-            if isinstance(outcome, str):  # fail closed per session: never store a partial or guessed run
-                unavailable[session.isoformat()] = outcome
-                say(f"  unavailable: {outcome}")
-                continue
-            run, eligibility = outcome
-            eligibility["config_fingerprint"] = fingerprint
-            eligibility["provenance"] = BACKFILL_PROVENANCE if completed_at is None else FORWARD_PROVENANCE
-            new_eligibility.append(eligibility)
-            if run is None:
-                unavailable[session.isoformat()] = "no eligible scored instrument"
-                continue
-            run["config_fingerprint"] = fingerprint
-            new_histories.append(run)
-            if len(new_histories) % CHECKPOINT_RUNS == 0:
-                persist()
+        # FX quote days validated once per run (S6, OD-14): the memo is keyed by a day's quote rows, so a session reuses
+        # only a result for rows its own book holds. Serial sessions only; pool workers keep their per-session books.
+        with fx_cross_rate_memo():
+            for index, session, outcome in _score_sessions(config, as_traded, todo, fx, registry_signature, excluded, workers, membership, completed_at, reference_order_value):
+                say(f"[{index}/{len(sessions)}] scored as of {session}")
+                if isinstance(outcome, str):  # fail closed per session: never store a partial or guessed run
+                    unavailable[session.isoformat()] = outcome
+                    say(f"  unavailable: {outcome}")
+                    continue
+                run, eligibility = outcome
+                eligibility["config_fingerprint"] = fingerprint
+                eligibility["provenance"] = BACKFILL_PROVENANCE if completed_at is None else FORWARD_PROVENANCE
+                new_eligibility.append(eligibility)
+                if run is None:
+                    unavailable[session.isoformat()] = "no eligible scored instrument"
+                    continue
+                run["config_fingerprint"] = fingerprint
+                new_histories.append(run)
+                if len(new_histories) % CHECKPOINT_RUNS == 0:
+                    persist()
     finally:
         result = persist()  # also preserve completed sessions when a process pool dies
     return result

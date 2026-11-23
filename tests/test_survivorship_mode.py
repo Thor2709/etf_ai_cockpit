@@ -67,7 +67,7 @@ def test_replay_flag_admits_labels_and_default_fails_closed(monkeypatch, tmp_pat
     from tests.test_paper_bots import _rows
     from tests.test_paper_bots_execution import _allow, _exec_config, _history_with_columns
 
-    monkeypatch.setattr(ListingHistory, "from_root", classmethod(lambda cls, root: ListingHistory()))
+    monkeypatch.setattr(ListingHistory, "from_root", classmethod(lambda cls, root, **_: ListingHistory()))
     known = datetime(2026, 10, 14, 12, tzinfo=timezone.utc)
     history = pd.DataFrame(_history_with_columns(_rows(known)))
     cutoff = datetime(2026, 10, 30, tzinfo=timezone.utc)
