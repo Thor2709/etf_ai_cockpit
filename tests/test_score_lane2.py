@@ -131,3 +131,74 @@ def test_as_traded_factors_are_idempotent_with_an_unevidenced_recent_row():
 
     pd.testing.assert_frame_equal(with_as_traded_factors(once), once)
     pd.testing.assert_frame_equal(with_as_traded_factors(once.loc[once["date"] <= days[1]]), once.loc[once["date"] <= days[1]])
+
+
+def test_live_build_reads_each_policy_once_across_universe_candidates_and_ranking(monkeypatch):
+    from types import SimpleNamespace
+
+    import pandas as pd
+
+    from etf_cockpit.core.config import load_config
+    from etf_cockpit.signals import simple_scores as s
+
+    reads: list[str] = []
+    real = Path.read_bytes
+
+    def counting(self: Path) -> bytes:
+        reads.append(self.name)
+        return real(self)
+
+    def per_row(result):
+        def stage(*a, **kw):
+            for _ in range(2):  # two rows: each reads both policies
+                cs.load_score_policy("ETF")
+                gates.load_critical_evidence_policy()
+            return result
+        return stage
+
+    monkeypatch.setattr(s, "build_universe_simple_scores", per_row([]))
+    monkeypatch.setattr(s, "build_candidate_simple_scores", per_row([]))
+    monkeypatch.setattr(s, "rank_and_finalize_scores", per_row([]))
+    monkeypatch.setattr(s, "_generate_missing_price_signals", lambda config, sigs, px: (sigs, {}))
+    monkeypatch.setattr(s, "load_latest_candidate_report", lambda: (pd.DataFrame(), None))
+    monkeypatch.setattr(s, "load_forecast_history", lambda: pd.DataFrame())
+    for name in ("build_market_regime", "build_portfolio_fit_lookup", "build_benchmark_attribution_lookup"):
+        monkeypatch.setattr(s, name, lambda *a, **kw: {})
+    monkeypatch.setattr(s, "build_correlation_clusters", lambda *a, **kw: SimpleNamespace(rows=[]))
+    monkeypatch.setattr(s, "_backtest_trust_lookup", lambda **kw: {})
+    config = load_config()
+    monkeypatch.setattr(Path, "read_bytes", counting)
+
+    s.build_simple_instrument_scores(config, [], pd.DataFrame(), pd.DataFrame({"etf_id": ["VWCE"]}), universe_revision="audit", cash_comparison_lookup={})
+
+    assert reads.count(cs.FORMULA_PATH.name) == 1
+    assert reads.count(gates.POLICY_PATH.name) == 1
+
+
+def test_as_traded_failure_marks_each_historical_session_unavailable(tmp_path, monkeypatch):
+    from datetime import date, datetime, timezone
+
+    import pandas as pd
+    import pytest
+
+    from etf_cockpit.application import score_backfill
+    from tests.test_score_backfill import _config, _prices
+
+    def boom(prices):
+        raise ValueError("boom")
+
+    monkeypatch.setattr(score_backfill, "with_as_traded_factors", boom)
+    config = _config()
+    prices = _prices(config)
+
+    result = score_backfill.backfill_score_history(
+        tmp_path, date(2022, 6, 1), date(2022, 6, 30), every=10, config=config, prices=prices, fx_rates=pd.DataFrame()
+    )
+
+    assert result.runs_written == 0 and result.unavailable_dates
+    assert set(result.unavailable_dates.values()) == {"ValueError: boom"}  # the same reason score_as_of gave per session
+    with pytest.raises(ValueError, match="boom"):  # a forward run fails loudly
+        score_backfill.backfill_score_history(
+            tmp_path / "fwd", date(2022, 6, 30), date(2022, 6, 30), config=config, prices=prices, fx_rates=pd.DataFrame(),
+            completed_at=datetime(2022, 7, 1, tzinfo=timezone.utc),
+        )

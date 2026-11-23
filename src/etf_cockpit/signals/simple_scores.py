@@ -866,6 +866,7 @@ def _generate_missing_price_signals(
     return [*signals, *additions], failures
 
 
+@policy_snapshot()  # one read of each score policy per live build: universe, candidates and ranking (SP-4)
 def build_simple_instrument_scores(
     config: AppConfig,
     signals: list[SignalResult],
@@ -1722,7 +1723,6 @@ class AsOfScoreSources:
     etf_holdings: pd.DataFrame | None = None
 
 
-@policy_snapshot()  # one read of each score policy per universe build (SP-4)
 def build_universe_simple_scores(
     config: AppConfig,
     signals: list[SignalResult],

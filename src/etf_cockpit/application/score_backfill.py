@@ -377,7 +377,13 @@ def backfill_score_history(
         )
     try:
         # As-traded factors once per run (S6); score_as_of reuses them (with_as_traded_factors is idempotent).
-        as_traded = with_as_traded_factors(frame)
+        try:
+            as_traded = with_as_traded_factors(frame)
+        except Exception as exc:  # fail closed per session, as score_as_of does; a forward run fails loudly (SDD C4)
+            if completed_at is not None:
+                raise
+            unavailable.update({session.isoformat(): f"{type(exc).__name__}: {str(exc)[:200]}" for _index, session in todo})
+            as_traded, todo = frame, []
         for index, session, outcome in _score_sessions(config, as_traded, todo, fx, registry_signature, excluded, workers, membership, completed_at, reference_order_value):
             say(f"[{index}/{len(sessions)}] scored as of {session}")
             if isinstance(outcome, str):  # fail closed per session: never store a partial or guessed run
