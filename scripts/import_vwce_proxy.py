@@ -44,7 +44,7 @@ def import_vwce_proxy(root: Path, *, provider: object = None, known_at: datetime
         )
     # The provider end date is exclusive: the splice-date row is the chain anchor.
     result = provider.fetch_prices([VWCE_PROXY_SYMBOL], VWCE_PROXY_START, VWCE_SPLICE_DATE + timedelta(days=1))
-    if not result.ok or result.metadata is None:
+    if not result.ok or result.data is None or result.metadata is None:
         raise ValueError(f"VWRL.AS fetch failed: {result.message}")
     frame = result.data.reset_index(drop=True)
     stamp = known_at or result.metadata.ingested_at

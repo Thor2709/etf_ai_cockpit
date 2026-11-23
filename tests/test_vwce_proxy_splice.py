@@ -143,3 +143,29 @@ def test_import_writes_nothing_when_the_proxy_check_fails(tmp_path: Path) -> Non
     with pytest.raises(ValueError, match="splice_anchor_missing"):
         _script().import_vwce_proxy(tmp_path, provider=_Provider(_proxy().iloc[:-1]), known_at=KNOWN)
     assert not any(tmp_path.rglob("*"))
+
+
+def test_proxy_check_rejects_a_bar_not_final_at_known_at() -> None:
+    frame = _proxy()
+    early = datetime(2019, 7, 29, 10, tzinfo=timezone.utc)
+    check = validate_vwce_proxy_series(frame, known_at=early, provider_metadata=_metadata(frame))
+    assert check.status == "unavailable" and "observation_after_known_at" in check.reasons
+
+
+def test_proxy_dates_take_the_date_type_of_loaded_own_rows_and_output_is_sorted() -> None:
+    own = _vwce().assign(date=lambda frame: frame["date"].dt.date).iloc[::-1]  # load_prices() gives datetime.date
+    series = vwce_benchmark_series(own, _stored_proxy())
+    assert all(type(day) is date for day in series["date"])
+    assert list(series["date"]) == sorted(series["date"])
+    assert series.loc[series["benchmark_basis"].eq("proxy"), "date"].max() < VWCE_SPLICE_DATE
+
+
+@pytest.mark.parametrize("own_adj, proxy_adj", [
+    ([70.0, 0.0, 72.0, 73.0], PROXY_ADJ),
+    ([70.0, 71.0, float("nan"), 73.0], PROXY_ADJ),
+    ([70.0, 71.0, 72.0, 73.0], [80.0, float("nan"), 79.6, 80.4, 81.2]),
+    ([70.0, 71.0, 72.0, 73.0], [80.0, 80.8, 79.6, 80.4, -1.0]),
+])
+def test_splice_fails_closed_on_a_non_finite_or_non_positive_used_price(own_adj, proxy_adj) -> None:
+    proxy = _stored_proxy().assign(adjusted_close=proxy_adj)
+    assert vwce_benchmark_series(_vwce().assign(adjusted_close=own_adj), proxy) is None

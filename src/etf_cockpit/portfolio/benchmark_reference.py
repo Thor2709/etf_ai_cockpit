@@ -947,6 +947,8 @@ def validate_vwce_proxy_series(
         return _series_check(reasons, None, known_stamp, len(frame), None, None)
     if dates.max() != pd.Timestamp(VWCE_SPLICE_DATE):
         reasons.append("splice_anchor_missing")
+    if known_stamp is not None and not _last_close_known(dates.max().date(), known_stamp):
+        reasons.append("observation_after_known_at")
     close = pd.to_numeric(frame["close"], errors="coerce")
     adjusted = pd.to_numeric(frame["adjusted_close"], errors="coerce")
     if not (np.isfinite(close.to_numpy(dtype=float)).all() and np.isfinite(adjusted.to_numpy(dtype=float)).all()
@@ -978,11 +980,19 @@ def vwce_benchmark_series(vwce_rows: pd.DataFrame, proxy_rows: pd.DataFrame) -> 
     proxy_anchor = proxy_rows.loc[proxy_dates.eq(splice), "adjusted_close"]
     if len(own_anchor) != 1 or len(proxy_anchor) != 1:
         return None
+    used = pd.concat([
+        vwce_rows.loc[own_dates.ge(splice), "adjusted_close"], proxy_rows.loc[proxy_dates.le(splice), "adjusted_close"],
+    ])
+    used = pd.to_numeric(used, errors="coerce").to_numpy(dtype=float)
+    if not (np.isfinite(used).all() and (used > 0).all()):
+        return None
     columns = [column for column in _SERIES_COLUMNS if column in vwce_rows.columns]
     own = vwce_rows.loc[own_dates.ge(splice), columns].assign(benchmark_basis="own", proxy_source_id=None)
     before = proxy_rows.loc[proxy_dates.lt(splice)]
+    stamps = proxy_dates[before.index]
     proxy = pd.DataFrame({
-        "date": proxy_dates[before.index].astype(own["date"].dtype),
+        # The date type of the own rows: ``load_prices()`` gives ``datetime.date`` objects.
+        "date": stamps.dt.date if own["date"].dtype == object else stamps.astype(own["date"].dtype),
         "etf_id": "VWCE",
         "adjusted_close": float(own_anchor.iloc[0]) * before["adjusted_close"] / float(proxy_anchor.iloc[0]),
         "currency": VWCE_QUOTE_CURRENCY,
@@ -992,7 +1002,8 @@ def vwce_benchmark_series(vwce_rows: pd.DataFrame, proxy_rows: pd.DataFrame) -> 
     if "known_at" in own:
         proxy["known_at"] = proxy["known_at"].astype(own["known_at"].dtype)
     proxy = proxy[[*columns, "pit_basis"]].assign(benchmark_basis="proxy", proxy_source_id=VWCE_PROXY_SYMBOL)
-    return pd.concat([proxy, own], ignore_index=True)
+    series = pd.concat([proxy, own], ignore_index=True)
+    return series.sort_values("date", key=pd.to_datetime, kind="stable", ignore_index=True)
 
 
 def _vwce_record_failure(item: object, check: VwceReferenceSeriesCheck) -> str | None:
@@ -1118,7 +1129,9 @@ __all__ = [
     "resolve_canonical_reference",
     "unavailable_reference_projection",
     "validate_benchmark_reference",
+    "validate_vwce_proxy_series",
     "validate_vwce_reference_series",
+    "vwce_benchmark_series",
     "vwce_reference_status",
     "vwce_series_source_hash",
 ]
