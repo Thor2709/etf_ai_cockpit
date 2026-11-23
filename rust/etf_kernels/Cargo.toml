@@ -16,3 +16,4 @@ codegen-units = 1
 [dependencies]
 numpy = "=0.30.0"
 pyo3 = { version = "=0.30.1", features = ["extension-module", "abi3-py311"] }
+rayon = "=1.12.0"
