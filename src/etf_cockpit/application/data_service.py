@@ -847,6 +847,8 @@ class DataService:
                 result = dataclasses.replace(result, data=data, metadata=metadata)
                 partial_missing = tuple(sorted(set(partial_missing) | set(new_stale)))
                 messages.append("New instrument with only stale bars, not committed: " + ", ".join(new_stale) + ".")
+                if result.data.empty:
+                    block_issues.append("ALL: No price rows remain to commit.")
             if stale_kept:
                 # A tolerated instrument commits exactly its stored rows: no gap fill, revision or deletion.
                 tolerated = result.data["etf_id"].astype(str).isin(stale_kept)
@@ -855,7 +857,7 @@ class DataService:
                 data = pd.concat([result.data.loc[~tolerated], kept], ignore_index=True)
                 metadata = dataclasses.replace(result.metadata, checksum=sha256_dataframe(data)) if result.metadata else None
                 result = dataclasses.replace(result, data=data, metadata=metadata)
-            if block_issues and staged is None:
+            if block_issues and staged is None and not result.data.empty:
                 # A blocked batch is kept: the next refresh for the same end date validates it again without fetching.
                 try:
                     _stage_prices(
