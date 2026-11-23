@@ -58,7 +58,8 @@ def stamp_price_availability(stored: pd.DataFrame | None, incoming: pd.DataFrame
 
     Key (``etf_id``, else ``instrument_id``; session). A new or revised bar gets ``retrieved_at``; a new bar is
     available at min(session 23:59:59 UTC, ``retrieved_at``), a revised bar at ``retrieved_at``. An unchanged bar
-    takes the incoming values and keeps its stored stamps. A stored ``ingested_at`` without ``known_at`` gives
+    takes the incoming values and keeps its stored stamps, except that an incoming ``actions_evidenced`` True (only an
+    action-requesting fetch sets it) heals a stored False. A stored ``ingested_at`` without ``known_at`` gives
     ``known_at := ingested_at``; a bar with no stamps stays unstamped.
     """
 
@@ -85,8 +86,10 @@ def stamp_price_availability(stored: pd.DataFrame | None, incoming: pd.DataFrame
             changed |= (new_prev.iloc[rows].to_numpy() & old_prev.iloc[at].to_numpy()
                         & _differs(new_gross.iloc[rows], old_gross.iloc[at], rtol=1e-6))
         stamps["available_at"].iloc[rows[changed]] = now
+        incoming_evidence = stamps["actions_evidenced"].to_numpy(copy=True)
         for name, values in kept_stamps.items():
             stamps[name].iloc[rows[~changed]] = values.iloc[at[~changed]].to_numpy()
+        stamps["actions_evidenced"] |= incoming_evidence  # the same bar with its actions from this fetch is evidenced
     out = incoming.copy()
     for name, values in stamps.items():
         out[name] = values.to_numpy()

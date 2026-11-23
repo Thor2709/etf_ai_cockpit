@@ -85,3 +85,20 @@ def test_sector_and_country_spellings_map_to_one_label():
         (("", None), ""),
     ):
         assert {country_label(item) for item in spellings} == {label}
+
+
+def test_full_history_action_fetch_heals_unchanged_legacy_bars():
+    from etf_cockpit.data.import_pipeline import stamp_price_availability
+
+    legacy = _legacy_prefix().assign(actions_evidenced=False)
+    stored = stamp_price_availability(None, legacy, retrieved_at=datetime(2026, 11, 20, 9, 47, tzinfo=timezone.utc))
+    # A fetch that did not request actions never sets the flag.
+    unproven = stamp_price_availability(stored, legacy, retrieved_at=datetime(2026, 11, 21, tzinfo=timezone.utc))
+    assert not unproven["actions_evidenced"].any()
+    # The same values from an action-requesting fetch: the flag heals, every other stamp and value is kept.
+    healed = stamp_price_availability(stored, legacy.assign(actions_evidenced=True),
+                                      retrieved_at=datetime(2026, 11, 22, tzinfo=timezone.utc))
+    assert healed["actions_evidenced"].tolist() == [True] * 4
+    pd.testing.assert_frame_equal(healed.drop(columns="actions_evidenced"), stored.drop(columns="actions_evidenced"))
+    value, reason = as_traded_close(healed, date(2022, 10, 17))
+    assert value == pytest.approx(118.88) and reason is None
