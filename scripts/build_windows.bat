@@ -61,6 +61,8 @@ rem The compiled kernels (etf_kernels) are required at start: build the abi3 whe
 rem maturin is a build tool only; Rust comes from rustup (the default cargo folder is added when cargo is not on PATH).
 where cargo >nul 2>nul
 if errorlevel 1 set "PATH=%USERPROFILE%\.cargo\bin;%PATH%"
+rem One pinned Rust version, as CI: never rely on a rustup default (CI redirects USERPROFILE).
+if not defined RUSTUP_TOOLCHAIN set "RUSTUP_TOOLCHAIN=1.100.0"
 ".venv\Scripts\python.exe" -m pip install maturin==1.16.0
 if errorlevel 1 exit /b 1
 if exist build\kernels rmdir /s /q build\kernels
