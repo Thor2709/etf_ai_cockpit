@@ -35,6 +35,7 @@ from etf_cockpit.data.fx_data import (
     fx_data_inventory,
     load_fx_rates,
     major_currency,
+    prefer_ecb_rates,
     validate_fx_rates,
 )
 from etf_cockpit.data.import_pipeline import (
@@ -426,7 +427,7 @@ def _refresh_yfinance_fx(
                 keep_old = ~stored_dates.loc[old_rows.index].isin(replacement_dates)
                 parts.append(old_rows.loc[keep_old])
         parts.append(fetched)
-        merged = pd.concat(parts, ignore_index=True, sort=False)
+        merged = prefer_ecb_rates(pd.concat(parts, ignore_index=True, sort=False))
         fx_result = dataclasses.replace(
             successful_template,
             status="ok",
