@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 from datetime import date, datetime
+from functools import lru_cache
 import hashlib
 from itertools import combinations
 import json
@@ -525,6 +526,9 @@ def _date_groups(labels: Sequence[object] | None, n_samples: int) -> tuple[tuple
 
 
 def _aggregate_by_groups(scores: Mapping[str, np.ndarray], groups: Sequence[Sequence[int]]) -> dict[str, np.ndarray]:
+    if all(len(group) == 1 for group in groups):  # one row per date: the mean of one value is that value
+        positions = np.fromiter((group[0] for group in groups), dtype=np.int64, count=len(groups))
+        return {trial: np.asarray(values, dtype=float)[positions] for trial, values in scores.items()}
     return {trial: np.asarray([values[list(group)].mean() for group in groups]) for trial, values in scores.items()}
 
 
@@ -542,15 +546,10 @@ def _paired_block_bootstrap(values: np.ndarray, spec: ValidationSpec, *, paired_
     n = len(values)
     if n < 2 or not np.isfinite(values).all():
         return {"status": "unavailable", "reason": "at_least_two_finite_paired_dates_required", "observations": n}
-    rng = np.random.default_rng(spec.seed)
     # Blocks must cover the label horizon (overlapping forward returns) and at
     # least two blocks must fit, including in a short inference window.
     block = min(max(spec.block_size, spec.horizon), max(1, n // 2))
-    draws = np.empty(spec.bootstrap_repetitions)
-    for repetition in range(spec.bootstrap_repetitions):
-        starts = rng.integers(0, n - block + 1, size=math.ceil(n / block))
-        indices = (starts[:, None] + np.arange(block)).ravel()[:n]
-        draws[repetition] = values[indices].mean()
+    draws = values[_bootstrap_indices(n, block, spec.seed, spec.bootstrap_repetitions)].mean(axis=1)
     observed = float(values.mean())
     null_draws = draws - observed
     return {
@@ -561,6 +560,22 @@ def _paired_block_bootstrap(values: np.ndarray, spec: ValidationSpec, *, paired_
         "p_value": float((1 + np.count_nonzero(null_draws >= observed)) / (len(draws) + 1)),
         "method": "paired moving-block bootstrap, centered null, one-sided improvement",
     }
+
+
+@lru_cache(maxsize=8)
+def _bootstrap_indices(n: int, block: int, seed: int, repetitions: int) -> np.ndarray:
+    """Moving-block index rows, one per repetition (read-only).
+
+    The generator is re-seeded for every bootstrap call, so every call with the same
+    (n, block, seed, repetitions) draws these same blocks: they are drawn once.
+    """
+    rng = np.random.default_rng(seed)
+    rows = np.empty((repetitions, n), dtype=np.int64)
+    for repetition in range(repetitions):
+        starts = rng.integers(0, n - block + 1, size=math.ceil(n / block))
+        rows[repetition] = (starts[:, None] + np.arange(block)).ravel()[:n]
+    rows.flags.writeable = False
+    return rows
 
 
 def _group_results(values: np.ndarray, labels: Sequence[str] | None, folds: tuple[ValidationFold, ...]) -> dict[str, dict[str, object]]:
