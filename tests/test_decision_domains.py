@@ -513,7 +513,7 @@ def test_legacy_v3_hash_and_reference_score_are_unchanged() -> None:
     assert policy.formula_version == "score-engine-v3.4.0"
     # F3: score-engine-v3.4.0 relabels stock cohorts only; weights are unchanged (v3.3.0 was bcffa68b7a6455a62c53ff6ad0f24ab379629f7ed2e4191db3b3643933481b44).
     # F4-F6 add one comment under v3.4.0 (before it reached main the checksum was 041d6d9a471afa5cb997bb13e21ef2b70580fcd69802b270bd6f102e638a80cc).
-    assert policy.formula_checksum == "4e8844de3f786f66960666cf1c2a58f65dd3b28a212eb83fa6e3ccd716575a5d"
+    assert policy.formula_checksum == "822cb0f29245d17ddfe2f0da01f0a80e07a8676fee6942f78602ac960a90d44b"
     assert score.attractiveness_10 == pytest.approx(8.1, abs=1e-12)  # score_10 is rounded to 0.1
 
 

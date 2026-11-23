@@ -67,6 +67,16 @@ from etf_cockpit.data.stock_fundamentals import load_stock_config  # noqa: E402
 UTC = timezone.utc
 DECISION = datetime(2026, 10, 9, 12, 0, tzinfo=UTC)
 CONFIG = load_stock_config()
+# The shipped config has no metric set (Round 3 ruling); the mechanism is tested with these fixture sets (D 2.4 weights).
+SETS = {
+    "utilities": {"sectors": ["Utilities"], "industries": ["Telecom Services"],
+                  "value": {"earnings_yield": 0.5, "dividend_yield": 0.25}, "quality": {"net_debt_to_ebitda": 0.4, "roe": 0.3}},
+    "technology": {"sectors": ["Information Technology"], "industries": ["Internet Content & Information"],
+                   "value": {"sbc_fcf_yield": 0.4, "earnings_yield": 0.3}, "quality": {"gross_profitability": 0.3, "revenue_cagr": 0.2}},
+    "real_estate": {"sectors": ["Real Estate"], "value": {"ffo_yield": 0.5, "dividend_yield": 0.2}},
+    "cyclical": {"sectors": ["Energy"], "industries": ["Copper"], "value": {"ebit_ev_yield_5y": 0.4, "fcf_yield_3y": 0.3}},
+}
+SET_CONFIG = {**CONFIG, "scoring": {**CONFIG["scoring"], "metric_sets": SETS}}
 
 
 def _period(year: int, *, known: str | None = None, **overrides: float) -> sm.Period:
@@ -81,16 +91,21 @@ def _period(year: int, *, known: str | None = None, **overrides: float) -> sm.Pe
     return sm.Period(date(year, 12, 31), "FY", known_at, "EUR", "sec_edgar", values, field_sources={"shares_outstanding": "sec_dei"})
 
 
-def _build(sector: str | None = None, industry: str | None = None, periods=None, **kwargs):
+def _build(sector: str | None = None, industry: str | None = None, periods=None, config=SET_CONFIG, **kwargs):
     market = MarketInputs(price=50.0, price_currency="EUR", price_date=date(2026, 10, 8), dividends_per_share_12m=2.0)
     periods = periods or [_period(y) for y in (2021, 2022, 2023, 2024, 2025)]
-    return build_stock_evidence("T", periods, DECISION, market, None, CONFIG, sector=sector, industry=industry, **kwargs)
+    return build_stock_evidence("T", periods, DECISION, market, None, config, sector=sector, industry=industry, **kwargs)
 
 
 def _cohorts(**values: float) -> dict[str, dict[str, dict[str, float]]]:
     """One industry cohort: three peers at 0.5x, 1x and 2x of each given value."""
 
     return {"industry": {key: {"P1": value * 0.5, "P2": value, "P3": value * 2.0} for key, value in values.items()}}
+
+
+def test_the_shipped_config_has_no_metric_set() -> None:
+    assert not CONFIG["scoring"].get("metric_sets")
+    assert _build("Utilities", "Utilities - Regulated Electric", config=CONFIG).components == _build(config=CONFIG).components
 
 
 def test_a_sector_without_its_own_set_scores_as_today() -> None:

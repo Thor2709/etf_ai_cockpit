@@ -215,7 +215,7 @@ scoring:
     ebit_ev_yield: {low: 0.0, high: 0.10, weight: 1}
     pe_history_percentile: {low: 1.0, high: 0.0, weight: 1}
     pe_vs_peers_discount: {low: -0.5, high: 0.5, weight: 1}
-    # set-only inputs (metric_sets below); the weight of a set input comes from its set
+    # set-only inputs (for `metric_sets`); the weight of a set input comes from its set
     dividend_yield: {low: 0.0, high: 0.06}
     ffo_yield: {low: 0.0, high: 0.12}
     sbc_fcf_yield: {low: 0.0, high: 0.10}
@@ -230,32 +230,12 @@ scoring:
     fcf_conversion: {low: 0.0, high: 1.0, weight: 1}
     revenue_cagr: {low: -0.05, high: 0.10, weight: 1}
     gross_profitability: {low: 0.0, high: 0.50}
-  # F5 (prep D P3, section 2.4): value/quality inputs per sector or Yahoo industry; an industry match wins. A stock
-  # without a set (or a set without the group) uses the default lists above, so it scores as before. A default input
-  # that a set leaves out is "not applicable" for that stock (dropped, never scored 0). Weights are fixed a priori from
-  # D 2.4 and never tuned. Only metrics that exist are listed; a set group is configured only when at least
-  # `min_inputs` of its D 2.4 metrics exist (else the default list stays).
-  metric_sets:
-    utilities:
-      sectors: [Utilities]
-      industries: [Telecom Services]
-      value: {earnings_yield: 0.5, dividend_yield: 0.25}
-      quality: {net_debt_to_ebitda: 0.4, roe: 0.3}
-    technology:
-      sectors: [Information Technology]
-      industries: [Internet Content & Information]
-      value: {sbc_fcf_yield: 0.4, earnings_yield: 0.3}
-      quality: {gross_profitability: 0.3, revenue_cagr: 0.2}
-    real_estate:
-      sectors: [Real Estate]
-      value: {ffo_yield: 0.5, dividend_yield: 0.2}
-    cyclical:
-      # energy and metals & mining: through-cycle averages, not single-year yields
-      sectors: [Energy]
-      industries: [Gold, Silver, Copper, Other Precious Metals & Mining, Other Industrial Metals & Mining, Aluminum, Steel, Coking Coal]
-      value: {ebit_ev_yield_5y: 0.4, fcf_yield_3y: 0.3}
+  # F5 (prep D P3, section 2.4): optional `metric_sets` (name: {sectors, industries, value: {input: weight}, quality: ...})
+  # replace the default lists per sector or Yahoo industry; an industry match wins; a default input a set leaves out is
+  # "not applicable" (dropped, never scored 0). None is shipped: 2-input sets cut value coverage 53 -> 21 of 300 on
+  # fork A (supervisor ruling 2026-11-23, Round 3); wider sets follow once share counts heal.
   # Pre-revenue firms (no positive revenue known at the decision time) of these industries: value and quality are
-  # "not scorable" (never ranked at loss_subscore). With revenue they use their sector's set.
+  # "not scorable" (never ranked at loss_subscore). With revenue they score as any other stock.
   not_scorable:
     industries: [Biotechnology, Gold, Silver, Copper, Other Precious Metals & Mining, Other Industrial Metals & Mining, Uranium]
   cyclical:
