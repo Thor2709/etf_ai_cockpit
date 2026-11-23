@@ -29,7 +29,7 @@ PROXY_ADJ = [80.0, 80.8, 79.6, 80.4, 81.2]
 def _proxy(**changes: object) -> pd.DataFrame:
     frame = pd.DataFrame({
         "date": [date.fromisoformat(day) for day in PROXY_DAYS], "etf_id": "VWRL.AS",
-        "open": PROXY_ADJ, "high": PROXY_ADJ, "low": PROXY_ADJ, "close": [a + 1 for a in PROXY_ADJ],
+        "open": PROXY_ADJ, "high": [a + 1 for a in PROXY_ADJ], "low": PROXY_ADJ, "close": [a + 1 for a in PROXY_ADJ],
         "adjusted_close": PROXY_ADJ, "volume": 1000.0, "currency": "EUR", "provider_symbol": "VWRL.AS",
         "source": "yfinance", "is_adjusted": True, "dividends": [0.0, 0.0, 0.35, 0.0, 0.0], "stock_splits": 0.0,
         "capital_gains": 0.0, "actions_evidenced": True,
@@ -169,3 +169,36 @@ def test_proxy_dates_take_the_date_type_of_loaded_own_rows_and_output_is_sorted(
 def test_splice_fails_closed_on_a_non_finite_or_non_positive_used_price(own_adj, proxy_adj) -> None:
     proxy = _stored_proxy().assign(adjusted_close=proxy_adj)
     assert vwce_benchmark_series(_vwce().assign(adjusted_close=own_adj), proxy) is None
+
+
+def _real_pattern() -> pd.DataFrame:
+    """The 2013-06-11..13 VWRL.AS pattern (flat volume-0 print between two trades) plus an invalid-OHLC row."""
+
+    rows = [  # date, open, high, low, close, volume
+        ("2013-06-11", 45.9, 46.0, 45.7, 45.80, 1200.0),
+        ("2013-06-12", 60.36, 60.36, 60.36, 60.36, 0.0),
+        ("2013-06-13", 45.5, 45.6, 45.2, 45.27, 900.0),
+        ("2017-09-07", 48.0, 48.2, 47.9, 48.0, 800.0),
+        ("2017-09-08", 48.0, 47.5, 48.5, 48.1, 700.0),
+        ("2019-07-26", 49.0, 49.2, 48.9, 49.0, 1000.0),
+        ("2019-07-29", 50.0, 50.1, 49.8, 50.0, 1100.0),
+    ]
+    frame = pd.DataFrame(rows, columns=["date", "open", "high", "low", "close", "volume"])
+    return frame.assign(
+        date=[date.fromisoformat(day) for day in frame["date"]], etf_id="VWRL.AS", adjusted_close=frame["close"],
+        currency="EUR", provider_symbol="VWRL.AS", source="yfinance", is_adjusted=True, dividends=0.0,
+        stock_splits=0.0, capital_gains=0.0, actions_evidenced=True,
+    )
+
+
+def test_import_quarantines_no_trade_and_invalid_ohlc_rows_and_counts_them(tmp_path: Path) -> None:
+    written = _script().import_vwce_proxy(tmp_path, provider=_Provider(_real_pattern()), known_at=KNOWN)
+    stored = pd.read_parquet(written)
+    kept = {str(day)[:10] for day in stored["date"]}
+    assert "2013-06-12" not in kept and "2017-09-08" not in kept and "2013-06-13" in kept
+    reference = tmp_path / "data" / "reference"
+    manifest = json.loads((reference / "vwce_proxy_vwrl_as.json").read_text(encoding="utf-8"))
+    assert manifest["quarantined_rows"] == {"invalid_ohlc": 1, "no_trade": 1}
+    assert manifest["source_hash"] == sha256_dataframe(stored)
+    quarantined = pd.read_parquet(reference / "vwce_proxy_vwrl_as_quarantine.parquet")
+    assert sorted(quarantined["quarantine_reason"]) == ["invalid_ohlc", "no_trade"]
