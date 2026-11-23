@@ -1,8 +1,9 @@
 """Refresh normal-stock fundamentals from free sources (SEC EDGAR when configured, then yfinance).
 
 Usage: python scripts/refresh_stock_fundamentals.py [--root PATH] [--ids A,B]
-Read-only fetches; writes data/clean/stock_*.parquet under the chosen root, then the SEC evidence
-(bitemporal store, raw SEC cache, document chunk store); an SEC evidence error never changes the exit code.
+Read-only fetches; writes data/clean/stock_*.parquet under the chosen root. The SEC evidence refresh (Form 4,
+8-K, 10-K) is parked (OD-8: only the UI stock page reads it, so it shows "not refreshed"); SEC companyfacts still
+refresh in the fundamentals step.
 A full run (no --ids, no --sources) then refreshes the ETF reference data; its errors never change the exit code.
 """
 
@@ -34,26 +35,16 @@ def main() -> int:
     config = load_config()
     only = {item.strip() for item in args.ids.split(",") if item.strip()} or None
     chain = [item.strip() for item in args.sources.split(",") if item.strip()] or None
-    try:  # one provider for both steps: each CIK's companyfacts is downloaded once per run
+    try:  # each CIK's companyfacts is downloaded once per run
         from etf_cockpit.application.sec_evidence_refresh import sec_provider
 
         provider = sec_provider(reuse_companyfacts=True)
-    except Exception:  # no valid SEC User-Agent (or the SEC module fails): each step keeps its own path and reason
+    except Exception:  # no valid SEC User-Agent (or the SEC module fails): the stock refresh keeps its own path and reason
         provider = None
     report = refresh_universe_stock_fundamentals(config, only_ids=only, progress=print, chain=chain, sec_provider=provider)
     print(f"rows added: {report.rows_added}; instruments without data: {len(report.failures)}")
     for key, reason in report.failures.items():
         print(f"  {key}: {reason}")
-    try:
-        from etf_cockpit.application.sec_evidence_refresh import refresh_sec_evidence
-
-        sec = refresh_sec_evidence(config, only_ids=only, progress=print, provider=provider)
-        print(
-            f"SEC evidence added: earnings rows {sec['earnings_rows']}; Form 4 filings {sec['insider_rows']}; "
-            f"10-K chunks indexed {sec['ten_k_chunks']}; targets with a gap: {len(sec['reasons'])}"
-        )
-    except Exception as exc:  # the stock refresh above already ran: keep its exit code
-        print(f"SEC evidence refresh unavailable: {type(exc).__name__}: {exc}")
     if only is None and chain is None:
         try:
             from etf_cockpit.application.data_service import DataService
