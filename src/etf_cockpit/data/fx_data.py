@@ -271,6 +271,14 @@ def prefer_ecb_rates(frame: pd.DataFrame) -> pd.DataFrame:
     return frame.loc[~covered]
 
 
+def _stripped_text(values: pd.Series) -> pd.Series:
+    """``values.astype(str).str.strip()``, computed once per distinct value (E1 P4)."""
+
+    codes, uniques = pd.factorize(values, use_na_sentinel=False)
+    text = np.asarray(pd.Index(uniques, dtype=object).astype(str).str.strip(), dtype=object)
+    return pd.Series(text[codes], index=values.index, dtype=object)
+
+
 def _effective_availability(frame: pd.DataFrame, ingested: pd.Series) -> tuple[pd.Series, str | None]:
     """Per-row UTC time a quote became known: ``available_at`` when stated, else ``ingested_at`` (legacy rows).
 
@@ -282,8 +290,9 @@ def _effective_availability(frame: pd.DataFrame, ingested: pd.Series) -> tuple[p
         return ingested, None
     raw = frame["available_at"] if "available_at" in frame.columns else pd.Series(None, index=frame.index, dtype=object)
     basis = frame["availability_basis"] if "availability_basis" in frame.columns else pd.Series(None, index=frame.index, dtype=object)
-    stated = raw.notna() & raw.astype(str).str.strip().ne("")
-    basis_text = basis.where(basis.notna(), "").astype(str).str.strip()
+    # A datetime column holds no blank text, so it needs no string check (E1 P4).
+    stated = raw.notna() if pd.api.types.is_datetime64_any_dtype(raw) else raw.notna() & _stripped_text(raw).ne("")
+    basis_text = _stripped_text(basis.where(basis.notna(), ""))
     if (~stated & basis_text.ne("")).any():
         return ingested, "FX rates state an availability_basis without available_at."
     parsed = pd.to_datetime(raw.where(stated), errors="coerce", utc=True)
