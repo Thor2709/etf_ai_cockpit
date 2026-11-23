@@ -376,7 +376,9 @@ def backfill_score_history(
             survivorship_unverified=unverified_instruments(existing_eligibility),
         )
     try:
-        for index, session, outcome in _score_sessions(config, frame, todo, fx, registry_signature, excluded, workers, membership, completed_at, reference_order_value):
+        # As-traded factors once per run (S6); score_as_of reuses them (with_as_traded_factors is idempotent).
+        as_traded = with_as_traded_factors(frame)
+        for index, session, outcome in _score_sessions(config, as_traded, todo, fx, registry_signature, excluded, workers, membership, completed_at, reference_order_value):
             say(f"[{index}/{len(sessions)}] scored as of {session}")
             if isinstance(outcome, str):  # fail closed per session: never store a partial or guessed run
                 unavailable[session.isoformat()] = outcome

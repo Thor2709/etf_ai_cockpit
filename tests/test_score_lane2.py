@@ -110,3 +110,24 @@ def test_generate_signals_runs_inside_one_policy_snapshot(monkeypatch):
     with pytest.raises(RuntimeError, match="stop"):
         signal_pipeline.generate_signals(None, pd.DataFrame(), pd.DataFrame(), DataQualityReport(date(2026, 11, 20), []), run_id="t")
     assert seen == [True]
+
+
+def test_as_traded_factors_are_idempotent_with_an_unevidenced_recent_row():
+    """S6 reuses one per-run with_as_traded_factors(prices) in every score_as_of; a second call must change nothing."""
+    import pandas as pd
+
+    from etf_cockpit.analysis.stock_universe import with_as_traded_factors
+
+    days = pd.to_datetime(["2025-06-02", "2025-06-03", "2025-06-04"])
+    prices = pd.DataFrame({
+        "etf_id": ["AAA"] * 3 + ["BBB"] * 3,
+        "date": list(days) * 2,
+        "adjusted_close": [10.0, 5.0, 5.1, 20.0, 20.5, 21.0],
+        "stock_splits": [0.0, 2.0, 0.0, 0.0, 0.0, 0.0],
+        "actions_evidenced": [True, True, True, True, True, False],  # BBB's recent row is not evidenced yet
+    })
+
+    once = with_as_traded_factors(prices)
+
+    pd.testing.assert_frame_equal(with_as_traded_factors(once), once)
+    pd.testing.assert_frame_equal(with_as_traded_factors(once.loc[once["date"] <= days[1]]), once.loc[once["date"] <= days[1]])
