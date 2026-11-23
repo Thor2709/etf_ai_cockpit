@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import etf_kernels
 import numpy as np
 import pandas as pd
 
@@ -24,17 +25,21 @@ def liquidity_score(
     window: int = 60,
     *,
     price: pd.Series | None = None,
+    offsets: np.ndarray | None = None,
 ) -> pd.Series:
     """Liquidity z-score of log money turnover against its rolling median, clipped to [-1, 1].
 
     Share volume alone is not economically comparable across a split, so without a traded
     ``price`` the score is unavailable (all NaN) rather than a share-volume score. Invalid
-    observations are unavailable and excluded from the rolling median.
+    observations are unavailable and excluded from the rolling median (computed by the compiled kernel).
+    ``offsets`` splits a frame sorted by (id, date) into instrument groups ``[offsets[g], offsets[g + 1])``.
     """
 
     if price is None:
         return pd.Series(float("nan"), index=volume.index, dtype=float)
     turnover = traded_turnover(price, volume)
-    rolling = turnover.rolling(window, min_periods=20).median()
+    values = np.ascontiguousarray(turnover.to_numpy(dtype=float))
+    bounds = np.array([0, len(values)], dtype=np.int64) if offsets is None else offsets
+    rolling = pd.Series(etf_kernels.rolling_median(values, bounds, window, 20), index=turnover.index, name=turnover.name)
     z = np.log1p(turnover) - np.log1p(rolling)
     return z.clip(-3, 3) / 3
