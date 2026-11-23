@@ -60,11 +60,21 @@ stored stamps alone shrink the strict past (97 of 142 tradable ETFs on
   never rewritten; live readers keep them.
 
 Replay readers: ETF admission (`ListingHistory.with_observed_trading`), rank
-validation and the backtest. Other sources under the same decision: Yahoo FX
-counts at its close (`stamp_fx_availability`); ECB reference rates at their
-publish time (no ECB rate feeds the FX store yet, and `ecb_provider` still marks
-its rows `inferred`); S&P 500 membership changes at their effective date; SEC
-data at its filed date.
+validation, the backtest and the paper-bot replay book
+(`PriceBook.from_root(reconstructed=True)`; the run result carries `pit_basis`). Other sources under the same decision: Yahoo FX
+counts at its close (`stamp_fx_availability`); ECB euro reference rates
+(`data/ecb_fx.py`, source `ecb`, basis `ecb_publication`) count at their publish
+time, 16:00 Frankfurt time (CET or CEST) on the rate day, or at the fetch time
+if that is earlier; S&P 500 membership changes at their effective date
+(`replay_membership.reconstructed_licensed_rows`: an incomplete licensed interval at
+`valid_from`, its end at `valid_to`, both 00:00 UTC, `pit_basis` "reconstructed"; readers
+`ListingHistory.from_root(reconstructed=True)` and `membership_frame(reconstructed=True)`); SEC
+data at its filed date. The FX store keeps one rate per quote day and currency
+against EUR (`prefer_ecb_rates`, applied by every FX writer): the ECB rate where
+the ECB publishes one, else the Yahoo rate (for example CLP, COP, and TWD after
+2020). A reader takes a row only from its own `available_at`, so before the
+Yahoo close only the ECB rate of that day is visible. The macro path
+`ecb_provider` keeps its `inferred` rows; it does not feed the FX store.
 Reconstructed rows count as historical evidence for proof and tuning. Their
 values can include later revisions: a later dividend or split rescales earlier
 adjusted values (returns are unchanged), and a vendor correction shows at its

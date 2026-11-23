@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from io import BytesIO
 from pathlib import Path
 import hashlib
 import json
 
 import pandas as pd
+import pyarrow.parquet as pq
 
 from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_group, read_atomic_group, wait_for_atomic_group
 from etf_cockpit.core.config import AppConfig, load_config
@@ -111,7 +112,13 @@ def write_prices(prices: pd.DataFrame, path: Path = PRICE_PARQUET) -> None:
     atomic_write_bytes(path, parquet_payload(frame), validate_parquet_file)
 
 
-def load_prices(path: Path | None = None, *, config: AppConfig | None = None) -> pd.DataFrame:
+def load_prices(
+    path: Path | None = None, *, config: AppConfig | None = None, columns: Sequence[str] | None = None,
+) -> pd.DataFrame:
+    """The validated price store. ``columns`` reads only those columns, in that order, and equals the full read's
+    ``frame[columns]``; the synthetic gate still reads ``source`` (D4: 3 of 21 columns, fork A 1.70 -> 0.49 GB RSS).
+    """
+
     path = PRICE_PARQUET if path is None else path
     if not path.exists():
         if path != PRICE_PARQUET:
@@ -120,17 +127,22 @@ def load_prices(path: Path | None = None, *, config: AppConfig | None = None) ->
         if not path.exists():
             return _unavailable_prices()
     wait_for_atomic_group(path)
-    frame = pd.read_parquet(path)
+    names = pq.read_schema(path).names
+    read = None if columns is None else list(dict.fromkeys(
+        [*columns, *(["source"] if path == PRICE_PARQUET and "source" in names else [])]
+    ))
+    frame = pd.read_parquet(path, columns=read)
     if path == PRICE_PARQUET:
         frame = _without_synthetic(frame, config)
         if frame.empty:
             return _unavailable_prices()
-    frame["date"] = pd.to_datetime(frame["date"]).dt.date
+    if "date" in frame.columns:
+        frame["date"] = pd.to_datetime(frame["date"]).dt.date
     if "calendar_identity" in frame.columns:
         frame["calendar_identity"] = frame["calendar_identity"].map(
             _normalise_calendar_identity
         )
-    return frame
+    return frame if columns is None else frame[list(columns)]
 
 
 def load_holdings(path: Path | None = None, *, config: AppConfig | None = None) -> pd.DataFrame:

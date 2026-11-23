@@ -92,7 +92,7 @@ def run_historical_replay(
                 reason=f"Paper bot data readiness blocked:\n{readiness_failure}", label=track.label,
             )
         membership = ListingHistory.from_root(project_root)
-        book = price_book if price_book is not None else execution.PriceBook.from_root(project_root)
+        book = price_book if price_book is not None else execution.PriceBook.from_root(project_root, reconstructed=True)
         if survivorship_mode != STRICT_MODE:
             membership = membership.with_price_history(book.first_price_dates(), survivorship_mode)
         failure = replay_preflight(frame, membership, book, cutoff)
@@ -115,6 +115,7 @@ def run_historical_replay(
         _write_replay_decisions(store, track, bots_config, config_hash, book, frame, cutoff, warnings, label)
 
     result = execution._run(track, project_root, cutoff, config_path, execution_config_path, price_book, prepare)
+    result = replace(result, pit_basis=book.pit_basis)
     return replace(result, survivorship_unverified=True) if flagged else result
 
 

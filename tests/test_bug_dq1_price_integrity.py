@@ -219,7 +219,8 @@ class _FakeProvider:
 
     def fetch_prices(self, symbols, start, end):
         self.barrier.wait()  # both refreshes fetch before either merges with the stored prices
-        data = _fresh(self.ids, "2026-10-08").assign(
+        # The full stored span (2026-10-01) plus the new bar: a shorter fetch keeps the stored series (D1).
+        data = pd.concat([_fresh(self.ids, "2026-10-01"), _fresh(self.ids, "2026-10-08")], ignore_index=True).assign(
             open=10.0, high=11.0, low=9.0, adjusted_close=10.0, volume=1.0, currency="EUR"
         )
         missing = sorted(set(("AAA", "BBB")) - set(self.ids))
