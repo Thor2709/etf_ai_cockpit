@@ -39,7 +39,7 @@ jobs:
       - name: Audit Rust crates
         shell: pwsh
         run: |
-          cargo install cargo-audit --locked
+          cargo install cargo-audit --locked --version 0.23.0
           cargo audit --file rust/etf_kernels/Cargo.lock
 
       - name: Upload supply-chain evidence

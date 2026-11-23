@@ -57,6 +57,23 @@ if /I "%ETF_COCKPIT_RELEASE_BUILD%"=="1" (
   if errorlevel 1 exit /b 1
 )
 
+rem The compiled kernels (etf_kernels) are required at start: build the abi3 wheel and install it into .venv.
+rem maturin is a build tool only; Rust comes from rustup (the default cargo folder is added when cargo is not on PATH).
+where cargo >nul 2>nul
+if errorlevel 1 set "PATH=%USERPROFILE%\.cargo\bin;%PATH%"
+".venv\Scripts\python.exe" -m pip install maturin==1.16.0
+if errorlevel 1 exit /b 1
+if exist build\kernels rmdir /s /q build\kernels
+".venv\Scripts\maturin.exe" build --release --locked --manifest-path rust\etf_kernels\Cargo.toml --interpreter ".venv\Scripts\python.exe" --out build\kernels
+if errorlevel 1 exit /b 1
+for %%w in (build\kernels\etf_kernels-*.whl) do ".venv\Scripts\python.exe" -m pip install --no-index --force-reinstall --no-deps "%%w"
+if errorlevel 1 exit /b 1
+".venv\Scripts\python.exe" -c "import etf_kernels" >nul 2>nul
+if errorlevel 1 (
+  echo ERROR: the etf_kernels extension is not importable after the build.
+  exit /b 1
+)
+
 if exist ".venv\Scripts\pyinstaller.exe" (
   ".venv\Scripts\python.exe" -c "import PyInstaller" >nul 2>nul
   if errorlevel 1 (
@@ -103,6 +120,9 @@ call :copy_required src "%OUTDIR%\app\src"
 if errorlevel 1 exit /b 1
 for /d /r "%OUTDIR%\app\src" %%d in (__pycache__) do if exist "%%d" rmdir /s /q "%%d"
 call :copy_required configs "%OUTDIR%\configs"
+if errorlevel 1 exit /b 1
+rem The source launcher installs the shipped kernel wheel offline (no Rust toolchain on the target machine).
+call :copy_required build\kernels "%OUTDIR%\wheels"
 if errorlevel 1 exit /b 1
 rem Pristine upgrade defaults live beside app\src so a missing owner config can be restored.
 call :copy_required configs "%OUTDIR%\app\configs"
@@ -189,6 +209,8 @@ exit /b 0
   echo ".venv\Scripts\python.exe" -m pip install -r %LAUNCHER_REQ%
   echo if errorlevel 1 goto source_failed
   echo ".venv\Scripts\python.exe" -m pip install -r %LAUNCHER_REQ_PARSERS%
+  echo if errorlevel 1 goto source_failed
+  echo ".venv\Scripts\python.exe" -m pip install --no-index --find-links wheels etf-kernels
   echo if errorlevel 1 goto source_failed
   echo ".venv\Scripts\python.exe" scripts\launcher_core.py launch --mode source --root "%%CD%%" --preferred-port "%%ETF_COCKPIT_PORT%%" --open-browser 1 --timeout 60
   echo set RC=%%ERRORLEVEL%%
