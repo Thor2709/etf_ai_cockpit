@@ -231,8 +231,8 @@ def test_future_observed_bars_cannot_change_past_snapshot():
 
 @pytest.mark.parametrize("changes", [
     {"source": "synthetic_sample"}, {"source": "forward_fill"}, {"is_filled": True},
-    {"is_synthetic": True}, {"available_at": None}, {"available_at": "2026-10-15T12:00:00"},
-    {"source": None}, {"volume": 0}, {"close": float("nan")},
+    # An empty or tz-naive stamp no longer bars a genuine bar (OD-1 = b; tests/test_reconstructed_pit.py).
+    {"is_synthetic": True}, {"source": None}, {"volume": 0}, {"close": float("nan")},
 ])
 def test_strict_etf_requires_genuine_traded_bar(changes):
     history = ListingHistory().with_observed_trading(pd.DataFrame([_observed_bar(**changes)]), _config())

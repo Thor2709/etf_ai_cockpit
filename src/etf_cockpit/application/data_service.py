@@ -34,6 +34,7 @@ from etf_cockpit.data.fx_data import (
     commit_fx_import,
     fx_data_inventory,
     load_fx_rates,
+    major_currency,
     validate_fx_rates,
 )
 from etf_cockpit.data.import_pipeline import (
@@ -100,6 +101,7 @@ from etf_cockpit.application.forecast_service import (
 ADJ_CLOSE_RTOL = 1e-6
 INCREMENTAL_OVERLAP_DAYS = 14
 FX_OVERLAP_DAYS = 14
+MAX_HISTORY_YEARS = 99  # ``years=None``: the span of yfinance's own ``period="max"``
 
 
 def _normalised_price_dates(frame: pd.DataFrame) -> pd.Series:
@@ -168,6 +170,18 @@ def _read_clean_price_store() -> pd.DataFrame:
     except Exception:
         # An unreadable store cannot safely anchor a short-window merge.
         return pd.DataFrame()
+
+
+def _history_start(end_date: date, years: int | None) -> date:
+    """Fetch start: ``years`` back (``None`` = max), never after the oldest stored bar, so no refresh cuts history."""
+
+    start = years_before(end_date, MAX_HISTORY_YEARS if years is None else years)
+    path = CLEAN_DIR / "prices.parquet"
+    try:
+        oldest = pd.to_datetime(pd.read_parquet(path, columns=["date"])["date"], errors="coerce").min() if path.is_file() else pd.NaT
+    except Exception:
+        oldest = pd.NaT  # an unreadable store has no history to keep
+    return start if pd.isna(oldest) else min(start, oldest.date())
 
 
 def _latest_sessions(frame: pd.DataFrame, as_of: date) -> pd.Series:
@@ -276,10 +290,18 @@ def _refresh_yfinance_fx(
     provider: YFinanceProvider,
     config: AppConfig,
     *,
-    years: int,
+    start_date: date,
+    full_history: bool,
+    prices: pd.DataFrame,
     end_date: date,
     publish_guard: PublicationScopeFactory | None,
 ) -> list[str]:
+    """FX at least as deep as the prices (D3).
+
+    A pair without rows, every pair on a max-history run, and a pair whose oldest row is later than the oldest price
+    session in its currency (beyond the overlap) are fetched from that price start; other pairs from the overlap.
+    """
+
     base_currency = str(config.targets.base_currency).strip().upper()
     currencies = sorted(
         {
@@ -299,11 +321,22 @@ def _refresh_yfinance_fx(
         return ["FX not refreshed: " + ", ".join(pairs) + "."]
     stored_pairs = _fx_pair_series(stored)
     stored_dates = _fx_date_series(stored)
-    fallback_start = years_before(end_date, years)
+    price_starts: dict[str, date] = {}
+    if {"date", "currency"}.issubset(prices.columns):
+        dates = pd.to_datetime(prices["date"], errors="coerce").groupby(prices["currency"].astype(str)).min().dropna()
+        for label, oldest in dates.items():
+            if (currency := major_currency(label)) is not None:
+                price_starts[currency] = min(price_starts.get(currency, oldest.date()), oldest.date())
     pair_windows: dict[date, list[str]] = {}
     for pair in pairs:
         pair_dates = stored_dates.loc[stored_pairs.eq(pair)].dropna()
-        start = max(pair_dates) - timedelta(days=FX_OVERLAP_DAYS) if not pair_dates.empty else fallback_start
+        needed = price_starts.get(pair.split("/")[0])
+        if full_history or pair_dates.empty:
+            start = start_date
+        elif needed is not None and min(pair_dates) > needed + timedelta(days=FX_OVERLAP_DAYS):
+            start = needed
+        else:
+            start = max(pair_dates) - timedelta(days=FX_OVERLAP_DAYS)
         pair_windows.setdefault(start, []).append(pair)
 
     failed_pairs: set[str] = set()
@@ -489,15 +522,18 @@ def _merge_incremental_price_result(
             continue
 
         refreshed_rows = full_rows(instrument_id)
+        old_dates, new_dates = (_normalised_price_dates(rows).dropna() for rows in (old_rows, refreshed_rows))
+        if not old_dates.empty and not new_dates.empty and new_dates.min() > old_dates.min():
+            # A refetch that does not reach the oldest stored session would erase history: it failed (D1).
+            refreshed_rows = refreshed_rows.iloc[0:0]
+            failed_full_ids.add(instrument_id)
         # A failed full refetch must not mix its window rows with the stored adjustment basis.
         parts.append(refreshed_rows if not refreshed_rows.empty else old_rows)
 
     merged = pd.concat(parts, ignore_index=True) if parts else window_data.iloc[0:0].copy()
     if "date" in merged.columns:
-        merged_dates = _normalised_price_dates(merged)
-        in_span = merged_dates.isna() | merged_dates.ge(start_date)
-        merged = merged.loc[in_span].copy()
-        merged["date"] = merged_dates.loc[in_span]
+        # Stored bars older than the fetch span are kept: the merge never cuts history (D1).
+        merged["date"] = _normalised_price_dates(merged)
     if {"etf_id", "date"}.issubset(merged.columns):
         merged = merged.sort_values(["etf_id", "date"], kind="mergesort", na_position="last").reset_index(drop=True)
 
@@ -644,16 +680,18 @@ class DataService:
     def refresh_yfinance_data(
         self,
         *,
-        years: int = 5,
+        years: int | None = 5,
         include_reference_data: bool = True,
         publish_guard: PublicationScopeFactory | None = None,
         incremental: bool = False,
         include_fundamentals: bool = True,
         include_fx: bool = False,
     ) -> str:
+        """``years=None`` fetches the maximum history, and every FX pair from the same start."""
+
         self.last_operation_succeeded = False
         end_date = date.today()
-        start_date = years_before(end_date, years)
+        start_date = _history_start(end_date, years)
         provider = YFinanceProvider.from_config(self.config)
         messages: list[str] = []
         incremental_window_start: date | None = None
@@ -812,7 +850,9 @@ class DataService:
                 _refresh_yfinance_fx(
                     provider,
                     self.config,
-                    years=years,
+                    start_date=start_date,
+                    full_history=years is None,
+                    prices=result.data,
                     end_date=end_date,
                     publish_guard=publish_guard,
                 )
