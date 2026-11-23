@@ -151,7 +151,7 @@ def with_as_traded_factors(prices: pd.DataFrame) -> pd.DataFrame:
     Compute from the full stored series, before truncation. Existing factors came
     from an upstream full-series call and must survive subsequent truncations.
     No price or other future observation contributes to these factors. A bar
-    with an unevidenced later row gets no factor: that row's split is unknown.
+    with an unevidenced row on or after its date gets no factor.
     """
 
     if "as_traded_split_factor" in prices or prices.empty:
@@ -174,10 +174,10 @@ def with_as_traded_factors(prices: pd.DataFrame) -> pd.DataFrame:
         ratios[ratios == 0] = 1.0
         # The split on the bar date is already reflected in its traded price.
         unevidenced = ~_evidenced(frame["actions_evidenced"])[order]
-        later_unevidenced = np.r_[np.cumsum(unevidenced[:0:-1])[::-1], 0] > 0
+        from_here_unevidenced = np.cumsum(unevidenced[::-1])[::-1] > 0
         with np.errstate(over="ignore", under="ignore"):
             restored = np.r_[np.cumprod(ratios[:0:-1])[::-1], 1.0]
-        factors[np.asarray(positions)[order]] = np.where(later_unevidenced, np.nan, restored)
+        factors[np.asarray(positions)[order]] = np.where(from_here_unevidenced, np.nan, restored)
     result["as_traded_split_factor"] = factors
     return result
 
@@ -188,7 +188,7 @@ def as_traded_close(frame: pd.DataFrame, when: date) -> tuple[float | None, str 
     ``frame`` contains either the full stored split history or per-bar factors
     prepared by ``with_as_traded_factors`` before decision-time truncation.
     Later splits only undo the provider's retrospective price adjustment, so
-    every row after ``when`` needs action evidence; earlier rows do not.
+    the row on ``when`` and every later row need action evidence; earlier rows do not.
     Missing or ambiguous action evidence fails closed, including legacy rows.
     """
 
@@ -214,7 +214,7 @@ def _as_traded_closes(frame: pd.DataFrame) -> Callable[[date], tuple[float | Non
         return fails("ambiguous dates in valuation split history")
     position = {day: index for index, day in enumerate(dates)}
     unevidenced = dates[~_evidenced(frame["actions_evidenced"])]
-    last_unevidenced = unevidenced.max() if len(unevidenced) else None  # splits on later rows are reversed
+    last_unevidenced = unevidenced.max() if len(unevidenced) else None  # the close on when and later splits need evidence
     splits = pd.to_numeric(frame["stock_splits"], errors="coerce")
     splits_invalid = bool(splits.isna().any() or not np.isfinite(splits).all() or (splits < 0).any())
 
@@ -222,7 +222,7 @@ def _as_traded_closes(frame: pd.DataFrame) -> Callable[[date], tuple[float | Non
         index = position.get(when)
         if index is None:
             return None, "no stored close for the valuation date"
-        if last_unevidenced is not None and last_unevidenced > when:
+        if last_unevidenced is not None and last_unevidenced >= when:
             return None, "actions_evidence_missing: as-traded valuation price is unavailable"
         row = frame.iloc[index]
         close = sm._finite(row["close"])
