@@ -1056,6 +1056,13 @@ class _Builder:
             return None
         return sm.tangible_equity(period.values["equity_parent"], period.values["goodwill"], period.values["intangibles_ex_goodwill"])
 
+    def _balance_guard(self, periods: Sequence[Period], denominator: str, value: float | None, scale_period: Period) -> str | None:
+        """The balance-sheet block and the tiny-denominator guard, as for pb and roe (blocked, never clamped)."""
+
+        block = next((reason for reason in map(self._balance_block, periods) if reason is not None), None)
+        assets = scale_period.values["total_assets"] if scale_period.has("total_assets") else None
+        return block or self._tiny_denominator({denominator: value}, assets)
+
     def _tangible_metrics(self, mcap: float | None, mcap_reason: str | None) -> None:
         names = ("equity_parent", "goodwill", "intangibles_ex_goodwill")
         latest = sm.latest_balance(self.known, names)
@@ -1064,6 +1071,8 @@ class _Builder:
             self.metrics["ptbv"] = _missing("ptbv", str(mcap_reason), formula)
         elif latest is None or latest.currency != self.reporting_currency:
             self.metrics["ptbv"] = _missing("ptbv", "needs parent equity, goodwill and other intangibles of the latest balance sheet in the reporting currency", formula)
+        elif (guard := self._balance_guard([latest], "tangible equity", self._tangible(latest), latest)) is not None:
+            self.metrics["ptbv"] = _missing("ptbv", guard, formula)
         else:
             base = sm.multiple("ptbv", "P/TBV", mcap, self._tangible(latest), formula=formula, denominator_name="tangible equity")
             self.metrics["ptbv"] = _from("ptbv", base, basis="latest balance", as_of=latest.period_end.isoformat(), currency=latest.currency, source=latest.source)
@@ -1074,8 +1083,14 @@ class _Builder:
         if window is None or close is None or opening is None:
             self.metrics["rote"] = _missing("rote", "needs net income and tangible equity at the window end and one year earlier", formula)
             return
+        if any(self._period_currency_mismatch(item, names, window.currency) for item in (close, opening)):
+            self.metrics["rote"] = _missing("rote", "currency_mismatch between net income and tangible equity", formula)
+            return
         ending, start = self._tangible(close), self._tangible(opening)
         average = None if ending is None or start is None else (ending + start) / 2.0
+        if (guard := self._balance_guard([close, opening], "average tangible equity", average, close)) is not None:
+            self.metrics["rote"] = _missing("rote", guard, formula)
+            return
         ratio = sm.flow_ratio("rote", METRIC_LABELS["rote"][0], sm.window_sum(window, "net_income_parent"), average, formula=formula,
                               denominator_name="average tangible equity")
         self.metrics["rote"] = _from("rote", ratio, **self._ctx(window))
@@ -1093,6 +1108,8 @@ class _Builder:
             self.metrics[key] = _missing(key, f"needs {balance.replace('_', ' ')} at the window end and one year earlier", formula)
         elif any(self._period_currency_mismatch(item, (balance,), window.currency) for item in (close, opening)):
             self.metrics[key] = _missing(key, f"currency_mismatch between {flow.replace('_', ' ')} and {balance.replace('_', ' ')}", formula)
+        elif (guard := self._balance_guard([close, opening], denominator_name, (close.values[balance] + opening.values[balance]) / 2.0, close)) is not None:
+            self.metrics[key] = _missing(key, guard, formula)
         else:
             average = (close.values[balance] + opening.values[balance]) / 2.0
             ratio = sm.flow_ratio(key, METRIC_LABELS[key][0], sm.window_sum(window, flow), average, formula=formula, denominator_name=denominator_name)

@@ -230,3 +230,27 @@ def test_companyfacts_concepts_reach_the_period_fields() -> None:
 def test_new_value_inputs_are_wired_where_d_p3_names_them(sector: str, industry: str, inputs: list[str]) -> None:
     value = _build(sector, industry, [_period(y, **F6_FIELDS) for y in (2021, 2022, 2023, 2024, 2025)]).components["stock_value"]
     assert [item.key for item in value.inputs] == inputs and value.score_10 is not None
+
+
+# --- correction pass (review 2026-11-23): currency and balance-sheet guards on ptbv / rote / nii_to_assets ----------
+
+from dataclasses import replace  # noqa: E402
+
+
+def test_rote_never_mixes_currencies() -> None:
+    periods = [_period(y, **F6_FIELDS) for y in (2021, 2022, 2023, 2025)]
+    periods.insert(3, replace(_period(2024, **F6_FIELDS), currency="USD"))  # the opening balance is in another currency
+    rote = _build(periods=periods).metrics["rote"]
+    assert not rote.available and "currency_mismatch" in str(rote.reason)
+
+
+def test_a_blocked_balance_sheet_blocks_the_new_balance_ratios() -> None:
+    metrics = _f6(cash_sti=5000.0)  # cash above total assets (2000): the anomaly guard blocks the matched ratios
+    for key in ("ptbv", "rote", "nii_to_assets"):
+        assert not metrics[key].available and "accounting anomaly" in str(metrics[key].reason), key
+
+
+def test_a_tiny_tangible_equity_is_blocked_not_divided() -> None:
+    metrics = _f6(intangibles_ex_goodwill=799.999)  # tangible equity 0.001 against total assets 2000
+    for key in ("ptbv", "rote"):
+        assert not metrics[key].available and "tiny_denominator" in str(metrics[key].reason), key
