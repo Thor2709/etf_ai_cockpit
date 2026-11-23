@@ -13,6 +13,9 @@ def package_directory(name):
     return Path(origin).resolve().parent
 
 
+# The compiled kernels are the one production path of their calculations: a build without them fails here.
+if find_spec('etf_kernels') is None:
+    raise RuntimeError('The etf_kernels extension is not installed (python -m pip install ./rust/etf_kernels).')
 flet_web_directory = package_directory('flet_web')
 flet_directory = package_directory('flet')
 # PyInstaller executes spec files in a namespace without ``__file__`` on

@@ -44,3 +44,10 @@ def test_windows_build_packages_third_party_notices() -> None:
     script = (ROOT / "scripts" / "build_windows.bat").read_text(encoding="utf-8").lower()
 
     assert "third_party_notices.md" in script
+
+
+def test_windows_build_pins_the_rust_toolchain_for_the_kernel_build() -> None:
+    script = (ROOT / "scripts" / "build_windows.bat").read_text(encoding="utf-8").lower()
+
+    assert 'if not defined rustup_toolchain set "rustup_toolchain=1.100.0"' in script
+    assert script.index("rustup_toolchain=1.100.0") < script.index("maturin.exe\" build")

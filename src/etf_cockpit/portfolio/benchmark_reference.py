@@ -890,6 +890,122 @@ def _series_check(
     )
 
 
+# OD-2 b: before VWCE's own history the benchmark uses VWRL.AS (same FTSE All-World index, EUR, Euronext Amsterdam,
+# distributing), labelled proxy. VWRL.AS is a reference file only, in no universe or price-store id list.
+VWCE_SPLICE_DATE = date(2019, 7, 29)
+VWCE_PROXY_SYMBOL = "VWRL.AS"
+VWCE_PROXY_ISIN = "IE00B3RBWM25"
+VWCE_PROXY_START = date(2012, 5, 22)
+_SERIES_COLUMNS = ("date", "etf_id", "adjusted_close", "currency", "known_at")
+
+
+def validate_vwce_proxy_series(
+    frame: pd.DataFrame | None,
+    *,
+    known_at: object,
+    provider_metadata: object = None,
+    max_daily_move: float = DEFAULT_MAX_DAILY_MOVE,
+) -> VwceReferenceSeriesCheck:
+    """Check one VWRL.AS proxy series; fail closed. The VWCE contract is not used or relaxed for it.
+
+    Provenance, identity and action evidence as for VWCE, but dividends are allowed (distributing share class).
+    The rows end with one anchor row on the splice date, so the return into VWCE's first own close is defined."""
+
+    from etf_cockpit.core.types import DatasetMetadata
+
+    reasons: list[str] = []
+    if (not isinstance(provider_metadata, DatasetMetadata)
+            or provider_metadata.source_name != "yfinance" or provider_metadata.source_type != "prices"
+            or provider_metadata.currency != "EUR" or provider_metadata.ingested_at is None
+            or provider_metadata.ingested_at.tzinfo is None
+            or not isinstance(frame, pd.DataFrame)
+            or provider_metadata.checksum != vwce_series_source_hash(frame)):
+        reasons.append("provider_provenance_unverified")
+    try:
+        known_stamp: pd.Timestamp | None = pd.Timestamp(known_at)
+    except (TypeError, ValueError):
+        known_stamp = None
+    if known_stamp is None or pd.isna(known_stamp) or known_stamp.tzinfo is None:
+        reasons.append("known_at_unavailable")
+        known_stamp = None
+    if not isinstance(frame, pd.DataFrame) or not {"date", "close", "adjusted_close"} <= set(frame.columns) or len(frame) < 2:
+        reasons.append("series_columns_missing")
+        return _series_check(reasons, None, known_stamp, 0 if frame is None else len(frame), None, None)
+    for column, expected in (("provider_symbol", VWCE_PROXY_SYMBOL), ("currency", "EUR"), ("source", "yfinance")):
+        if column not in frame or frame[column].isna().any() or not frame[column].eq(expected).all():
+            reasons.append(f"provider_identity_unverified:{column}")
+    if "is_adjusted" not in frame or not frame["is_adjusted"].eq(True).all():
+        reasons.append("provider_adjusted_evidence_missing")
+    if "actions_evidenced" not in frame or not frame["actions_evidenced"].eq(True).all():
+        reasons.append("corporate_action_evidence_missing")
+    splits = pd.to_numeric(frame.get("stock_splits"), errors="coerce") if "stock_splits" in frame else None
+    if splits is None or splits.isna().any() or not splits.isin([0, 1]).all():
+        reasons.append("explicit_split_requires_verified_adjustment")
+    dates = pd.to_datetime(frame["date"], errors="coerce")
+    if dates.isna().any() or dates.duplicated().any() or not dates.is_monotonic_increasing:
+        reasons.append("invalid_dates")
+        return _series_check(reasons, None, known_stamp, len(frame), None, None)
+    if dates.max() != pd.Timestamp(VWCE_SPLICE_DATE):
+        reasons.append("splice_anchor_missing")
+    if known_stamp is not None and not _last_close_known(dates.max().date(), known_stamp):
+        reasons.append("observation_after_known_at")
+    close = pd.to_numeric(frame["close"], errors="coerce")
+    adjusted = pd.to_numeric(frame["adjusted_close"], errors="coerce")
+    if not (np.isfinite(close.to_numpy(dtype=float)).all() and np.isfinite(adjusted.to_numpy(dtype=float)).all()
+            and (close > 0).all() and (adjusted > 0).all()):
+        reasons.append("prices_missing_or_non_positive")
+        return _series_check(reasons, None, known_stamp, len(frame), None, None)
+    for label, prices in (("close", close), ("adjusted_close", adjusted)):
+        if bool((prices.pct_change().abs().iloc[1:] > max_daily_move).any()):
+            reasons.append(f"split_or_adjustment_discontinuity:{label}")
+    first, last = dates.min().date().isoformat(), dates.max().date().isoformat()
+    return _series_check(reasons, vwce_series_source_hash(frame), known_stamp, len(frame), first, last)
+
+
+def vwce_benchmark_series(vwce_rows: pd.DataFrame, proxy_rows: pd.DataFrame) -> pd.DataFrame | None:
+    """VWCE benchmark levels: VWCE's own rows from the splice date, VWRL.AS-chained proxy rows before it.
+
+    Own rows keep their values (``_SERIES_COLUMNS``); VWCE rows before the splice date are not used. A proxy level is
+    VWCE's own adjusted close on the splice date times the VWRL.AS adjusted-close ratio to its splice-date row, i.e.
+    the chained dividend-adjusted returns. A day without a VWRL.AS row stays missing. Proxy rows carry
+    ``benchmark_basis="proxy"``, ``proxy_source_id`` and the reconstructed PIT stamp (OD-1 b,
+    ``import_pipeline.reconstructed_price_availability``). ``None`` when either series has no splice-date row."""
+
+    from etf_cockpit.data.import_pipeline import reconstructed_price_availability
+
+    splice = pd.Timestamp(VWCE_SPLICE_DATE)
+    own_dates = pd.to_datetime(vwce_rows["date"], errors="coerce")
+    proxy_dates = pd.to_datetime(proxy_rows["date"], errors="coerce")
+    own_anchor = vwce_rows.loc[own_dates.eq(splice), "adjusted_close"]
+    proxy_anchor = proxy_rows.loc[proxy_dates.eq(splice), "adjusted_close"]
+    if len(own_anchor) != 1 or len(proxy_anchor) != 1:
+        return None
+    used = pd.concat([
+        vwce_rows.loc[own_dates.ge(splice), "adjusted_close"], proxy_rows.loc[proxy_dates.le(splice), "adjusted_close"],
+    ])
+    used = pd.to_numeric(used, errors="coerce").to_numpy(dtype=float)
+    if not (np.isfinite(used).all() and (used > 0).all()):
+        return None
+    columns = [column for column in _SERIES_COLUMNS if column in vwce_rows.columns]
+    own = vwce_rows.loc[own_dates.ge(splice), columns].assign(benchmark_basis="own", proxy_source_id=None)
+    before = proxy_rows.loc[proxy_dates.lt(splice)]
+    stamps = proxy_dates[before.index]
+    proxy = pd.DataFrame({
+        # The date type of the own rows: ``load_prices()`` gives ``datetime.date`` objects.
+        "date": stamps.dt.date if own["date"].dtype == object else stamps.astype(own["date"].dtype),
+        "etf_id": "VWCE",
+        "adjusted_close": float(own_anchor.iloc[0]) * before["adjusted_close"] / float(proxy_anchor.iloc[0]),
+        "currency": VWCE_QUOTE_CURRENCY,
+        "known_at": before["known_at"] if "known_at" in before else pd.NaT,
+    })
+    proxy = reconstructed_price_availability(proxy)
+    if "known_at" in own:
+        proxy["known_at"] = proxy["known_at"].astype(own["known_at"].dtype)
+    proxy = proxy[[*columns, "pit_basis"]].assign(benchmark_basis="proxy", proxy_source_id=VWCE_PROXY_SYMBOL)
+    series = pd.concat([proxy, own], ignore_index=True)
+    return series.sort_values("date", key=pd.to_datetime, kind="stable", ignore_index=True)
+
+
 def _vwce_record_failure(item: object, check: VwceReferenceSeriesCheck) -> str | None:
     """Re-verify one registry record (content hash, identity, currency, known_at); ``None`` when it passes."""
 
@@ -1013,7 +1129,9 @@ __all__ = [
     "resolve_canonical_reference",
     "unavailable_reference_projection",
     "validate_benchmark_reference",
+    "validate_vwce_proxy_series",
     "validate_vwce_reference_series",
+    "vwce_benchmark_series",
     "vwce_reference_status",
     "vwce_series_source_hash",
 ]

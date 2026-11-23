@@ -229,68 +229,67 @@ def compute_features(prices: pd.DataFrame, benchmark_etf_id: str | None = None) 
     # One row per (instrument, date): an equal duplicate must not shift every rolling horizon by a row.
     # Conflicting duplicates are blocked by price validation before features are computed.
     frame = frame.drop_duplicates(["etf_id", "date"], keep="last")
-    feature_frames: list[pd.DataFrame] = []
     benchmark_prices: pd.Series | None = None
 
     if benchmark_etf_id and benchmark_etf_id in set(frame["etf_id"]):
         benchmark_prices = frame[frame["etf_id"] == benchmark_etf_id].set_index("date")["adjusted_close"].astype(float)
 
-    for etf_id, group in frame.groupby("etf_id", sort=False):
-        group = group.sort_values("date").copy()
-        price = group["adjusted_close"].astype(float)
-        log_ret = daily_log_returns(price)
-        sma_100 = simple_moving_average(price, 100)
-        sma_200 = simple_moving_average(price, 200)
-        out = pd.DataFrame(
-            {
-                "date": group["date"].values,
-                "etf_id": etf_id,
-                "return_1d_log": log_ret.values,
-                "return_5d_log": horizon_log_returns(price, 5).values,
-                "return_20d_log": horizon_log_returns(price, 20).values,
-                "return_60d_log": horizon_log_returns(price, 60).values,
-                "momentum_20d": horizon_log_returns(price, 20).values,
-                "momentum_60d": horizon_log_returns(price, 60).values,
-                "momentum_120d": horizon_log_returns(price, 120).values,
-                "momentum_180d": horizon_log_returns(price, 180).values,
-                # B-04 challengers only: no live score weight pending #811 evaluation.
-                "momentum_252d_skip_20d": momentum(price, 252, skip=20).values,
-                "sma_50": simple_moving_average(price, 50).values,
-                "sma_100": sma_100.values,
-                "sma_200": sma_200.values,
-                "trend_100": (price > sma_100).where(sma_100.notna()).astype(float).values,
-                "trend_200": (price > sma_200).where(sma_200.notna()).astype(float).values,
-                "trend_slope": (sma_100 / sma_200 - 1).values,
-                "vol_20d_ann": realised_volatility(log_ret, 20).values,
-                "vol_60d_ann": realised_volatility(log_ret, 60).values,
-                "vol_120d_ann": realised_volatility(log_ret, 120).values,
-                "ewma_vol_ann": ewma_volatility(log_ret).values,
-                "drawdown_current": drawdown(price).values,
-                "drawdown_60d_max": rolling_max_drawdown(price, 60).values,
-                "drawdown_120d_max": rolling_max_drawdown(price, 120).values,
-                "liquidity_score": liquidity_score(group["volume"], price=group["close"] if "close" in group.columns else None).values,
-                # Display only: the listing-currency price (EUR-basis frames keep it in adjusted_close_local).
-                "last_price": (
-                    group["adjusted_close_local"] if "adjusted_close_local" in group.columns else group["adjusted_close"]
-                ).astype(float).values,
-            }
-        )
-        out["weighted_momentum_vol_scaled"] = weighted_momentum(out, volatility=out["vol_60d_ann"])
-        if benchmark_prices is not None and etf_id == benchmark_etf_id:
-            # The benchmark measured against itself carries no information: unavailable, not neutral.
-            out["relative_strength_60d"] = float("nan")
-            out["relative_strength_120d"] = float("nan")
-        elif benchmark_prices is not None:
-            dates = pd.Index(group["date"].values)
-            out["relative_strength_60d"] = _relative_strength(price.values, dates, benchmark_prices, 60)
-            out["relative_strength_120d"] = _relative_strength(price.values, dates, benchmark_prices, 120)
-        else:
-            out["relative_strength_60d"] = out["return_60d_log"]
-            out["relative_strength_120d"] = out["momentum_120d"]
-        feature_frames.append(out)
-
-    result = pd.concat(feature_frames, ignore_index=True)
-    return result.sort_values(["date", "etf_id"]).reset_index(drop=True)
+    # All instruments at once: rows sorted by (instrument, date); ``offsets`` bound each instrument for the
+    # rolling kernels and every shifted value is masked inside its own instrument (``position >= horizon``).
+    frame = frame[frame["etf_id"].notna()].sort_values(["etf_id", "date"]).reset_index(drop=True)
+    ids = frame["etf_id"].to_numpy()
+    offsets = np.r_[np.flatnonzero(np.r_[True, ids[1:] != ids[:-1]]), len(ids)].astype(np.int64)
+    position = np.arange(len(ids)) - np.repeat(offsets[:-1], np.diff(offsets))
+    price = frame["adjusted_close"].astype(float)
+    log_ret = daily_log_returns(price).where(position >= 1)
+    returns = {horizon: horizon_log_returns(price, horizon).where(position >= horizon) for horizon in (5, 20, 60, 120, 180)}
+    sma = {window: simple_moving_average(price, window, offsets=offsets) for window in (50, 100, 200)}
+    out = pd.DataFrame(
+        {
+            "date": frame["date"].to_numpy(),
+            "etf_id": ids,
+            "return_1d_log": log_ret.to_numpy(),
+            "return_5d_log": returns[5].to_numpy(),
+            "return_20d_log": returns[20].to_numpy(),
+            "return_60d_log": returns[60].to_numpy(),
+            "momentum_20d": returns[20].to_numpy(),
+            "momentum_60d": returns[60].to_numpy(),
+            "momentum_120d": returns[120].to_numpy(),
+            "momentum_180d": returns[180].to_numpy(),
+            # B-04 challengers only: no live score weight pending #811 evaluation.
+            "momentum_252d_skip_20d": momentum(price, 252, skip=20).where(position >= 252).to_numpy(),
+            "sma_50": sma[50].to_numpy(),
+            "sma_100": sma[100].to_numpy(),
+            "sma_200": sma[200].to_numpy(),
+            "trend_100": (price > sma[100]).where(sma[100].notna()).astype(float).to_numpy(),
+            "trend_200": (price > sma[200]).where(sma[200].notna()).astype(float).to_numpy(),
+            "trend_slope": (sma[100] / sma[200] - 1).to_numpy(),
+            "vol_20d_ann": realised_volatility(log_ret, 20, offsets=offsets).to_numpy(),
+            "vol_60d_ann": realised_volatility(log_ret, 60, offsets=offsets).to_numpy(),
+            "vol_120d_ann": realised_volatility(log_ret, 120, offsets=offsets).to_numpy(),
+            "ewma_vol_ann": ewma_volatility(log_ret, offsets=offsets).to_numpy(),
+            "drawdown_current": drawdown(price, offsets=offsets).to_numpy(),
+            "drawdown_60d_max": rolling_max_drawdown(price, 60, offsets=offsets).to_numpy(),
+            "drawdown_120d_max": rolling_max_drawdown(price, 120, offsets=offsets).to_numpy(),
+            "liquidity_score": liquidity_score(
+                frame["volume"], price=frame["close"] if "close" in frame.columns else None, offsets=offsets
+            ).to_numpy(),
+            # Display only: the listing-currency price (EUR-basis frames keep it in adjusted_close_local).
+            "last_price": (
+                frame["adjusted_close_local"] if "adjusted_close_local" in frame.columns else frame["adjusted_close"]
+            ).astype(float).to_numpy(),
+        }
+    )
+    out["weighted_momentum_vol_scaled"] = weighted_momentum(out, volatility=out["vol_60d_ann"])
+    if benchmark_prices is not None:
+        out["relative_strength_60d"] = _relative_strength(returns[60], out["date"], position, benchmark_prices, 60)
+        out["relative_strength_120d"] = _relative_strength(returns[120], out["date"], position, benchmark_prices, 120)
+        # The benchmark measured against itself carries no information: unavailable, not neutral.
+        out.loc[ids == benchmark_etf_id, ["relative_strength_60d", "relative_strength_120d"]] = float("nan")
+    else:
+        out["relative_strength_60d"] = out["return_60d_log"]
+        out["relative_strength_120d"] = out["momentum_120d"]
+    return out.sort_values(["date", "etf_id"]).reset_index(drop=True)
 
 
 # Exchanges close on different days; a benchmark close is reused for at most this many
@@ -298,25 +297,25 @@ def compute_features(prices: pd.DataFrame, benchmark_etf_id: str | None = None) 
 BENCHMARK_AS_OF_MAX_GAP_DAYS = 5
 
 
-def _relative_strength(prices: np.ndarray, dates: pd.Index, benchmark: pd.Series, horizon: int) -> np.ndarray:
+def _relative_strength(
+    own_return: pd.Series, dates: pd.Series, position: np.ndarray, benchmark: pd.Series, horizon: int
+) -> np.ndarray:
     """Own horizon log return minus the benchmark return over the same calendar window.
 
-    The window starts on the instrument's own observation ``horizon`` sessions back; the
-    benchmark is read as-of that same start and end instant, so exchanges with different
-    holiday calendars are never compared over mismatched dates.
+    The window starts on the instrument's own observation ``horizon`` sessions back (``position`` is the
+    row number inside the instrument); the benchmark is read as-of that same start and end instant, so
+    exchanges with different holiday calendars are never compared over mismatched dates.
     """
 
-    own = pd.Series(prices, dtype=float)
-    own_return = np.log(own / own.shift(horizon)).to_numpy()
-    start_dates = pd.Series(list(dates)).shift(horizon)
+    start_dates = dates.shift(horizon).where(position >= horizon)
     valid = start_dates.notna().to_numpy()
-    benchmark_end = _benchmark_as_of(benchmark, dates).to_numpy(dtype=float)
+    benchmark_end = _benchmark_as_of(benchmark, pd.Index(dates)).to_numpy(dtype=float)
     benchmark_start = np.full(len(dates), np.nan)
     if valid.any():
         benchmark_start[valid] = _benchmark_as_of(benchmark, pd.Index(start_dates[valid])).to_numpy(dtype=float)
     with np.errstate(divide="ignore", invalid="ignore"):
         benchmark_return = np.log(benchmark_end / benchmark_start)
-    return own_return - benchmark_return
+    return own_return.to_numpy() - benchmark_return
 
 
 def _benchmark_as_of(benchmark: pd.Series, dates: pd.Index) -> pd.Series:

@@ -326,6 +326,16 @@ jobs:
           python -m pip install --requirement requirements-release.txt
           python -m pip install --requirement requirements-release-parsers.txt
 
+      - name: Build compiled kernels
+        if: needs.classifier.outputs.tier != 'E'
+        shell: bash
+        run: |
+          # The app imports etf_kernels at start (fail closed: no numpy fallback). maturin is build-only.
+          rustup toolchain install 1.100.0 --profile minimal
+          python -m pip install maturin==1.16.0
+          CARGO_TARGET_DIR="$RUNNER_TEMP/cargo-target" RUSTUP_TOOLCHAIN=1.100.0 maturin build --release --locked --manifest-path rust/etf_kernels/Cargo.toml --out "$RUNNER_TEMP/kernels"
+          python -m pip install --no-index --find-links "$RUNNER_TEMP/kernels" etf-kernels
+
       - name: Evidence and control preflight
         if: needs.classifier.outputs.tier == 'E'
         run: |
@@ -528,6 +538,15 @@ jobs:
             python -m pip install --constraint requirements-release.txt --requirement requirements-quant.txt --requirement requirements-sec.txt
           fi
 
+      - name: Build compiled kernels
+        shell: bash
+        run: |
+          # The app imports etf_kernels at start (fail closed: no numpy fallback). maturin is build-only.
+          rustup toolchain install 1.100.0 --profile minimal
+          python -m pip install maturin==1.16.0
+          CARGO_TARGET_DIR="$RUNNER_TEMP/cargo-target" RUSTUP_TOOLCHAIN=1.100.0 maturin build --release --locked --manifest-path rust/etf_kernels/Cargo.toml --out "$RUNNER_TEMP/kernels"
+          python -m pip install --no-index --find-links "$RUNNER_TEMP/kernels" etf-kernels
+
       - name: Configure isolated user profile
         shell: bash
         run: |
@@ -647,6 +666,15 @@ jobs:
           python -m pip install --requirement requirements-release.txt
           python -m pip install --requirement requirements-release-parsers.txt
           python -m pip install --constraint requirements-release.txt --requirement requirements-quant.txt --requirement requirements-sec.txt
+
+      - name: Build compiled kernels
+        shell: bash
+        run: |
+          # The app imports etf_kernels at start (fail closed: no numpy fallback). maturin is build-only.
+          rustup toolchain install 1.100.0 --profile minimal
+          python -m pip install maturin==1.16.0
+          CARGO_TARGET_DIR="$RUNNER_TEMP/cargo-target" RUSTUP_TOOLCHAIN=1.100.0 maturin build --release --locked --manifest-path rust/etf_kernels/Cargo.toml --out "$RUNNER_TEMP/kernels"
+          python -m pip install --no-index --find-links "$RUNNER_TEMP/kernels" etf-kernels
 
       - name: Configure isolated user profile
         shell: bash

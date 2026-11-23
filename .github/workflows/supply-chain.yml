@@ -36,6 +36,12 @@ jobs:
       - name: Run deterministic supply-chain scan
         run: python scripts/supply_chain_scan.py --root . --output artifacts/supply-chain/github-${{ github.sha }}
 
+      - name: Audit Rust crates
+        shell: pwsh
+        run: |
+          cargo install cargo-audit --locked --version 0.23.0
+          cargo audit --file rust/etf_kernels/Cargo.lock
+
       - name: Upload supply-chain evidence
         if: always()
         uses: actions/upload-artifact@v4
