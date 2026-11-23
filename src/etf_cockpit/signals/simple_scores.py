@@ -106,6 +106,7 @@ from etf_cockpit.signals.canonical_scoring import (
     headline_evidence_weights,
     headline_weights_for_components,
     is_certificate_without_fundamentals,
+    policy_snapshot,
 )
 
 
@@ -1719,6 +1720,7 @@ class AsOfScoreSources:
     etf_holdings: pd.DataFrame | None = None
 
 
+@policy_snapshot()  # one read of each score policy per universe build (SP-4)
 def build_universe_simple_scores(
     config: AppConfig,
     signals: list[SignalResult],

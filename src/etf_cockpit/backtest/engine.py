@@ -67,7 +67,7 @@ from etf_cockpit.portfolio.benchmark_reference_contract import (
     unavailable_reference_projection,
     validate_execution_disabled,
 )
-from etf_cockpit.signals.canonical_scoring import CanonicalScoreError, load_score_policy
+from etf_cockpit.signals.canonical_scoring import CanonicalScoreError, load_score_policy, policy_snapshot
 from etf_cockpit.signals.quality_momentum import FRAME_COLUMNS, QUALITY_MOMENTUM_VERSION, build_quality_momentum_frame, quality_momentum_weights
 from etf_cockpit.signals.signal_pipeline import generate_signals
 
@@ -1598,7 +1598,7 @@ def _shared_backtest_scope() -> Iterator[_StageShare]:
     share = _StageShare()
     token = _STAGE_SHARE.set(share)
     try:
-        with classification_state_memo(), fx_cross_rate_memo():
+        with classification_state_memo(), fx_cross_rate_memo(), policy_snapshot():
             yield share
     finally:
         _STAGE_SHARE.reset(token)

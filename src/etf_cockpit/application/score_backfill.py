@@ -61,7 +61,7 @@ from etf_cockpit.features.regime import build_benchmark_attribution_lookup, buil
 from etf_cockpit.core.types import DataQualityReport, ForecastResult
 from etf_cockpit.models.baseline_models import baseline_forecast
 from etf_cockpit.models.forecast_scores import PRIMARY_MODEL_HORIZON_DAYS
-from etf_cockpit.signals.canonical_scoring import load_score_policy
+from etf_cockpit.signals.canonical_scoring import load_score_policy, policy_snapshot
 from etf_cockpit.signals.signal_pipeline import BASELINE_MODEL_VERSION, generate_signals
 from etf_cockpit.signals.simple_scores import (
     AsOfScoreSources,
@@ -460,6 +460,7 @@ def _score_sessions(config, frame, todo, fx, registry_signature, excluded, worke
             yield index, session, future.result()
 
 
+@policy_snapshot()  # one read of each score policy per session run (SP-4)
 def score_as_of(
     config: AppConfig,
     prices: pd.DataFrame,

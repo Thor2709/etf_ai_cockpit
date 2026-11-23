@@ -122,6 +122,12 @@ def _policy_for_content(content: bytes) -> CriticalEvidencePolicy:
 
 
 def load_critical_evidence_policy(path: Path = POLICY_PATH) -> CriticalEvidencePolicy:
+    from etf_cockpit.signals.canonical_scoring import snapshot_policy  # late import: canonical scoring imports this module late
+
+    return snapshot_policy(("critical_evidence", str(path)), lambda: _read_critical_evidence_policy(path))
+
+
+def _read_critical_evidence_policy(path: Path) -> CriticalEvidencePolicy:
     try:
         content = path.read_bytes()
     except OSError as exc:
