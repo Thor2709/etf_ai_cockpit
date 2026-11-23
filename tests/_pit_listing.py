@@ -27,4 +27,4 @@ def verified_listing_history(monkeypatch):
     """
 
     history = listed_since([*(item.id for item in load_config().universe.etfs), *SYNTHETIC_IDS])
-    monkeypatch.setattr(ListingHistory, "from_root", classmethod(lambda cls, _root: history))
+    monkeypatch.setattr(ListingHistory, "from_root", classmethod(lambda cls, _root, **_: history))

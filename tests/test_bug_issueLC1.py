@@ -30,7 +30,7 @@ def _decide(monkeypatch, root: Path, rows: list[dict], lane: str, board=None):
     # The exact-id listing gate rejects the untrimmed id before the shared validator; list the literal
     # stored ids so the validator under test, not the survivorship gate, decides.
     history = listed_since([*SYNTHETIC_IDS, *(str(row["instrument_id"]) for row in rows)])
-    monkeypatch.setattr(ListingHistory, "from_root", classmethod(lambda cls, _root: history))
+    monkeypatch.setattr(ListingHistory, "from_root", classmethod(lambda cls, _root, **_: history))
     track = execution.replay_track(root, _exec_config())
     _allow(root, track)
     result = run_historical_replay(

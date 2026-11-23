@@ -267,7 +267,7 @@ def backfill_score_history(
         raise ValueError("a forward score run scores exactly one session (start == end)")
     say = progress or (lambda _message: None)
     config = config or load_config()
-    membership = ListingHistory.from_root(root)
+    membership = ListingHistory.from_root(root, reconstructed=True)  # replay track: licensed history at its effective dates (OD-1 = b)
     config = _historical_config(config, membership)
     frame = load_prices(config=config) if prices is None else prices.copy()
     if frame.empty or not {"etf_id", "date", "adjusted_close"}.issubset(frame.columns):

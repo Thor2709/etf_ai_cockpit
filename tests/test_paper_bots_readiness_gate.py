@@ -144,7 +144,7 @@ def test_passing_readiness_preserves_normal_replay_behavior(monkeypatch, tmp_pat
     monkeypatch.setattr(data_readiness, "evaluate_readiness", passing_evaluation)
     monkeypatch.setattr(paper_bots, "project_classification_score_frame", lambda frame, *, root: frame)
     listing = listed_since(("AAA", "BBB", "BAD", "VWCE"))
-    monkeypatch.setattr(ListingHistory, "from_root", classmethod(lambda cls, _root: listing))
+    monkeypatch.setattr(ListingHistory, "from_root", classmethod(lambda cls, _root, **_: listing))
     october = datetime(2026, 10, 5, 12, tzinfo=timezone.utc)
     november = datetime(2026, 11, 3, 12, tzinfo=timezone.utc)
     cutoff = datetime(2026, 12, 1, 12, tzinfo=timezone.utc)

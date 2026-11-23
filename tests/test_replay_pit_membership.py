@@ -35,7 +35,7 @@ def test_membership_half_open_boundaries_and_fill_session_gate(monkeypatch, tmp_
     assert book.bar("AAA", date(2026, 10, 15)) is None
     from etf_cockpit.portfolio.paper_bots_replay import run_historical_replay
 
-    monkeypatch.setattr(ListingHistory, "from_root", classmethod(lambda cls, root: history))
+    monkeypatch.setattr(ListingHistory, "from_root", classmethod(lambda cls, root, **_: history))
     cutoff = datetime(2026, 10, 22, tzinfo=timezone.utc)
     stored = pd.DataFrame([{
         "as_of_date": "2026-10-19", "run_completed_at": "2026-10-19T23:59:59+00:00",
@@ -96,7 +96,7 @@ def test_delisting_liquidates_held_position_at_last_available_price_and_is_idemp
 
     listing = ListingHistory(tuple(_interval(key, end="2026-10-19" if key == "AAA" else None)
                                    for key in ("VWCE", "AAA", "BBB", "BAD")))
-    monkeypatch.setattr(ListingHistory, "from_root", classmethod(lambda cls, root: listing))
+    monkeypatch.setattr(ListingHistory, "from_root", classmethod(lambda cls, root, **_: listing))
     known = datetime(2026, 10, 14, 12, tzinfo=timezone.utc)
     history = pd.DataFrame(_history_with_columns(_rows(known)))
     history["as_of_date"], history["membership_policy"] = known.date().isoformat(), MEMBERSHIP_POLICY
