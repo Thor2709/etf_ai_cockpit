@@ -61,7 +61,7 @@ from etf_cockpit.features.regime import build_benchmark_attribution_lookup, buil
 from etf_cockpit.core.types import DataQualityReport, ForecastResult
 from etf_cockpit.models.baseline_models import baseline_forecast
 from etf_cockpit.models.forecast_scores import PRIMARY_MODEL_HORIZON_DAYS
-from etf_cockpit.signals.canonical_scoring import load_score_policy
+from etf_cockpit.signals.canonical_scoring import load_score_policy, policy_snapshot
 from etf_cockpit.signals.signal_pipeline import BASELINE_MODEL_VERSION, generate_signals
 from etf_cockpit.signals.simple_scores import (
     AsOfScoreSources,
@@ -376,7 +376,15 @@ def backfill_score_history(
             survivorship_unverified=unverified_instruments(existing_eligibility),
         )
     try:
-        for index, session, outcome in _score_sessions(config, frame, todo, fx, registry_signature, excluded, workers, membership, completed_at, reference_order_value):
+        # As-traded factors once per run (S6); score_as_of reuses them (with_as_traded_factors is idempotent).
+        try:
+            as_traded = with_as_traded_factors(frame)
+        except Exception as exc:  # fail closed per session, as score_as_of does; a forward run fails loudly (SDD C4)
+            if completed_at is not None:
+                raise
+            unavailable.update({session.isoformat(): f"{type(exc).__name__}: {str(exc)[:200]}" for _index, session in todo})
+            as_traded, todo = frame, []
+        for index, session, outcome in _score_sessions(config, as_traded, todo, fx, registry_signature, excluded, workers, membership, completed_at, reference_order_value):
             say(f"[{index}/{len(sessions)}] scored as of {session}")
             if isinstance(outcome, str):  # fail closed per session: never store a partial or guessed run
                 unavailable[session.isoformat()] = outcome
@@ -460,6 +468,7 @@ def _score_sessions(config, frame, todo, fx, registry_signature, excluded, worke
             yield index, session, future.result()
 
 
+@policy_snapshot()  # one read of each score policy per session run (SP-4)
 def score_as_of(
     config: AppConfig,
     prices: pd.DataFrame,
@@ -638,6 +647,7 @@ def _membership_log(eligibility, snapshot):
         else "listed" if key in snapshot.eligible_ids else "outside_listing_interval"
     )
     eligibility["membership_inputs_hash"] = snapshot.fingerprint
+    eligibility["pit_basis"] = snapshot.pit_basis  # "reconstructed" when observed trading admitted an id (OD-1 = b)
     return eligibility
 
 

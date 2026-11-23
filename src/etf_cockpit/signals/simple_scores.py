@@ -61,7 +61,7 @@ from etf_cockpit.data.news_context import NEWS_CLEAN_PATH, load_news_items
 from etf_cockpit.data.universe_store import support_decision
 from etf_cockpit.data.yfinance_provider import yfinance_symbol_map_from_config
 from etf_cockpit.data.universe_store import load_universe
-from etf_cockpit.features.crowding import ClusterReport, CorrelationMatrix, build_correlation_clusters
+from etf_cockpit.features.crowding import ClusterReport, CorrelationMatrix, build_correlation_clusters, correlation_matrix
 from etf_cockpit.features.cash_comparison import (
     adjusted_endpoint_available_at,
     validate_cash_comparison_result,
@@ -106,6 +106,7 @@ from etf_cockpit.signals.canonical_scoring import (
     headline_evidence_weights,
     headline_weights_for_components,
     is_certificate_without_fundamentals,
+    policy_snapshot,
 )
 
 
@@ -865,6 +866,7 @@ def _generate_missing_price_signals(
     return [*signals, *additions], failures
 
 
+@policy_snapshot()  # one read of each score policy per live build: universe, candidates and ranking (SP-4)
 def build_simple_instrument_scores(
     config: AppConfig,
     signals: list[SignalResult],
@@ -969,7 +971,9 @@ def build_simple_instrument_scores(
             )
     else:
         cash_comparison_lookup = dict(cash_comparison_lookup)
-    crowding = build_correlation_clusters(prices, metadata)
+    # One correlation matrix for both cluster builds (same prices, window and as_of).
+    correlations = correlation_matrix(prices)
+    crowding = build_correlation_clusters(prices, metadata, matrix=correlations)
     backtest_trust = _backtest_trust_lookup(universe_revision=universe_revision)
     universe_scores = build_universe_simple_scores(
         config,
@@ -998,7 +1002,7 @@ def build_simple_instrument_scores(
         cyclical_projections=cyclical_projections,
         decision_time=_analysis_decision_time(reference_decision_time, decision_as_of),
     )
-    return rank_and_finalize_scores([*universe_scores, *candidate_scores], prices, metadata)
+    return rank_and_finalize_scores([*universe_scores, *candidate_scores], prices, metadata, correlations=correlations)
 
 
 def rank_and_finalize_scores(
