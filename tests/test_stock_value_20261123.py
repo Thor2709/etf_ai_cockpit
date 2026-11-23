@@ -55,3 +55,30 @@ def test_unevidenced_dividend_rows_give_no_dividend_yield():
                            load_stock_config())
     assert market.price == 120.0
     assert market.dividends_per_share_12m is None and "actions_evidence_missing" in market.dividend_reason
+
+
+def test_sector_and_country_spellings_map_to_one_label():
+    from etf_cockpit.analysis.stock_labels import country_label, sector_label
+
+    # Yahoo sector names, config spellings and GICS names seen in the 2026-11-22 store.
+    for spellings, label in (
+        (("Financial Services", "Financials", "Financial exchanges"), "Financials"),
+        (("Basic Materials", "Materials"), "Materials"),
+        (("Technology", "Information Technology"), "Information Technology"),
+        (("Consumer Cyclical", "Consumer Discretionary", "Consumer discretionary"), "Consumer Discretionary"),
+        (("Consumer Defensive", "Consumer Staples"), "Consumer Staples"),
+        (("Healthcare", "Health Care"), "Health Care"),
+        (("Communication", "Communication Services"), "Communication Services"),
+        (("Unknown", "", None), ""),
+    ):
+        assert {sector_label(item) for item in spellings} == {label}
+    assert sector_label("Banks") == "Banks"  # the bank exclusion label (scope.excluded_sectors) is kept
+    for spellings, label in (
+        (("South Korea", "south korea", "Korea (South)", "Korea, Republic of", "KR"), "South Korea"),
+        (("Taiwan", "taiwan", "Taiwan Region"), "Taiwan"),
+        (("Cayman Islands", "Cayman Island"), "Cayman Islands"),
+        (("Hong Kong", "HK"), "Hong Kong"),
+        (("United Kingdom", "united kingdom", "GB"), "United Kingdom"),
+        (("", None), ""),
+    ):
+        assert {country_label(item) for item in spellings} == {label}
