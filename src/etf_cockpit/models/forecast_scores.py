@@ -325,16 +325,23 @@ def filter_forecasts_for_universe(
     expected_settings = settings_revision
     if universe_revision and expected_settings is None:
         expected_settings = current_settings_revision()
-    valid = forecasts["source_file"].map(
-        lambda value: _forecast_cache_matches(
-            Path(str(value)),
-            universe_revision,
-            expected_settings,
-            reference_identity,
-            price_binding,
-            forecast_request_identity,
-        )
-    )
+    # Within one call the check is a pure function of the path: run it once per distinct source file.
+    checked: dict[str, bool] = {}
+
+    def matches(value: object) -> bool:
+        path = str(value)
+        if path not in checked:
+            checked[path] = _forecast_cache_matches(
+                Path(path),
+                universe_revision,
+                expected_settings,
+                reference_identity,
+                price_binding,
+                forecast_request_identity,
+            )
+        return checked[path]
+
+    valid = forecasts["source_file"].map(matches)
     return forecasts.loc[valid].copy()
 
 
