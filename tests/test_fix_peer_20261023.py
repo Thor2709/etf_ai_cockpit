@@ -97,8 +97,9 @@ def test_a10_f4_latest_or_nearest_invalid_period_does_not_fallback() -> None:
     shares = replace(old, period_type="SHARES", source="sec_dei", values={"shares_outstanding": 100.0})
     provider = replace(shares, source="yfinance", known_at=latest.known_at)
     assert sm.latest_reported_shares([shares], decision) is shares
-    assert sm.latest_reported_shares([shares, provider], decision) is None
-    assert sm.latest_reported_shares([shares, replace(provider, values={})], decision) is None
+    # A later provider count (with or without a value) never hides the filed count (train F, 2026-11-22).
+    assert sm.latest_reported_shares([shares, provider], decision) is shares
+    assert sm.latest_reported_shares([shares, replace(provider, values={})], decision) is shares
     assert sm.latest_reported_shares([shares, replace(provider, known_at=datetime(2027, 1, 1, tzinfo=timezone.utc))], decision) is shares
     assert sm.latest_balance([latest, provider], ["equity_parent"]) is latest
 
