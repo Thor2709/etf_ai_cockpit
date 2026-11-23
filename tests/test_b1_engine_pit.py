@@ -63,11 +63,11 @@ def _pit_run(monkeypatch, *, missing: str | None = None):
     for index, instrument in enumerate(stocks):
         annual = []
         for year in (2021, 2022, 2023, 2024):
-            period = _period(year, minority_interest=0.0)
+            period = _period(year, minority_interest=0.0, stock_based_compensation=10.0, total_assets=2000.0)
             # Solvency is debt/equity only; absent D&A must not require a peer-scored leverage ratio.
             values = {key: value * 100 for key, value in period.values.items() if key not in {"shares_outstanding", "da"}}
             if index:
-                for key in ("net_income_parent", "ebit", "cfo"):
+                for key in ("net_income_parent", "ebit", "cfo", "gross_profit"):
                     values[key] *= 0.5
             if instrument == stocks[0] and missing in {"debt", "equity"}:
                 values.pop("ib_debt" if missing == "debt" else "equity_parent")
