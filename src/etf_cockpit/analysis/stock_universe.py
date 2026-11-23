@@ -59,7 +59,8 @@ def financial_route_reason(sector: object, industry: object = None) -> str | Non
     return None if text in FEE_BASED_FINANCIAL_INDUSTRIES else FINANCIAL_SET_NOT_BUILT
 
 PEER_METRIC_KEYS = ("pe", "ev_ebit", "ev_sales", "pb", "roe", "ebit_margin", "fcf_yield", "dividend_yield", "revenue_cagr")
-COHORT_METRIC_KEYS = ("pe", "earnings_yield", "fcf_yield", "ebit_ev_yield", "roe", "roic", "ebit_margin", "net_debt_to_ebitda", "fcf_conversion", "revenue_cagr")
+COHORT_METRIC_KEYS = ("pe", "earnings_yield", "fcf_yield", "ebit_ev_yield", "roe", "roic", "ebit_margin", "net_debt_to_ebitda", "fcf_conversion", "revenue_cagr",
+                      "dividend_yield", "gross_profitability")  # the last ones: sector metric-set inputs
 
 
 def live_decision_time(as_of: date | None, now: datetime | None = None) -> datetime:
@@ -434,8 +435,9 @@ def build_universe_evidence(
         result.periods[iid] = known
         result.prices[iid] = market
         result.names[iid] = (snapshot or {}).get("long_name") if iid.startswith("peer:") and snapshot else record.name
-        first[iid] = build_stock_evidence(iid, periods, decision_time, market, analyst_inputs(analyst), cfg, no_data_reason=reason)
-        result.profiles[iid] = _profile(record, snapshot, fx, cfg, decision_time)
+        profile = result.profiles[iid] = _profile(record, snapshot, fx, cfg, decision_time)
+        first[iid] = build_stock_evidence(iid, periods, decision_time, market, analyst_inputs(analyst), cfg, no_data_reason=reason,
+                                          sector=getattr(profile, "sector", None), industry=getattr(profile, "industry", None))
     stale_days = int((cfg.get("reporting", {}) or {}).get("max_balance_staleness_days", 400))
     peer_values = {
         key: {
@@ -481,6 +483,7 @@ def build_universe_evidence(
         result.evidence[iid] = with_sector_route(build_stock_evidence(
             iid, periods, decision_time, result.prices[iid], analyst_inputs(analysts[iid]), cfg,
             peer_values=scoped, cohort_values=cohorts, no_data_reason=store.no_data_reason(iid, snapshot_rows(iid), decision_time, bool(sm.known_periods(periods, decision_time))),
+            sector=getattr(profile, "sector", None), industry=getattr(profile, "industry", None),
         ), getattr(profile, "sector", None), getattr(profile, "industry", None))
     for pid, evidence in first.items():
         if pid.startswith("peer:"):
