@@ -512,7 +512,8 @@ def test_legacy_v3_hash_and_reference_score_are_unchanged() -> None:
     # FPQ: etf_exposure moved to risk role, non-price ETF families rescaled pro rata (v3.2.0 was 786f3645f6461d7f8c663f202d8ff8dbd52b7b768d4e1619b2f8d110997bab34).
     assert policy.formula_version == "score-engine-v3.4.0"
     # F3: score-engine-v3.4.0 relabels stock cohorts only; weights are unchanged (v3.3.0 was bcffa68b7a6455a62c53ff6ad0f24ab379629f7ed2e4191db3b3643933481b44).
-    assert policy.formula_checksum == "041d6d9a471afa5cb997bb13e21ef2b70580fcd69802b270bd6f102e638a80cc"
+    # F4-F6 add one comment under v3.4.0 (before it reached main the checksum was 041d6d9a471afa5cb997bb13e21ef2b70580fcd69802b270bd6f102e638a80cc).
+    assert policy.formula_checksum == "822cb0f29245d17ddfe2f0da01f0a80e07a8676fee6942f78602ac960a90d44b"
     assert score.attractiveness_10 == pytest.approx(8.1, abs=1e-12)  # score_10 is rounded to 0.1
 
 
