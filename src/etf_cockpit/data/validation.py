@@ -153,7 +153,7 @@ def validate_prices(
             issues=[DataQualityIssue("ALL", "block", "missing_columns", f"Missing price columns: {sorted(missing)}")],
         )
 
-    frame = prices.copy()
+    frame = prices.copy(deep=False)  # columns are replaced below, never written in place
     etf_ids = frame["etf_id"]
     missing_id = etf_ids.isna() | (etf_ids.astype(str).str.strip() == "")
     if missing_id.any():
@@ -197,7 +197,7 @@ def validate_prices(
             )
         )
     known_ids = list(dict.fromkeys(frame["etf_id"]))
-    known = frame.loc[~future_rows]
+    known = frame.loc[~future_rows] if future_rows.any() else frame  # no needless full copy
     if known.empty:
         issues.append(DataQualityIssue("ALL", "block", "no_prices_at_as_of", f"No price rows are dated on or before {effective_as_of}."))
         return DataQualityReport(as_of_date=effective_as_of, issues=issues)
@@ -243,11 +243,12 @@ def validate_prices(
             calendars = {}
         calendar_resolver = calendars.get
 
-    # Sort once by date (stable), then take each instrument's rows by position: (etf_id, date) is unique here.
-    by_date = known.sort_values("date", kind="stable")
-    positions = by_date.groupby("etf_id", sort=False).indices
+    # Each instrument's rows by position, in stable date order: (etf_id, date) is unique here. No sorted full copy.
+    known_dates = known["date"].to_numpy()
+    positions = known.groupby("etf_id", sort=False).indices
     for etf_id in known_ids:
-        group = by_date.iloc[positions[etf_id]] if etf_id in positions else known.iloc[0:0]
+        rows = positions.get(etf_id)
+        group = known.iloc[rows[np.argsort(known_dates[rows], kind="stable")]] if rows is not None else known.iloc[0:0]
         if group.empty:
             issues.append(
                 DataQualityIssue(

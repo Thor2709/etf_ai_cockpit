@@ -40,6 +40,7 @@ def quarantine_invalid_ohlc(result: ProviderResult):
         return result, None
     quarantined = frame.loc[bad].copy()
     quarantined["quarantine_reason"] = "invalid_ohlc"
-    clean = frame.loc[~bad].reset_index(drop=True)
+    clean = frame.take(np.flatnonzero(~bad.to_numpy()))
+    clean.index = pd.RangeIndex(len(clean))  # as reset_index(drop=True), without a second copy
     metadata = dataclasses.replace(result.metadata, checksum=sha256_dataframe(clean)) if result.metadata else None
     return dataclasses.replace(result, data=clean, metadata=metadata), quarantined
