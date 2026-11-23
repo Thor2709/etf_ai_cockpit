@@ -190,11 +190,26 @@ METRIC_LABELS: dict[str, tuple[str, str]] = {
     "sbc_adjusted_fcf": ("SBC-adjusted free cash flow", "money"),
     "buyback_yield": ("Buyback yield", "ratio"),
     "shareholder_yield": ("Shareholder yield", "ratio"),
+    # F6 sector metrics (inputs of the sector metric sets, or display only until a bank/insurer set exists)
+    "ffo": ("Funds from operations (FFO)", "money"),
+    "ffo_yield": ("FFO yield", "ratio"),
+    "ptbv": ("P/TBV", "multiple"),
+    "rote": ("Return on tangible equity", "ratio"),
+    "credit_cost": ("Credit cost", "ratio"),
+    "nii_to_assets": ("Net interest income / assets", "ratio"),
+    "combined_ratio": ("Combined ratio (claims + acquisition costs)", "ratio"),
+    "sbc_fcf_yield": ("SBC-adjusted FCF yield", "ratio"),
+    "ebit_ev_yield_5y": ("5-year mean EBIT / EV", "ratio"),
+    "fcf_yield_3y": ("3-year mean FCF yield", "ratio"),
 }
-# Inputs a sector metric set may add to the default value/quality lists: label, format, lower is better.
-SET_INPUTS: dict[str, tuple[str, object, bool]] = {
-    "dividend_yield": ("Dividend yield", tx.pct, False),
-    "gross_profitability": ("Gross profit/assets", tx.pct, False),
+# Inputs a sector metric set may add to the default value/quality lists: label, format, lower is better, yield floor.
+SET_INPUTS: dict[str, tuple[str, object, bool, bool]] = {
+    "dividend_yield": ("Dividend yield", tx.pct, False, False),
+    "gross_profitability": ("Gross profit/assets", tx.pct, False, False),
+    "ffo_yield": ("FFO yield", tx.pct, False, True),
+    "sbc_fcf_yield": ("SBC-adjusted FCF yield", tx.pct, False, True),
+    "ebit_ev_yield_5y": ("5-y mean EBIT/EV", tx.pct, False, True),
+    "fcf_yield_3y": ("3-y mean FCF yield", tx.pct, False, True),
 }
 
 
@@ -393,6 +408,7 @@ class _Builder:
         self.balance_metrics()
         self.valuation_metrics()
         self.quality_metrics()
+        self.sector_metrics()
         components = self.components()
         return self._finish(components, None)
 
@@ -993,6 +1009,124 @@ class _Builder:
             else:
                 self.metrics[key] = _from(key, score(window, mcap), **self._ctx(window))
 
+    # ----- F6 sector metrics (SEC companyfacts line items; only periods known at the decision time) ---------------
+
+    def sector_metrics(self) -> None:
+        mcap, mcap_reason = self.mcap_result
+        legs = ("net_income_parent", "da", "gain_on_property_sales", "real_estate_impairment")
+        window = self.window(*legs)
+        if window is None:
+            self.metrics["ffo"] = _missing("ffo", self._no_window("net income, D&A, property-sale gains and impairments", legs))
+        else:
+            self.metrics["ffo"] = _from("ffo", sm.funds_from_operations(*(sm.window_sum(window, name) for name in legs)), **self._ctx(window))
+        self._money_yield("ffo_yield", "ffo", mcap, mcap_reason, "FFO / market cap")
+        self._money_yield("sbc_fcf_yield", "sbc_adjusted_fcf", mcap, mcap_reason, "(CFO - capex - stock-based compensation) / market cap")
+        self._tangible_metrics(mcap, mcap_reason)
+        self._average_ratio("credit_cost", "credit_loss_provision", "loans_net", "provisions for credit losses / average net loans", "average net loans")
+        self._average_ratio("nii_to_assets", "net_interest_income", "total_assets", "net interest income / average total assets", "average total assets")
+        fields = ("claims_incurred", "acquisition_cost_amortization", "premiums_earned")
+        window = self.window(*fields)
+        if window is None:
+            self.metrics["combined_ratio"] = _missing("combined_ratio", self._no_window("claims, acquisition costs and earned premiums", fields))
+        else:
+            claims, costs, premiums = (sm.window_sum(window, name) for name in fields)
+            ratio = sm.flow_ratio(
+                "combined_ratio", METRIC_LABELS["combined_ratio"][0], None if claims is None or costs is None else claims + costs, premiums,
+                formula="(claims incurred + amortised acquisition costs) / net earned premiums (proxy: other underwriting costs are not tagged)",
+                denominator_name="net earned premiums",
+            )
+            self.metrics["combined_ratio"] = _from("combined_ratio", ratio, **self._ctx(window))
+        self._fy_mean_yield("ebit_ev_yield_5y", "EBIT", lambda p: p.values["ebit"], ("ebit",), 5, 3, "ev",
+                            "mean FY EBIT (3-5 consecutive years) / enterprise value")
+        self._fy_mean_yield("fcf_yield_3y", "free cash flow", lambda p: sm.free_cash_flow(p.values["cfo"], p.values["capex"]), ("cfo", "capex"), 3, 3,
+                            "market_cap", "mean FY free cash flow (3 consecutive years) / market cap")
+
+    def _money_yield(self, key: str, source_key: str, mcap: float | None, mcap_reason: str | None, formula: str) -> None:
+        item = self.metrics[source_key]
+        if mcap is None:
+            self.metrics[key] = _missing(key, str(mcap_reason), formula)
+        elif not item.available or item.currency != self.reporting_currency:
+            self.metrics[key] = _missing(key, str(item.reason or "currency_mismatch between the amount and market cap"), formula)
+        else:
+            metric = sm.yield_of(key, METRIC_LABELS[key][0], item.value, mcap, formula=formula)
+            self.metrics[key] = _from(key, metric, basis=item.basis, as_of=item.as_of, source=item.source)
+
+    def _tangible(self, period: Period) -> float | None:
+        if self._period_currency_mismatch(period, ("equity_parent", "goodwill", "intangibles_ex_goodwill"), period.currency):
+            return None
+        return sm.tangible_equity(period.values["equity_parent"], period.values["goodwill"], period.values["intangibles_ex_goodwill"])
+
+    def _tangible_metrics(self, mcap: float | None, mcap_reason: str | None) -> None:
+        names = ("equity_parent", "goodwill", "intangibles_ex_goodwill")
+        latest = sm.latest_balance(self.known, names)
+        formula = "market cap / (parent equity - goodwill - other intangibles)"
+        if mcap is None:
+            self.metrics["ptbv"] = _missing("ptbv", str(mcap_reason), formula)
+        elif latest is None or latest.currency != self.reporting_currency:
+            self.metrics["ptbv"] = _missing("ptbv", "needs parent equity, goodwill and other intangibles of the latest balance sheet in the reporting currency", formula)
+        else:
+            base = sm.multiple("ptbv", "P/TBV", mcap, self._tangible(latest), formula=formula, denominator_name="tangible equity")
+            self.metrics["ptbv"] = _from("ptbv", base, basis="latest balance", as_of=latest.period_end.isoformat(), currency=latest.currency, source=latest.source)
+        window = self.window("net_income_parent")
+        close = None if window is None else sm.balance_near(self.known, window.end, names, tolerance_days=45)
+        opening = None if window is None else sm.opening_balance(self.known, window.end, names)
+        formula = "net income to parent / average tangible equity"
+        if window is None or close is None or opening is None:
+            self.metrics["rote"] = _missing("rote", "needs net income and tangible equity at the window end and one year earlier", formula)
+            return
+        ending, start = self._tangible(close), self._tangible(opening)
+        average = None if ending is None or start is None else (ending + start) / 2.0
+        ratio = sm.flow_ratio("rote", METRIC_LABELS["rote"][0], sm.window_sum(window, "net_income_parent"), average, formula=formula,
+                              denominator_name="average tangible equity")
+        self.metrics["rote"] = _from("rote", ratio, **self._ctx(window))
+
+    def _average_ratio(self, key: str, flow: str, balance: str, formula: str, denominator_name: str) -> None:
+        """A flow window over the average of the ending and opening balance (same currency, never an older stand-in)."""
+
+        window = self.window(flow)
+        if window is None:
+            self.metrics[key] = _missing(key, self._no_window(flow.replace("_", " "), (flow,)), formula)
+            return
+        close = sm.balance_near(self.known, window.end, [balance], tolerance_days=45)
+        opening = sm.opening_balance(self.known, window.end, [balance])
+        if close is None or opening is None:
+            self.metrics[key] = _missing(key, f"needs {balance.replace('_', ' ')} at the window end and one year earlier", formula)
+        elif any(self._period_currency_mismatch(item, (balance,), window.currency) for item in (close, opening)):
+            self.metrics[key] = _missing(key, f"currency_mismatch between {flow.replace('_', ' ')} and {balance.replace('_', ' ')}", formula)
+        else:
+            average = (close.values[balance] + opening.values[balance]) / 2.0
+            ratio = sm.flow_ratio(key, METRIC_LABELS[key][0], sm.window_sum(window, flow), average, formula=formula, denominator_name=denominator_name)
+            self.metrics[key] = _from(key, ratio, **self._ctx(window))
+
+    def _fy_mean_yield(self, key: str, what: str, value, fields: Sequence[str], years: int, minimum: int, base_key: str, formula: str) -> None:  # noqa: ANN001
+        """Mean over the latest consecutive known fiscal years (the latest known version of each) / EV or market cap."""
+
+        versions: dict[date, Period] = {}
+        for period in sorted((p for p in self.known if p.period_type == "FY"), key=lambda p: p.known_at):
+            versions[period.period_end] = period
+        chosen: list[Period] = []
+        for period in sorted(versions.values(), key=lambda p: p.period_end, reverse=True)[:years]:
+            if not period.has(*fields) or period.currency != self.reporting_currency or self._period_currency_mismatch(period, fields, period.currency):
+                break
+            if chosen and not sm.consecutive_fiscal_years([period.period_end, chosen[-1].period_end]):
+                break
+            chosen.append(period)
+        base = self.metrics.get(base_key)
+        amounts = [value(period) for period in chosen]
+        if len(chosen) < minimum:
+            self.metrics[key] = _missing(key, f"needs {minimum} consecutive fiscal years with {what}; {len(chosen)} known at the decision time", formula)
+        elif any(amount is None for amount in amounts):
+            self.metrics[key] = _missing(key, f"needs {what} in each fiscal year", formula)
+        elif base is None or not base.available or float(base.value) <= 0:  # type: ignore[arg-type]
+            self.metrics[key] = _missing(key, str(getattr(base, "reason", None) or f"needs a positive {base_key.replace('_', ' ')}"), formula)
+        else:
+            years_label = f"FY{chosen[-1].period_end.year}-FY{chosen[0].period_end.year}"
+            self.metrics[key] = _metric(
+                key, value=sum(amounts) / len(amounts) / float(base.value), status=sm.OK, formula=formula,  # type: ignore[arg-type]
+                basis=f"{len(chosen)} FY mean", as_of=min(chosen[0].period_end.isoformat(), str(base.as_of or chosen[0].period_end.isoformat())),
+                source=f"{years_label} {'+'.join(sorted({p.source for p in chosen}))}",
+            )
+
     def _flow_over_assets(self, key: str, fields: Sequence[str], average: bool, score) -> None:  # noqa: ANN001
         """A flow window over ending total assets, or over the average of the ending and opening total assets."""
 
@@ -1303,8 +1437,8 @@ class _Builder:
     def _extra_sub(self, group: str, key: str) -> SubScore:
         """A set input outside the default lists: the metric of the same key, scored in its cohort."""
 
-        label, fmt, lower_is_better = SET_INPUTS.get(key, (METRIC_LABELS.get(key, (key, ""))[0], tx.pct, False))
-        return self._cohort_sub(self._metric_sub(group, key, key, label, fmt), key, group, lower_is_better=lower_is_better)
+        label, fmt, lower_is_better, floor = SET_INPUTS.get(key, (METRIC_LABELS.get(key, (key, ""))[0], tx.pct, False, False))
+        return self._cohort_sub(self._metric_sub(group, key, key, label, fmt), key, group, lower_is_better=lower_is_better, yield_floor=floor)
 
     def _apply_set(self, group: str, subs: list[SubScore]) -> tuple[list[SubScore], Mapping[str, float] | None, str]:
         """The set's inputs and weights for ``group``; the default inputs it leaves out are "not applicable" (never 0)."""

@@ -60,7 +60,7 @@ def financial_route_reason(sector: object, industry: object = None) -> str | Non
 
 PEER_METRIC_KEYS = ("pe", "ev_ebit", "ev_sales", "pb", "roe", "ebit_margin", "fcf_yield", "dividend_yield", "revenue_cagr")
 COHORT_METRIC_KEYS = ("pe", "earnings_yield", "fcf_yield", "ebit_ev_yield", "roe", "roic", "ebit_margin", "net_debt_to_ebitda", "fcf_conversion", "revenue_cagr",
-                      "dividend_yield", "gross_profitability")  # the last ones: sector metric-set inputs
+                      "dividend_yield", "gross_profitability", "ffo_yield", "sbc_fcf_yield", "ebit_ev_yield_5y", "fcf_yield_3y")  # the last ones: sector metric-set inputs
 
 
 def live_decision_time(as_of: date | None, now: datetime | None = None) -> datetime:

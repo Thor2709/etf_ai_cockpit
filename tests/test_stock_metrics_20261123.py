@@ -128,4 +128,90 @@ def test_pre_revenue_biotech_and_junior_miners_are_not_scorable(sector: str, ind
     for key in ("stock_value", "stock_quality"):
         assert pre_revenue.components[key].score_10 is None and "not scorable" in pre_revenue.components[key].why
     assert pre_revenue.components["analyst_revision"] == _build().components["analyst_revision"]
-    assert _build(sector, industry).components == _build().components  # with revenue: the default set
+    with_revenue = _build(sector, industry)
+    assert with_revenue.components["stock_quality"] == _build().components["stock_quality"]  # with revenue: its sector's set
+    assert with_revenue.components["stock_value"].score_10 is not None
+
+
+# --- item 3 (F6): new metrics from SEC companyfacts fields -----------------------------------------------------------
+
+from etf_cockpit.data import stock_fundamentals as store  # noqa: E402
+from etf_cockpit.data import stock_sources as src  # noqa: E402
+
+F6_FIELDS = {
+    "gain_on_property_sales": 10.0, "real_estate_impairment": 5.0, "goodwill": 100.0, "intangibles_ex_goodwill": 50.0,
+    "credit_loss_provision": 8.0, "loans_net": 1000.0, "net_interest_income": 40.0, "premiums_earned": 100.0,
+    "claims_incurred": 60.0, "acquisition_cost_amortization": 25.0, "stock_based_compensation": 20.0,
+}
+
+
+def _f6(**overrides: float):
+    return _build(periods=[_period(y, **{**F6_FIELDS, **overrides}) for y in (2021, 2022, 2023, 2024, 2025)]).metrics
+
+
+@pytest.mark.parametrize(("key", "expected"), [
+    ("ffo", 100.0 + 60.0 - 10.0 + 5.0),  # net income + D&A - gains on property sales + real-estate impairments
+    ("ffo_yield", 155.0 / 500.0),
+    ("ptbv", 500.0 / (900.0 - 100.0 - 50.0)),  # market cap / (equity - goodwill - other intangibles)
+    ("rote", 100.0 / 750.0),  # net income / average tangible equity
+    ("credit_cost", 8.0 / 1000.0),  # provisions / average net loans
+    ("nii_to_assets", 40.0 / 2000.0),  # net interest income / average total assets
+    ("combined_ratio", (60.0 + 25.0) / 100.0),  # (claims + acquisition-cost amortisation) / earned premiums
+    ("gross_profitability", 400.0 / 2000.0),
+    ("sbc_fcf_yield", (220.0 - 70.0 - 20.0) / 500.0),
+])
+def test_each_new_metric_from_its_fixture(key: str, expected: float) -> None:
+    metric = _f6()[key]
+    assert metric.available and metric.value == pytest.approx(expected) and metric.as_of == "2025-12-31"
+
+
+def test_multi_year_averages_use_consecutive_fiscal_years() -> None:
+    ebit = {2021: 100.0, 2022: 150.0, 2023: 200.0, 2024: 250.0, 2025: 300.0}
+    cfo = {2021: 0.0, 2022: 0.0, 2023: 200.0, 2024: 220.0, 2025: 240.0}
+    metrics = _build(periods=[_period(y, ebit=ebit[y], cfo=cfo[y]) for y in ebit]).metrics
+    assert metrics["ebit_ev_yield_5y"].value == pytest.approx(200.0 / 700.0)  # mean EBIT / EV (500 + net debt 200)
+    assert metrics["fcf_yield_3y"].value == pytest.approx(150.0 / 500.0)  # mean FCF of the last 3 years / market cap
+    gap = _build(periods=[_period(y) for y in (2021, 2022, 2024, 2025)]).metrics
+    assert not gap["ebit_ev_yield_5y"].available and not gap["fcf_yield_3y"].available  # never bridged over a missing year
+
+
+def test_new_metrics_use_only_facts_filed_by_the_decision_date() -> None:
+    periods = [_period(y, **F6_FIELDS) for y in (2021, 2022, 2023, 2024)]
+    periods.append(_period(2025, known="2026-11-01", **{**F6_FIELDS, "real_estate_impairment": 500.0, "ebit": 9000.0}))
+    metrics = _build(periods=periods).metrics
+    assert metrics["ffo"].value == pytest.approx(155.0) and metrics["ffo"].as_of == "2024-12-31"
+    assert metrics["ebit_ev_yield_5y"].as_of == "2024-12-31" and metrics["ebit_ev_yield_5y"].value == pytest.approx(200.0 / 700.0)
+
+
+def test_a_missing_component_is_never_zero_filled() -> None:
+    periods = [_period(y, **{k: v for k, v in F6_FIELDS.items() if k != "gain_on_property_sales"}) for y in (2021, 2022, 2023, 2024, 2025)]
+    metrics = _build(periods=periods).metrics
+    assert not metrics["ffo"].available and not metrics["ffo_yield"].available
+
+
+def test_companyfacts_concepts_reach_the_period_fields() -> None:
+    concepts = {"gain_on_property_sales": "GainsLossesOnSalesOfInvestmentRealEstate", "real_estate_impairment": "ImpairmentOfRealEstate",
+                "credit_loss_provision": "ProvisionForLoanLeaseAndOtherLosses", "net_interest_income": "InterestIncomeExpenseNet",
+                "premiums_earned": "PremiumsEarnedNet", "claims_incurred": "PolicyholderBenefitsAndClaimsIncurredNet",
+                "acquisition_cost_amortization": "DeferredPolicyAcquisitionCostAmortizationExpense"}
+    balances = {"intangibles_ex_goodwill": "IntangibleAssetsNetExcludingGoodwill", "loans_net": "LoansAndLeasesReceivableNetReportedAmount"}
+    flow = lambda value: {"units": {"USD": [{"start": "2025-01-01", "end": "2025-12-31", "val": value, "filed": "2026-02-10", "form": "10-K"}]}}  # noqa: E731
+    instant = lambda value: {"units": {"USD": [{"end": "2025-12-31", "val": value, "filed": "2026-02-10", "form": "10-K"}]}}  # noqa: E731
+    gaap = {"Revenues": flow(1000.0), "NetIncomeLoss": flow(100.0), "StockholdersEquity": instant(900.0)}
+    gaap.update({concept: flow(float(i + 1)) for i, concept in enumerate(concepts.values())})
+    gaap.update({concept: instant(float(i + 50)) for i, concept in enumerate(balances.values())})
+    rows = src.parse_edgar_companyfacts({"entityName": "T", "facts": {"us-gaap": gaap}}, CONFIG, source_ref="test")
+    fy = store._row_period(next(row for row in rows if row["period_type"] == "FY"), {})
+    assert {name: fy.values.get(name) for name in concepts} == {name: float(i + 1) for i, name in enumerate(concepts)}
+    assert {name: fy.values.get(name) for name in balances} == {name: float(i + 50) for i, name in enumerate(balances)}
+
+
+@pytest.mark.parametrize(("sector", "industry", "inputs"), [
+    ("Real Estate", "REIT - Industrial", ["ffo_yield", "dividend_yield"]),
+    ("Energy", "Oil & Gas E&P", ["ebit_ev_yield_5y", "fcf_yield_3y"]),
+    ("Materials", "Copper", ["ebit_ev_yield_5y", "fcf_yield_3y"]),
+    ("Information Technology", "Software - Infrastructure", ["sbc_fcf_yield", "earnings_yield"]),
+])
+def test_new_value_inputs_are_wired_where_d_p3_names_them(sector: str, industry: str, inputs: list[str]) -> None:
+    value = _build(sector, industry, [_period(y, **F6_FIELDS) for y in (2021, 2022, 2023, 2024, 2025)]).components["stock_value"]
+    assert [item.key for item in value.inputs] == inputs and value.score_10 is not None

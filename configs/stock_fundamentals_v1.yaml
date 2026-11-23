@@ -78,6 +78,16 @@ sec_edgar_concepts:
   share_issuance: [ProceedsFromIssuanceOfCommonStock]
   eps_diluted: [EarningsPerShareDiluted]
   shares_diluted: [WeightedAverageNumberOfDilutedSharesOutstanding]
+  # F6 sector inputs (line items): REIT FFO legs, bank and insurer lines. A gain is positive; an impairment is an expense.
+  gain_on_property_sales: [GainsLossesOnSalesOfInvestmentRealEstate, GainLossOnSaleOfProperties]
+  real_estate_impairment: [ImpairmentOfRealEstate]
+  intangibles_ex_goodwill: [IntangibleAssetsNetExcludingGoodwill]
+  credit_loss_provision: [ProvisionForLoanLeaseAndOtherLosses, ProvisionForLoanAndLeaseLosses]
+  loans_net: [LoansAndLeasesReceivableNetReportedAmount, FinancingReceivableExcludingAccruedInterestAfterAllowanceForCreditLoss]
+  net_interest_income: [InterestIncomeExpenseNet]
+  premiums_earned: [PremiumsEarnedNet]
+  claims_incurred: [PolicyholderBenefitsAndClaimsIncurredNet]
+  acquisition_cost_amortization: [DeferredPolicyAcquisitionCostAmortizationExpense]
 
 sec_edgar_rules:
   # A fact for an earlier period than the latest period in its filing is a
@@ -207,6 +217,10 @@ scoring:
     pe_vs_peers_discount: {low: -0.5, high: 0.5, weight: 1}
     # set-only inputs (metric_sets below); the weight of a set input comes from its set
     dividend_yield: {low: 0.0, high: 0.06}
+    ffo_yield: {low: 0.0, high: 0.12}
+    sbc_fcf_yield: {low: 0.0, high: 0.10}
+    ebit_ev_yield_5y: {low: 0.0, high: 0.10}
+    fcf_yield_3y: {low: 0.0, high: 0.10}
   quality:
     min_inputs: 2
     roe: {low: 0.0, high: 0.20, weight: 1}
@@ -230,7 +244,16 @@ scoring:
     technology:
       sectors: [Information Technology]
       industries: [Internet Content & Information]
+      value: {sbc_fcf_yield: 0.4, earnings_yield: 0.3}
       quality: {gross_profitability: 0.3, revenue_cagr: 0.2}
+    real_estate:
+      sectors: [Real Estate]
+      value: {ffo_yield: 0.5, dividend_yield: 0.2}
+    cyclical:
+      # energy and metals & mining: through-cycle averages, not single-year yields
+      sectors: [Energy]
+      industries: [Gold, Silver, Copper, Other Precious Metals & Mining, Other Industrial Metals & Mining, Aluminum, Steel, Coking Coal]
+      value: {ebit_ev_yield_5y: 0.4, fcf_yield_3y: 0.3}
   # Pre-revenue firms (no positive revenue known at the decision time) of these industries: value and quality are
   # "not scorable" (never ranked at loss_subscore). With revenue they use their sector's set.
   not_scorable:
