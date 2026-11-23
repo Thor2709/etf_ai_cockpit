@@ -65,7 +65,10 @@ validation, the backtest and the paper-bot replay book
 counts at its close (`stamp_fx_availability`); ECB euro reference rates
 (`data/ecb_fx.py`, source `ecb`, basis `ecb_publication`) count at their publish
 time, 16:00 Frankfurt time (CET or CEST) on the rate day, or at the fetch time
-if that is earlier; S&P 500 membership changes at their effective date; SEC
+if that is earlier; S&P 500 membership changes at their effective date
+(`replay_membership.reconstructed_licensed_rows`: an incomplete licensed interval at
+`valid_from`, its end at `valid_to`, both 00:00 UTC, `pit_basis` "reconstructed"; readers
+`ListingHistory.from_root(reconstructed=True)` and `membership_frame(reconstructed=True)`); SEC
 data at its filed date. The FX store keeps one rate per quote day and currency
 against EUR (`prefer_ecb_rates`, applied by every FX writer): the ECB rate where
 the ECB publishes one, else the Yahoo rate (for example CLP, COP, and TWD after

@@ -143,16 +143,16 @@ class ListingHistory:
                 if str(row["instrument_id"]) not in known_ids and str(row["valid_from"]) <= day and _timestamp(row["known_at"]) <= cutoff}
 
     @classmethod
-    def from_root(cls, root: Path) -> ListingHistory:
+    def from_root(cls, root: Path, *, reconstructed: bool = False) -> ListingHistory:
         root = Path(root)
-        history = cls._listing_records(root)
+        history = cls._listing_records(root, reconstructed)
         prices_path = root / "data/validated/prices/prices_daily.parquet"
         if not prices_path.is_file():
             return history
         return history.with_observed_trading(pd.read_parquet(prices_path), load_config(root / "configs"))
 
     @classmethod
-    def _listing_records(cls, root: Path) -> ListingHistory:
+    def _listing_records(cls, root: Path, reconstructed: bool = False) -> ListingHistory:
         path = Path(root) / "data/derived/universe_membership/membership.sqlite"
         if not path.is_file():
             return cls()
@@ -168,9 +168,10 @@ class ListingHistory:
                 "WHERE r.scope LIKE 'listing:%' AND r.source_kind='self' "
                 "ORDER BY r.revision_id"
             )]
-            rows.extend({**dict(row), "source_kind": "licensed"} for row in connection.execute(
+            licensed = [{**dict(row), "source_kind": "licensed"} for row in connection.execute(
                 "SELECT * FROM licensed_history WHERE scope LIKE 'listing:%' ORDER BY history_id"
-            ))
+            )]
+            rows.extend(reconstructed_licensed_rows(licensed) if reconstructed else licensed)
             captures = tuple(dict(row) for row in connection.execute(
                 "SELECT scope, snapshot_date, known_at FROM capture_log "
                 "WHERE scope LIKE 'listing:%' AND source_kind='self' ORDER BY capture_id"
@@ -241,7 +242,7 @@ class ListingHistory:
         fingerprint = hashlib.sha256(json.dumps(material, sort_keys=True).encode()).hexdigest()
         return MembershipSnapshot(
             tuple(key for key in ids if key in active), unverified, reasons, fingerprint, delisting_unverified, tuple(observed),
-            RECONSTRUCTED_PIT if observed else None,
+            RECONSTRUCTED_PIT if observed or any(row.get("pit_basis") for row in intervals) else None,
         )
 
     def fingerprint(self) -> str:
@@ -268,6 +269,29 @@ class ListingHistory:
             if when <= cutoff and instrument not in self.snapshot(when, [instrument]).eligible_ids:
                 events.add((when, instrument, day))
         return tuple(sorted(events))
+
+
+def reconstructed_licensed_rows(rows) -> list[dict[str, object]]:
+    """The reconstructed PIT rule for licensed membership history (OD-1 = b, D9; ADR-0003).
+
+    Read time only, like ``reconstructed_price_availability``: the stored stamps stay. An incomplete licensed
+    interval counts as known at its effective date (``valid_from`` 00:00 UTC); its end only from ``valid_to``
+    00:00 UTC, so a closed interval reads as an open revision then a closure. A stored stamp that is earlier stays.
+    Complete snapshots keep their stamps. Every returned row of an incomplete interval gets
+    ``pit_basis = "reconstructed"``. Replay readers only; strict readers keep the stored stamps.
+    """
+    out: list[dict[str, object]] = []
+    for row in rows:
+        if bool(row["complete"]):
+            out.append(dict(row))
+            continue
+        known = _timestamp(row["known_at"])
+        opened = min(known, _timestamp(f"{row['valid_from']}T00:00:00+00:00"))
+        out.append({**row, "valid_to": None, "known_at": opened.isoformat(), "pit_basis": RECONSTRUCTED_PIT})
+        if row["valid_to"] is not None:
+            closed = min(known, _timestamp(f"{row['valid_to']}T00:00:00+00:00"))
+            out.append({**row, "known_at": closed.isoformat(), "pit_basis": RECONSTRUCTED_PIT})
+    return out
 
 
 def unverified_instruments(eligibility: pd.DataFrame) -> list[str]:

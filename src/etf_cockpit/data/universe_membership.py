@@ -213,8 +213,13 @@ def membership_frame(
     as_known_at: str | datetime | date,
     *,
     root: Path | None = None,
+    reconstructed: bool = False,
 ) -> pd.DataFrame:
-    """Project captured membership into rank-validation's exact input schema."""
+    """Project captured membership into rank-validation's exact input schema.
+
+    ``reconstructed=True`` (replay readers only) reads licensed intervals by ``reconstructed_licensed_rows`` and
+    adds ``pit_basis = "reconstructed"``; the default keeps the stored stamps.
+    """
 
     _validate_scope(scope)
     cutoff = _utc_timestamp(as_known_at, "as_known_at")
@@ -253,6 +258,15 @@ def membership_frame(
             "FROM licensed_history WHERE scope=? ORDER BY snapshot_date, known_at, history_id",
             (scope,),
         ).fetchall()
+        if reconstructed:
+            from etf_cockpit.data.replay_membership import RECONSTRUCTED_PIT, reconstructed_licensed_rows
+
+            keys = ("scope", "instrument_id", "valid_from", "valid_to", "known_at", "snapshot_date", "complete", "import_id")
+            licensed = sorted(
+                (tuple({**row, "known_at": _utc_timestamp(row["known_at"], "known_at")}[key] for key in keys)
+                 for row in reconstructed_licensed_rows(dict(zip(keys, row)) for row in licensed)),
+                key=lambda row: (str(row[5]), str(row[4])),
+            )
         # Complete snapshots replace a day's membership atomically. Incomplete
         # imports are interval announcements, revised independently per member.
         batches: dict[tuple[str, int], list[tuple[object, ...]]] = {}
@@ -299,7 +313,8 @@ def membership_frame(
                 )
     finally:
         connection.close()
-    return pd.DataFrame.from_records(result, columns=_FRAME_COLUMNS)
+    frame = pd.DataFrame.from_records(result, columns=_FRAME_COLUMNS)
+    return frame.assign(pit_basis=RECONSTRUCTED_PIT) if reconstructed else frame
 
 
 def membership_intervals(
