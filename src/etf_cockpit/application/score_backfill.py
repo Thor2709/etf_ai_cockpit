@@ -639,6 +639,7 @@ def _membership_log(eligibility, snapshot):
         else "listed" if key in snapshot.eligible_ids else "outside_listing_interval"
     )
     eligibility["membership_inputs_hash"] = snapshot.fingerprint
+    eligibility["pit_basis"] = snapshot.pit_basis  # "reconstructed" when observed trading admitted an id (OD-1 = b)
     return eligibility
 
 
