@@ -1,0 +1,10 @@
+[build-system]
+requires = ["maturin==1.16.0"]
+build-backend = "maturin"
+
+[project]
+name = "etf-kernels"
+version = "0.1.0"
+description = "Compiled numeric kernels of the ETF AI Cockpit (the one production path; numpy stays the test oracle)."
+requires-python = ">=3.11"
+dependencies = ["numpy>=1.26"]

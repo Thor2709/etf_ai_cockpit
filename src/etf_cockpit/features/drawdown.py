@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import etf_kernels
 import numpy as np
 import pandas as pd
 
@@ -17,10 +18,6 @@ def rolling_max_drawdown(prices: pd.Series, window: int) -> pd.Series:
     ``window`` observations or any missing price are NaN.
     """
 
-    values = prices.astype(float).to_numpy()
-    out = np.full(len(values), np.nan)
-    if len(values) >= window:
-        windows = np.lib.stride_tricks.sliding_window_view(values, window)
-        # NaN propagates through the running peak and the min, so a window with a missing price stays NaN
-        out[window - 1:] = (windows / np.maximum.accumulate(windows, axis=1) - 1.0).min(axis=1)
+    values = np.ascontiguousarray(prices.astype(float).to_numpy())
+    out = etf_kernels.rolling_max_drawdown(values, np.array([0, len(values)], dtype=np.int64), window)
     return pd.Series(out, index=prices.index, name=prices.name)
