@@ -43,3 +43,33 @@ def test_membership_log_writes_the_snapshot_pit_basis():
     log = _membership_log(pd.DataFrame({"instrument_id": ["VWCE"]}), snapshot)
 
     assert log["pit_basis"].tolist() == [RECONSTRUCTED_PIT]
+
+
+def test_live_score_build_shares_one_correlation_matrix(monkeypatch):
+    from types import SimpleNamespace
+
+    import pandas as pd
+
+    from etf_cockpit.core.config import load_config
+    from etf_cockpit.signals import simple_scores as s
+
+    matrix = object()
+    built: list[object] = []
+    seen: dict[str, object] = {}
+    monkeypatch.setattr(s, "correlation_matrix", lambda prices: built.append(prices) or matrix)
+    monkeypatch.setattr(s, "build_correlation_clusters", lambda *a, **kw: seen.setdefault("clusters", kw.get("matrix")) and SimpleNamespace(rows=[]))
+    monkeypatch.setattr(s, "rank_and_finalize_scores", lambda scores, prices, metadata, **kw: seen.setdefault("ranked", kw.get("correlations")) and [])
+    monkeypatch.setattr(s, "_generate_missing_price_signals", lambda config, sigs, px: (sigs, {}))
+    monkeypatch.setattr(s, "load_latest_candidate_report", lambda: (pd.DataFrame(), None))
+    monkeypatch.setattr(s, "load_forecast_history", lambda: pd.DataFrame())
+    for name in ("build_market_regime", "build_portfolio_fit_lookup", "build_benchmark_attribution_lookup"):
+        monkeypatch.setattr(s, name, lambda *a, **kw: {})
+    monkeypatch.setattr(s, "_backtest_trust_lookup", lambda **kw: {})
+    monkeypatch.setattr(s, "build_universe_simple_scores", lambda *a, **kw: [])
+    monkeypatch.setattr(s, "build_candidate_simple_scores", lambda *a, **kw: [])
+    prices = pd.DataFrame({"etf_id": ["VWCE"]})
+
+    s.build_simple_instrument_scores(load_config(), [], pd.DataFrame(), prices, universe_revision="audit", cash_comparison_lookup={})
+
+    assert len(built) == 1 and built[0] is prices
+    assert seen == {"clusters": matrix, "ranked": matrix}
