@@ -43,6 +43,19 @@ REQUIRED_HOLDINGS_COLUMNS = {
 
 
 @lru_cache(maxsize=1 << 16)
+def invalid_ohlc_mask(frame: pd.DataFrame) -> pd.Series:
+    """Rows with impossible OHLC values; the one rule for both the import quarantine and the validation block."""
+    return (
+        (frame["open"] <= 0)
+        | (frame["close"] <= 0)
+        | (frame["high"] <= 0)
+        | (frame["low"] <= 0)
+        | (frame["high"] < frame["low"])
+        | (frame["high"] < frame[["open", "close"]].max(axis=1))
+        | (frame["low"] > frame[["open", "close"]].min(axis=1))
+    )
+
+
 def _business_days_between(start: date, end: date) -> int:
     if start >= end:
         return 0
@@ -277,15 +290,7 @@ def validate_prices(
                     latest,
                 )
             )
-        bad_ohlc = group[
-            (group["open"] <= 0)
-            | (group["close"] <= 0)
-            | (group["high"] <= 0)
-            | (group["low"] <= 0)
-            | (group["high"] < group["low"])
-            | (group["high"] < group[["open", "close"]].max(axis=1))
-            | (group["low"] > group[["open", "close"]].min(axis=1))
-        ]
+        bad_ohlc = group[invalid_ohlc_mask(group)]
         if not bad_ohlc.empty:
             issues.append(DataQualityIssue(etf_id, "block", "invalid_ohlc", f"{len(bad_ohlc)} invalid OHLC rows."))
 
