@@ -73,3 +73,19 @@ def test_live_score_build_shares_one_correlation_matrix(monkeypatch):
 
     assert len(built) == 1 and built[0] is prices
     assert seen == {"clusters": matrix, "ranked": matrix}
+
+
+def test_row_freshness_skips_components_with_no_score():
+    from types import SimpleNamespace
+
+    from etf_cockpit.data import trust_artifacts
+
+    def score(*components):
+        return SimpleNamespace(components=list(components), latest_date="2026-11-20", latest_price=10.0)
+
+    scored = SimpleNamespace(key="momentum", score_10=6.0, freshness_status="ok")
+    absent = SimpleNamespace(key="baseline", score_10=None, freshness_status="unknown")  # coverage, not freshness
+    stale = SimpleNamespace(key="trend", score_10=5.0, freshness_status="stale")
+    at = "2026-11-22T22:30:00+00:00"
+    assert trust_artifacts._score_freshness(score(scored, absent), at) == "ok"
+    assert trust_artifacts._score_freshness(score(scored, absent, stale), at) == "stale"

@@ -1947,10 +1947,12 @@ def _score_freshness(score: Any, as_of: object | None = None) -> str:
     price_state = _price_row_state(score, as_of)
     if price_state == "invalid":
         return "invalid"
+    # A component with no score is missing coverage (reported in missing_components), not a freshness state.
     statuses = [
         str(getattr(component, "freshness_status", "") or "")
         for component in getattr(score, "components", []) or []
         if str(getattr(component, "freshness_status", "") or "")
+        and not (hasattr(component, "score_10") and component.score_10 is None)
     ]
     if any(status in {"stale", "stale_block"} for status in statuses):
         return "stale"
