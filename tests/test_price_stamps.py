@@ -145,7 +145,7 @@ def test_recovery_copies_ingested_at_and_leaves_null_stamps_null():
     assert _ts(stamped["known_at"].iloc[0]) == _ts(legacy["ingested_at"].iloc[0])
     assert _ts(stamped["available_at"].iloc[0]) == _ts(legacy["available_at"].iloc[0])
     assert stamped.loc[2, ["ingested_at", "known_at", "available_at"]].isna().all()
-    assert not stamped["actions_evidenced"].any()
+    assert stamped["actions_evidenced"].all()  # the action-requesting fetch returned the same bars (W2-F item 5)
 
 
 def test_promote_staging_uses_the_same_stamps_as_commit(tmp_path):
