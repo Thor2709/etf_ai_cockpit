@@ -40,7 +40,7 @@ from etf_cockpit.core.config import AppConfig, load_config
 from etf_cockpit.core.values import finite_float_or_none
 from etf_cockpit.core.versioning import build_version_registry
 from etf_cockpit.data.duckdb_store import load_prices
-from etf_cockpit.data.fx_data import fx_rates_for_prices
+from etf_cockpit.data.fx_data import fx_cross_rate_memo, fx_rates_for_prices
 from etf_cockpit.data.reference_data import load_reference_dataset
 from etf_cockpit.data.score_history_backfill import (
     BACKFILL_PROVENANCE,
@@ -55,13 +55,13 @@ from etf_cockpit.data.score_history_backfill import (
 )
 from etf_cockpit.data.trust_artifacts import build_score_history_frame
 from etf_cockpit.data.validation import validate_prices
-from etf_cockpit.features.crowding import build_correlation_clusters
+from etf_cockpit.features.crowding import build_correlation_clusters, correlation_matrix
 from etf_cockpit.features.feature_pipeline import eur_basis_prices, latest_features
 from etf_cockpit.features.regime import build_benchmark_attribution_lookup, build_market_regime, build_portfolio_fit_lookup
 from etf_cockpit.core.types import DataQualityReport, ForecastResult
 from etf_cockpit.models.baseline_models import baseline_forecast
 from etf_cockpit.models.forecast_scores import PRIMARY_MODEL_HORIZON_DAYS
-from etf_cockpit.signals.canonical_scoring import load_score_policy
+from etf_cockpit.signals.canonical_scoring import load_score_policy, policy_snapshot
 from etf_cockpit.signals.signal_pipeline import BASELINE_MODEL_VERSION, generate_signals
 from etf_cockpit.signals.simple_scores import (
     AsOfScoreSources,
@@ -267,7 +267,7 @@ def backfill_score_history(
         raise ValueError("a forward score run scores exactly one session (start == end)")
     say = progress or (lambda _message: None)
     config = config or load_config()
-    membership = ListingHistory.from_root(root)
+    membership = ListingHistory.from_root(root, reconstructed=True)  # replay track: licensed history at its effective dates (OD-1 = b)
     config = _historical_config(config, membership)
     frame = load_prices(config=config) if prices is None else prices.copy()
     if frame.empty or not {"etf_id", "date", "adjusted_close"}.issubset(frame.columns):
@@ -376,23 +376,34 @@ def backfill_score_history(
             survivorship_unverified=unverified_instruments(existing_eligibility),
         )
     try:
-        for index, session, outcome in _score_sessions(config, frame, todo, fx, registry_signature, excluded, workers, membership, completed_at, reference_order_value):
-            say(f"[{index}/{len(sessions)}] scored as of {session}")
-            if isinstance(outcome, str):  # fail closed per session: never store a partial or guessed run
-                unavailable[session.isoformat()] = outcome
-                say(f"  unavailable: {outcome}")
-                continue
-            run, eligibility = outcome
-            eligibility["config_fingerprint"] = fingerprint
-            eligibility["provenance"] = BACKFILL_PROVENANCE if completed_at is None else FORWARD_PROVENANCE
-            new_eligibility.append(eligibility)
-            if run is None:
-                unavailable[session.isoformat()] = "no eligible scored instrument"
-                continue
-            run["config_fingerprint"] = fingerprint
-            new_histories.append(run)
-            if len(new_histories) % CHECKPOINT_RUNS == 0:
-                persist()
+        # As-traded factors once per run (S6); score_as_of reuses them (with_as_traded_factors is idempotent).
+        try:
+            as_traded = with_as_traded_factors(frame)
+        except Exception as exc:  # fail closed per session, as score_as_of does; a forward run fails loudly (SDD C4)
+            if completed_at is not None:
+                raise
+            unavailable.update({session.isoformat(): f"{type(exc).__name__}: {str(exc)[:200]}" for _index, session in todo})
+            as_traded, todo = frame, []
+        # FX quote days validated once per run (S6, OD-14): the memo is keyed by a day's quote rows, so a session reuses
+        # only a result for rows its own book holds. Serial sessions only; pool workers keep their per-session books.
+        with fx_cross_rate_memo():
+            for index, session, outcome in _score_sessions(config, as_traded, todo, fx, registry_signature, excluded, workers, membership, completed_at, reference_order_value):
+                say(f"[{index}/{len(sessions)}] scored as of {session}")
+                if isinstance(outcome, str):  # fail closed per session: never store a partial or guessed run
+                    unavailable[session.isoformat()] = outcome
+                    say(f"  unavailable: {outcome}")
+                    continue
+                run, eligibility = outcome
+                eligibility["config_fingerprint"] = fingerprint
+                eligibility["provenance"] = BACKFILL_PROVENANCE if completed_at is None else FORWARD_PROVENANCE
+                new_eligibility.append(eligibility)
+                if run is None:
+                    unavailable[session.isoformat()] = "no eligible scored instrument"
+                    continue
+                run["config_fingerprint"] = fingerprint
+                new_histories.append(run)
+                if len(new_histories) % CHECKPOINT_RUNS == 0:
+                    persist()
     finally:
         result = persist()  # also preserve completed sessions when a process pool dies
     return result
@@ -404,7 +415,7 @@ _WORKER_STATE: dict[str, Any] = {}
 def _worker_init(config: AppConfig, prices: pd.DataFrame, fx_rates: pd.DataFrame | None, registry_signature: str, excluded: Mapping[str, str] | None, membership: ListingHistory, reference_order_value_eur: float | None = None) -> None:
     import os
 
-    os.environ["CUDA_VISIBLE_DEVICES"] = ""
+    os.environ["CUDA_VISIBLE_DEVICES"] = "-1"  # an empty value deletes the variable on Windows: the GPU stays visible
     _WORKER_STATE.update(config=config, prices=prices, fx=fx_rates, registry=registry_signature, excluded=excluded, membership=membership, reference=reference_order_value_eur)
 
 
@@ -460,6 +471,7 @@ def _score_sessions(config, frame, todo, fx, registry_signature, excluded, worke
             yield index, session, future.result()
 
 
+@policy_snapshot()  # one read of each score policy per session run (SP-4)
 def score_as_of(
     config: AppConfig,
     prices: pd.DataFrame,
@@ -562,9 +574,13 @@ def score_as_of(
             publish=False,
         )
     )
+    enabled = set(config.universe.enabled_ids)
     metadata: dict[str, object] = {
-        item.id: {"sector": item.sector, "theme": item.theme} for item in config.universe.etfs if item.id in config.universe.enabled_ids
+        item.id: {"sector": item.sector, "theme": item.theme} for item in config.universe.etfs if item.id in enabled
     }
+    # One correlation matrix for both cluster builds: ``known`` holds no row after ``as_of``, so the ranked build's
+    # uncapped window is the same window.
+    correlations = correlation_matrix(known, as_of=as_of)
     benchmark_args = dict(
         benchmark_id=context.benchmark_data_id,
         benchmark_reference=context.projection,
@@ -594,7 +610,7 @@ def score_as_of(
         portfolio_fit=build_portfolio_fit_lookup(known, **benchmark_args),
         benchmark_attribution=build_benchmark_attribution_lookup(known, metadata=metadata, **benchmark_args),
         cash_comparison_lookup={},
-        crowding=build_correlation_clusters(known, metadata, as_of=as_of),
+        crowding=build_correlation_clusters(known, metadata, as_of=as_of, matrix=correlations),
         backtest_trust={},
     )
     no_lineage = {score.display_id for score in scores if score.canonical_score is None}
@@ -602,7 +618,9 @@ def score_as_of(
     eligibility = _eligibility_log(log_config, as_of, log_known, report, features, scores, excluded, fx_rates, no_lineage)
     eligibility = _membership_log(eligibility, snapshot)
     eligible_ids = set(eligibility.loc[eligibility["eligible"], "instrument_id"])
-    ranked = rank_and_finalize_scores([score for score in scores if score.display_id in eligible_ids], known, metadata, news_inventory={})
+    ranked = rank_and_finalize_scores(
+        [score for score in scores if score.display_id in eligible_ids], known, metadata, news_inventory={}, correlations=correlations,
+    )
     if not ranked:
         return None, eligibility
     run = _history_run(
@@ -632,6 +650,7 @@ def _membership_log(eligibility, snapshot):
         else "listed" if key in snapshot.eligible_ids else "outside_listing_interval"
     )
     eligibility["membership_inputs_hash"] = snapshot.fingerprint
+    eligibility["pit_basis"] = snapshot.pit_basis  # "reconstructed" when observed trading admitted an id (OD-1 = b)
     return eligibility
 
 
@@ -722,7 +741,8 @@ def _liquidity_gate(config: AppConfig, known: pd.DataFrame, fx_rates: pd.DataFra
     A window that cannot be converted to EUR fails the gate (never assumed liquid).
     """
 
-    gated = {item.id for item in config.universe.etfs if item.instrument_type in LIQUIDITY_GATED_TYPES and item.id in config.universe.enabled_ids}
+    enabled = set(config.universe.enabled_ids)
+    gated = {item.id for item in config.universe.etfs if item.instrument_type in LIQUIDITY_GATED_TYPES and item.id in enabled}
     window = known.loc[known["etf_id"].astype(str).isin(gated)]
     if window.empty:
         return {}

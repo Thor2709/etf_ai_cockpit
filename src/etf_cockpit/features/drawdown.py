@@ -17,9 +17,10 @@ def rolling_max_drawdown(prices: pd.Series, window: int) -> pd.Series:
     ``window`` observations or any missing price are NaN.
     """
 
-    values = prices.astype(float)
-
-    def _window_max_drawdown(window_prices: np.ndarray) -> float:
-        return float((window_prices / np.maximum.accumulate(window_prices) - 1.0).min())
-
-    return values.rolling(window, min_periods=window).apply(_window_max_drawdown, raw=True)
+    values = prices.astype(float).to_numpy()
+    out = np.full(len(values), np.nan)
+    if len(values) >= window:
+        windows = np.lib.stride_tricks.sliding_window_view(values, window)
+        # NaN propagates through the running peak and the min, so a window with a missing price stays NaN
+        out[window - 1:] = (windows / np.maximum.accumulate(windows, axis=1) - 1.0).min(axis=1)
+    return pd.Series(out, index=prices.index, name=prices.name)

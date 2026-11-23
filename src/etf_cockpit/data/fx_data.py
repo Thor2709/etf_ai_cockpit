@@ -37,7 +37,10 @@ FX_RATE_CONSISTENCY_TOLERANCE = 1e-6
 # not when it was fetched; a live row is available when it was ingested.
 MARKET_CLOSE_UNREVISED = "market_close_unrevised"
 LIVE_INGESTION = "live_ingestion"
-FX_AVAILABILITY_BASES = frozenset({MARKET_CLOSE_UNREVISED, LIVE_INGESTION})
+# An ECB euro reference rate is available at its publish time, 16:00 Frankfurt time on the rate day (OD-1 = b).
+ECB_PUBLICATION = "ecb_publication"
+ECB_FX_SOURCE = "ecb"
+FX_AVAILABILITY_BASES = frozenset({MARKET_CLOSE_UNREVISED, LIVE_INGESTION, ECB_PUBLICATION})
 
 # Stored prices are already in major units (the provider scales pence once), so a minor-unit label
 # only names the major currency and must never trigger a second /100.
@@ -241,6 +244,46 @@ def stamp_fx_availability(frame: pd.DataFrame, *, ingested_at: datetime, basis: 
     return stamped
 
 
+def ecb_publish_time(days: pd.Series) -> pd.Series:
+    """UTC publish time of the ECB reference rates of each quote day: 16:00 Europe/Berlin (CET or CEST)."""
+
+    sessions = pd.to_datetime(days, errors="coerce").dt.tz_localize(None).dt.normalize()
+    return (sessions + pd.Timedelta(hours=16)).dt.tz_localize("Europe/Berlin").dt.tz_convert("UTC")
+
+
+def prefer_ecb_rates(frame: pd.DataFrame) -> pd.DataFrame:
+    """The FX store keeps one rate per quote day and currency against EUR: the ECB rate where the ECB has one.
+
+    Every FX writer applies this before it commits, so readers see one source per day and currency, each from its own
+    ``available_at`` (ECB publish time, Yahoo close). Malformed frames pass unchanged; validation reports them.
+    """
+
+    date_column = _first_present(frame, DATE_COLUMNS)
+    if frame.empty or date_column is None or "source" not in frame.columns:
+        return frame
+    pairs = _parse_currency_pairs(frame)
+    if pairs.errors:
+        return frame
+    currency = pairs.quote_currency.where(pairs.base_currency.eq("EUR"), pairs.base_currency.where(pairs.quote_currency.eq("EUR")))
+    key = pd.to_datetime(frame[date_column], errors="coerce").dt.date.astype(str) + "|" + currency.fillna("")
+    ecb = frame["source"].astype(str).eq(ECB_FX_SOURCE)
+    covered = currency.notna() & ~ecb & key.isin(set(key[ecb & currency.notna()]))
+    return frame.loc[~covered]
+
+
+def _stripped_text(values: pd.Series) -> pd.Series:
+    """``values.astype(str).str.strip()``, computed once per distinct value (E1 P4)."""
+
+    codes, uniques = pd.factorize(values)
+    distinct = np.asarray(pd.Index(uniques, dtype=object).astype(str).str.strip(), dtype=object)
+    text = np.empty(len(values), dtype=object)
+    present = codes >= 0
+    text[present] = distinct[codes[present]]
+    # None and NaN print differently, so missing values keep their own text.
+    text[~present] = values[~present].astype(str).str.strip().to_numpy()
+    return pd.Series(text, index=values.index, dtype=object)
+
+
 def _effective_availability(frame: pd.DataFrame, ingested: pd.Series) -> tuple[pd.Series, str | None]:
     """Per-row UTC time a quote became known: ``available_at`` when stated, else ``ingested_at`` (legacy rows).
 
@@ -252,8 +295,9 @@ def _effective_availability(frame: pd.DataFrame, ingested: pd.Series) -> tuple[p
         return ingested, None
     raw = frame["available_at"] if "available_at" in frame.columns else pd.Series(None, index=frame.index, dtype=object)
     basis = frame["availability_basis"] if "availability_basis" in frame.columns else pd.Series(None, index=frame.index, dtype=object)
-    stated = raw.notna() & raw.astype(str).str.strip().ne("")
-    basis_text = basis.where(basis.notna(), "").astype(str).str.strip()
+    # A datetime column holds no blank text, so it needs no string check (E1 P4).
+    stated = raw.notna() if pd.api.types.is_datetime64_any_dtype(raw) else raw.notna() & _stripped_text(raw).ne("")
+    basis_text = _stripped_text(basis.where(basis.notna(), ""))
     if (~stated & basis_text.ne("")).any():
         return ingested, "FX rates state an availability_basis without available_at."
     parsed = pd.to_datetime(raw.where(stated), errors="coerce", utc=True)
@@ -267,6 +311,8 @@ def _effective_availability(frame: pd.DataFrame, ingested: pd.Series) -> tuple[p
     market_close = stated & basis_text.eq(MARKET_CLOSE_UNREVISED)
     if date_column is None and market_close.any():
         return ingested, "FX rates with a market_close_unrevised basis need a quote date."
+    if date_column is None and (stated & basis_text.eq(ECB_PUBLICATION)).any():
+        return ingested, "FX rates with an ecb_publication basis need a quote date."
     if date_column is not None:
         # An unrevised daily close cannot be known before its own session closes.
         close = pd.to_datetime(frame[date_column], errors="coerce", utc=False).dt.tz_localize(None).dt.tz_localize("UTC") + pd.Timedelta(
@@ -274,6 +320,10 @@ def _effective_availability(frame: pd.DataFrame, ingested: pd.Series) -> tuple[p
         )
         if (market_close & (close.isna() | parsed.lt(close))).any():
             return ingested, "FX rates with a market_close_unrevised basis have available_at before the quote date close (or no quote date)."
+        ecb = stated & basis_text.eq(ECB_PUBLICATION)
+        published = ecb_publish_time(frame.loc[ecb, date_column]) if ecb.any() else None
+        if published is not None and (published.isna() | parsed[ecb].lt(published)).any():
+            return ingested, "FX rates with an ecb_publication basis have available_at before the ECB publish time (or no quote date)."
     return parsed.where(stated, ingested), None
 
 

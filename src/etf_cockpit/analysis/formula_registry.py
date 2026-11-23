@@ -95,6 +95,23 @@ _SPECS: tuple[FormulaSpec, ...] = (
           "gross, not netted against issuance; banks and insurers are not_meaningful (sector_applicable=False)"),
     _spec("shareholder_yield", "Shareholder yield", "dividends + gross buybacks - share issuance", "market cap", "TTM|FY / spot", "ratio",
           "same definition as data/capital_allocation; a missing part is unavailable; banks and insurers are not_meaningful (sector_applicable=False)"),
+    # F6 sector metrics (D P3)
+    _spec("ffo", "Funds from operations (FFO)", "net income to parent + D&A - gains on property sales + real-estate impairments", "1", "TTM|FY", "money",
+          "Nareit 2018 legs from tagged facts; a missing leg is unavailable, never 0"),
+    _spec("ffo_yield", "FFO yield", "FFO", "market cap", "TTM|FY / spot", "ratio"),
+    _spec("ptbv", "P/TBV", "market cap", "parent equity - goodwill - other intangibles", "spot / latest balance", "multiple",
+          "no multiple when tangible equity is zero or negative"),
+    _spec("rote", "Return on tangible equity", "net income attributable to parent", "average tangible equity (ending and one year earlier)", "TTM|FY", "ratio",
+          "zero or negative average tangible equity is not_meaningful"),
+    _spec("credit_cost", "Credit cost", "provisions for credit losses", "average net loans", "TTM|FY", "ratio"),
+    _spec("nii_to_assets", "Net interest income / assets", "net interest income", "average total assets", "TTM|FY", "ratio"),
+    _spec("combined_ratio", "Combined ratio", "claims incurred + amortised acquisition costs", "net earned premiums", "TTM|FY", "ratio",
+          "proxy: other underwriting costs are not tagged"),
+    _spec("sbc_fcf_yield", "SBC-adjusted FCF yield", "CFO - capex - stock-based compensation", "market cap", "TTM|FY / spot", "ratio", FCF_PROXY_LABEL),
+    _spec("ebit_ev_yield_5y", "EBIT / EV (3-5 y mean)", "mean FY EBIT over 3-5 consecutive fiscal years", "enterprise value", "multi-year / spot", "ratio",
+          "latest known version of each fiscal year; fewer than 3 consecutive years is unavailable"),
+    _spec("fcf_yield_3y", "FCF yield (3 y mean)", "mean FY (CFO - capex) over 3 consecutive fiscal years", "market cap", "multi-year / spot", "ratio",
+          FCF_PROXY_LABEL),
 )
 
 FORMULA_REGISTRY: Mapping[str, FormulaSpec] = MappingProxyType({spec.metric_key: spec for spec in _SPECS})

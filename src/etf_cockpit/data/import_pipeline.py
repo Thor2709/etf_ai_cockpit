@@ -50,6 +50,7 @@ class PriceImportRollback:
 _ACTION_DOWNLOAD_PROVIDERS = frozenset({"yfinance"})  # downloads that request actions (require_actions=True)
 _REVISION_COLUMNS = ("open", "high", "low", "close", "volume", "currency", "is_adjusted",
                      "dividends", "stock_splits", "capital_gains")
+RECONSTRUCTED_PIT = "reconstructed"
 
 
 def stamp_price_availability(stored: pd.DataFrame | None, incoming: pd.DataFrame, *, retrieved_at: datetime) -> pd.DataFrame:
@@ -57,15 +58,15 @@ def stamp_price_availability(stored: pd.DataFrame | None, incoming: pd.DataFrame
 
     Key (``etf_id``, else ``instrument_id``; session). A new or revised bar gets ``retrieved_at``; a new bar is
     available at min(session 23:59:59 UTC, ``retrieved_at``), a revised bar at ``retrieved_at``. An unchanged bar
-    takes the incoming values and keeps its stored stamps. A stored ``ingested_at`` without ``known_at`` gives
+    takes the incoming values and keeps its stored stamps, except that an incoming ``actions_evidenced`` True (only an
+    action-requesting fetch sets it) heals a stored False. A stored ``ingested_at`` without ``known_at`` gives
     ``known_at := ingested_at``; a bar with no stamps stays unstamped.
     """
 
     now = pd.Timestamp(retrieved_at).tz_convert("UTC")
     new = incoming.reset_index(drop=True)
     new_keys = _keys(new)
-    sessions = pd.Series(new_keys.get_level_values(1).to_numpy(), index=new.index)
-    close = sessions.dt.tz_localize("UTC") + pd.Timedelta(hours=23, minutes=59, seconds=59)
+    close = _session_close(pd.Series(new_keys.get_level_values(1).to_numpy(), index=new.index))
     stamps = {"ingested_at": pd.Series(now, index=new.index), "known_at": pd.Series(now, index=new.index),
               "available_at": close.where(close < now, now), "actions_evidenced": _true(new, "actions_evidenced")}
     if stored is not None and not stored.empty:
@@ -85,12 +86,57 @@ def stamp_price_availability(stored: pd.DataFrame | None, incoming: pd.DataFrame
             changed |= (new_prev.iloc[rows].to_numpy() & old_prev.iloc[at].to_numpy()
                         & _differs(new_gross.iloc[rows], old_gross.iloc[at], rtol=1e-6))
         stamps["available_at"].iloc[rows[changed]] = now
+        incoming_evidence = stamps["actions_evidenced"].to_numpy(copy=True)
         for name, values in kept_stamps.items():
             stamps[name].iloc[rows[~changed]] = values.iloc[at[~changed]].to_numpy()
+        stamps["actions_evidenced"] |= incoming_evidence  # the same bar with its actions from this fetch is evidenced
     out = incoming.copy()
     for name, values in stamps.items():
         out[name] = values.to_numpy()
     return out
+
+
+def reconstructed_price_availability(prices: pd.DataFrame) -> pd.DataFrame:
+    """The one reconstructed PIT rule for historical replay (owner decision OD-1 = b; ADR-0003).
+
+    Read time only: returns a copy and never writes back, so the stored fetch stamps stay. Every fetched bar counts as
+    known and available at its session close (23:59:59 UTC) with its values as fetched (adjusted), also when its stamp
+    is empty or has no timezone; an earlier stored stamp (a live fetch) stays. Every row gets
+    ``pit_basis = "reconstructed"``. Replay readers only; live readers keep the stored stamps.
+    """
+
+    out = prices.copy()
+    close = _session_close(pd.to_datetime(out["date"], errors="coerce").dt.normalize())
+    for column in ("known_at", "available_at"):
+        if column in out:
+            stamp = _aware_utc(out[column])
+            out[column] = stamp.where(stamp.le(close), close)
+    out["pit_basis"] = RECONSTRUCTED_PIT
+    return out
+
+
+def _session_close(sessions: pd.Series) -> pd.Series:
+    """The daily-bar availability proxy: session date 23:59:59 UTC."""
+
+    return sessions.dt.tz_localize("UTC") + pd.Timedelta(hours=23, minutes=59, seconds=59)
+
+
+def _aware_utc(values: pd.Series) -> pd.Series:
+    """UTC stamps; an unparseable or tz-naive value is NaT (it states no usable knowledge time)."""
+
+    if isinstance(values.dtype, pd.DatetimeTZDtype):
+        return values.dt.tz_convert("UTC")
+    if pd.api.types.is_datetime64_dtype(values):
+        return pd.Series(pd.NaT, index=values.index, dtype="datetime64[ns, UTC]")
+
+    def parse(value):
+        try:
+            stamp = pd.Timestamp(value)
+        except (TypeError, ValueError):
+            return pd.NaT
+        return stamp.tz_convert("UTC") if not pd.isna(stamp) and stamp.tzinfo is not None else pd.NaT
+
+    return pd.to_datetime(values.map(parse), utc=True)
 
 
 def _read_stored_prices(path: Path) -> pd.DataFrame | None:

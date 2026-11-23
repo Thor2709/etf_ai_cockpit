@@ -257,7 +257,9 @@ def fetch_etf_e1_reference_data(config, provider, *, http_get=None, now=None, re
         except Exception as exc:
             registry = pd.DataFrame()
             messages.append(f"ETF issuer registry: {type(exc).__name__}")
-    metadata_rows, holding_rows = [], []
+    # ETF holdings are parked (OD-8, K4): no holdings documents or vendor holdings are fetched and no holdings
+    # dataset is published, so the stored holdings stay as they are and age out by their vintage.
+    metadata_rows = []
     vendor_results = {}
 
     def vendor_result(dataset):
@@ -282,7 +284,7 @@ def fetch_etf_e1_reference_data(config, provider, *, http_get=None, now=None, re
             bindings = []
             if not registry.empty:
                 for binding in registry.to_dict("records"):
-                    if binding.get("instrument_id") == instrument.id and binding.get("authority") == "issuer_document" and binding.get("document_type") in {"factsheet", "kid", "holdings"} and binding.get("source_url"):
+                    if binding.get("instrument_id") == instrument.id and binding.get("authority") == "issuer_document" and binding.get("document_type") in {"factsheet", "kid"} and binding.get("source_url"):
                         bindings.append((binding["source_url"], binding["document_type"]))
             if instrument.isin in _ISSUER_DOCUMENTS:
                 bindings.append((_ISSUER_DOCUMENTS[instrument.isin], "factsheet"))
@@ -329,32 +331,7 @@ def fetch_etf_e1_reference_data(config, provider, *, http_get=None, now=None, re
             for row in source_rows:
                 row["source_failures"] = result["failure_details"]
                 metadata_rows.append(_envelope(row, instrument.id))
-                if row.get("holdings_unavailable_reason"):
-                    messages.append(f"{instrument.id} holdings: {row['holdings_unavailable_reason']}")
-                for holding in row.get("holdings", ()):
-                    holding_rows.append(_envelope(dict(holding, instrument_id=instrument.id, as_of=holding["as_of_date"], source_id=holding["source"]), instrument.id))
 
-    vendor_holdings = vendor_result("etf_holdings")
-    if vendor_holdings.data is not None:
-        present = {row["etf_id"] for row in holding_rows}
-        for row in vendor_holdings.data.to_dict("records"):
-            if row["etf_id"] not in present:
-                row.update(instrument_id=row["etf_id"], as_of=str(row["as_of_date"]), known_at=observed_time(), source_id="yfinance_top_holdings", authority="vendor")
-                holding_rows.append(_envelope(row, row["etf_id"]))
-    if holding_rows:
-        from etf_cockpit.data.fund_holdings import holdings_splits, select_holdings_as_of
-
-        selected_rows = []
-        frame = pd.DataFrame(holding_rows)
-        for instrument_id in frame["etf_id"].unique():
-            selected = select_holdings_as_of(frame, instrument_id, observed_time())
-            if holdings_splits(selected)["reason"] is None:
-                selected_rows.extend(selected.to_dict("records"))
-            else:
-                messages.append(f"{instrument_id} holdings: holdings_weights_not_usable")
-        holding_rows = selected_rows
-    if not vendor_holdings.ok:
-        messages.append(f"etf_holdings: {vendor_holdings.message}")
     # Retain the existing non-ETF vendor reference rows as part of the same
     # publication, without changing stock acquisition or contracts.
     metadata = vendor_result("etf_metadata")
@@ -363,10 +340,8 @@ def fetch_etf_e1_reference_data(config, provider, *, http_get=None, now=None, re
     if metadata.data is not None:
         present = {row.get("etf_id") for row in metadata_rows}
         metadata_rows.extend(row for row in metadata.data.to_dict("records") if row.get("etf_id") not in present)
-    results = []
-    for dataset, rows in (("etf_metadata", metadata_rows), ("etf_holdings", holding_rows)):
-        results.append((dataset, ProviderResult("etf_e1_sources", dataset, "ok" if rows else "unavailable", f"ETF source chain acquired {len(rows)} {dataset} rows.", pd.DataFrame(rows) if rows else None)))
-    return results, messages
+    rows = metadata_rows
+    return [("etf_metadata", ProviderResult("etf_e1_sources", "etf_metadata", "ok" if rows else "unavailable", f"ETF source chain acquired {len(rows)} etf_metadata rows.", pd.DataFrame(rows) if rows else None))], messages
 
 
 def _document_date(text: str) -> str:

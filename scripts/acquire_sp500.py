@@ -914,12 +914,12 @@ def step_prices(layout: Layout, workers: int) -> dict:
 
 
 # ---------------------------------------------------------------- step: config
-def step_config(layout: Layout) -> dict:
+def step_config(layout: Layout, history_start: str = "2021-10-01") -> dict:
+    """``history_start`` default: warm-up before the 2022-10-17 research interval; D9 uses the fja start (1996-01-02)."""
     manifest = json.loads((layout.sources / "manifest.json").read_text())
     resolved = json.loads((layout.raw / "resolve.json").read_text())
     history = load_history(layout)
     snapshots = history["snapshots"]
-    history_start = "2021-10-01"  # Warm-up before the 2022-10-17 research interval.
     eligible = [row for row in snapshots if row["date"] <= history_start]
     if not eligible:
         raise ValueError("no fja snapshot at or before history_start")
@@ -1070,6 +1070,7 @@ def main(argv=None) -> int:
     parser.add_argument("--step", required=True, choices=["sources", "resolve", "sec", "cover-evidence", "prices", "config",
                                                           "ingest-block", "ingest", "commit-prices", "report"])
     parser.add_argument("--workers", type=int, default=8)
+    parser.add_argument("--history-start", default="2021-10-01", help="config only: first membership day (an fja snapshot date)")
     parser.add_argument("--sec-rate", type=float, default=SEC_RATE)
     parser.add_argument("--cover-cache-budget-bytes", type=int, default=COVER_CACHE_BUDGET,
                         help="Extracted cover cache budget (default: 32 MiB); stops below 5 GiB free")
@@ -1124,7 +1125,7 @@ def main(argv=None) -> int:
     elif args.step == "prices":
         out = step_prices(layout, args.workers)
     elif args.step == "config":
-        out = step_config(layout)
+        out = step_config(layout, args.history_start)
     elif args.step == "commit-prices":
         out = step_commit_prices(layout)
     elif args.step == "report":

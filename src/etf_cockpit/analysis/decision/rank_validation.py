@@ -9,6 +9,7 @@ explicit ``known_at`` is no later than that cutoff.
 
 from __future__ import annotations
 
+from bisect import bisect_right
 from collections.abc import Mapping, Sequence
 from copy import deepcopy
 from dataclasses import dataclass, field
@@ -18,9 +19,10 @@ import hashlib
 import json
 import math
 from pathlib import Path
-from statistics import fmean, stdev
+from statistics import NormalDist, fmean, stdev
 from typing import Any
 
+import numpy as np
 import pandas as pd
 import yaml
 
@@ -35,6 +37,7 @@ from etf_cockpit.models.monitoring import (
 )
 from etf_cockpit.portfolio.costs import COST_MODEL_ID
 from etf_cockpit.portfolio.factor_risk import build_factor_risk_report
+from etf_cockpit.validation.protocol import ValidationSpec, _paired_block_bootstrap
 
 
 _DEFAULT_POLICY_PATH = CONFIG_DIR / "decision_cutover_v1.yaml"
@@ -425,25 +428,43 @@ def replay_rank_panel(
         )
 
     all_sessions = sorted(price_frame["_date"].dropna().unique())
+    holding = active_policy.holding_period_sessions
+    records = frozen.to_dict("records")
+    cutoffs = {str(text): pd.Timestamp(text) for text in frozen["decision_time"].unique()}
+    target_sessions = {
+        text: all_sessions[position] if (position := bisect_right(all_sessions, cutoff.date()) + holding - 1) < len(all_sessions) else None
+        for text, cutoff in cutoffs.items()
+    }
+    pairs: dict[str, list[str]] = {}
+    for item in records:
+        pairs.setdefault(str(item["instrument_id"]), []).append(str(item["decision_time"]))
+    price_ids = price_frame["instrument_id"].astype(str)
+    prices_by_id = {str(name): group for name, group in price_frame.groupby(price_ids, sort=False)}
+    forward: dict[tuple[str, str], tuple[float | None, str]] = {}
+    for instrument, texts in pairs.items():
+        texts = sorted(set(texts))
+        results = _forward_returns(
+            prices_by_id.get(instrument, price_frame.iloc[0:0]),
+            [cutoffs[text] for text in texts], [target_sessions[text] for text in texts],
+        )
+        forward.update(((instrument, text), result) for text, result in zip(texts, results))
+    costs_by_id = {str(name): group for name, group in cost_frame.groupby(cost_frame["instrument_id"].astype(str), sort=False)}
+    comparators = {
+        day: (_outcome_for_date(benchmark_returns, day), _outcome_for_date(cash_returns, day))
+        for day in frozen["decision_date"].unique()
+    }
     outcomes: list[dict[str, object]] = []
-    for item in frozen.to_dict("records"):
-        cutoff = pd.Timestamp(item["decision_time"])
+    for item in records:
+        cutoff = cutoffs[str(item["decision_time"])]
         instrument = str(item["instrument_id"])
-        future_sessions = [session for session in all_sessions if session > cutoff.date()]
-        window_end = (
-            future_sessions[active_policy.holding_period_sessions - 1].isoformat()
-            if len(future_sessions) >= active_policy.holding_period_sessions
-            else None
-        )
-        gross, outcome_status = _forward_return(
-            price_frame, instrument, cutoff, active_policy.holding_period_sessions
-        )
-        cost = _point_in_time_cost(cost_frame, instrument, cutoff)
+        target = target_sessions[str(item["decision_time"])]
+        window_end = target.isoformat() if target is not None else None
+        gross, outcome_status = forward[(instrument, str(item["decision_time"]))]
+        cost = _point_in_time_cost(costs_by_id.get(instrument, cost_frame.iloc[0:0]), instrument, cutoff)
         if outcome_status == "available" and cost is None:
             outcome_status = "round_trip_cost_unavailable"
         net = max(-1.0, gross - float(cost) / 10_000.0) if gross is not None and cost is not None else None
-        benchmark = _outcome_for_date(benchmark_returns, item["decision_date"])
-        cash = _outcome_for_date(cash_returns, item["decision_date"])
+        benchmark, cash = comparators[item["decision_date"]]
         row = dict(item)
         row.update(
             gross_return=gross,
@@ -605,7 +626,9 @@ def evaluate_rank_validation(
         for item in (*development.values(), *holdout.values())
     )
     fully_covered = replay.status == "complete" and bool(replay.pit_availability.get("complete"))
-    status = "available" if dates_sufficient and neutralisation_sufficient and attribution_sufficient and fully_covered else "insufficient_evidence"
+    evidence_complete = neutralisation_sufficient and attribution_sufficient and fully_covered
+    # Complete evidence on too few decision dates is underpowered (report the MDE), not missing evidence.
+    status = ("available" if dates_sufficient else "underpowered") if evidence_complete else "insufficient_evidence"
     validation_material = {
         "config_hashes": dict(replay.config_hashes),
         "holdout_times": list(holdout_keys),
@@ -614,7 +637,10 @@ def evaluate_rank_validation(
         "replay_rows": int(len(rows)),
     }
     validation_id = "rankval_" + hashlib.sha256(_canonical_json(validation_material)).hexdigest()[:20]
-    reason = None if status == "available" else "walk-forward, PIT, holdout, neutralisation or Q/V/M factor evidence is incomplete"
+    reason = {
+        "available": None,
+        "underpowered": "fewer development or holdout decision dates than the minimum; see rank_ic_mde",
+    }.get(status, "walk-forward, PIT, holdout, neutralisation or Q/V/M factor evidence is incomplete")
     return RankValidationReport(
         validation_id=validation_id,
         status=status,
@@ -1043,6 +1069,15 @@ def _rank_metrics(rows: pd.DataFrame, ranker: str, policy: RankValidationPolicy)
         "instrument_observation_count": len(score_values),
         "rank_ic_mean": fmean(ic_values),
         "rank_ic_t": _t_stat(ic_values),
+        # Smallest mean IC detectable at 80% power with the t haircut: (t + z_0.8) * sd / sqrt(T).
+        "rank_ic_mde": (
+            (policy.significance_t + NormalDist().inv_cdf(0.8)) * stdev(ic_values) / math.sqrt(len(ic_values))
+            if len(ic_values) >= 2 else None
+        ),
+        # Blocks cover the holding period: forward returns of nearby decision dates overlap.
+        "rank_ic_ci": _paired_block_bootstrap(
+            np.asarray(ic_values, dtype=float), ValidationSpec(horizon=policy.holding_period_sessions), paired_with="zero"
+        ),
         "rank_ic_positive_fraction": sum(value > 0 for value in ic_values) / len(ic_values),
         "top_net_return_mean": fmean(top_values),
         "bottom_net_return_mean": fmean(float(item["bottom_net_return"]) for item in daily),
@@ -1244,6 +1279,8 @@ def _forward_return(
         if len(all_sessions) >= holding_period_sessions:
             target_session = all_sessions[holding_period_sessions - 1]
     frame = prices.loc[prices["instrument_id"].astype(str).eq(instrument_id)].copy()
+    if outcome_known_by is None:
+        return _forward_returns(frame, [cutoff], [target_session])[0]
     frame["_known"] = frame["known_at"].map(_aware_timestamp)
     if "_date" not in frame:
         frame["_date"] = frame["date"].map(_date_value)
@@ -1261,43 +1298,100 @@ def _forward_return(
         return None, "entry_price_unavailable_at_decision_time"
     entry_date = entry_rows["_date"].max()
     entry_candidates = entry_rows.loc[entry_rows["_date"].eq(entry_date)]
-    if outcome_known_by is not None:
-        entry_candidates = entry_candidates.loc[entry_candidates["_known"].eq(entry_candidates["_known"].max())]
+    entry_candidates = entry_candidates.loc[entry_candidates["_known"].eq(entry_candidates["_known"].max())]
     if len(entry_candidates) != 1:
         return None, "entry_price_ambiguous"
     entry = float(entry_candidates.iloc[0]["_close"])
     if target_session is None:
         return None, "forward_price_window_not_matured"
     future = frame.loc[frame["_date"].map(lambda value: cutoff.date() < value <= target_session)]
-    if outcome_known_by is not None:
-        future = future.loc[future["_known"].notna() & future["_known"].le(outcome_known_by)]
-        outcome_columns = tuple(column for column in ("_close", "delisted", "delisting_return") if column in future)
-        known_outcomes = _latest_price_rows(future, outcome_columns)
-        if known_outcomes is None:
-            return None, "forward_price_evidence_ambiguous"
-        future = known_outcomes
+    future = future.loc[future["_known"].notna() & future["_known"].le(outcome_known_by)]
+    outcome_columns = tuple(column for column in ("_close", "delisted", "delisting_return") if column in future)
+    known_outcomes = _latest_price_rows(future, outcome_columns)
+    if known_outcomes is None:
+        return None, "forward_price_evidence_ambiguous"
+    future = known_outcomes
     if "delisted" in future.columns:
         delisted = future.loc[future["delisted"].map(_true_flag)]
     else:
         delisted = future.iloc[0:0]
     if not delisted.empty:
-        terminal_date = delisted["_date"].min()
-        terminal_rows = delisted.loc[delisted["_date"].eq(terminal_date)]
-        if "delisting_return" in terminal_rows and len(terminal_rows):
-            reported_return = terminal_rows.iloc[-1]["delisting_return"]
-            if pd.notna(reported_return):
-                terminal_return = _finite_or(reported_return, math.nan)
-                if not math.isfinite(terminal_return) or terminal_return < -1:
-                    return None, "delisting_terminal_return_invalid"
-                return terminal_return, "available_delisting_return"
-        terminal_price = terminal_rows.iloc[-1]["_close"] if len(terminal_rows) else None
-        if _finite(terminal_price) and float(terminal_price) >= 0:
-            return float(terminal_price) / entry - 1.0, "available_delisted_terminal_price"
-        return None, "delisting_terminal_value_unavailable"
+        terminal = delisted.loc[delisted["_date"].eq(delisted["_date"].min())].iloc[-1]
+        return _delisting_outcome(terminal.get("delisting_return"), terminal["_close"], entry)
     target = future.loc[future["_date"].eq(target_session)]
     if len(target) != 1 or not _finite(target.iloc[0]["_close"]) or float(target.iloc[0]["_close"]) <= 0:
         return None, "target_price_unavailable"
     return float(target.iloc[0]["_close"]) / entry - 1.0, "available"
+
+
+def _delisting_outcome(reported_return: object, terminal_price: object, entry: float) -> tuple[float | None, str]:
+    """Outcome of a position delisted inside its window: the reported delisting return, else the terminal price."""
+    if pd.notna(reported_return):
+        terminal_return = _finite_or(reported_return, math.nan)
+        if not math.isfinite(terminal_return) or terminal_return < -1:
+            return None, "delisting_terminal_return_invalid"
+        return terminal_return, "available_delisting_return"
+    if _finite(terminal_price) and float(terminal_price) >= 0:
+        return float(terminal_price) / entry - 1.0, "available_delisted_terminal_price"
+    return None, "delisting_terminal_value_unavailable"
+
+
+def _forward_returns(
+    frame: pd.DataFrame, cutoffs: Sequence[pd.Timestamp], targets: Sequence[date | None],
+) -> list[tuple[float | None, str]]:
+    """Forward returns of one instrument at many cut-offs (no outcome-knowledge bound), all in one 2-D mask.
+
+    ``frame`` holds one instrument's price rows; ``targets[j]`` is the target session of ``cutoffs[j]`` (``None``:
+    the window has not matured).  Rows sort by session, then knowledge time with unknown times last.
+    """
+    dates = frame["_date"] if "_date" in frame else frame["date"].map(_date_value)
+    frame, dates = frame.loc[dates.notna()], dates.loc[dates.notna()]
+    known = pd.to_datetime(
+        frame["_known_at"] if "_known_at" in frame else frame["known_at"].map(_aware_timestamp), utc=True
+    ).to_numpy(dtype="datetime64[ns]")
+    stamps = known.view(np.int64)
+    known_ok = ~np.isnat(known)
+    days = pd.to_datetime(dates).to_numpy(dtype="datetime64[D]").view(np.int64)
+    order = np.lexsort((np.where(known_ok, stamps, np.iinfo(np.int64).max), days))
+    days, stamps, known_ok = days[order], stamps[order], known_ok[order]
+    close = pd.to_numeric(frame["adjusted_close"], errors="coerce").to_numpy(dtype=float, na_value=np.nan)[order]
+    flagged = np.flatnonzero(frame["delisted"].map(_true_flag).to_numpy(dtype=bool)[order]) if "delisted" in frame else np.empty(0, np.int64)
+    reported = frame["delisting_return"].to_numpy(dtype=object)[order] if "delisting_return" in frame else None
+
+    cut_days = np.array([cutoff.date() for cutoff in cutoffs], dtype="datetime64[D]").view(np.int64)
+    cut_stamps = np.array([cutoff.value for cutoff in cutoffs], dtype=np.int64)
+    usable = (known_ok & np.isfinite(close) & (close > 0))[None, :] & (days[None, :] <= cut_days[:, None]) & (stamps[None, :] <= cut_stamps[:, None])
+    entry_days = np.where(usable, days[None, :], np.iinfo(np.int64).min).max(axis=1, initial=np.iinfo(np.int64).min)
+    at_entry = usable & (days[None, :] == entry_days[:, None])
+    entry_counts = at_entry.sum(axis=1)
+    entry_rows = at_entry.argmax(axis=1) if len(days) else np.zeros(len(cutoffs), np.int64)
+    future_starts = np.searchsorted(days, cut_days, "right")
+    results: list[tuple[float | None, str]] = []
+    for position, target in enumerate(targets):
+        if entry_counts[position] == 0:
+            results.append((None, "entry_price_unavailable_at_decision_time"))
+            continue
+        if entry_counts[position] != 1:
+            results.append((None, "entry_price_ambiguous"))
+            continue
+        if target is None:
+            results.append((None, "forward_price_window_not_matured"))
+            continue
+        entry = float(close[entry_rows[position]])
+        target_day = np.datetime64(target, "D").astype(np.int64)
+        start = future_starts[position]
+        low = max(int(np.searchsorted(days, target_day, "left")), start)
+        end = max(int(np.searchsorted(days, target_day, "right")), start)
+        first = int(np.searchsorted(flagged, start))
+        if first < len(flagged) and flagged[first] < end:  # delisted inside the window
+            terminal_day = days[flagged[first]]
+            terminal = flagged[np.searchsorted(days[flagged], terminal_day, "right") - 1]
+            results.append(_delisting_outcome(None if reported is None else reported[terminal], float(close[terminal]), entry))
+        elif end - low != 1 or not (np.isfinite(close[low]) and close[low] > 0):
+            results.append((None, "target_price_unavailable"))
+        else:
+            results.append((float(close[low]) / entry - 1.0, "available"))
+    return results
 
 
 def _point_in_time_cost(costs: pd.DataFrame, instrument_id: str, cutoff: pd.Timestamp) -> float | None:
@@ -1982,7 +2076,7 @@ def cutover_consumer_evidence(
 
 _REPORT_METRIC_KEYS = (
     "status", "reason", "decision_count", "instrument_observation_count", "rank_ic_mean", "rank_ic_t",
-    "rank_ic_positive_fraction", "top_net_return_mean", "bottom_net_return_mean", "benchmark_net_mean",
+    "rank_ic_mde", "rank_ic_ci", "rank_ic_positive_fraction", "top_net_return_mean", "bottom_net_return_mean", "benchmark_net_mean",
     "cash_net_mean", "excess_vs_benchmark", "excess_vs_cash", "top_minus_bottom_mean", "top_minus_bottom_t",
     "top_minus_bottom_status", "investable_long_only",
     "decile_monotonicity_fraction", "quintile_monotonicity_fraction", "turnover_mean",

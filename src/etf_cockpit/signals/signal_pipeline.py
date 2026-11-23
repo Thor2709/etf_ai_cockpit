@@ -20,7 +20,7 @@ from etf_cockpit.portfolio.costs import estimate_execution_cost, estimated_cost_
 from etf_cockpit.portfolio.holdings import portfolio_value
 from etf_cockpit.portfolio.rebalancing import proposed_new_weight, suggested_trade_value
 from etf_cockpit.signals.actions import advisory_action, apply_gate_result, preliminary_action
-from etf_cockpit.signals.canonical_scoring import _is_sparebank_ec_asset_type, canonical_score_from_signal_row
+from etf_cockpit.signals.canonical_scoring import _is_sparebank_ec_asset_type, canonical_score_from_signal_row, policy_snapshot
 from etf_cockpit.signals.explanations import explain_signal
 from etf_cockpit.signals.gates import NON_MATERIAL_SIGNAL_WARNINGS, PORTFOLIO_ONLY_ISSUE_CODES, evaluate_risk_gates
 from etf_cockpit.signals.scoring import component_scores, row_components
@@ -46,6 +46,7 @@ _EVIDENCE_BREAKING_CODES = frozenset(
 )
 
 
+@policy_snapshot()  # one read of each score policy per signal run (SP-4)
 def generate_signals(
     config: AppConfig,
     latest_features: pd.DataFrame,
@@ -119,7 +120,7 @@ def generate_signals(
     signals: list[SignalResult] = []
     for _, row in scored.sort_values("total_score", ascending=False).iterrows():
         structure_cap = _structure_cap_for_row(structure_confidence_caps, str(row["etf_id"]))
-        identity = config.universe.by_id().get(str(row["etf_id"]))
+        identity = config.universe.find(str(row["etf_id"]))
         if identity is not None and identity.instrument_type in {"stock", "equity_certificate"}:
             structure_cap = None  # These are the explicit non-fund types in structure_cap_scope.
         structure_provenance = (

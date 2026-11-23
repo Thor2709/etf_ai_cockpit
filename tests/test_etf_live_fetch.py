@@ -14,7 +14,7 @@ from etf_cockpit.data.etf_e1_fetch import (
     decode_e1_reference_context, fetch_etf_e1_reference_data,
 )
 from etf_cockpit.data.providers import ProviderResult
-from etf_cockpit.data.reference_data import commit_reference_import, validate_etf_holdings
+from etf_cockpit.data.reference_data import commit_reference_import
 from etf_cockpit.data.etf_economics import load_etf_e1_fields, load_etf_reference_context
 
 
@@ -88,16 +88,13 @@ def test_live_source_readers_offline_issuer_first_and_persist_alternates(monkeyp
     loaded = load_etf_reference_context("etf_metadata", root=root)
     assert _fields(loaded)["ter"] == fields["ter"]
     assert _fields(loaded)["distribution_policy"]["known_at"] == NOW.isoformat()
-    holdings = dict(results)["etf_holdings"]
-    assert holdings.ok and len(holdings.data) == 2
-    validated = validate_etf_holdings(holdings.data, known_etfs=["VWCE"])
-    assert validated.ok and validated.frame["weight"].sum() == pytest.approx(0.6)
-    assert set(validated.frame["as_of_date"]) == {date(2025, 12, 31)}
-    assert messages == ["etf_holdings: offline fixture has no holdings"]
+    # ETF holdings are parked (OD-8, K4): no holdings fetch and no holdings result; stored holdings are kept.
+    assert [dataset for dataset, _ in results] == ["etf_metadata"]
+    assert messages == []
     from etf_cockpit.application.etf_economics_view import build_etf_economics_panel
 
-    panel = build_etf_economics_panel(SimpleNamespace(data_report=SimpleNamespace(as_of_date=NOW), etf_metadata=loaded, etf_holdings=decode_e1_reference_context(validated.frame)), "VWCE")
-    assert panel["holdings_count"] == 2
+    panel = build_etf_economics_panel(SimpleNamespace(data_report=SimpleNamespace(as_of_date=NOW), etf_metadata=loaded, etf_holdings=pd.DataFrame()), "VWCE")
+    assert panel["holdings_count"] == 0
     assert panel["e1"]["country_split"]["value"] == {"United States": 0.6, "Other/unclassified": 0.4}
     assert panel["e1"]["country_split"]["source"] == calls[0][0]
 

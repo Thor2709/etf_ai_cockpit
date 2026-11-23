@@ -57,7 +57,7 @@ def test_search_recovers_planted_best_parameter_and_proposal_is_flagged_syntheti
     proposal = run_walk_forward_tuning(tmp_path / "store", "plant", registry, evaluate, dates, data_provenance="synthetic", defaults=DEFAULTS)
     body = proposal.to_dict()
 
-    assert proposal.decision == "propose_change", proposal.reasons
+    assert proposal.decision == "keep_current" and proposal.reasons == ("failed_validation_gate:deflated_sharpe,useful_edge",)
     assert proposal.candidate is not None
     for key, target in PLANTED.items():
         assert proposal.candidate[key] == pytest.approx(target, abs=0.1)
@@ -65,7 +65,7 @@ def test_search_recovers_planted_best_parameter_and_proposal_is_flagged_syntheti
     assert body["applied"] is False and body["settings_modified"] is False and body["execution_allowed"] is False
     assert body["evidence"]["promotion_evidence_eligible"] is False  # synthetic is machinery-only
     assert "synthetic_data_not_promotion_evidence" in body["evidence"]["flags"]
-    assert "propose_change" in render_tuning_report(proposal)
+    assert "keep_current" in render_tuning_report(proposal)
     # market data with an unknown/pre-cutoff model window is flagged, never promotion evidence
     flagged = run_walk_forward_tuning(tmp_path / "store2", "plant", registry, evaluate, dates, data_provenance="market", defaults=DEFAULTS)
     assert flagged.evidence["promotion_evidence_eligible"] is False
@@ -99,10 +99,9 @@ def test_walk_forward_never_shows_evaluation_or_final_data_to_the_search(tmp_pat
     tuning_calls = [idx for _, idx in calls if idx and max(idx) < eval_start - DEFAULTS.split.horizon + 1]
     assert tuning_calls, "search evaluations must stay in the tuning window"
     assert windows["tune"]["end"] < windows["evaluation"]["start"]
-    assert windows["purged_gap"] == DEFAULTS.split.horizon - 1
+    assert windows["purged_gap"] == DEFAULTS.split.horizon
     assert max(search_indices) < eval_start - DEFAULTS.split.horizon + 1
-    seen_all = {i for _, idx in calls for i in idx}
-    assert max(seen_all) < n - DEFAULTS.split.final_test_size  # reserved tail never evaluated at all
+    assert {len(idx) for _, idx in calls if max(idx) >= n - DEFAULTS.split.final_test_size} == {1}  # final test: judging pass only, date by date
     oos_calls = [idx for _, idx in calls if min(idx) >= eval_start]
     assert oos_calls and all(min(idx) >= eval_start for idx in oos_calls)  # evaluation blocks only after tuning
 
@@ -123,7 +122,9 @@ def test_candidate_that_does_not_beat_current_out_of_sample_keeps_current(tmp_pa
 
     assert best_at["ens.z"] > 0.5
     assert proposal.decision == "keep_current"
-    assert proposal.reasons == ("did_not_beat_current_out_of_sample",)
+    assert proposal.reasons == (
+        "failed_validation_gate:promotion_eligible,bootstrap_lower_5_above_margin,deflated_sharpe,false_discovery_rate,final_test_same_sign,useful_edge",
+    )
     assert proposal.out_of_sample is not None and proposal.out_of_sample["win_fraction"] < DEFAULTS.guards.min_block_win_fraction
     assert proposal.to_dict()["applied"] is False
     short = run_walk_forward_tuning(tmp_path / "store2", "short", registry, regime_flip, dates[:120], defaults=DEFAULTS)
@@ -198,16 +199,16 @@ def test_shipped_registry_reads_current_values_from_real_configs() -> None:
     # NS1: the rebalance knob is gone (drift is not part of the instrument score); PSF: the two relative_strength knobs are gone
     # (weight 0 while one global anchor is used), momentum/trend upper bounds sum to the 30% price-family cap.
     # FPQ: the etf_exposure headline knob is gone (concentration is a risk-role term; its headline weight is fixed at 0).
-    assert len(registry.parameters) == 12
+    assert len(registry.parameters) == 10  # OD-5: ETF (4) + STOCK (6) headline weights only
     assert "score.etf.headline.etf_exposure" not in {item.key for item in registry.parameters}
     current = registry.current_values()
-    assert current["ensemble.toto"] == 0.21 and current["score.etf.headline.momentum"] == 0.165
+    assert current["score.stock.headline.momentum"] == 0.1742 and current["score.etf.headline.momentum"] == 0.165
     upper = {item.key: item.upper for item in registry.parameters}
     assert upper["score.etf.headline.momentum"] + upper["score.etf.headline.trend"] <= 0.30 + 1e-9
-    assert upper["ensemble.momentum"] + upper["ensemble.trend"] <= 0.30 * 0.9 + 1e-9  # 30% of the 0.9 action-composite total
+    assert upper["score.stock.headline.momentum"] + upper["score.stock.headline.trend"] <= 0.30 + 1e-9  # STOCK price-family cap
     assert set(registry.source_checksums) == {"score_engine_v3.yaml"}
     assert registry.materialise(current) == current
-    assert registry.models_in_scope() == ("timesfm", "toto")
+    assert registry.models_in_scope() == ()  # OD-5: no model-forecast knobs
     assert all(item.group for item in registry.parameters)
     space = registry.search_space()
     assert all(values[0] == registry.current_values()[key] for key, values in space.items())  # baseline = current
@@ -384,21 +385,21 @@ def test_unverifiable_objective_identity_never_reuses_retained_evidence_even_for
     fresh_ids = []
     for objective in (first, second):
         proposal = run_walk_forward_tuning(tmp_path / "store", "anon", registry, objective, dates, data_provenance="synthetic", defaults=DEFAULTS)
-        assert proposal.decision == "propose_change" and proposal.candidate is not None
+        assert proposal.decision == "keep_current" and proposal.candidate is not None
         assert proposal.search["resume_allowed"] is False
         fresh_ids.append(proposal.search["run_id"])
         assert len(OptimisationLedger(tmp_path / "store").list(proposal.search["run_id"])) == DEFAULTS.search.max_trials
     assert len(set(fresh_ids)) == 2
     assert OptimisationLedger(tmp_path / "store").list("anon") == ()  # original namespace is untouched
     named = run_walk_forward_tuning(tmp_path / "store", "anon", registry, first, dates, data_provenance="synthetic", defaults=DEFAULTS, evaluator_identity="synthetic:z=0.8")
-    assert named.decision == "propose_change" and named.search["resume_allowed"] is True
+    assert named.decision == "keep_current" and named.search["resume_allowed"] is True
 
 
 def test_retained_evidence_is_bound_to_every_effective_search_setting(tmp_path: Path) -> None:
     registry, _ = _registry(tmp_path)
     dates, evaluate = synthetic_tuning_fixture(registry, PLANTED, n_samples=500)
     first = run_walk_forward_tuning(tmp_path / "store", "bound", registry, evaluate, dates, data_provenance="synthetic", defaults=DEFAULTS)
-    assert first.decision == "propose_change"
+    assert first.decision == "keep_current" and first.candidate is not None
     search = DEFAULTS.search
     variants = {
         "max_memory_mb": SearchDefaults(search.max_trials, search.max_seconds, 1, search.seed, search.refine_after, search.patience, search.prune_warmup_trials),
@@ -437,7 +438,7 @@ def test_cancellation_during_the_final_out_of_sample_call_never_proposes(tmp_pat
     registry, _ = _registry(tmp_path)
     dates, inner = synthetic_tuning_fixture(registry, PLANTED, n_samples=500)
     baseline = run_walk_forward_tuning(tmp_path / "store0", "plain", registry, inner, dates, data_provenance="synthetic", defaults=DEFAULTS)
-    assert baseline.decision == "propose_change"  # the same evaluator wins when nothing cancels
+    assert baseline.decision == "keep_current" and baseline.out_of_sample is not None  # judged in full when nothing cancels
 
     state = {"calls": 0, "cancelled": False}
 
@@ -458,7 +459,7 @@ def test_cancellation_during_the_final_out_of_sample_call_never_proposes(tmp_pat
     assert proposal.candidate is None
 
 
-@pytest.mark.parametrize("heavy_phase,expected_calls", [("current", 1), ("candidate", 5)])
+@pytest.mark.parametrize("heavy_phase,expected_calls", [("current", 1), ("candidate", 161)])  # one call per judged date: 160 current, then the first candidate
 @pytest.mark.parametrize("report_after_allocation", [False, True])
 def test_every_out_of_sample_call_enforces_the_memory_quota(tmp_path: Path, heavy_phase: str, expected_calls: int, report_after_allocation: bool) -> None:
     registry, _ = _registry(tmp_path)
@@ -513,8 +514,9 @@ def test_unknown_identity_executes_fresh_tuning_and_preserves_prior_scores(tmp_p
     for target in (0.8, 0.3):
         evaluate, calls = anonymous(target)
         proposal = run_walk_forward_tuning(root, "same-run", registry, evaluate, dates, data_provenance=provenance, defaults=DEFAULTS)
-        assert proposal.decision == "propose_change" and proposal.candidate is not None
-        assert sum(max(indices) < _eval_start() for indices in calls) == DEFAULTS.search.max_trials
+        assert proposal.decision == "keep_current" and proposal.candidate is not None
+        # 60 search calls, plus 12 judged dates below _eval_start (2 training rows, 5 purged, 5 of fold 1) per family trial (60)
+        assert sum(max(indices) < _eval_start() for indices in calls) == DEFAULTS.search.max_trials * 13
         assert proposal.in_sample["baseline_score"] == pytest.approx(-abs(0.5 - target))
         assert proposal.candidate["ens.z"] == pytest.approx(target, abs=0.1)
         assert proposal.search["resume_allowed"] is False

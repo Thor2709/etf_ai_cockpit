@@ -78,6 +78,16 @@ sec_edgar_concepts:
   share_issuance: [ProceedsFromIssuanceOfCommonStock]
   eps_diluted: [EarningsPerShareDiluted]
   shares_diluted: [WeightedAverageNumberOfDilutedSharesOutstanding]
+  # F6 sector inputs (line items): REIT FFO legs, bank and insurer lines. A gain is positive; an impairment is an expense.
+  gain_on_property_sales: [GainsLossesOnSalesOfInvestmentRealEstate, GainLossOnSaleOfProperties]
+  real_estate_impairment: [ImpairmentOfRealEstate]
+  intangibles_ex_goodwill: [IntangibleAssetsNetExcludingGoodwill]
+  credit_loss_provision: [ProvisionForLoanLeaseAndOtherLosses, ProvisionForLoanAndLeaseLosses]
+  loans_net: [LoansAndLeasesReceivableNetReportedAmount, FinancingReceivableExcludingAccruedInterestAfterAllowanceForCreditLoss]
+  net_interest_income: [InterestIncomeExpenseNet]
+  premiums_earned: [PremiumsEarnedNet]
+  claims_incurred: [PolicyholderBenefitsAndClaimsIncurredNet]
+  acquisition_cost_amortization: [DeferredPolicyAcquisitionCostAmortizationExpense]
 
 sec_edgar_rules:
   # A fact for an earlier period than the latest period in its filing is a
@@ -205,6 +215,12 @@ scoring:
     ebit_ev_yield: {low: 0.0, high: 0.10, weight: 1}
     pe_history_percentile: {low: 1.0, high: 0.0, weight: 1}
     pe_vs_peers_discount: {low: -0.5, high: 0.5, weight: 1}
+    # set-only inputs (for `metric_sets`); the weight of a set input comes from its set
+    dividend_yield: {low: 0.0, high: 0.06}
+    ffo_yield: {low: 0.0, high: 0.12}
+    sbc_fcf_yield: {low: 0.0, high: 0.10}
+    ebit_ev_yield_5y: {low: 0.0, high: 0.10}
+    fcf_yield_3y: {low: 0.0, high: 0.10}
   quality:
     min_inputs: 2
     roe: {low: 0.0, high: 0.20, weight: 1}
@@ -213,6 +229,15 @@ scoring:
     net_debt_to_ebitda: {low: 4.0, high: 0.0, weight: 1}
     fcf_conversion: {low: 0.0, high: 1.0, weight: 1}
     revenue_cagr: {low: -0.05, high: 0.10, weight: 1}
+    gross_profitability: {low: 0.0, high: 0.50}
+  # F5 (prep D P3, section 2.4): optional `metric_sets` (name: {sectors, industries, value: {input: weight}, quality: ...})
+  # replace the default lists per sector or Yahoo industry; an industry match wins; a default input a set leaves out is
+  # "not applicable" (dropped, never scored 0). None is shipped: 2-input sets cut value coverage 53 -> 21 of 300 on
+  # fork A (supervisor ruling 2026-11-23, Round 3); wider sets follow once share counts heal.
+  # Pre-revenue firms (no positive revenue known at the decision time) of these industries: value and quality are
+  # "not scorable" (never ranked at loss_subscore). With revenue they score as any other stock.
+  not_scorable:
+    industries: [Biotechnology, Gold, Silver, Copper, Other Precious Metals & Mining, Other Industrial Metals & Mining, Uranium]
   cyclical:
     # Reuse the established value and operating-margin ranges for the sector adapter's core evidence.
     value_ev_earnings_yield: {low: 0.0, high: 0.10}

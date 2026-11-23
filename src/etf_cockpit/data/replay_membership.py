@@ -29,6 +29,7 @@ import numpy as np
 
 from etf_cockpit.core.config import AppConfig, load_config
 from etf_cockpit.data.duckdb_store import SYNTHETIC_PRICE_SOURCES
+from etf_cockpit.data.import_pipeline import RECONSTRUCTED_PIT, reconstructed_price_availability
 
 
 MEMBERSHIP_POLICY = "replay_listing_membership.v1"
@@ -55,6 +56,7 @@ class MembershipSnapshot:
     fingerprint: str
     delisting_unverified_ids: tuple[str, ...] = ()
     observed_trading_ids: tuple[str, ...] = ()
+    pit_basis: str | None = None  # RECONSTRUCTED_PIT when observed trading admitted an id
 
 
 @dataclass(frozen=True)
@@ -68,8 +70,10 @@ class ListingHistory:
     observed_trading: dict[str, tuple[dict[str, object], ...]] = field(default_factory=dict)
 
     def with_observed_trading(self, prices: pd.DataFrame, config: AppConfig) -> ListingHistory:
-        """Attach ETF-only provider observations; missing knowledge/provenance fails closed.
+        """Attach ETF-only provider observations; missing provenance fails closed.
 
+        Availability follows the one reconstructed PIT rule (``reconstructed_price_availability``, OD-1 = b): a
+        genuine bar counts at its session close, so a later refetch cannot erase an ETF's past.
         The five-business-day window is the backfill's existing staleness gate.
         Explicit synthetic/fill flags and non-trading rows cannot prove listing.
         Stored listing records retain precedence over these observations.
@@ -78,7 +82,7 @@ class ListingHistory:
         if not required.issubset(prices.columns):
             return replace(self, observed_trading={})
         etfs = {key for key, item in config.universe.by_id().items() if item.instrument_type.casefold() == "etf"}
-        frame = prices.loc[prices["etf_id"].isin(etfs)].copy()
+        frame = reconstructed_price_availability(prices.loc[prices["etf_id"].isin(etfs)])
         source = frame["source"].astype("string").str.strip().str.casefold()
         genuine = source.notna() & source.ne("") & ~source.isin(SYNTHETIC_PRICE_SOURCES)
         genuine &= ~source.str.contains("synthetic|sample|fill|interpolat", na=True)
@@ -99,6 +103,7 @@ class ListingHistory:
                 continue
             observations.setdefault(str(row["etf_id"]), []).append({
                 "date": day.isoformat(), "available_at": known.isoformat(), "source": str(row["source"]),
+                "pit_basis": RECONSTRUCTED_PIT,
             })
         return replace(self, observed_trading={
             key: tuple(sorted(rows, key=lambda row: (row["date"], row["available_at"], row["source"])))
@@ -138,16 +143,16 @@ class ListingHistory:
                 if str(row["instrument_id"]) not in known_ids and str(row["valid_from"]) <= day and _timestamp(row["known_at"]) <= cutoff}
 
     @classmethod
-    def from_root(cls, root: Path) -> ListingHistory:
+    def from_root(cls, root: Path, *, reconstructed: bool = False) -> ListingHistory:
         root = Path(root)
-        history = cls._listing_records(root)
+        history = cls._listing_records(root, reconstructed)
         prices_path = root / "data/validated/prices/prices_daily.parquet"
         if not prices_path.is_file():
             return history
         return history.with_observed_trading(pd.read_parquet(prices_path), load_config(root / "configs"))
 
     @classmethod
-    def _listing_records(cls, root: Path) -> ListingHistory:
+    def _listing_records(cls, root: Path, reconstructed: bool = False) -> ListingHistory:
         path = Path(root) / "data/derived/universe_membership/membership.sqlite"
         if not path.is_file():
             return cls()
@@ -163,9 +168,10 @@ class ListingHistory:
                 "WHERE r.scope LIKE 'listing:%' AND r.source_kind='self' "
                 "ORDER BY r.revision_id"
             )]
-            rows.extend({**dict(row), "source_kind": "licensed"} for row in connection.execute(
+            licensed = [{**dict(row), "source_kind": "licensed"} for row in connection.execute(
                 "SELECT * FROM licensed_history WHERE scope LIKE 'listing:%' ORDER BY history_id"
-            ))
+            )]
+            rows.extend(reconstructed_licensed_rows(licensed) if reconstructed else licensed)
             captures = tuple(dict(row) for row in connection.execute(
                 "SELECT scope, snapshot_date, known_at FROM capture_log "
                 "WHERE scope LIKE 'listing:%' AND source_kind='self' ORDER BY capture_id"
@@ -236,6 +242,7 @@ class ListingHistory:
         fingerprint = hashlib.sha256(json.dumps(material, sort_keys=True).encode()).hexdigest()
         return MembershipSnapshot(
             tuple(key for key in ids if key in active), unverified, reasons, fingerprint, delisting_unverified, tuple(observed),
+            RECONSTRUCTED_PIT if observed or any(row.get("pit_basis") for row in intervals) else None,
         )
 
     def fingerprint(self) -> str:
@@ -262,6 +269,29 @@ class ListingHistory:
             if when <= cutoff and instrument not in self.snapshot(when, [instrument]).eligible_ids:
                 events.add((when, instrument, day))
         return tuple(sorted(events))
+
+
+def reconstructed_licensed_rows(rows) -> list[dict[str, object]]:
+    """The reconstructed PIT rule for licensed membership history (OD-1 = b, D9; ADR-0003).
+
+    Read time only, like ``reconstructed_price_availability``: the stored stamps stay. An incomplete licensed
+    interval counts as known at its effective date (``valid_from`` 00:00 UTC); its end only from ``valid_to``
+    00:00 UTC, so a closed interval reads as an open revision then a closure. A stored stamp that is earlier stays.
+    Complete snapshots keep their stamps. Every returned row of an incomplete interval gets
+    ``pit_basis = "reconstructed"``. Replay readers only; strict readers keep the stored stamps.
+    """
+    out: list[dict[str, object]] = []
+    for row in rows:
+        if bool(row["complete"]):
+            out.append(dict(row))
+            continue
+        known = _timestamp(row["known_at"])
+        opened = min(known, _timestamp(f"{row['valid_from']}T00:00:00+00:00"))
+        out.append({**row, "valid_to": None, "known_at": opened.isoformat(), "pit_basis": RECONSTRUCTED_PIT})
+        if row["valid_to"] is not None:
+            closed = min(known, _timestamp(f"{row['valid_to']}T00:00:00+00:00"))
+            out.append({**row, "known_at": closed.isoformat(), "pit_basis": RECONSTRUCTED_PIT})
+    return out
 
 
 def unverified_instruments(eligibility: pd.DataFrame) -> list[str]:

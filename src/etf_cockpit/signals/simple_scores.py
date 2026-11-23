@@ -30,9 +30,9 @@ from etf_cockpit.analysis.cyclical_sector_adapters import (
 )
 from etf_cockpit.analysis.stock_evidence import StockEvidence, band_is_label_stable, label_boundaries_from, linear_score
 from etf_cockpit.analysis.stock_universe import (
-    SECTOR_ROUTE_MISSING,
+    financial_route_reason,
+    financial_route_why,
     get_universe_evidence,
-    is_non_bank_financial_sector,
     live_decision_time,
     records_from_config,
     with_as_traded_factors,
@@ -61,7 +61,7 @@ from etf_cockpit.data.news_context import NEWS_CLEAN_PATH, load_news_items
 from etf_cockpit.data.universe_store import support_decision
 from etf_cockpit.data.yfinance_provider import yfinance_symbol_map_from_config
 from etf_cockpit.data.universe_store import load_universe
-from etf_cockpit.features.crowding import ClusterReport, build_correlation_clusters
+from etf_cockpit.features.crowding import ClusterReport, CorrelationMatrix, build_correlation_clusters, correlation_matrix
 from etf_cockpit.features.cash_comparison import (
     adjusted_endpoint_available_at,
     validate_cash_comparison_result,
@@ -106,6 +106,7 @@ from etf_cockpit.signals.canonical_scoring import (
     headline_evidence_weights,
     headline_weights_for_components,
     is_certificate_without_fundamentals,
+    policy_snapshot,
 )
 
 
@@ -865,6 +866,7 @@ def _generate_missing_price_signals(
     return [*signals, *additions], failures
 
 
+@policy_snapshot()  # one read of each score policy per live build: universe, candidates and ranking (SP-4)
 def build_simple_instrument_scores(
     config: AppConfig,
     signals: list[SignalResult],
@@ -933,10 +935,11 @@ def build_simple_instrument_scores(
         benchmark_registry=benchmark_registry,
         peer_member_ids=peer_member_ids,
     )
+    enabled = set(config.universe.enabled_ids)
     metadata: dict[str, object] = {
         etf.id: {"sector": etf.sector, "theme": etf.theme}
         for etf in config.universe.etfs
-        if etf.id in config.universe.enabled_ids
+        if etf.id in enabled
     }
     benchmark_attribution = build_benchmark_attribution_lookup(
         prices,
@@ -968,7 +971,9 @@ def build_simple_instrument_scores(
             )
     else:
         cash_comparison_lookup = dict(cash_comparison_lookup)
-    crowding = build_correlation_clusters(prices, metadata)
+    # One correlation matrix for both cluster builds (same prices, window and as_of).
+    correlations = correlation_matrix(prices)
+    crowding = build_correlation_clusters(prices, metadata, matrix=correlations)
     backtest_trust = _backtest_trust_lookup(universe_revision=universe_revision)
     universe_scores = build_universe_simple_scores(
         config,
@@ -997,7 +1002,7 @@ def build_simple_instrument_scores(
         cyclical_projections=cyclical_projections,
         decision_time=_analysis_decision_time(reference_decision_time, decision_as_of),
     )
-    return rank_and_finalize_scores([*universe_scores, *candidate_scores], prices, metadata)
+    return rank_and_finalize_scores([*universe_scores, *candidate_scores], prices, metadata, correlations=correlations)
 
 
 def rank_and_finalize_scores(
@@ -1006,11 +1011,12 @@ def rank_and_finalize_scores(
     metadata: Mapping[str, object],
     *,
     news_inventory: Mapping[str, int] | None = None,
+    correlations: CorrelationMatrix | ClusterReport | None = None,
 ) -> list[SimpleInstrumentScore]:
     """Order, rank and attach crowding, identity, classification, evidence, authority and canonical score (one path).
 
     ``news_inventory`` None reads the stored news counts (live); a historical caller passes ``{}`` because the stored
-    news inventory carries no point-in-time view.
+    news inventory carries no point-in-time view. ``correlations`` is the session's ``correlation_matrix(prices)``.
     """
 
     identity_conflicts = _identity_conflict_reasons(score.display_id for score in scores)
@@ -1042,6 +1048,7 @@ def rank_and_finalize_scores(
         metadata,
         ranked_instruments=ranked_instruments,
         weights={instrument_id: 1.0 for instrument_id in ranked_instruments},
+        matrix=correlations,
     )
     ranked_crowding_lookup = {row.instrument_id: row for row in ranked_crowding.rows}
     news_lookup = _news_inventory_lookup() if news_inventory is None else news_inventory
@@ -1771,8 +1778,9 @@ def build_universe_simple_scores(
     )
     kid_records = {} if as_of_sources is not None else _kid_record_lookup()
     product_lookups: dict[date | None, tuple[dict[str, dict[str, object]], dict[str, dict[str, list[float]]]]] = {}
+    stock_industries: dict[str, str] = {}
     stock_evidence, stock_evidence_error = _stock_evidence_lookup(
-        config, signals, prices, decision_time=stock_decision_time
+        config, signals, prices, decision_time=stock_decision_time, industries=stock_industries
     )
     symbol_map = yfinance_symbol_map_from_config(config)
     etf_lookup = config.universe.by_id()
@@ -1883,6 +1891,7 @@ def build_universe_simple_scores(
                     instrument_id=signal.etf_id,
                     decision_time=_full_decision_time(signal),
                     sector=identity.sector,
+                    industry=stock_industries.get(signal.etf_id),
                 )
                 if stock_like
                 else [
@@ -2210,11 +2219,11 @@ def build_candidate_simple_scores(
         if asset_type == "ETF":
             component_rows.append(_etf_exposure_component(etf_exposure.get(instrument_id), decision_date))
             component_rows.append(_etf_product_quality_component(None, None, decision_date))
-        elif is_non_bank_financial_sector(row.get("sector")):
+        elif (route_reason := financial_route_reason(row.get("sector"), row.get("industry"))) is not None:
             component_rows.extend(
                 [
-                    _sector_route_missing_component("stock_value"),
-                    _sector_route_missing_component("stock_quality"),
+                    _sector_route_missing_component("stock_value", route_reason),
+                    _sector_route_missing_component("stock_quality", route_reason),
                     _optional_score_component(
                         "analyst_revision",
                         row.get("analyst_revision_score_10"),
@@ -3577,8 +3586,12 @@ def _stock_evidence_lookup(
     prices: pd.DataFrame,
     *,
     decision_time: datetime | None = None,
+    industries: dict[str, str] | None = None,
 ) -> tuple[dict[str, StockEvidence], str | None]:
-    """Evidence of every normal stock from the canonical fundamentals store (one build per decision day)."""
+    """Evidence of every normal stock from the canonical fundamentals store (one build per decision day).
+
+    ``industries``, when given, receives the stored industry of each stock (the financials route reads it).
+    """
 
     try:
         newest = latest_signal(signals)
@@ -3586,7 +3599,10 @@ def _stock_evidence_lookup(
         records = records_from_config(config)
         if not records:
             return {}, None
-        return get_universe_evidence(records, prices, live_decision_time(as_of) if decision_time is None else decision_time).evidence, None
+        universe = get_universe_evidence(records, prices, live_decision_time(as_of) if decision_time is None else decision_time)
+        if industries is not None:
+            industries.update({iid: profile.industry for iid, profile in universe.profiles.items()})
+        return universe.evidence, None
     except Exception as exc:  # a broken store must not stop scoring: the reason is shown on each component
         return {}, f"stock fundamentals could not be evaluated ({type(exc).__name__}: {str(exc)[:100]})"
 
@@ -3599,15 +3615,17 @@ def _stock_fundamental_components(
     instrument_id: str | None = None,
     decision_time: object | None = None,
     sector: object | None = None,
+    industry: object | None = None,
 ) -> list[SimpleScoreComponent]:
     """Value, quality and analyst-revision components of one stock; a missing one states why.
 
-    Non-bank financials (insurers, exchanges, diversified financials) have no dedicated fundamentals route yet: the
-    generic industrial ROE/ROIC/ND-EBITDA/EBIT-margin evidence is meaningless for them, so value and quality are
-    ``unavailable`` with reason ``sector_route_missing`` (analyst revisions are sector-neutral and stay as they are).
+    Financials are routed by their stored industry: fee-based ones use the generic set; banks, insurers and other
+    lenders (and a financial with no industry) get value and quality ``unavailable`` with reason ``sector_route_missing``
+    (analyst revisions are sector-neutral and stay as they are).
     """
 
-    route_missing = is_non_bank_financial_sector(sector)
+    route_reason = financial_route_reason(sector, industry)
+    route_missing = route_reason is not None
     cyclical = None if route_missing else _cyclical_stock_components(
         cyclical_projection,
         instrument_id=instrument_id,
@@ -3652,7 +3670,7 @@ def _stock_fundamental_components(
     output = []
     for key, authority in (("stock_value", "medium"), ("stock_quality", "medium"), ("analyst_revision", "low")):
         if route_missing and key in {"stock_value", "stock_quality"}:
-            output.append(_sector_route_missing_component(key))
+            output.append(_sector_route_missing_component(key, route_reason))
             continue
         if evidence is None:
             reason = error or "no fundamentals evidence was built for this instrument (it is not in the stock universe)"
@@ -3699,15 +3717,9 @@ def _stock_fundamental_components(
     return output
 
 
-def _sector_route_missing_component(key: str) -> SimpleScoreComponent:
+def _sector_route_missing_component(key: str, reason: str) -> SimpleScoreComponent:
     return replace(
-        _optional_score_component(
-            key,
-            None,
-            f"{COMPONENT_LABELS[key]}: {SECTOR_ROUTE_MISSING}: non-bank financials have no dedicated fundamentals route yet, "
-            "and the generic industrial ratios (ROE, ROIC, net debt/EBITDA, EBIT margin) do not apply to them.",
-            authority="medium",
-        ),
+        _optional_score_component(key, None, financial_route_why(COMPONENT_LABELS[key], reason), authority="medium"),
         freshness_status="unavailable",
     )
 
@@ -5416,7 +5428,18 @@ def _analysis_decision_time(value: object, decision_date: date | None) -> dateti
     return parsed.to_pydatetime()
 
 
+_ISO_DATE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
+
+
 def _parse_date(value: object) -> date | None:
+    # Fast path, same result as pandas: an ISO date string or a plain date inside the pandas Timestamp years.
+    if type(value) is str and _ISO_DATE.fullmatch(value) and 1678 <= int(value[:4]) <= 2261:
+        try:
+            return date.fromisoformat(value)
+        except ValueError:  # pandas coerces an impossible date to NaT
+            return None
+    if type(value) is date and 1678 <= value.year <= 2261:
+        return value
     try:
         parsed = pd.to_datetime(value, errors="coerce")
     except (TypeError, ValueError, OverflowError):

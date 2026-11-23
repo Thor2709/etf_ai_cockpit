@@ -42,6 +42,7 @@ REQUIRED_HOLDINGS_COLUMNS = {
 }
 
 
+@lru_cache(maxsize=1 << 16)
 def _business_days_between(start: date, end: date) -> int:
     if start >= end:
         return 0
@@ -229,8 +230,11 @@ def validate_prices(
             calendars = {}
         calendar_resolver = calendars.get
 
+    # Sort once by date (stable), then take each instrument's rows by position: (etf_id, date) is unique here.
+    by_date = known.sort_values("date", kind="stable")
+    positions = by_date.groupby("etf_id", sort=False).indices
     for etf_id in known_ids:
-        group = known[known["etf_id"] == etf_id].sort_values("date")
+        group = by_date.iloc[positions[etf_id]] if etf_id in positions else known.iloc[0:0]
         if group.empty:
             issues.append(
                 DataQualityIssue(
@@ -300,7 +304,8 @@ def validate_prices(
                 DataQualityIssue(etf_id, "warning", "missing_trading_days", f"{missing_days} expected days missing. {calendar_message}")
             )
 
-        returns = np.log(group["adjusted_close"].astype(float)).diff()
+        # Only the tail is read: two 60-row rolling medians plus one diff need 2 * 59 + 1 rows before it.
+        returns = np.log(group["adjusted_close"].tail(PRICE_WARNING_LOOKBACK_SESSIONS + 120).astype(float)).diff()
         rolling_median = returns.rolling(60, min_periods=30).median()
         mad = (returns - rolling_median).abs().rolling(60, min_periods=30).median()
         robust_sigma = 1.4826 * mad.replace(0, np.nan)

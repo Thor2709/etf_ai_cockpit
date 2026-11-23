@@ -8,6 +8,8 @@ move to the separated outputs.
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+from contextvars import ContextVar
 from copy import deepcopy
 from dataclasses import dataclass, field, replace
 from datetime import date
@@ -17,7 +19,7 @@ import json
 import math
 from pathlib import Path
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, Any, Iterable, Mapping
+from typing import TYPE_CHECKING, Any, Callable, Iterable, Iterator, Mapping
 
 import yaml
 
@@ -247,9 +249,45 @@ def _parse_yaml_text(text: str) -> object:
     return yaml.safe_load(text)
 
 
+_POLICY_SNAPSHOT: ContextVar[dict[object, object] | None] = ContextVar("score_policy_snapshot", default=None)
+
+
+@contextmanager
+def policy_snapshot() -> Iterator[None]:
+    """Read each score and critical-evidence policy once inside the scope (one run, SP-4).
+
+    A policy edit during the run applies from the next run. Outside a scope every call reads the file.
+    Nested scopes share the outermost snapshot.
+    """
+
+    if _POLICY_SNAPSHOT.get() is not None:
+        yield
+        return
+    token = _POLICY_SNAPSHOT.set({})
+    try:
+        yield
+    finally:
+        _POLICY_SNAPSHOT.reset(token)
+
+
+def snapshot_policy(key: object, load: Callable[[], Any]) -> Any:
+    """``load()`` once per key inside :func:`policy_snapshot`; a failed load is not kept."""
+
+    snapshot = _POLICY_SNAPSHOT.get()
+    if snapshot is None:
+        return load()
+    if key not in snapshot:
+        snapshot[key] = load()
+    return snapshot[key]
+
+
 def load_score_policy(asset_type: str = "ETF", *, path: Path = FORMULA_PATH) -> ScorePolicy:
     if _is_sparebank_ec_asset_type(asset_type):
         raise CanonicalScoreError("EC instruments must use the native Sparebank scorecard")
+    return snapshot_policy(("score", asset_type, str(path)), lambda: _read_score_policy(asset_type, path))
+
+
+def _read_score_policy(asset_type: str, path: Path) -> ScorePolicy:
     try:
         raw_bytes = path.read_bytes()
         normalised_bytes = raw_bytes.replace(b"\r\n", b"\n")

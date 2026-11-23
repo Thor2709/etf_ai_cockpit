@@ -331,7 +331,7 @@ def test_canonical_main_workflow_composes_real_local_apis_without_network(tmp_pa
     assert payload["scoreboard_before_audit"] is True
     assert payload["audit_exists"] is True
     assert payload["committed_reference_dates"] == {
-        "etf_holdings": "2026-08-10",
+        "etf_holdings": None,
         "etf_metadata": "2026-08-10",
     }
     assert payload["audit_reference_dates"] == payload["committed_reference_dates"]

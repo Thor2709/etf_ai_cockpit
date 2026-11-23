@@ -33,8 +33,12 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Iterable, Mapping, Sequence
 
 # Statement line items (INT-03): parsed and stored like the fields above; the quality scores below use them.
-LINE_ITEM_FLOW_FIELDS = ("sga", "rd_expense", "stock_based_compensation", "gross_buybacks", "share_issuance")
-LINE_ITEM_BALANCE_FIELDS = ("current_assets", "current_liabilities", "receivables", "inventory", "retained_earnings", "ppe_net", "goodwill")
+# F6: sector inputs (REIT FFO legs, bank and insurer lines) follow the same line-item rules.
+LINE_ITEM_FLOW_FIELDS = ("sga", "rd_expense", "stock_based_compensation", "gross_buybacks", "share_issuance",
+                         "gain_on_property_sales", "real_estate_impairment", "credit_loss_provision", "net_interest_income",
+                         "premiums_earned", "claims_incurred", "acquisition_cost_amortization")
+LINE_ITEM_BALANCE_FIELDS = ("current_assets", "current_liabilities", "receivables", "inventory", "retained_earnings", "ppe_net", "goodwill",
+                            "intangibles_ex_goodwill", "loans_net")
 # Per-share items are neither currency amounts nor cumulative: each is reported for its own period and never differenced.
 LINE_ITEM_PER_SHARE_FIELDS = ("eps_diluted", "shares_diluted")
 LINE_ITEM_FIELDS = LINE_ITEM_FLOW_FIELDS + LINE_ITEM_BALANCE_FIELDS + LINE_ITEM_PER_SHARE_FIELDS
@@ -329,21 +333,22 @@ def latest_balance(periods: Sequence[Period], names: Sequence[str]) -> Period | 
 
 
 def latest_reported_shares(periods: Sequence[Period], decision_time: datetime) -> Period | None:
-    """Latest publication known at the decision, then its most recent instant.
+    """Latest reported-share publication known at the decision, then its most recent instant.
 
-    Only explicit reported-share provenance qualifies. A derived count, provider
-    snapshot or ambiguous latest filing fails closed without an older fallback.
+    Only explicit reported-share provenance (sec_dei, esef_reported) qualifies; a provider or
+    statement count never hides it. A derived count or ambiguous latest filing fails closed
+    without an older fallback.
     """
     candidates = [p for p in periods if (p.period_type == "SHARES" or "shares_outstanding" in p.values
                                         or "shares_outstanding" in p.value_status)
+                  and p.source_of("shares_outstanding") in ("sec_dei", "esef_reported")
                   and p.known_at <= decision_time and (p.available_at or p.known_at) <= decision_time
                   and p.period_end <= (p.available_at or p.known_at).date()]
     if not candidates:
         return None
     latest_key = max((p.available_at or p.known_at, p.period_end) for p in candidates)
     latest = [p for p in candidates if (p.available_at or p.known_at, p.period_end) == latest_key]
-    if any(p.source_of("shares_outstanding") not in ("sec_dei", "esef_reported")
-           or p.status_of("shares_outstanding") != "observed" or not p.has("shares_outstanding")
+    if any(p.status_of("shares_outstanding") != "observed" or not p.has("shares_outstanding")
            or p.values["shares_outstanding"] <= 0 for p in latest):
         return None
     return latest[0] if len({p.values["shares_outstanding"] for p in latest}) == 1 else None
@@ -950,6 +955,32 @@ def ytd_to_discrete(ytd: Mapping[int, float | None]) -> dict[int, float | None]:
         previous = _finite(ytd.get(quarter - 1))
         out[quarter] = None if current is None or previous is None else current - previous
     return out
+
+
+def funds_from_operations(net_income: float | None, da: float | None, gains: float | None, impairment: float | None) -> Metric:
+    """FFO proxy (Nareit 2018 legs from tagged facts): every leg must be reported; a missing leg is never taken as 0."""
+
+    key, label = "ffo", "Funds from operations (FFO)"
+    formula = "net income to parent + D&A - gains on property sales + real-estate impairments"
+    if any(_finite(item) is None for item in (net_income, da, gains, impairment)):
+        return _unavailable(key, label, "needs net income, D&A, gains on property sales and real-estate impairments", formula=formula, unit="money")
+    return Metric(key, label, net_income + da - gains + impairment, "money", OK, formula=formula)
+
+
+def tangible_equity(equity: float | None, goodwill: float | None, intangibles: float | None) -> float | None:
+    if any(_finite(item) is None for item in (equity, goodwill, intangibles)):
+        return None
+    return equity - goodwill - intangibles
+
+
+def flow_ratio(key: str, label: str, numerator: float | None, denominator: float | None, *, formula: str, denominator_name: str) -> Metric:
+    """A flow over a positive base (average balance or premiums); a non-positive base is not meaningful."""
+
+    if _finite(numerator) is None or _finite(denominator) is None:
+        return _unavailable(key, label, f"needs the numerator and {denominator_name}", formula=formula)
+    if denominator <= 0:
+        return _not_meaningful(key, label, f"{denominator_name} is zero or negative", formula=formula)
+    return Metric(key, label, numerator / denominator, "ratio", OK, formula=formula)
 
 
 def consecutive_fiscal_years(period_ends: Sequence[date], *, span_days: tuple[int, int] = (345, 385)) -> bool:
