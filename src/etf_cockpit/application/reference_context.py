@@ -275,7 +275,8 @@ def _backtest_calculation_context(
         frame = prices.loc[:, ["date", "etf_id", "adjusted_close"]].copy()
         frame["date"] = pd.to_datetime(frame["date"], errors="coerce")
         frame["adjusted_close"] = pd.to_numeric(frame["adjusted_close"], errors="coerce")
-        columns = [item for item in config.universe.enabled_ids if item in set(frame["etf_id"].astype(str))]
+        present = set(frame["etf_id"].astype(str))
+        columns = [item for item in config.universe.enabled_ids if item in present]
         pivot = frame[frame["etf_id"].astype(str).isin(columns)].pivot(
             index="date", columns="etf_id", values="adjusted_close"
         ).sort_index()
