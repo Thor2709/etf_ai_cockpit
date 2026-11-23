@@ -4,7 +4,8 @@ Usage: python scripts/import_vwce_proxy.py [--root PATH]
 
 Fetches VWRL.AS (Euronext Amsterdam, EUR) 2012-05-22..2019-07-29 through the yfinance provider with an explicit symbol
 map (no settings file changes), checks it with the proxy contract and writes
-data/reference/vwce_proxy_vwrl_as.parquet + .json under --root in one atomic group. Nothing is written when the check
+data/reference/vwce_proxy_vwrl_as.parquet + .json (+ _quarantine.parquet) under --root in one atomic group. Rows
+failing the nightly quarantines or with volume 0 (no trade) are quarantined first. Nothing is written when the check
 fails. VWRL.AS never enters prices.parquet or the universe. execution_allowed stays false.
 """
 
@@ -29,6 +30,7 @@ def import_vwce_proxy(root: Path, *, provider: object = None, known_at: datetime
     import pandas as pd
 
     from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_group
+    from etf_cockpit.data.price_quarantine import quarantine_invalid_adjusted_close, quarantine_invalid_ohlc
     from etf_cockpit.portfolio.benchmark_reference import (
         VWCE_PROXY_ISIN, VWCE_PROXY_START, VWCE_PROXY_SYMBOL, VWCE_SPLICE_DATE, validate_vwce_proxy_series,
         vwce_series_source_hash,
@@ -46,6 +48,14 @@ def import_vwce_proxy(root: Path, *, provider: object = None, known_at: datetime
     result = provider.fetch_prices([VWCE_PROXY_SYMBOL], VWCE_PROXY_START, VWCE_SPLICE_DATE + timedelta(days=1))
     if not result.ok or result.data is None or result.metadata is None:
         raise ValueError(f"VWRL.AS fetch failed: {result.message}")
+    # The nightly's own quarantines first (as application/data_service.py), then volume-0 bars: no trade, so no
+    # observed price. A quarantined row is a missing row; the chain keeps it a gap.
+    parts = []
+    for quarantine in (quarantine_invalid_adjusted_close, quarantine_invalid_ohlc, _quarantine_no_trade):
+        result, rows = quarantine(result)
+        if rows is not None and not rows.empty:
+            parts.append(rows)
+    quarantined = pd.concat(parts, ignore_index=True) if parts else None
     frame = result.data.reset_index(drop=True)
     stamp = known_at or result.metadata.ingested_at
     check = validate_vwce_proxy_series(frame, known_at=stamp, provider_metadata=result.metadata)
@@ -59,16 +69,47 @@ def import_vwce_proxy(root: Path, *, provider: object = None, known_at: datetime
         "currency": "EUR", "source": "yfinance", "splice_date": VWCE_SPLICE_DATE.isoformat(),
         "first_date": check.first_date, "last_date": check.last_date, "rows": len(stored),
         "known_at": pd.Timestamp(stamp).isoformat(), "execution_allowed": False,
+        "quarantined_rows": {} if quarantined is None else {
+            str(reason): int(count) for reason, count in quarantined["quarantine_reason"].value_counts().sort_index().items()
+        },
     }
     reference = Path(root) / "data" / "reference"
     reference.mkdir(parents=True, exist_ok=True)
     parquet, sidecar = reference / f"{PROXY_FILE}.parquet", reference / f"{PROXY_FILE}.json"
-    atomic_write_group((
+    requests = [
         AtomicWriteRequest(parquet, buffer.getvalue(), lambda path: pd.read_parquet(path)),
         AtomicWriteRequest(sidecar, json.dumps(manifest, indent=2, sort_keys=True).encode("utf-8"),
                            lambda path: json.loads(path.read_text(encoding="utf-8"))),
-    ))
+    ]
+    if quarantined is not None:  # kept like the nightly's data/quality/price_quarantine_*.parquet
+        rejected = io.BytesIO()
+        quarantined.to_parquet(rejected, index=False)
+        requests.append(AtomicWriteRequest(
+            reference / f"{PROXY_FILE}_quarantine.parquet", rejected.getvalue(), lambda path: pd.read_parquet(path)))
+    atomic_write_group(requests)
     return parquet
+
+
+def _quarantine_no_trade(result):
+    """Split volume-0 proxy bars off (reason ``no_trade``); return (clean result, quarantined rows), as price_quarantine."""
+
+    import dataclasses
+
+    import pandas as pd
+
+    from etf_cockpit.data.provenance import sha256_dataframe
+
+    frame = result.data
+    if frame is None or "volume" not in frame.columns:
+        return result, None
+    bad = pd.to_numeric(frame["volume"], errors="coerce").eq(0)
+    if not bad.any():
+        return result, None
+    quarantined = frame.loc[bad].copy()
+    quarantined["quarantine_reason"] = "no_trade"
+    clean = frame.loc[~bad].reset_index(drop=True)
+    metadata = dataclasses.replace(result.metadata, checksum=sha256_dataframe(clean)) if result.metadata else None
+    return dataclasses.replace(result, data=clean, metadata=metadata), quarantined
 
 
 def main(argv: list[str] | None = None) -> int:
