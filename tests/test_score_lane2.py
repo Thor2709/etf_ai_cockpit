@@ -89,3 +89,24 @@ def test_row_freshness_skips_components_with_no_score():
     at = "2026-11-22T22:30:00+00:00"
     assert trust_artifacts._score_freshness(score(scored, absent), at) == "ok"
     assert trust_artifacts._score_freshness(score(scored, absent, stale), at) == "stale"
+
+
+def test_generate_signals_runs_inside_one_policy_snapshot(monkeypatch):
+    from datetime import date
+
+    import pandas as pd
+    import pytest
+
+    from etf_cockpit.core.types import DataQualityReport
+    from etf_cockpit.signals import signal_pipeline
+
+    seen: list[bool] = []
+
+    def stop(*a, **kw):
+        seen.append(cs._POLICY_SNAPSHOT.get() is not None)
+        raise RuntimeError("stop")
+
+    monkeypatch.setattr(signal_pipeline, "allocation_frame", stop)
+    with pytest.raises(RuntimeError, match="stop"):
+        signal_pipeline.generate_signals(None, pd.DataFrame(), pd.DataFrame(), DataQualityReport(date(2026, 11, 20), []), run_id="t")
+    assert seen == [True]
