@@ -6,8 +6,9 @@ Independent windows (including replay) use at most three worker threads;
 results retain the requested window order and workers never persist evidence.
 A third, shadow run ranks quality and value challengers built from the stored
 period store; it never shares a policy with the promotion rankers.
-With benchmark VWCE, the comparator uses the VWRL.AS-spliced series (OD-2 b)
-when the stored proxy file matches its manifest hash; else the stored VWCE rows.
+With benchmark VWCE, decision dates before 2019-07-29 use the VWRL.AS-spliced
+comparator (OD-2 b) when the stored proxy file matches its manifest hash; all
+other dates, and every date without a valid proxy, use the stored VWCE rows.
 """
 
 from __future__ import annotations
@@ -20,6 +21,7 @@ from pathlib import Path
 from typing import Sequence
 
 import pandas as pd
+import pyarrow
 
 from etf_cockpit.analysis.decision.rank_validation import (
     RankerSpec,
@@ -75,7 +77,10 @@ def _load_membership(path: Path | None, root: Path, scope: str, as_known_at: dat
 
 
 def _vwce_comparator_prices(root: Path, prices: pd.DataFrame) -> tuple[pd.DataFrame | None, str | None]:
-    """Prices whose VWCE rows are the VWRL.AS-spliced benchmark series, else ``(None, reason)``: stored rows only."""
+    """Prices whose VWCE rows are the VWRL.AS-spliced benchmark series, else ``(None, reason)``: stored rows only.
+
+    Proxy rows on a day that is no stored session are dropped (not filled): the comparator keeps the replay sessions.
+    """
 
     parquet = root / _VWCE_PROXY_RELATIVE
     try:
@@ -83,7 +88,9 @@ def _vwce_comparator_prices(root: Path, prices: pd.DataFrame) -> tuple[pd.DataFr
         manifest = json.loads(parquet.with_suffix(".json").read_text(encoding="utf-8"))
     except FileNotFoundError:
         return None, "proxy_file_missing"
-    except (OSError, ValueError):
+    except (OSError, ValueError, pyarrow.ArrowException):
+        return None, "proxy_file_unreadable"
+    if not {"date", "adjusted_close", "known_at"} <= set(proxy.columns):
         return None, "proxy_file_unreadable"
     if not isinstance(manifest, dict) or manifest.get("source_hash") != sha256_dataframe(proxy):
         return None, "proxy_hash_mismatch"
@@ -91,6 +98,9 @@ def _vwce_comparator_prices(root: Path, prices: pd.DataFrame) -> tuple[pd.DataFr
     series = vwce_benchmark_series(prices.loc[is_vwce], proxy)
     if series is None:
         return None, "splice_unavailable"
+    sessions = set(pd.to_datetime(prices["date"].unique(), errors="coerce").normalize())
+    is_proxy = series["benchmark_basis"].eq("proxy")
+    series = series.loc[~is_proxy | pd.to_datetime(series["date"].where(is_proxy)).dt.normalize().isin(sessions)]
     return pd.concat([prices.loc[~is_vwce], series.assign(instrument_id=_VWCE_ID)], ignore_index=True), None
 
 
@@ -214,10 +224,9 @@ def build_rank_validation_report(
     report["inputs"]["membership_rows"] = int(len(memberships))  # type: ignore[index]
     shadow_rows = _shadow_rows(resolved_root, prices)
     shadow_components = [name for name in _SHADOW_COMPONENTS if shadow_rows[name].notna().any()]
-    comparator_prices, spliced = prices, None
+    spliced = None
     if benchmark_id == _VWCE_ID:
         spliced, proxy_reason = _vwce_comparator_prices(resolved_root, prices)
-        comparator_prices = prices if spliced is None else spliced
         report["benchmark_proxy"] = {
             "status": "unavailable" if spliced is None else "used", "reason": proxy_reason,
             "proxy_source_id": VWCE_PROXY_SYMBOL,
@@ -238,7 +247,7 @@ def build_rank_validation_report(
         )
         evidence, skipped = price_momentum_risk_evidence(prices, times)
         benchmark = (
-            forward_comparator_frame(comparator_prices, benchmark_id, times, base_policy.holding_period_sessions)
+            forward_comparator_frame(prices, benchmark_id, times, base_policy.holding_period_sessions)
             if benchmark_id else pd.DataFrame()
         )
         window: dict[str, object] = {
@@ -247,11 +256,14 @@ def build_rank_validation_report(
             "decision_times": len(times), "excluded_decision_times": len(excluded),
             "instrument_skips": {key: len(value) for key, value in skipped.items()},
         }
-        if spliced is not None:  # comparator decision dates before the splice: their entry row is a proxy row
-            window["benchmark_proxy"] = {
-                "proxy_source_id": VWCE_PROXY_SYMBOL,
-                "proxy_decision_dates": int(benchmark["decision_date"].lt(VWCE_SPLICE_DATE.isoformat()).sum()),
-            }
+        if spliced is not None:  # only dates before the splice use the spliced series: their entry row is a proxy row
+            splice = VWCE_SPLICE_DATE.isoformat()
+            proxied = forward_comparator_frame(
+                spliced, benchmark_id, [text for text in times if text[:10] < splice], base_policy.holding_period_sessions
+            )
+            parts = [frame for frame in (proxied, benchmark.loc[benchmark["decision_date"].ge(splice)]) if not frame.empty]
+            benchmark = pd.concat(parts, ignore_index=True) if parts else proxied
+            window["benchmark_proxy"] = {"proxy_source_id": VWCE_PROXY_SYMBOL, "proxy_decision_dates": len(proxied)}
         sections: dict[str, object] = {}
 
         def replay_section(label: str, policy, run_evidence: pd.DataFrame) -> dict[str, object]:

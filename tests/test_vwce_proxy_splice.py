@@ -204,8 +204,10 @@ def test_import_quarantines_no_trade_and_invalid_ohlc_rows_and_counts_them(tmp_p
     assert sorted(quarantined["quarantine_reason"]) == ["invalid_ohlc", "no_trade"]
 
 
-def _rank_inputs(tmp_path: Path, vwce_id: str = "VWCE") -> dict[str, Path]:
-    """Five members from 2018-04-02, VWCE (as ``vwce_id``) only from the splice date, all to 2020-01-31."""
+def _rank_inputs(tmp_path: Path, vwce_id: str = "VWCE", own_known: str | None = None) -> dict[str, Path]:
+    """Five members from 2018-04-02, VWCE (as ``vwce_id``) only from the splice date, all to 2020-01-31.
+
+    ``own_known``: one late fetch stamp for every own VWCE row (as the real store), else the session close."""
 
     days = [day.date().isoformat() for day in pd.bdate_range("2018-04-02", "2020-01-31")]
     rows = [
@@ -214,10 +216,11 @@ def _rank_inputs(tmp_path: Path, vwce_id: str = "VWCE") -> dict[str, Path]:
         for i in range(5) for t, day in enumerate(days)
     ]
     rows += [
-        {"instrument_id": vwce_id, "date": day, "adjusted_close": 70.0 + 0.05 * t, "known_at": f"{day}T23:59:59Z"}
+        {"instrument_id": vwce_id, "date": day, "adjusted_close": 70.0 + 0.05 * t,
+         "known_at": own_known or f"{day}T23:59:59Z"}
         for t, day in enumerate(day for day in days if day >= "2019-07-29")
     ]
-    prices, members = tmp_path / f"prices_{vwce_id}.parquet", tmp_path / "members.csv"
+    prices, members = tmp_path / f"prices_{vwce_id}_{bool(own_known)}.parquet", tmp_path / "members.csv"
     pd.DataFrame(rows).to_parquet(prices)
     pd.DataFrame([{"instrument_id": f"I{i}"} for i in range(5)]).to_csv(members, index=False)
     return {"prices_path": prices, "membership_path": members}
@@ -265,3 +268,49 @@ def test_rank_validation_vwce_comparator_uses_the_proxy_and_fails_closed_to_stor
         report = _rank_report(root, "VWCE", vwce)
         assert report.pop("benchmark_proxy") == {"status": "unavailable", "reason": reason, "proxy_source_id": "VWRL.AS"}
         assert _text(report) == baseline
+
+    import pyarrow
+
+    from etf_cockpit.application import rank_validation_service as service
+
+    prices = pd.read_parquet(vwce["prices_path"])
+    assert service._vwce_comparator_prices(with_proxy, prices.loc[prices["date"].ne("2019-07-29")])[1] == "splice_unavailable"
+    no_known = tmp_path / "no_known" / "data" / "reference"
+    no_known.mkdir(parents=True)
+    stripped = pd.read_parquet(with_proxy / "data" / "reference" / "vwce_proxy_vwrl_as.parquet").drop(columns="known_at")
+    stripped.to_parquet(no_known / "vwce_proxy_vwrl_as.parquet")
+    (no_known / "vwce_proxy_vwrl_as.json").write_text(json.dumps({"source_hash": sha256_dataframe(stripped)}), encoding="utf-8")
+    assert service._vwce_comparator_prices(tmp_path / "no_known", prices)[1] == "proxy_file_unreadable"
+
+    def arrow_error(*args, **kwargs):
+        raise pyarrow.lib.ArrowNotImplementedError("unsupported parquet feature")
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(pd, "read_parquet", arrow_error)
+        assert service._vwce_comparator_prices(with_proxy, prices)[1] == "proxy_file_unreadable"
+
+
+def test_rank_validation_proxy_keeps_the_stored_calendar_and_serves_only_pre_splice_dates(tmp_path: Path, monkeypatch) -> None:
+    from etf_cockpit.application import rank_validation_service as service
+
+    root = tmp_path / "with_proxy"
+    _script().import_vwce_proxy(root, provider=_Provider(_proxy_history()), known_at=KNOWN)
+    prices = pd.read_parquet(_rank_inputs(tmp_path)["prices_path"])
+    stored = prices.loc[prices["date"].ne("2019-05-17")]  # a proxy (Euronext) session no stored instrument has
+    spliced, _ = service._vwce_comparator_prices(root, stored)
+    sessions = set(pd.to_datetime(stored["date"]))
+    assert set(pd.to_datetime(spliced["date"])) <= sessions  # the comparator holding window keeps the replay sessions
+
+    seen: list[pd.DataFrame] = []
+    original = service.run_stored_rank_validation
+
+    def capture(evidence, memberships, prices, costs, benchmark, *args, **kwargs):
+        seen.append(benchmark)
+        return original(evidence, memberships, prices, costs, benchmark, *args, **kwargs)
+
+    monkeypatch.setattr(service, "run_stored_rank_validation", capture)
+    late = _rank_inputs(tmp_path, own_known="2026-11-03T12:20:00Z")  # own rows fetched long after their sessions
+    report = _rank_report(root, "VWCE", late)
+    dates = seen[0]["decision_date"]
+    assert dates.lt("2019-07-29").all()  # no post-splice date takes a stale proxy row as its entry
+    assert report["windows"][0]["benchmark_proxy"]["proxy_decision_dates"] == len(dates) > 0
