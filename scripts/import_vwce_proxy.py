@@ -21,8 +21,6 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-PROXY_FILE = "vwce_proxy_vwrl_as"
-
 
 def import_vwce_proxy(root: Path, *, provider: object = None, known_at: datetime | None = None) -> Path:
     """Fetch, check and write the proxy rows under ``root``/data/reference; return the parquet path."""
@@ -32,8 +30,8 @@ def import_vwce_proxy(root: Path, *, provider: object = None, known_at: datetime
     from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_group
     from etf_cockpit.data.price_quarantine import quarantine_invalid_adjusted_close, quarantine_invalid_ohlc
     from etf_cockpit.portfolio.benchmark_reference import (
-        VWCE_PROXY_ISIN, VWCE_PROXY_START, VWCE_PROXY_SYMBOL, VWCE_SPLICE_DATE, validate_vwce_proxy_series,
-        vwce_series_source_hash,
+        VWCE_PROXY_FILE, VWCE_PROXY_ISIN, VWCE_PROXY_START, VWCE_PROXY_SYMBOL, VWCE_SPLICE_DATE,
+        validate_vwce_proxy_series, vwce_series_source_hash,
     )
 
     if provider is None:
@@ -75,7 +73,7 @@ def import_vwce_proxy(root: Path, *, provider: object = None, known_at: datetime
     }
     reference = Path(root) / "data" / "reference"
     reference.mkdir(parents=True, exist_ok=True)
-    parquet, sidecar = reference / f"{PROXY_FILE}.parquet", reference / f"{PROXY_FILE}.json"
+    parquet, sidecar = reference / f"{VWCE_PROXY_FILE}.parquet", reference / f"{VWCE_PROXY_FILE}.json"
     requests = [
         AtomicWriteRequest(parquet, buffer.getvalue(), lambda path: pd.read_parquet(path)),
         AtomicWriteRequest(sidecar, json.dumps(manifest, indent=2, sort_keys=True).encode("utf-8"),
@@ -85,7 +83,7 @@ def import_vwce_proxy(root: Path, *, provider: object = None, known_at: datetime
         rejected = io.BytesIO()
         quarantined.to_parquet(rejected, index=False)
         requests.append(AtomicWriteRequest(
-            reference / f"{PROXY_FILE}_quarantine.parquet", rejected.getvalue(), lambda path: pd.read_parquet(path)))
+            reference / f"{VWCE_PROXY_FILE}_quarantine.parquet", rejected.getvalue(), lambda path: pd.read_parquet(path)))
     atomic_write_group(requests)
     return parquet
 

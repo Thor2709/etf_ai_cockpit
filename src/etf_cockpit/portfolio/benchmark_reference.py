@@ -896,6 +896,7 @@ VWCE_SPLICE_DATE = date(2019, 7, 29)
 VWCE_PROXY_SYMBOL = "VWRL.AS"
 VWCE_PROXY_ISIN = "IE00B3RBWM25"
 VWCE_PROXY_START = date(2012, 5, 22)
+VWCE_PROXY_FILE = "vwce_proxy_vwrl_as"  # data/reference/<name>.parquet + .json manifest (scripts/import_vwce_proxy.py)
 _SERIES_COLUMNS = ("date", "etf_id", "adjusted_close", "currency", "known_at")
 
 
