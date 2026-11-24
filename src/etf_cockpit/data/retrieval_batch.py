@@ -185,7 +185,6 @@ class BatchRetriever(Generic[T]):
         self.retry_cooldown_seconds = retry_cooldown_seconds
         self.workers = workers
         self._write_lock = threading.Lock()
-        self._memory_cache: dict[bytes, tuple[bytes, str]] = {}
         self._memory_manifest: dict[str, object] | None = None
 
     def retrieve(
@@ -393,14 +392,7 @@ class BatchRetriever(Generic[T]):
 
     def _read_cache(self, key: dict[str, object]) -> tuple[T, str] | None:
         if self.cache_dir is None:
-            cached = self._memory_cache.get(_canonical_json(key))
-            if cached is None:
-                return None
-            payload, retrieved_at = cached
-            try:
-                return self.decode(payload), retrieved_at
-            except Exception:
-                return None
+            return None
         path = self._cache_path(key)
         if not path.is_file():
             return None
@@ -428,10 +420,11 @@ class BatchRetriever(Generic[T]):
             content = payload.decode("utf-8")
         except UnicodeError as exc:
             raise ValueError("cache encoder must return UTF-8 bytes") from exc
+        # Without a cache directory nothing is kept: one retrieve() never reads back what it wrote, and an
+        # in-memory copy of every payload was the largest holder of a full price fetch.
+        if self.cache_dir is None:
+            return
         with self._write_lock:
-            if self.cache_dir is None:
-                self._memory_cache[_canonical_json(key)] = (content.encode("utf-8"), retrieved_at)
-                return
             atomic_write_json(
                 self._cache_path(key),
                 {"key": key, "content": content, "sha256": _sha256(payload), "retrieved_at": retrieved_at},

@@ -173,7 +173,7 @@ class YFinanceProvider(DataProvider, PriceProvider):
                 require_actions=True,
             ),
         )
-        frames: list[pd.DataFrame] = []
+        values: dict[str, pd.DataFrame] = {}
         errors: list[str] = []
         for etf_id, yahoo_symbol in symbol_map.items():
             item = retrieval.symbols[yahoo_symbol]
@@ -182,14 +182,31 @@ class YFinanceProvider(DataProvider, PriceProvider):
             elif item.status == "failed":
                 errors.append(redact_text(f"{etf_id}/{yahoo_symbol}: {item.error or 'retrieval failed'}"))
             elif item.status == "done" and item.value is not None:
-                frame = item.value.copy()
-                frame["etf_id"] = etf_id
-                frames.append(frame)
+                values[etf_id] = item.value
             else:
                 errors.append(f"{etf_id}/{yahoo_symbol}: retrieval did not complete")
-        if not frames:
+        del retrieval
+        if not values:
             return ProviderResult(self.name, "prices", "error", "Yahoo Finance returned no usable price rows. " + "; ".join(errors))
-        data = pd.concat(frames, ignore_index=True).sort_values(["etf_id", "date"])
+        # Memory: frames are shallow copies concatenated in etf_id order, so the (stable) sort below is usually a
+        # no-op and is skipped. Each row keeps the label it had in a concat in symbol_map order.
+        offsets: dict[str, int] = {}
+        total = 0
+        for etf_id, value in values.items():
+            offsets[etf_id] = total
+            total += len(value)
+        frames: list[pd.DataFrame] = []
+        for etf_id in sorted(values):
+            frame = values[etf_id].copy(deep=False)
+            frame["etf_id"] = etf_id
+            frame.index = pd.RangeIndex(offsets[etf_id], offsets[etf_id] + len(frame))
+            frames.append(frame)
+        del values
+        dates_sorted = all(frame["date"].is_monotonic_increasing for frame in frames)
+        data = pd.concat(frames)
+        del frames
+        if not dates_sorted:
+            data = data.sort_values(["etf_id", "date"])
         latest = pd.to_datetime(data["date"]).max().date()
         metadata = metadata_from_frame(
             data,

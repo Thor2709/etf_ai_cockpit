@@ -11,6 +11,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import pyarrow.parquet as pq
 
 from etf_cockpit.core.atomic_io import (
     AtomicWriteRequest,
@@ -64,13 +65,15 @@ def stamp_price_availability(stored: pd.DataFrame | None, incoming: pd.DataFrame
     """
 
     now = pd.Timestamp(retrieved_at).tz_convert("UTC")
-    new = incoming.reset_index(drop=True)
+    new = incoming.copy(deep=False)  # read only: a positional index without copying the data
+    new.index = pd.RangeIndex(len(new))
     new_keys = _keys(new)
     close = _session_close(pd.Series(new_keys.get_level_values(1).to_numpy(), index=new.index))
     stamps = {"ingested_at": pd.Series(now, index=new.index), "known_at": pd.Series(now, index=new.index),
               "available_at": close.where(close < now, now), "actions_evidenced": _true(new, "actions_evidenced")}
     if stored is not None and not stored.empty:
-        old = stored.reset_index(drop=True)
+        old = stored.copy(deep=False)  # read only: a positional index without copying the data
+        old.index = pd.RangeIndex(len(old))
         old_keys = _keys(old)
         ingested = _utc(old, "ingested_at")
         kept_stamps = {"ingested_at": ingested, "known_at": _utc(old, "known_at").fillna(ingested),
@@ -90,7 +93,7 @@ def stamp_price_availability(stored: pd.DataFrame | None, incoming: pd.DataFrame
         for name, values in kept_stamps.items():
             stamps[name].iloc[rows[~changed]] = values.iloc[at[~changed]].to_numpy()
         stamps["actions_evidenced"] |= incoming_evidence  # the same bar with its actions from this fetch is evidenced
-    out = incoming.copy()
+    out = incoming.copy(deep=False)  # the stamp columns are replaced, never written in place
     for name, values in stamps.items():
         out[name] = values.to_numpy()
     return out
@@ -204,7 +207,7 @@ def commit_price_import(
     if not result.ok or result.data is None:
         raise ValueError("Cannot commit a provider result that did not load data.")
 
-    incoming = result.data.copy()
+    incoming = result.data  # read only: no copy
     stored = _read_stored_prices(clean_path)
     now = datetime.now(timezone.utc)
     # C1: only a download that asked for actions is action evidence; a local file never is.
@@ -337,7 +340,7 @@ def _store_raw_import(
 
 def _parquet_bytes(frame: pd.DataFrame) -> bytes:
     output = BytesIO()
-    stored = frame.copy()
+    stored = frame.copy(deep=False)  # only the date column is replaced
     if "date" in stored.columns:
         stored["date"] = pd.to_datetime(stored["date"])
     stored.to_parquet(output, index=False)
@@ -346,7 +349,10 @@ def _parquet_bytes(frame: pd.DataFrame) -> bytes:
 
 def _parquet_validator(expected_rows: int):
     def validate(path: Path) -> None:
-        if len(pd.read_parquet(path)) != expected_rows:
+        # Decode every row group, one at a time: the same full read, without a second in-memory copy of the file.
+        with pq.ParquetFile(path) as parquet:  # closed before the atomic rename (Windows)
+            rows = sum(parquet.read_row_group(index).num_rows for index in range(parquet.num_row_groups))
+        if rows != expected_rows:
             raise ValueError(f"parquet row validation failed for {path.name}")
 
     return validate

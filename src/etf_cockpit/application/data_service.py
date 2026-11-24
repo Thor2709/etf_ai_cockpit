@@ -10,6 +10,7 @@ from collections.abc import Callable, Sequence
 from datetime import date, datetime, timedelta, timezone
 from io import BytesIO
 from pathlib import Path
+import numpy as np
 import pandas as pd
 
 from etf_cockpit.core.atomic_io import atomic_write_bytes
@@ -108,7 +109,11 @@ MAX_HISTORY_YEARS = 99  # ``years=None``: the span of yfinance's own ``period="m
 def _normalised_price_dates(frame: pd.DataFrame) -> pd.Series:
     if "date" not in frame.columns:
         return pd.Series(pd.NaT, index=frame.index, dtype=object)
-    return pd.to_datetime(frame["date"], errors="coerce").dt.date
+    parsed = pd.to_datetime(frame["date"], errors="coerce")
+    # As ``parsed.dt.date``, with one date object per distinct session instead of one per row (memory).
+    codes, sessions = pd.factorize(parsed, use_na_sentinel=False)
+    days = pd.Series(sessions).dt.date.to_numpy()
+    return pd.Series(days[codes], index=frame.index, name=parsed.name, dtype=object)
 
 
 def _adjusted_price_basis_matches(stored: pd.DataFrame, fetched: pd.DataFrame) -> bool:
@@ -272,8 +277,13 @@ def _staged_price_result(staged: pd.DataFrame, expected_ids: tuple[str, ...] | N
         configured = set(expected_ids)
         stored = _read_clean_price_store()
         kept = stored[~stored["etf_id"].astype(str).isin(configured)] if "etf_id" in stored.columns else stored
-        parts = [staged[staged["etf_id"].astype(str).isin(configured)], kept]
-    data = pd.concat([part.assign(date=_normalised_price_dates(part)) for part in parts], ignore_index=True)
+        # The batch is consumed: drop the unconfigured rows in place, so no second full copy is held.
+        staged.drop(index=staged.index[~staged["etf_id"].astype(str).isin(configured).to_numpy()], inplace=True)
+        parts = [staged, kept]
+        del stored, kept
+    data = pd.concat(parts, ignore_index=True)  # one copy; the date column is normalised once below
+    del parts
+    data["date"] = _normalised_price_dates(data)
     data.attrs.clear()
     if data["date"].dropna().empty:
         return None
@@ -757,6 +767,8 @@ class DataService:
                     fetched_at = datetime.now(timezone.utc).isoformat()
                 else:
                     result, fetched_at = staged_result
+            from_staging = staged is not None
+            staged = staged_result = None  # the batch now lives in `result`: hold no second copy of it
             if incremental_window_start is not None:
                 stored = _read_clean_price_store()
                 if stored.empty:
@@ -764,6 +776,8 @@ class DataService:
                     incremental_window_start = None
             fresh_result = result
             result, adjusted_quarantined = _quarantine_invalid_adjusted_close(result)
+            if adjusted_quarantined is None and incremental_window_start is None:
+                fresh_result = None  # read only to restore rejected ids (none here): hold no second copy of the batch
             full_quarantined = None
             if incremental_window_start is not None:
                 result, partial_missing, full_quarantined = _merge_incremental_price_result(
@@ -829,20 +843,40 @@ class DataService:
                 str(issue.etf_id) for issue in report.issues
                 if issue.severity == "block" and issue.code == "stale_data" and str(issue.etf_id) in no_new_bar_ids
             })
+            # A new instrument (no stored rows) with only stale bars is left out: stale bars never enter the store.
+            stored_ids = set(stored_now["etf_id"].astype(str)) if "etf_id" in stored_now.columns else set()
+            new_stale = sorted({
+                str(issue.etf_id) for issue in report.issues
+                if issue.severity == "block" and issue.code == "stale_data" and str(issue.etf_id) not in stored_ids
+            })
             block_issues = [
                 f"{issue.etf_id}: {issue.message}" for issue in report.issues
                 if issue.severity == "block" and issue.code not in commit_tolerated
                 and not (issue.code == "stale_data" and str(issue.etf_id) in stale_kept)
+                and str(issue.etf_id) not in new_stale
             ]
+            if new_stale:
+                data = result.data.take(np.flatnonzero(~result.data["etf_id"].astype(str).isin(new_stale).to_numpy()))
+                data.index = pd.RangeIndex(len(data))  # as reset_index(drop=True), without a second copy
+                result = dataclasses.replace(result, data=data)  # free the old frame before the checksum
+                metadata = dataclasses.replace(result.metadata, checksum=sha256_dataframe(data)) if result.metadata else None
+                result = dataclasses.replace(result, metadata=metadata)
+                partial_missing = tuple(sorted(set(partial_missing) | set(new_stale)))
+                messages.append("New instrument with only stale bars, not committed: " + ", ".join(new_stale) + ".")
+                if result.data.empty:
+                    block_issues.append("ALL: No price rows remain to commit.")
             if stale_kept:
                 # A tolerated instrument commits exactly its stored rows: no gap fill, revision or deletion.
                 tolerated = result.data["etf_id"].astype(str).isin(stale_kept)
                 kept = stored_now.loc[stored_now["etf_id"].astype(str).isin(stale_kept)]
                 kept = kept.assign(date=_normalised_price_dates(kept))
-                data = pd.concat([result.data.loc[~tolerated], kept], ignore_index=True)
+                data = result.data.loc[~tolerated]
+                result = dataclasses.replace(result, data=None)  # free the full frame before the concat copy
+                data = pd.concat([data, kept], ignore_index=True)
                 metadata = dataclasses.replace(result.metadata, checksum=sha256_dataframe(data)) if result.metadata else None
                 result = dataclasses.replace(result, data=data, metadata=metadata)
-            if block_issues and staged is None:
+            stored_now = None  # the commit reads the store itself: hold no second copy of it
+            if block_issues and not from_staging and not result.data.empty:
                 # A blocked batch is kept: the next refresh for the same end date validates it again without fetching.
                 try:
                     _stage_prices(

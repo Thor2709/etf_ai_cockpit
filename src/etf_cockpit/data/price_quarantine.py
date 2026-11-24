@@ -7,6 +7,7 @@ import pandas as pd
 
 from etf_cockpit.data.providers import ProviderResult
 from etf_cockpit.data.provenance import sha256_dataframe
+from etf_cockpit.data.validation import invalid_ohlc_mask
 
 
 def quarantine_invalid_adjusted_close(result: ProviderResult):
@@ -34,17 +35,12 @@ def quarantine_invalid_ohlc(result: ProviderResult):
     needed = {"open", "high", "low", "close"}
     if frame is None or not needed.issubset(frame.columns):
         return result, None
-    bad = (
-        (frame["open"] <= 0)
-        | (frame["close"] <= 0)
-        | (frame["high"] < frame["low"])
-        | (frame["high"] < frame[["open", "close"]].max(axis=1))
-        | (frame["low"] > frame[["open", "close"]].min(axis=1))
-    )
+    bad = invalid_ohlc_mask(frame)
     if not bad.any():
         return result, None
     quarantined = frame.loc[bad].copy()
     quarantined["quarantine_reason"] = "invalid_ohlc"
-    clean = frame.loc[~bad].reset_index(drop=True)
+    clean = frame.take(np.flatnonzero(~bad.to_numpy()))
+    clean.index = pd.RangeIndex(len(clean))  # as reset_index(drop=True), without a second copy
     metadata = dataclasses.replace(result.metadata, checksum=sha256_dataframe(clean)) if result.metadata else None
     return dataclasses.replace(result, data=clean, metadata=metadata), quarantined
