@@ -79,7 +79,7 @@ def build_report(args: argparse.Namespace) -> dict[str, object]:
     return build_rank_validation_report(
         root=args.root, years=args.years, scope=args.scope, benchmark_id=args.benchmark_id,
         prices_path=args.prices, membership_path=args.membership, costs_path=args.costs,
-        cash_path=args.cash, fundamentals_path=args.fundamentals,
+        cash_path=args.cash, fundamentals_path=args.fundamentals, reconstructed_pit=args.reconstructed_pit,
     )
 
 
@@ -114,6 +114,10 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--cash", type=Path, help="cash forward-return table (decision_date, net_return)")
     parser.add_argument("--fundamentals", type=Path, help="PIT quality/value/v3 score table; absent = unavailable")
     parser.add_argument("--benchmark-id", help="stored instrument used as the benchmark comparator")
+    parser.add_argument(
+        "--reconstructed-pit", action="store_true",
+        help="OD-1 b: count each fetched bar as known at its session close (labelled reconstructed)",
+    )
     parser.add_argument("--out", type=Path, help="write the JSON report here")
     return parser
 

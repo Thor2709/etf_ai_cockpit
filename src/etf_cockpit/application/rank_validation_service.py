@@ -6,10 +6,16 @@ Independent windows (including replay) use at most three worker threads;
 results retain the requested window order and workers never persist evidence.
 A third, shadow run ranks quality and value challengers built from the stored
 period store; it never shares a policy with the promotion rankers.
+With benchmark VWCE, decision dates before 2019-07-29 use the VWRL.AS-spliced
+comparator (OD-2 b) when the stored proxy file matches its manifest hash; all
+other dates, and every date without a valid proxy, use the stored VWCE rows.
+With ``reconstructed_pit`` (OD-1 b, opt-in), prices and membership are read on the
+reconstructed basis: a fetched bar counts as known at its session close, labelled.
 """
 
 from __future__ import annotations
 
+import json
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from datetime import datetime, timezone
@@ -17,6 +23,7 @@ from pathlib import Path
 from typing import Sequence
 
 import pandas as pd
+import pyarrow
 
 from etf_cockpit.analysis.decision.rank_validation import (
     RankerSpec,
@@ -31,10 +38,20 @@ from etf_cockpit.analysis.decision.rank_validation import (
     window_coverage,
     window_decision_times,
 )
+from etf_cockpit.data.import_pipeline import reconstructed_price_availability
+from etf_cockpit.data.provenance import sha256_dataframe
+from etf_cockpit.portfolio.benchmark_reference import (
+    VWCE_PROXY_FILE,
+    VWCE_PROXY_SYMBOL,
+    VWCE_SPLICE_DATE,
+    vwce_benchmark_series,
+)
 
 
 _PRICE_RELATIVE = Path("data") / "validated" / "prices" / "prices_daily.parquet"
 _DEFAULT_SCOPE = "listing:euronext_oslo:all"
+_VWCE_ID = "VWCE"  # the universe id (configs/universe.yaml)
+_VWCE_PROXY_RELATIVE = Path("data") / "reference" / f"{VWCE_PROXY_FILE}.parquet"
 _SHADOW_VERSION = "shadow-quality-value-v1"
 # stock-evidence metric -> (challenger column, sign); a "_neg" column carries the negated metric (high is bad)
 _SHADOW_METRICS = (
@@ -54,12 +71,42 @@ def _read_table(path: Path | None) -> pd.DataFrame:
     return pd.read_parquet(path) if path.suffix.lower() == ".parquet" else pd.read_csv(path)
 
 
-def _load_membership(path: Path | None, root: Path, scope: str, as_known_at: datetime) -> pd.DataFrame:
+def _load_membership(
+    path: Path | None, root: Path, scope: str, as_known_at: datetime, reconstructed: bool
+) -> pd.DataFrame:
     if path is not None:
         return _read_table(path)
     from etf_cockpit.data.universe_membership import membership_frame
 
-    return membership_frame(scope, as_known_at, root=root)
+    return membership_frame(scope, as_known_at, root=root, reconstructed=reconstructed)
+
+
+def _vwce_comparator_prices(root: Path, prices: pd.DataFrame) -> tuple[pd.DataFrame | None, str | None]:
+    """Prices whose VWCE rows are the VWRL.AS-spliced benchmark series, else ``(None, reason)``: stored rows only.
+
+    Proxy rows on a day that is no stored session are dropped (not filled): the comparator keeps the replay sessions.
+    """
+
+    parquet = root / _VWCE_PROXY_RELATIVE
+    try:
+        proxy = pd.read_parquet(parquet)
+        manifest = json.loads(parquet.with_suffix(".json").read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return None, "proxy_file_missing"
+    except (OSError, ValueError, pyarrow.ArrowException):
+        return None, "proxy_file_unreadable"
+    if not {"date", "adjusted_close", "known_at"} <= set(proxy.columns):
+        return None, "proxy_file_unreadable"
+    if not isinstance(manifest, dict) or manifest.get("source_hash") != sha256_dataframe(proxy):
+        return None, "proxy_hash_mismatch"
+    is_vwce = prices["instrument_id"].astype(str).eq(_VWCE_ID)
+    series = vwce_benchmark_series(prices.loc[is_vwce], proxy)
+    if series is None:
+        return None, "splice_unavailable"
+    sessions = set(pd.to_datetime(prices["date"].unique(), errors="coerce").normalize())
+    is_proxy = series["benchmark_basis"].eq("proxy")
+    series = series.loc[~is_proxy | pd.to_datetime(series["date"].where(is_proxy)).dt.normalize().isin(sessions)]
+    return pd.concat([prices.loc[~is_vwce], series.assign(instrument_id=_VWCE_ID)], ignore_index=True), None
 
 
 def _shadow_rows(root: Path, prices: pd.DataFrame) -> pd.DataFrame:
@@ -130,6 +177,7 @@ def build_rank_validation_report(
     costs_path: Path | None = None,
     cash_path: Path | None = None,
     fundamentals_path: Path | None = None,
+    reconstructed_pit: bool = False,
 ) -> dict[str, object]:
     """Build the research-only report without changing any rank authority."""
 
@@ -139,6 +187,8 @@ def build_rank_validation_report(
         raise ValueError("years must contain positive integers")
     prices_file = Path(prices_path) if prices_path is not None else resolved_root / _PRICE_RELATIVE
     prices = _read_table(prices_file)
+    if "instrument_id" not in prices and "etf_id" in prices:  # the stored price file names its id column etf_id
+        prices = prices.rename(columns={"etf_id": "instrument_id"})
     costs = _read_table(Path(costs_path) if costs_path is not None else None)
     cash = _read_table(Path(cash_path) if cash_path is not None else None)
     fundamentals = _read_table(Path(fundamentals_path) if fundamentals_path is not None else None)
@@ -157,6 +207,10 @@ def build_rank_validation_report(
         "windows": [], "promotion_applied": False, "rank_authority": False,
         "execution_allowed": False,
     }
+    if reconstructed_pit:  # OD-1 b: read time only, nothing is written
+        report.update(price_known_at_basis="reconstructed_session_close", pit_basis="reconstructed")
+        if not prices.empty and "date" in prices:
+            prices = reconstructed_price_availability(prices)
     if prices.empty or not {"instrument_id", "date", "adjusted_close"}.issubset(prices.columns):
         report.update(status="unavailable", reason="stored adjusted-close history is unavailable")
         return report
@@ -178,10 +232,17 @@ def build_rank_validation_report(
     last_session = max(item for item in parsed_dates.dt.date if item is not None)
     first_session = min(item for item in parsed_dates.dt.date if item is not None)
     as_known_at = datetime(last_session.year, last_session.month, last_session.day, 23, 59, 59, tzinfo=timezone.utc)
-    memberships = _load_membership(Path(membership_path) if membership_path is not None else None, resolved_root, scope, as_known_at)
+    memberships = _load_membership(Path(membership_path) if membership_path is not None else None, resolved_root, scope, as_known_at, reconstructed_pit)
     report["inputs"]["membership_rows"] = int(len(memberships))  # type: ignore[index]
     shadow_rows = _shadow_rows(resolved_root, prices)
     shadow_components = [name for name in _SHADOW_COMPONENTS if shadow_rows[name].notna().any()]
+    spliced = None
+    if benchmark_id == _VWCE_ID:
+        spliced, proxy_reason = _vwce_comparator_prices(resolved_root, prices)
+        report["benchmark_proxy"] = {
+            "status": "unavailable" if spliced is None else "used", "reason": proxy_reason,
+            "proxy_source_id": VWCE_PROXY_SYMBOL,
+        }
 
     def run_window(window_years: int) -> dict[str, object]:
         coverage = window_coverage(prices, window_years)
@@ -207,6 +268,14 @@ def build_rank_validation_report(
             "decision_times": len(times), "excluded_decision_times": len(excluded),
             "instrument_skips": {key: len(value) for key, value in skipped.items()},
         }
+        if spliced is not None:  # only dates before the splice use the spliced series: their entry row is a proxy row
+            splice = VWCE_SPLICE_DATE.isoformat()
+            proxied = forward_comparator_frame(
+                spliced, benchmark_id, [text for text in times if text[:10] < splice], base_policy.holding_period_sessions
+            )
+            parts = [frame for frame in (proxied, benchmark.loc[benchmark["decision_date"].ge(splice)]) if not frame.empty]
+            benchmark = pd.concat(parts, ignore_index=True) if parts else proxied
+            window["benchmark_proxy"] = {"proxy_source_id": VWCE_PROXY_SYMBOL, "proxy_decision_dates": len(proxied)}
         sections: dict[str, object] = {}
 
         def replay_section(label: str, policy, run_evidence: pd.DataFrame) -> dict[str, object]:

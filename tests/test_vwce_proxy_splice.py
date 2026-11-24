@@ -202,3 +202,162 @@ def test_import_quarantines_no_trade_and_invalid_ohlc_rows_and_counts_them(tmp_p
     assert manifest["source_hash"] == sha256_dataframe(stored)
     quarantined = pd.read_parquet(reference / "vwce_proxy_vwrl_as_quarantine.parquet")
     assert sorted(quarantined["quarantine_reason"]) == ["invalid_ohlc", "no_trade"]
+
+
+def _rank_inputs(tmp_path: Path, vwce_id: str = "VWCE", own_known: str | None = None) -> dict[str, Path]:
+    """Five members from 2018-04-02, VWCE (as ``vwce_id``) only from the splice date, all to 2020-01-31.
+
+    ``own_known``: one late fetch stamp for every own VWCE row (as the real store), else the session close."""
+
+    days = [day.date().isoformat() for day in pd.bdate_range("2018-04-02", "2020-01-31")]
+    rows = [
+        {"instrument_id": f"I{i}", "date": day, "adjusted_close": 100.0 + i + 0.1 * t * (1 + i % 3) + (t % (5 + i)),
+         "known_at": f"{day}T23:59:59Z"}
+        for i in range(5) for t, day in enumerate(days)
+    ]
+    rows += [
+        {"instrument_id": vwce_id, "date": day, "adjusted_close": 70.0 + 0.05 * t,
+         "known_at": own_known or f"{day}T23:59:59Z"}
+        for t, day in enumerate(day for day in days if day >= "2019-07-29")
+    ]
+    prices, members = tmp_path / f"prices_{vwce_id}_{bool(own_known)}.parquet", tmp_path / "members.csv"
+    pd.DataFrame(rows).to_parquet(prices)
+    pd.DataFrame([{"instrument_id": f"I{i}"} for i in range(5)]).to_csv(members, index=False)
+    return {"prices_path": prices, "membership_path": members}
+
+
+def _proxy_history() -> pd.DataFrame:
+    days = [day.date() for day in pd.bdate_range("2018-04-02", "2019-07-29")]
+    adjusted = [80.0 + 0.02 * t + (t % 7) * 0.1 for t in range(len(days))]
+    return _proxy().iloc[:1].reindex([0] * len(days)).reset_index(drop=True).assign(
+        date=days, open=adjusted, low=adjusted, adjusted_close=adjusted, high=[a + 1 for a in adjusted],
+        close=[a + 1 for a in adjusted], dividends=0.0,
+    )
+
+
+def _rank_report(root: Path, benchmark_id: str, inputs: dict[str, Path]) -> dict[str, object]:
+    from etf_cockpit.application.rank_validation_service import build_rank_validation_report
+
+    return build_rank_validation_report(root=root, years=(1,), benchmark_id=benchmark_id, **inputs)
+
+
+def _text(report: dict[str, object]) -> str:
+    return json.dumps(report, sort_keys=True, default=str)
+
+
+def test_rank_validation_vwce_comparator_uses_the_proxy_and_fails_closed_to_stored_rows(tmp_path: Path) -> None:
+    from etf_cockpit.analysis.decision.rank_validation import window_decision_times
+
+    with_proxy, without, tampered = tmp_path / "with_proxy", tmp_path / "without", tmp_path / "tampered"
+    for root in (with_proxy, tampered):
+        _script().import_vwce_proxy(root, provider=_Provider(_proxy_history()), known_at=KNOWN)
+    without.mkdir()
+    bad = tampered / "data" / "reference" / "vwce_proxy_vwrl_as.parquet"
+    pd.read_parquet(bad).assign(adjusted_close=lambda frame: frame["adjusted_close"] * 1.01).to_parquet(bad)
+    vwce, other = _rank_inputs(tmp_path), _rank_inputs(tmp_path, "VWCX")
+
+    used = _rank_report(with_proxy, "VWCE", vwce)  # check 1: decision dates before the splice get proxy returns
+    times, _ = window_decision_times(pd.read_parquet(vwce["prices_path"]), 1, step_sessions=21, holding_period_sessions=21)
+    before = sum(text[:10] < "2019-07-29" for text in times)
+    assert before > 0 and used["benchmark_proxy"]["status"] == "used"
+    assert used["windows"][0]["benchmark_proxy"] == {"proxy_source_id": "VWRL.AS", "proxy_decision_dates": before}
+
+    baseline = _text(_rank_report(with_proxy, "VWCX", other)).replace("VWCX", "VWCE")  # stored rows only
+    assert _text(_rank_report(without, "VWCX", other)).replace("VWCX", "VWCE") == baseline  # check 3: other ids unchanged
+    for root, reason in ((without, "proxy_file_missing"), (tampered, "proxy_hash_mismatch")):  # check 2
+        report = _rank_report(root, "VWCE", vwce)
+        assert report.pop("benchmark_proxy") == {"status": "unavailable", "reason": reason, "proxy_source_id": "VWRL.AS"}
+        assert _text(report) == baseline
+
+    import pyarrow
+
+    from etf_cockpit.application import rank_validation_service as service
+
+    prices = pd.read_parquet(vwce["prices_path"])
+    assert service._vwce_comparator_prices(with_proxy, prices.loc[prices["date"].ne("2019-07-29")])[1] == "splice_unavailable"
+    no_known = tmp_path / "no_known" / "data" / "reference"
+    no_known.mkdir(parents=True)
+    stripped = pd.read_parquet(with_proxy / "data" / "reference" / "vwce_proxy_vwrl_as.parquet").drop(columns="known_at")
+    stripped.to_parquet(no_known / "vwce_proxy_vwrl_as.parquet")
+    (no_known / "vwce_proxy_vwrl_as.json").write_text(json.dumps({"source_hash": sha256_dataframe(stripped)}), encoding="utf-8")
+    assert service._vwce_comparator_prices(tmp_path / "no_known", prices)[1] == "proxy_file_unreadable"
+
+    def arrow_error(*args, **kwargs):
+        raise pyarrow.lib.ArrowNotImplementedError("unsupported parquet feature")
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(pd, "read_parquet", arrow_error)
+        assert service._vwce_comparator_prices(with_proxy, prices)[1] == "proxy_file_unreadable"
+
+
+def test_rank_validation_proxy_keeps_the_stored_calendar_and_serves_only_pre_splice_dates(tmp_path: Path, monkeypatch) -> None:
+    from etf_cockpit.application import rank_validation_service as service
+
+    root = tmp_path / "with_proxy"
+    _script().import_vwce_proxy(root, provider=_Provider(_proxy_history()), known_at=KNOWN)
+    prices = pd.read_parquet(_rank_inputs(tmp_path)["prices_path"])
+    stored = prices.loc[prices["date"].ne("2019-05-17")]  # a proxy (Euronext) session no stored instrument has
+    spliced, _ = service._vwce_comparator_prices(root, stored)
+    sessions = set(pd.to_datetime(stored["date"]))
+    assert set(pd.to_datetime(spliced["date"])) <= sessions  # the comparator holding window keeps the replay sessions
+
+    seen: list[pd.DataFrame] = []
+    original = service.run_stored_rank_validation
+
+    def capture(evidence, memberships, prices, costs, benchmark, *args, **kwargs):
+        seen.append(benchmark)
+        return original(evidence, memberships, prices, costs, benchmark, *args, **kwargs)
+
+    monkeypatch.setattr(service, "run_stored_rank_validation", capture)
+    late = _rank_inputs(tmp_path, own_known="2026-11-03T12:20:00Z")  # own rows fetched long after their sessions
+    report = _rank_report(root, "VWCE", late)
+    dates = seen[0]["decision_date"]
+    assert dates.lt("2019-07-29").all()  # no post-splice date takes a stale proxy row as its entry
+    assert report["windows"][0]["benchmark_proxy"]["proxy_decision_dates"] == len(dates) > 0
+
+
+def test_rank_validation_reconstructed_pit_gives_evidence_for_late_stamps_and_reads_etf_id(tmp_path: Path, monkeypatch) -> None:
+    from etf_cockpit.application import rank_validation_service as service
+    from etf_cockpit.application.rank_validation_service import build_rank_validation_report
+    from etf_cockpit.data import universe_membership
+
+    seen_runs: list[tuple[pd.DataFrame, pd.DataFrame]] = []
+    original = service.run_stored_rank_validation
+
+    def capture(evidence, memberships, prices, costs, benchmark, *args, **kwargs):
+        seen_runs.append((evidence, benchmark))
+        return original(evidence, memberships, prices, costs, benchmark, *args, **kwargs)
+
+    monkeypatch.setattr(service, "run_stored_rank_validation", capture)
+    root = tmp_path / "with_proxy"
+    _script().import_vwce_proxy(root, provider=_Provider(_proxy_history()), known_at=KNOWN)
+    inputs = _rank_inputs(tmp_path)
+    late = pd.read_parquet(inputs["prices_path"]).assign(known_at="2026-11-03T12:20:00Z")  # fetched years later
+    by_instrument, by_etf = tmp_path / "late.parquet", tmp_path / "late_etf_id.parquet"
+    late.to_parquet(by_instrument)
+    late.rename(columns={"instrument_id": "etf_id"}).to_parquet(by_etf)
+
+    def report(prices: Path, reconstructed: bool) -> dict[str, object]:
+        return build_rank_validation_report(
+            root=root, years=(1,), benchmark_id="VWCE", prices_path=prices,
+            membership_path=inputs["membership_path"], reconstructed_pit=reconstructed,
+        )
+
+    stored = report(by_instrument, False)
+    assert stored["price_known_at_basis"] == "stored_known_at_column_required" and "pit_basis" not in stored
+    assert seen_runs[-1][0].empty and seen_runs[-1][1]["decision_date"].lt("2019-07-29").all()  # nothing known before 2026
+    rebuilt = report(by_instrument, True)
+    assert rebuilt["price_known_at_basis"] == "reconstructed_session_close" and rebuilt["pit_basis"] == "reconstructed"
+    evidence, benchmark = seen_runs[-1]
+    assert not evidence.empty and evidence["known_at"].lt("2020").all()  # evidence at the 2019 decision dates
+    assert benchmark["decision_date"].ge("2019-07-29").any()  # own VWCE rows now share the proxy's basis
+    for reconstructed in (False, True):  # the stored file names its id column etf_id
+        assert _text(report(by_etf, reconstructed)) == _text(report(by_instrument, reconstructed))
+
+    seen: list[bool] = []
+    monkeypatch.setattr(
+        universe_membership, "membership_frame", lambda *args, reconstructed=False, **kwargs: seen.append(reconstructed) or pd.DataFrame()
+    )
+    for reconstructed in (False, True):
+        build_rank_validation_report(root=root, years=(1,), prices_path=by_instrument, reconstructed_pit=reconstructed)
+    assert seen == [False, True]
