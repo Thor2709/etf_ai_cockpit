@@ -9,6 +9,8 @@ period store; it never shares a policy with the promotion rankers.
 With benchmark VWCE, decision dates before 2019-07-29 use the VWRL.AS-spliced
 comparator (OD-2 b) when the stored proxy file matches its manifest hash; all
 other dates, and every date without a valid proxy, use the stored VWCE rows.
+With ``reconstructed_pit`` (OD-1 b, opt-in), prices and membership are read on the
+reconstructed basis: a fetched bar counts as known at its session close, labelled.
 """
 
 from __future__ import annotations
@@ -36,6 +38,7 @@ from etf_cockpit.analysis.decision.rank_validation import (
     window_coverage,
     window_decision_times,
 )
+from etf_cockpit.data.import_pipeline import reconstructed_price_availability
 from etf_cockpit.data.provenance import sha256_dataframe
 from etf_cockpit.portfolio.benchmark_reference import (
     VWCE_PROXY_FILE,
@@ -68,12 +71,14 @@ def _read_table(path: Path | None) -> pd.DataFrame:
     return pd.read_parquet(path) if path.suffix.lower() == ".parquet" else pd.read_csv(path)
 
 
-def _load_membership(path: Path | None, root: Path, scope: str, as_known_at: datetime) -> pd.DataFrame:
+def _load_membership(
+    path: Path | None, root: Path, scope: str, as_known_at: datetime, reconstructed: bool
+) -> pd.DataFrame:
     if path is not None:
         return _read_table(path)
     from etf_cockpit.data.universe_membership import membership_frame
 
-    return membership_frame(scope, as_known_at, root=root)
+    return membership_frame(scope, as_known_at, root=root, reconstructed=reconstructed)
 
 
 def _vwce_comparator_prices(root: Path, prices: pd.DataFrame) -> tuple[pd.DataFrame | None, str | None]:
@@ -172,6 +177,7 @@ def build_rank_validation_report(
     costs_path: Path | None = None,
     cash_path: Path | None = None,
     fundamentals_path: Path | None = None,
+    reconstructed_pit: bool = False,
 ) -> dict[str, object]:
     """Build the research-only report without changing any rank authority."""
 
@@ -181,6 +187,8 @@ def build_rank_validation_report(
         raise ValueError("years must contain positive integers")
     prices_file = Path(prices_path) if prices_path is not None else resolved_root / _PRICE_RELATIVE
     prices = _read_table(prices_file)
+    if "instrument_id" not in prices and "etf_id" in prices:  # the stored price file names its id column etf_id
+        prices = prices.rename(columns={"etf_id": "instrument_id"})
     costs = _read_table(Path(costs_path) if costs_path is not None else None)
     cash = _read_table(Path(cash_path) if cash_path is not None else None)
     fundamentals = _read_table(Path(fundamentals_path) if fundamentals_path is not None else None)
@@ -199,6 +207,10 @@ def build_rank_validation_report(
         "windows": [], "promotion_applied": False, "rank_authority": False,
         "execution_allowed": False,
     }
+    if reconstructed_pit:  # OD-1 b: read time only, nothing is written
+        report.update(price_known_at_basis="reconstructed_session_close", pit_basis="reconstructed")
+        if not prices.empty and "date" in prices:
+            prices = reconstructed_price_availability(prices)
     if prices.empty or not {"instrument_id", "date", "adjusted_close"}.issubset(prices.columns):
         report.update(status="unavailable", reason="stored adjusted-close history is unavailable")
         return report
@@ -220,7 +232,7 @@ def build_rank_validation_report(
     last_session = max(item for item in parsed_dates.dt.date if item is not None)
     first_session = min(item for item in parsed_dates.dt.date if item is not None)
     as_known_at = datetime(last_session.year, last_session.month, last_session.day, 23, 59, 59, tzinfo=timezone.utc)
-    memberships = _load_membership(Path(membership_path) if membership_path is not None else None, resolved_root, scope, as_known_at)
+    memberships = _load_membership(Path(membership_path) if membership_path is not None else None, resolved_root, scope, as_known_at, reconstructed_pit)
     report["inputs"]["membership_rows"] = int(len(memberships))  # type: ignore[index]
     shadow_rows = _shadow_rows(resolved_root, prices)
     shadow_components = [name for name in _SHADOW_COMPONENTS if shadow_rows[name].notna().any()]

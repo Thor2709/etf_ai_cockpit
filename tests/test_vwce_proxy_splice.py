@@ -314,3 +314,50 @@ def test_rank_validation_proxy_keeps_the_stored_calendar_and_serves_only_pre_spl
     dates = seen[0]["decision_date"]
     assert dates.lt("2019-07-29").all()  # no post-splice date takes a stale proxy row as its entry
     assert report["windows"][0]["benchmark_proxy"]["proxy_decision_dates"] == len(dates) > 0
+
+
+def test_rank_validation_reconstructed_pit_gives_evidence_for_late_stamps_and_reads_etf_id(tmp_path: Path, monkeypatch) -> None:
+    from etf_cockpit.application import rank_validation_service as service
+    from etf_cockpit.application.rank_validation_service import build_rank_validation_report
+    from etf_cockpit.data import universe_membership
+
+    seen_runs: list[tuple[pd.DataFrame, pd.DataFrame]] = []
+    original = service.run_stored_rank_validation
+
+    def capture(evidence, memberships, prices, costs, benchmark, *args, **kwargs):
+        seen_runs.append((evidence, benchmark))
+        return original(evidence, memberships, prices, costs, benchmark, *args, **kwargs)
+
+    monkeypatch.setattr(service, "run_stored_rank_validation", capture)
+    root = tmp_path / "with_proxy"
+    _script().import_vwce_proxy(root, provider=_Provider(_proxy_history()), known_at=KNOWN)
+    inputs = _rank_inputs(tmp_path)
+    late = pd.read_parquet(inputs["prices_path"]).assign(known_at="2026-11-03T12:20:00Z")  # fetched years later
+    by_instrument, by_etf = tmp_path / "late.parquet", tmp_path / "late_etf_id.parquet"
+    late.to_parquet(by_instrument)
+    late.rename(columns={"instrument_id": "etf_id"}).to_parquet(by_etf)
+
+    def report(prices: Path, reconstructed: bool) -> dict[str, object]:
+        return build_rank_validation_report(
+            root=root, years=(1,), benchmark_id="VWCE", prices_path=prices,
+            membership_path=inputs["membership_path"], reconstructed_pit=reconstructed,
+        )
+
+    stored = report(by_instrument, False)
+    assert stored["price_known_at_basis"] == "stored_known_at_column_required" and "pit_basis" not in stored
+    assert seen_runs[-1][0].empty and seen_runs[-1][1]["decision_date"].lt("2019-07-29").all()  # nothing known before 2026
+    rebuilt = report(by_instrument, True)
+    assert rebuilt["price_known_at_basis"] == "reconstructed_session_close" and rebuilt["pit_basis"] == "reconstructed"
+    evidence, benchmark = seen_runs[-1]
+    assert not evidence.empty and evidence["known_at"].lt("2020").all()  # evidence at the 2019 decision dates
+    assert benchmark["decision_date"].ge("2019-07-29").any()  # own VWCE rows now share the proxy's basis
+    for reconstructed in (False, True):  # the stored file names its id column etf_id
+        assert _text(report(by_etf, reconstructed)) == _text(report(by_instrument, reconstructed))
+
+    seen: list[bool] = []
+    monkeypatch.setattr(
+        universe_membership, "membership_frame", lambda *args, reconstructed=False, **kwargs: seen.append(reconstructed) or pd.DataFrame()
+    )
+    for reconstructed in (False, True):
+        build_rank_validation_report(root=root, years=(1,), prices_path=by_instrument, reconstructed_pit=reconstructed)
+    assert seen == [False, True]
