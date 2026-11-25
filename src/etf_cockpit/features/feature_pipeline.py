@@ -7,7 +7,7 @@ from datetime import date, datetime
 import numpy as np
 import pandas as pd
 
-from etf_cockpit.data.fx_data import EurRateBook, eur_rate_book, major_currency
+from etf_cockpit.data.fx_data import EurRateSeries, eur_rate_book, major_currency
 from etf_cockpit.features.drawdown import drawdown, rolling_max_drawdown
 from etf_cockpit.features.liquidity import liquidity_score
 from etf_cockpit.features.momentum import momentum, weighted_momentum
@@ -169,40 +169,56 @@ def eur_basis_prices(
     resolved, problems = _resolve_quote_currencies(frame, configured_currency)
     unavailable: dict[str, str] = {}
     first_gap: dict[str, date] = {}
-    book: EurRateBook | None = None
-    for etf_id, group in frame.groupby("etf_id", sort=False):
+    # One rate series per currency over the days of all its instruments (a day's rate does not depend on the
+    # other days asked), then every row at once; the per-instrument bookkeeping below reads row positions only.
+    groups = frame.groupby("etf_id", sort=False).indices
+    day_values = days.to_numpy(dtype=object)
+    valid = days.notna().to_numpy()
+    rate = np.full(len(frame), np.nan)
+    foreign = np.zeros(len(frame), dtype=bool)
+    blocked = np.zeros(len(frame), dtype=bool)
+    by_currency: dict[str, list[np.ndarray]] = {}
+    for etf_id, rows in groups.items():
         key = str(etf_id)
-        member_days = days.loc[group.index]
-        valid_days = member_days.dropna()
         if key in problems:
-            frame.loc[group.index, "adjusted_close"] = float("nan")
-            if has_close:
-                frame.loc[group.index, "close"] = float("nan")
+            blocked[rows] = True
+        elif resolved[key] != "EUR":
+            by_currency.setdefault(resolved[key], []).append(rows)
+    series_by_currency: dict[str, EurRateSeries] = {}
+    if by_currency:
+        book = eur_rate_book(fx_rates, known_by=known_by)
+        for currency, parts in by_currency.items():
+            rows = np.concatenate(parts)
+            series = book.series(currency, sorted(set(day_values[rows[valid[rows]]])))
+            series_by_currency[currency] = series
+            rate[rows] = days.iloc[rows].map(series.rates.to_dict()).to_numpy(dtype=float)
+            foreign[rows] = True
+    adjusted = frame["adjusted_close"].to_numpy(dtype=float)
+    frame["adjusted_close"] = np.where(blocked, np.nan, np.where(foreign, adjusted * rate, adjusted))
+    if has_close:
+        close = frame["close"].to_numpy(dtype=float)
+        frame["close"] = np.where(blocked, np.nan, np.where(foreign, close * rate, close))
+    missing = foreign & np.isnan(rate) & frame["adjusted_close_local"].notna().to_numpy()
+    for etf_id, rows in groups.items():
+        key = str(etf_id)
+        if key in problems:
             unavailable[key] = problems[key]
-            if not valid_days.empty:
-                first_gap[key] = min(valid_days)
+            member = day_values[rows[valid[rows]]]
+            if len(member):
+                first_gap[key] = min(member)
             continue
-        currency = resolved[key]
-        if currency == "EUR":
+        gaps = rows[missing[rows] & valid[rows]]
+        if not len(gaps):
             continue
-        if book is None:
-            book = eur_rate_book(fx_rates, known_by=known_by)
-        series = book.series(currency, sorted(set(valid_days)))
-        rate = member_days.map(series.rates.to_dict()).astype(float)
-        frame.loc[group.index, "adjusted_close"] = frame.loc[group.index, "adjusted_close"] * rate
-        if has_close:
-            frame.loc[group.index, "close"] = frame.loc[group.index, "close"] * rate
-        missing = rate.isna() & frame.loc[group.index, "adjusted_close_local"].notna()
-        if missing.any():
-            gap_days = sorted(set(member_days[missing].dropna()))
-            if gap_days:
-                first_gap[key] = gap_days[0]
-            latest = valid_days.max() if not valid_days.empty else None
-            if latest is not None and latest in gap_days:
-                unavailable[key] = (
-                    f"{FX_UNAVAILABLE_REASON}: {currency}/EUR rate unavailable for the latest session "
-                    f"{latest.isoformat()} ({series.reasons.get(latest)}); {len(gap_days)} session(s) lack FX in the window"
-                )
+        gap_days = sorted(set(day_values[gaps]))
+        first_gap[key] = gap_days[0]
+        latest = max(day_values[rows[valid[rows]]])
+        if latest in gap_days:
+            currency = resolved[key]
+            unavailable[key] = (
+                f"{FX_UNAVAILABLE_REASON}: {currency}/EUR rate unavailable for the latest session "
+                f"{latest.isoformat()} ({series_by_currency[currency].reasons.get(latest)}); {len(gap_days)} session(s) lack FX in the window"
+            )
     return EurBasisPrices(frame, unavailable, first_gap, binding)
 
 
