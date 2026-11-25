@@ -10,6 +10,8 @@ use rayon::prelude::*;
 
 mod as_traded;
 mod momentum;
+mod pit;
+mod returns;
 
 fn groups(n: usize, offsets: &[i64]) -> PyResult<Vec<(usize, usize)>> {
     if offsets.first() != Some(&0) || offsets.last().map(|&e| e as usize) != Some(n) || offsets.windows(2).any(|w| w[0] > w[1]) {
@@ -321,5 +323,8 @@ fn etf_kernels(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(nancorr, m)?)?;
     m.add_function(wrap_pyfunction!(momentum::momentum_risk_at_cutoffs, m)?)?;
     m.add_function(wrap_pyfunction!(as_traded::as_traded_month_end_series, m)?)?;
+    m.add_function(wrap_pyfunction!(pit::pit_cost_lookup, m)?)?;
+    m.add_function(wrap_pyfunction!(pit::latest_known_per_cutoff, m)?)?;
+    m.add_function(wrap_pyfunction!(returns::trailing_price_ratios, m)?)?;
     Ok(())
 }
