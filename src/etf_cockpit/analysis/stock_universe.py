@@ -509,7 +509,10 @@ def build_universe_evidence(
             market = _market_from_snapshot(snapshot, decision_time)
         else:
             frame = _price_frame(price_rows(iid), iid)
-            market = market_inputs(frame, snapshot, reporting, decision_time, fx, cfg)
+            # one id per frame: without the id column it may take the kernel; frames with carried factors take today's path
+            bars = frame if "as_traded_split_factor" in frame else frame.drop(columns="etf_id", errors="ignore")
+            as_traded = as_traded_prefixes(bars, [(len(bars), decision_time)])[0] if as_traded_kernel_ready(bars) else None
+            market = market_inputs(frame, snapshot, reporting, decision_time, fx, cfg, as_traded)
         reason = reasons[iid] = store.no_data_reason(iid, snapshot_rows(iid), decision_time, bool(known))
         result.snapshots[iid] = snapshot or {}
         result.periods[iid] = known

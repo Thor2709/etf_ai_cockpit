@@ -62,3 +62,18 @@ def test_memo_gives_a_fresh_build_at_every_session_and_builds_each_version_set_o
     assert run[4].evidence["AAA"].metrics["revenue"].value != run[3].evidence["AAA"].metrics["revenue"].value
     first, second = (run[index].evidence["BBB"].metrics["net_debt_to_ebitda"] for index in (0, 1))
     assert first.available and not second.available and "stale" in str(second.reason)
+
+
+def test_ready_price_frames_take_the_kernel_path_with_the_python_result(tmp_path, monkeypatch) -> None:
+    records, prices = _root(tmp_path)
+    prices.loc[(prices["etf_id"] == "BBB") & (prices["date"] == "2025-06-02"), "stock_splits"] = 2.0  # a split inside the history
+    real, calls = su.as_traded_prefixes, []
+    monkeypatch.setattr(su, "as_traded_prefixes", lambda frame, versions: calls.append(len(versions)) or real(frame, versions))
+    factored = su.with_as_traded_factors(prices)  # the score's frames carry full-series factors: today's path
+    for when in SESSIONS:
+        kernel = su.build_universe_evidence(records, prices, when, root=tmp_path, config=CONFIG)
+        assert su.build_universe_evidence(records, factored, when, root=tmp_path, config=CONFIG).prices == kernel.prices
+        with monkeypatch.context() as python_path:
+            python_path.setattr(su, "as_traded_kernel_ready", lambda _frame: False)
+            assert su.build_universe_evidence(records, prices, when, root=tmp_path, config=CONFIG).prices == kernel.prices, when
+    assert calls == [1] * 2 * len(SESSIONS)  # one call per stock and session, only for frames without carried factors
