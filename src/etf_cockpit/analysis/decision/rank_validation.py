@@ -1734,7 +1734,7 @@ def window_coverage(prices: pd.DataFrame, years: int, *, end: date | None = None
 
     if not _has_columns(prices, {"instrument_id", "date"}) or prices.empty:
         return {"requested_years": years, "sufficient": False, "reason": "stored_prices_unavailable"}
-    sessions = sorted({item for item in prices["date"].map(_date_value) if item is not None})
+    sessions = sorted(set(_map_repeated(prices["date"], _date_value).dropna()))
     if not sessions:
         return {"requested_years": years, "sufficient": False, "reason": "stored_prices_unavailable"}
     last = end or sessions[-1]
@@ -1772,7 +1772,7 @@ def window_decision_times(
 
     if not _has_columns(prices, {"instrument_id", "date"}) or prices.empty:
         return (), {"window": "stored_prices_unavailable"}
-    sessions = sorted({item for item in prices["date"].map(_date_value) if item is not None})
+    sessions = sorted(set(_map_repeated(prices["date"], _date_value).dropna()))
     if not sessions:
         return (), {"window": "stored_prices_unavailable"}
     last = end or sessions[-1]
@@ -2043,10 +2043,16 @@ def forward_comparator_frame(
 
     rows: list[dict[str, object]] = []
     if _has_columns(prices, {"instrument_id", "date", "adjusted_close"}):
-        frame = with_price_stamps(prices)
-        frame["_date"] = frame["date"].map(_date_value)
-        for cutoff in _decision_times(decision_times):
-            value, status = _forward_return(frame, str(instrument_id), cutoff, holding_period_sessions)
+        cutoffs = _decision_times(decision_times)
+        dates = _map_repeated(prices["date"], _date_value)
+        sessions = sorted(set(dates.dropna()))  # the target session counts sessions of all instruments
+        targets = []
+        for cutoff in cutoffs:
+            position = bisect_right(sessions, cutoff.date()) + holding_period_sessions - 1
+            targets.append(sessions[position] if position < len(sessions) else None)
+        own = prices["instrument_id"].astype(str).eq(str(instrument_id)).to_numpy()
+        frame = with_price_stamps(prices.loc[own]).assign(_date=dates.to_numpy()[own])
+        for cutoff, (value, status) in zip(cutoffs, _forward_returns(frame, cutoffs, targets)):
             if value is not None and status.startswith("available"):
                 rows.append({"decision_date": cutoff.date().isoformat(), "net_return": float(value)})
     return pd.DataFrame(rows, columns=["decision_date", "net_return"])
