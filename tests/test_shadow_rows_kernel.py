@@ -171,3 +171,53 @@ def test_shadow_rows_equal_the_per_version_python_loop(tmp_path) -> None:
     want = _oracle_shadow_rows(service, root, prices)
     assert got["shareholder_yield"].notna().any()  # the price-dependent challenger is exercised
     pd.testing.assert_frame_equal(got, want, check_exact=True)
+
+
+def _cached(root) -> list:
+    return sorted((root / "data" / "derived" / "cache" / "rank_validation_shadow").glob("*.parquet"))
+
+
+def test_shadow_cache_hit_reads_the_stored_rows_and_bypass_ignores_them(tmp_path) -> None:
+    import etf_cockpit.application.rank_validation_service as service
+
+    root, prices = _store_root(tmp_path), _shadow_prices()
+    first = service._shadow_rows(root, prices)
+    (path,) = _cached(root)
+    pd.testing.assert_frame_equal(service._shadow_rows(root, prices), first, check_exact=True)  # a hit is the same frame
+    first.assign(piotroski_f=-1.0).to_parquet(path)  # a marked entry shows which path answered
+    assert (service._shadow_rows(root, prices)["piotroski_f"] == -1.0).all()
+    pd.testing.assert_frame_equal(service._shadow_rows(root, prices, cache=False), first, check_exact=True)
+    assert _cached(root) == [path]
+
+
+@pytest.mark.parametrize("change", ["periods", "snapshots", "fx", "prices", "reconstructed", "config", "code"])
+def test_a_change_of_any_shadow_cache_input_misses(tmp_path, monkeypatch, change) -> None:
+    import shutil
+
+    import etf_cockpit.application.rank_validation_service as service
+
+    root, prices = _store_root(tmp_path), _shadow_prices()
+    service._shadow_rows(root, prices)
+    reconstructed, clean = False, root / "data" / "clean"
+    if change == "periods":
+        periods = _shadow_periods()
+        periods.loc[0, "revenue"] += 1.0
+        periods.to_parquet(clean / "stock_fundamentals.parquet")
+    elif change == "snapshots":
+        pd.DataFrame([{"instrument_id": "I0", "known_at": "2023-01-01T00:00:00Z", "status": "ok", "quote_currency": "EUR"}]).reindex(
+            columns=store.SNAPSHOT_COLUMNS).to_parquet(clean / "stock_snapshots.parquet")
+    elif change == "fx":
+        pd.DataFrame([{"pair": "USDEUR", "date": "2023-01-02", "rate": 0.9, "known_at": "2023-01-02T18:00:00Z"}]).to_parquet(clean / "stock_fx.parquet")
+    elif change == "prices":
+        prices.loc[prices.index[-1], "close"] += 0.5
+    elif change == "reconstructed":
+        reconstructed = True
+    elif change == "config":
+        (root / "configs").mkdir()
+        shutil.copy(store.config_path(None), root / "configs" / store.CONFIG_NAME)
+        with (root / "configs" / store.CONFIG_NAME).open("a", encoding="utf-8") as handle:
+            handle.write("\nshadow_cache_probe: 1\n")
+    else:
+        monkeypatch.setattr(service, "_code_version", lambda: "another build")
+    service._shadow_rows(root, prices, reconstructed=reconstructed)
+    assert len(_cached(root)) == 2

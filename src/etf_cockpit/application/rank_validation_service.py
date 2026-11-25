@@ -11,11 +11,14 @@ comparator (OD-2 b) when the stored proxy file matches its manifest hash; all
 other dates, and every date without a valid proxy, use the stored VWCE rows.
 With ``reconstructed_pit`` (OD-1 b, opt-in), prices and membership are read on the
 reconstructed basis: a fetched bar counts as known at its session close, labelled.
+The shadow rows are cached per data revision under ``data/derived/cache`` (``shadow_cache=False`` bypasses it).
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
+import os
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from datetime import datetime, timezone
@@ -54,6 +57,7 @@ _DEFAULT_SCOPE = "listing:euronext_oslo:all"
 _VWCE_ID = "VWCE"  # the universe id (configs/universe.yaml)
 _VWCE_PROXY_RELATIVE = Path("data") / "reference" / f"{VWCE_PROXY_FILE}.parquet"
 _SHADOW_VERSION = "shadow-quality-value-v1"
+_SHADOW_CACHE_RELATIVE = Path("data") / "derived" / "cache" / "rank_validation_shadow"
 # stock-evidence metric -> (challenger column, sign); a "_neg" column carries the negated metric (high is bad)
 _SHADOW_METRICS = (
     ("gross_profitability", "gross_profitability", 1.0),
@@ -110,11 +114,25 @@ def _vwce_comparator_prices(root: Path, prices: pd.DataFrame) -> tuple[pd.DataFr
     return pd.concat([prices.loc[~is_vwce], series.assign(instrument_id=_VWCE_ID)], ignore_index=True), None
 
 
-def _shadow_rows(root: Path, prices: pd.DataFrame) -> pd.DataFrame:
+def _code_version() -> str:
+    """sha256 of every etf_cockpit source file and the compiled kernels: any code change gives new cache keys."""
+
+    import etf_cockpit
+    import etf_kernels.etf_kernels as compiled
+
+    package = Path(etf_cockpit.__file__).parent
+    digest = hashlib.sha256(Path(compiled.__file__).read_bytes())
+    for path in sorted(package.rglob("*.py")):
+        digest.update(path.relative_to(package).as_posix().encode("utf-8") + b"\0" + path.read_bytes())
+    return digest.hexdigest()
+
+
+def _shadow_rows(root: Path, prices: pd.DataFrame, *, reconstructed: bool = False, cache: bool = True) -> pd.DataFrame:
     """One row per instrument and ``known_at`` version of the period store: the challenger columns as known then.
 
     The stock-evidence build runs at each version's ``known_at``, so a row holds only facts learned by then.
-    A metric that is unavailable stays NaN; nothing is filled.
+    A metric that is unavailable stays NaN; nothing is filled. With ``cache``, the rows are kept per data revision
+    (sha256 of the period store, snapshots, FX, the price rows used, the PIT basis, the stock config and the code).
     """
 
     from etf_cockpit.analysis import stock_metrics as sm
@@ -139,6 +157,15 @@ def _shadow_rows(root: Path, prices: pd.DataFrame) -> pd.DataFrame:
             pd.to_datetime(traded["known_at"], errors="coerce", utc=True) if "known_at" in traded
             else (traded["date"] + pd.Timedelta(days=1)).dt.tz_localize("UTC")
         )
+    path = None
+    if cache:
+        ids = set(frame["instrument_id"].astype(str))
+        used = traded.loc[traded["instrument_id"].astype(str).isin(ids)] if not traded.empty else traded
+        parts = [sha256_dataframe(item) for item in (frame, snapshots, fx, used)]
+        parts += [json.dumps(config, sort_keys=True, default=str), reconstructed, _code_version()]
+        path = root / _SHADOW_CACHE_RELATIVE / f"{hashlib.sha256(json.dumps(parts).encode('utf-8')).hexdigest()}.parquet"
+        if path.is_file():
+            return pd.read_parquet(path)
     # grouped once: a per-instrument mask scanned the full price frame once per instrument
     period_rows = store.group_rows(frame)
     price_rows = store.group_rows(traded) if not traded.empty else None
@@ -152,7 +179,8 @@ def _shadow_rows(root: Path, prices: pd.DataFrame) -> pd.DataFrame:
         bars_all = history.drop(columns="_known") if stamps is not None else history
         prepared = None
         if stamps is not None and stamps.notna().all() and stamps.is_monotonic_increasing and as_traded_kernel_ready(bars_all):
-            ends = np.searchsorted(stamps.to_numpy(dtype="datetime64[ns]"), np.array([pd.Timestamp(known).tz_convert("UTC").tz_localize(None) for known, _ in versions], dtype="datetime64[ns]"), side="right")
+            cuts = np.array([pd.Timestamp(known).tz_convert("UTC").tz_localize(None) for known, _ in versions], dtype="datetime64[ns]")
+            ends = np.searchsorted(stamps.to_numpy(dtype="datetime64[ns]"), cuts, side="right")
             prepared = as_traded_prefixes(bars_all, [(int(end), known) for end, (known, _) in zip(ends, versions)])
         for index, (known, visible) in enumerate(versions):
             if prepared is None:
@@ -178,7 +206,16 @@ def _shadow_rows(root: Path, prices: pd.DataFrame) -> pd.DataFrame:
                 else float("nan")
             )
             rows.append(row)
-    return pd.DataFrame(rows, columns=_SHADOW_COLUMNS)
+    result = pd.DataFrame(rows, columns=_SHADOW_COLUMNS)
+    if path is not None:
+        temp = path.with_name(f"{path.stem}.{os.getpid()}.tmp")
+        try:  # a cache that cannot be written (read-only root) only costs the next run its reuse
+            path.parent.mkdir(parents=True, exist_ok=True)
+            result.to_parquet(temp)
+            os.replace(temp, path)
+        except OSError:
+            temp.unlink(missing_ok=True)
+    return result
 
 
 def build_rank_validation_report(
@@ -193,6 +230,7 @@ def build_rank_validation_report(
     cash_path: Path | None = None,
     fundamentals_path: Path | None = None,
     reconstructed_pit: bool = False,
+    shadow_cache: bool = True,
 ) -> dict[str, object]:
     """Build the research-only report without changing any rank authority."""
 
@@ -249,7 +287,7 @@ def build_rank_validation_report(
     as_known_at = datetime(last_session.year, last_session.month, last_session.day, 23, 59, 59, tzinfo=timezone.utc)
     memberships = _load_membership(Path(membership_path) if membership_path is not None else None, resolved_root, scope, as_known_at, reconstructed_pit)
     report["inputs"]["membership_rows"] = int(len(memberships))  # type: ignore[index]
-    shadow_rows = _shadow_rows(resolved_root, prices)
+    shadow_rows = _shadow_rows(resolved_root, prices, reconstructed=reconstructed_pit, cache=shadow_cache)
     shadow_components = [name for name in _SHADOW_COMPONENTS if shadow_rows[name].notna().any()]
     spliced = None
     if benchmark_id == _VWCE_ID:
