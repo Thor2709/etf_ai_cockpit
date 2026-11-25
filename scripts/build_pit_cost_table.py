@@ -2,7 +2,7 @@
 
 Usage: python scripts/build_pit_cost_table.py --root PATH --out FILE.parquet
 
-Reads <root>/data/validated/prices/prices_daily.parquet and <root>/data/clean/fx.parquet (read-only), prices one
+Reads <root>/data/validated/prices/prices_daily.parquet, <root>/data/clean/fx.parquet and <root>/configs (read-only), prices one
 month-end row per instrument with the cost model (labelled cost_basis=reconstructed_model) and writes FILE.parquet
 plus a FILE.json manifest with a sha256 in one atomic group. Pass FILE to run_rank_validation.py --costs.
 execution_allowed stays false.
@@ -41,7 +41,10 @@ def build(root: Path, out: Path) -> dict[str, object]:
         read_dictionary=["etf_id", "currency"],
     )
     order_value = research_reference_order_value_eur(root)
-    table, skipped = cost_table.build_pit_cost_table(prices, load_fx_rates(fx_path), load_config(), order_value_eur=order_value)
+    if not (root / "configs" / "costs.yaml").is_file():  # load_config would silently fall back to typed defaults
+        raise FileNotFoundError(f"{root / 'configs' / 'costs.yaml'} is missing; the table needs the root's cost config")
+    config = load_config(root / "configs")  # the root's own configs, as the other --root scripts read them
+    table, skipped = cost_table.build_pit_cost_table(prices, load_fx_rates(fx_path), config, order_value_eur=order_value)
     manifest = {
         "source_hash": sha256_dataframe(table), "rows": len(table), "instruments": int(table["instrument_id"].nunique()),
         "first_known_at": table["known_at"].min() if len(table) else None,

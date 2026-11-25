@@ -45,12 +45,8 @@ def build_pit_cost_table(
         instrument = str(instrument)
         dates = pd.DatetimeIndex(group["date"])
         positions = np.flatnonzero(np.append(dates.to_period("M")[1:] != dates.to_period("M")[:-1], True))
-        currencies = {major_currency(value) for value in group["currency"]}
-        if len(currencies) != 1 or None in currencies:
-            skipped["currency_unknown"] = skipped.get("currency_unknown", 0) + len(positions)
-            continue
         series[instrument] = (
-            dates, next(iter(currencies)),
+            dates, np.asarray([major_currency(value) for value in group["currency"]], dtype=object),
             *(pd.to_numeric(group[name], errors="coerce").to_numpy(dtype=float) for name in ("close", "adjusted_close", "volume")),
         )
         month_ends.extend((dates[position], instrument, int(position)) for position in positions)
@@ -59,7 +55,13 @@ def build_pit_cost_table(
     book: tuple[pd.Timestamp, EurRateBook] | None = None
     rows: list[dict[str, object]] = []
     for session, instrument, position in sorted(month_ends):
-        dates, currency, close, adjusted, volume = series[instrument]
+        dates, currencies, close, adjusted, volume = series[instrument]
+        first = max(0, position - VOLATILITY_WINDOW)  # the earliest bar used: only bars up to the session count
+        used = set(currencies[first: position + 1])
+        if len(used) != 1 or None in used:
+            skipped["currency_unknown"] = skipped.get("currency_unknown", 0) + 1
+            continue
+        currency = used.pop()
         cutoff = session.tz_localize("UTC") + pd.Timedelta(hours=23, minutes=59, seconds=59)
         window = slice(max(0, position - ADV_WINDOW + 1), position + 1)
         rate = np.ones(window.stop - window.start)
@@ -68,7 +70,7 @@ def build_pit_cost_table(
                 book = (session, EurRateBook(fx_rates, known_by=cutoff.to_pydatetime()))
             rate = book[1].series(currency, [item.date() for item in dates[window]]).rates.to_numpy(dtype=float)
         adv = average_daily_value_eur(volume[window], close[window] * rate, currency="EUR", window=ADV_WINDOW)
-        volatility = _daily_volatility(adjusted[max(0, position - VOLATILITY_WINDOW): position + 1])
+        volatility = _daily_volatility(adjusted[first: position + 1])
         reason = (
             "adv_unavailable" if adv is None or adv <= 0
             else "volatility_unavailable" if volatility is None

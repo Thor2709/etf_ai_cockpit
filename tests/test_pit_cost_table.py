@@ -70,6 +70,48 @@ def test_month_end_rows_are_point_in_time_deterministic_and_never_filled() -> No
     assert len(split(moved)[1]) == len(split(table)[1])
     assert not split(moved)[1]["round_trip_cost_bps"].equals(split(table)[1]["round_trip_cost_bps"])  # later rows see it
 
+    bad = _prices()  # A's currency turns bad after 2024-04-15: only month-ends whose bars include it are skipped
+    bad.loc[bad["etf_id"].eq("A") & (bad["date"] > "2024-04-15"), "currency"] = None
+    kept, skipped = build_pit_cost_table(bad, _fx(), config, order_value_eur=1000.0)
+    pd.testing.assert_frame_equal(split(kept)[0], split(table)[0])
+    assert skipped["currency_unknown"] == 3  # A: April, May and June month-ends
+
+    late = _fx()  # a quote dated on the 2024-02-29 session but available only on 2024-03-05 is not used for it
+    quote = late.index[pd.to_datetime(late["as_of_date"]).eq("2024-02-29")][0]
+    late.loc[quote, "rate"] = 5.0
+    late.loc[quote, "available_at"] = pd.Timestamp("2024-03-05T23:59:59Z")
+    pd.testing.assert_frame_equal(
+        build_pit_cost_table(_prices(), late, config, order_value_eur=1000.0)[0],
+        build_pit_cost_table(_prices(), _fx().drop(index=quote), config, order_value_eur=1000.0)[0],
+    )
+
+
+def test_script_prices_with_the_cost_config_of_its_root(tmp_path) -> None:
+    import importlib.util
+    import shutil
+    from pathlib import Path
+
+    from etf_cockpit.core.paths import CONFIG_DIR
+
+    spec = importlib.util.spec_from_file_location(
+        "build_pit_cost_table", Path(__file__).resolve().parents[1] / "scripts" / "build_pit_cost_table.py"
+    )
+    script = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(script)
+    tables = []
+    for name, spread in (("plain", "8"), ("wide", "80")):
+        root = tmp_path / name
+        shutil.copytree(CONFIG_DIR, root / "configs")
+        costs = root / "configs" / "costs.yaml"
+        costs.write_text(costs.read_text(encoding="utf-8").replace("default_spread_bps: 8", f"default_spread_bps: {spread}"),
+                         encoding="utf-8")
+        (root / "data" / "validated" / "prices").mkdir(parents=True)
+        _prices().to_parquet(root / "data" / "validated" / "prices" / "prices_daily.parquet")
+        script.build(root, root / "out" / "costs.parquet")
+        tables.append(pd.read_parquet(root / "out" / "costs.parquet"))
+    assert len(tables[0]) == len(tables[1]) > 0
+    assert (tables[1]["round_trip_cost_bps"] > tables[0]["round_trip_cost_bps"]).all()
+
 
 def test_rank_validation_replays_with_the_built_table(tmp_path) -> None:
     from etf_cockpit.analysis.decision.rank_validation import window_decision_times
