@@ -113,10 +113,11 @@ def test_missing_actions_evidence_gives_unavailable_with_a_reason(evidence):
         assert "actions_evidence_missing" in metrics[key].reason
 
 
-@pytest.mark.parametrize("ratio", [None, pd.NA, -1.0, float("inf"), "invalid"])
-def test_invalid_split_history_fails_closed(ratio):
+@pytest.mark.parametrize("ratio, dtype", [(None, object), (pd.NA, object), (-1.0, object), (float("inf"), object),
+                                          ("invalid", object), (pd.NA, "Float64")])
+def test_invalid_split_history_fails_closed(ratio, dtype):
     prices = _prices()
-    prices["stock_splits"] = prices["stock_splits"].astype(object)
+    prices["stock_splits"] = prices["stock_splits"].astype(dtype)
     prices.loc[2, "stock_splits"] = ratio
     value, reason = as_traded_close(prices, date(2022, 10, 17))
     assert value is None and "split_history_invalid" in reason
