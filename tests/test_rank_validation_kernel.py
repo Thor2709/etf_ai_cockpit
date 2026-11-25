@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
+import json
 import math
 from statistics import NormalDist, stdev
 
@@ -208,3 +209,127 @@ def test_validation_is_underpowered_when_only_the_decision_count_is_short(monkey
     assert enough.status == "available"
     assert short.status == "underpowered"
     assert short.holdout["QV"]["rank_ic_mde"] is not None
+
+
+def _oracle_momentum_risk_evidence(prices, decision_times):
+    """The per-cutoff pandas rule of main 4e325c34: the parity oracle of ``price_momentum_risk_evidence``."""
+    from etf_cockpit.features.momentum import momentum
+    from etf_cockpit.features.returns import daily_log_returns
+    from etf_cockpit.features.volatility import realised_volatility
+
+    columns = ["instrument_id", "effective_at", "known_at", "quality_score", "value_score",
+               "v3_score", "momentum_score", "risk_score", "momentum_raw", "volatility_raw"]
+    skipped = {}
+    frame = prices.copy()
+    frame["_date"] = frame["date"].map(_date_value)
+    frame["_known"] = frame["known_at"].map(_aware_timestamp)
+    frame["_close"] = pd.to_numeric(frame["adjusted_close"], errors="coerce")
+    frame = frame.loc[frame["_date"].notna() & frame["_known"].notna()]
+    needed = rv.lookback_sessions_required()
+    records = []
+    for cutoff in rv._decision_times(decision_times):
+        text = cutoff.isoformat().replace("+00:00", "Z")
+        known = frame.loc[frame["_known"].le(cutoff) & frame["_date"].map(lambda value: value <= cutoff.date())]
+        cross, reasons = [], {}
+        for instrument, group in known.groupby(known["instrument_id"].astype(str), sort=True):
+            series = rv._latest_price_rows(group)
+            if series is None:
+                reasons[str(instrument)] = "conflicting_price_rows"
+                continue
+            if not series["_close"].gt(0).all():
+                reasons[str(instrument)] = "invalid_price_rows"
+                continue
+            if len(series) < needed:
+                reasons[str(instrument)] = "insufficient_price_history"
+                continue
+            if (cutoff.date() - series["_date"].iloc[-1]).days > rv._MAX_PRICE_STALENESS_DAYS:
+                reasons[str(instrument)] = "stale_last_close"
+                continue
+            close = series.set_index("_date")["_close"].astype(float)
+            moves = [float(momentum(close, horizon).iloc[-1]) for horizon in rv._MOMENTUM_HORIZONS]
+            vol = float(realised_volatility(daily_log_returns(close), rv._RISK_WINDOW_SESSIONS).iloc[-1])
+            if not all(math.isfinite(item) for item in (*moves, vol)):
+                reasons[str(instrument)] = "non_finite_indicator"
+                continue
+            cross.append({"instrument_id": str(instrument),
+                          "momentum_raw": math.fsum(w * m for w, m in zip(rv._MOMENTUM_WEIGHTS, moves)),
+                          "volatility_raw": vol})
+        if reasons:
+            skipped[text] = reasons
+        if not cross:
+            continue
+        block = pd.DataFrame(cross)
+        block["momentum_score"] = block["momentum_raw"].rank(method="average", pct=True)
+        block["risk_score"] = 1.0 - block["volatility_raw"].rank(method="average", pct=True) + 1.0 / len(block)
+        block["effective_at"] = text
+        block["known_at"] = text
+        block["quality_score"] = float("nan")
+        block["value_score"] = float("nan")
+        block["v3_score"] = float("nan")
+        records.extend(block.to_dict("records"))
+    return pd.DataFrame.from_records(records, columns=columns), skipped
+
+
+def _momentum_prices(seed: int) -> pd.DataFrame:
+    """Session-close stamps (monotone) plus revisions, late stamps, gaps, bad closes, short and stale histories."""
+    rng = np.random.default_rng(seed)
+    sessions = pd.bdate_range("2023-01-02", periods=320).date
+    rows = []
+    for item in range(15):
+        name = f"I{item:02d}"
+        days = sessions[:150] if name == "I01" else sessions[:290] if name == "I02" else sessions
+        close = 100.0 * np.exp(np.cumsum(rng.normal(0.0003, 0.012, size=len(days))))
+        for position, day in enumerate(days):
+            if name == "I03" and rng.random() < 0.1:  # gaps
+                continue
+            known = f"{day.isoformat()}T23:59:59{'.000000001' if name == 'I14' else ''}Z"  # I14: 1 ns after the cut-off
+            value = float(close[position])
+            if name == "I04" and position == 250:
+                value = 0.0
+            if name == "I05" and position == 200:
+                value = math.nan
+            if name == "I06" and position == 280:
+                known = f"{sessions[position + 4].isoformat()}T23:59:59Z"  # published late: not a prefix
+            if name == "I07" and position == 270:
+                known = None
+            rows.append({"instrument_id": name, "date": day, "known_at": known, "adjusted_close": value})
+            if name == "I08" and position == 260:  # a revision known two sessions later
+                rows.append({"instrument_id": name, "date": day, "known_at": f"{sessions[position + 2].isoformat()}T23:59:59Z",
+                             "adjusted_close": value * 1.01})
+            if name == "I09" and position == 240:  # an agreeing tied duplicate
+                rows.append(dict(rows[-1]))
+            if name == "I10" and position == 300:  # a conflicting tied duplicate
+                rows.append(dict(rows[-1], adjusted_close=value * 1.02))
+    rows.append({"instrument_id": "I11", "date": "not a date", "known_at": "2023-01-02T23:59:59Z", "adjusted_close": 1.0})
+    rows.append({"instrument_id": "I12", "date": sessions[5], "known_at": "2023-01-02T23:59:59", "adjusted_close": 1.0})
+    return pd.DataFrame(rows).sample(frac=1.0, random_state=seed).reset_index(drop=True)
+
+
+def test_momentum_risk_evidence_matches_the_per_cutoff_oracle() -> None:
+    sessions = pd.bdate_range("2023-01-02", periods=320).date
+    times = [f"{day.isoformat()}T{hour}Z" for day in sessions[170::6] for hour in ("21:00:00", "23:59:59")]
+    reasons = set()
+    for seed in range(3):
+        prices = _momentum_prices(seed)
+        evidence, skipped = rv.price_momentum_risk_evidence(prices, times)
+        expected, expected_skipped = _oracle_momentum_risk_evidence(prices, times)
+        pd.testing.assert_frame_equal(evidence, expected, check_exact=True)
+        assert json.dumps(skipped) == json.dumps(expected_skipped)  # same reasons in the same order
+        reasons.update(reason for item in expected_skipped.values() for reason in item.values())
+    assert reasons == {"insufficient_price_history", "stale_last_close", "invalid_price_rows", "conflicting_price_rows"}
+
+
+def test_momentum_risk_kernel_statuses_and_entry_rows() -> None:
+    import etf_kernels
+
+    # ids: 0 monotone, 1 revision (two rows for day 3), 2 a bad close at day 2, 3 short and stale
+    day = np.array([1, 2, 3, 4, 5, 1, 2, 3, 3, 1, 2, 3, 4, 1, 2], dtype=np.int64)
+    known = np.array([10, 20, 30, 40, 50, 10, 20, 30, 45, 10, 20, 30, 40, 10, 20], dtype=np.int64)
+    close = np.array([1.0, 2.0, 3.0, 4.0, 5.0, 1.0, 2.0, 3.0, 3.5, 1.0, 0.0, 3.0, 4.0, 1.0, 2.0])
+    offsets = np.array([0, 5, 9, 13, 15], dtype=np.int64)
+    cut_day = np.array([0, 3, 5, 20], dtype=np.int64)
+    cut_stamp = np.array([5, 35, 55, 200], dtype=np.int64)
+    rows, status = etf_kernels.momentum_risk_at_cutoffs(day, known, close, offsets, cut_day, cut_stamp, 3, 7)
+    # 0 ok, 1 no known row, 2 not a prefix (today's path), 3 invalid, 4 short, 5 stale
+    assert status.tolist() == [[1, 0, 0, 5], [2, 2, 2, 2], [1, 3, 3, 3], [1, 4, 4, 4]]
+    assert rows.tolist() == [[-1, 2, 4, -1], [-1, -1, -1, -1], [-1, -1, -1, -1], [-1, -1, -1, -1]]
