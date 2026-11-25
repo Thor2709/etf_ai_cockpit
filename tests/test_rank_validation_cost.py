@@ -71,19 +71,19 @@ def test_factor_attribution_stamps_prices_once_for_all_decisions(monkeypatch) ->
         ]
     )
     policy = replace(rv.load_rank_validation_policy(), top_n=3)
-    seen: list[int] = []
+    seen: list[pd.DataFrame] = []
 
-    def fake_report(prices_for_risk: pd.DataFrame, *_args: object, **_kwargs: object) -> dict[str, object]:
-        seen.append(len(prices_for_risk))
+    def fake_report(*_args: object, returns: pd.DataFrame, **_kwargs: object) -> dict[str, object]:
+        seen.append(returns)
         return {}
 
     monkeypatch.setattr(rv, "build_factor_risk_report", fake_report)
     calls = _count_date_value(monkeypatch)
-    result = rv._factor_attribution(rows, "r", prices, policy)
+    result = rv._factor_attribution(rows, "r", rv.ReplayInputs(pd.DataFrame(), prices, pd.DataFrame()), policy)
     assert result["status"] == "unavailable"  # the stub returns no contributions
     assert len(seen) == len(decisions)
-    expected = [int((prices["date"] <= pd.Timestamp(item).date()).sum()) for item in decisions]
-    assert seen == expected and seen[0] > 0  # the point-in-time cut-off still applies to every decision
+    expected = [int((prices["date"] <= pd.Timestamp(item).date()).sum()) // 5 - 1 for item in decisions]
+    assert [len(item) for item in seen] == expected and expected[0] > 0  # the cut-off still applies to every decision
     assert calls[0] == prices["date"].nunique()  # once per distinct session date, not once per row or decision
 
 

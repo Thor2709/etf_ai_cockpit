@@ -233,6 +233,115 @@ def _rank_validation_policy_for_content(content: bytes) -> RankValidationPolicy:
     )
 
 
+@dataclass(frozen=True)
+class _FactorPrices:
+    dates: pd.DatetimeIndex
+    days: np.ndarray
+    ids: np.ndarray
+    known: np.ndarray
+    close: np.ndarray
+    names: pd.Index
+
+    def log_returns(self, cutoff: pd.Timestamp, instrument_ids: set[str], window: int) -> pd.DataFrame:
+        """``factor_risk._return_matrix`` of the rows known and dated by ``cutoff`` for ``instrument_ids``."""
+        keep = np.array([str(name) in instrument_ids for name in self.names], dtype=bool)
+        rows, ratios = etf_kernels.trailing_price_ratios(
+            self.dates.asi8, self.days, self.ids, self.known, self.close, keep,
+            cutoff.date().toordinal(), cutoff.value, len(self.ids), window,
+        )
+        frame = pd.DataFrame(
+            ratios,
+            index=pd.DatetimeIndex(self.dates.take(rows), name="date"),
+            columns=pd.Index(self.names[keep], name="etf_id"),
+        )
+        return np.log(frame).dropna(axis=1, how="all")
+
+
+class ReplayInputs:
+    """Membership, price and cost frames shared by the replays and factor fits of one window.
+
+    Each part is parsed on first use and then kept, with the forward return of each (instrument, cut-off, target
+    session) once computed.  The frames are read only and must not change while the object is in use.
+    """
+
+    def __init__(self, memberships: pd.DataFrame, prices: pd.DataFrame, costs: pd.DataFrame) -> None:
+        self.memberships, self.prices, self.costs = memberships, prices, costs
+        self._snapshots: tuple[pd.DataFrame, dict[object, np.ndarray]] | None = None
+        self._price_stamps: tuple[pd.Series, pd.Series] | None = None
+        self._sessions: list[date] | None = None
+        self._positions: dict[object, np.ndarray] | None = None
+        self._forward: dict[tuple[str, str, date | None], tuple[float | None, str]] = {}
+        self._factor_prices: _FactorPrices | None = None
+
+    def membership_snapshots(self) -> tuple[pd.DataFrame, dict[object, np.ndarray]]:
+        """Parsed membership copy and its row positions per snapshot date."""
+        if self._snapshots is None:
+            frame = self.memberships.copy()
+            frame["_known_at"] = _map_repeated(frame["known_at"], _aware_timestamp)
+            frame["_valid_from"] = _map_repeated(frame["valid_from"], _date_value)
+            frame["_valid_to"] = _map_repeated(frame["valid_to"], _optional_date_value)
+            frame["_snapshot_date"] = _map_repeated(frame["snapshot_date"], _date_value)
+            self._snapshots = frame, frame.groupby("_snapshot_date", sort=False).indices
+        return self._snapshots
+
+    def identifiers_complete(self) -> bool:
+        return not any(frame["instrument_id"].isna().any() for frame in (self.memberships, self.prices, self.costs))
+
+    def _stamps(self) -> tuple[pd.Series, pd.Series]:
+        if self._price_stamps is None:
+            self._price_stamps = (_map_repeated(self.prices["known_at"], _aware_timestamp),
+                                  _map_repeated(self.prices["date"], _date_value))
+        return self._price_stamps
+
+    def sessions(self) -> list[date]:
+        """Sorted distinct price session dates of all instruments."""
+        if self._sessions is None:
+            self._sessions = sorted(self._stamps()[1].dropna().unique())
+        return self._sessions
+
+    def factor_prices(self) -> _FactorPrices:
+        """Price rows usable for factor returns, sorted by (date, input order), as kernel arrays."""
+        if self._factor_prices is None:
+            known, dates = self._stamps()
+            key = pd.to_datetime(self.prices["date"], errors="coerce")
+            close = pd.to_numeric(self.prices["adjusted_close"], errors="coerce")
+            ids = self.prices["instrument_id"]
+            usable = np.flatnonzero((known.notna() & dates.notna() & key.notna() & close.gt(0) & ids.notna()).to_numpy())
+            order = usable[np.argsort(pd.DatetimeIndex(key.iloc[usable]).asi8, kind="stable")]
+            codes, names = pd.factorize(ids.iloc[order], sort=True)
+            self._factor_prices = _FactorPrices(
+                pd.DatetimeIndex(key.iloc[order]),
+                _map_repeated(dates.iloc[order], date.toordinal).to_numpy(np.int64),
+                codes.astype(np.int64),
+                _map_repeated(known.iloc[order], lambda stamp: stamp.value).to_numpy(np.int64),
+                close.iloc[order].to_numpy(np.float64),
+                names,
+            )
+        return self._factor_prices
+
+    def forward_returns(
+        self, queries: Sequence[tuple[str, str, pd.Timestamp, date | None]],
+    ) -> dict[tuple[str, str, date | None], tuple[float | None, str]]:
+        """Forward return per (instrument, cut-off text, cut-off, target session); missing ones in one call per instrument."""
+        if self._positions is None:
+            # row positions only: one instrument's rows are taken when needed, not a copy of every group at once
+            self._positions = self.prices.groupby(self.prices["instrument_id"].astype(str), sort=False).indices
+        missing: dict[str, dict[tuple[str, date | None], pd.Timestamp]] = {}
+        for instrument, text, cutoff, target in queries:
+            if (instrument, text, target) not in self._forward:
+                missing.setdefault(instrument, {})[(text, target)] = cutoff
+        known, dates = self._stamps()
+        for instrument, wanted in missing.items():
+            keys = sorted(wanted, key=lambda item: item[0])
+            positions = self._positions.get(instrument, np.empty(0, dtype=np.int64))
+            rows = self.prices.iloc[positions].assign(
+                _known_at=known.iloc[positions].to_numpy(), _date=dates.iloc[positions].to_numpy()
+            )
+            results = _forward_returns(rows, [wanted[key] for key in keys], [target for _, target in keys])
+            self._forward.update(((instrument, text, target), result) for (text, target), result in zip(keys, results))
+        return self._forward
+
+
 def replay_rank_panel(
     evidence: pd.DataFrame,
     memberships: pd.DataFrame,
@@ -246,6 +355,7 @@ def replay_rank_panel(
     policy_path: str | Path = _DEFAULT_POLICY_PATH,
     domain_config_path: str | Path = _DEFAULT_DOMAIN_PATH,
     opportunity_config_path: str | Path = _DEFAULT_OPPORTUNITY_PATH,
+    inputs: ReplayInputs | None = None,
 ) -> RankReplayReport:
     """Freeze ranks from PIT memberships/evidence, then attach net forward outcomes.
 
@@ -255,6 +365,8 @@ def replay_rank_panel(
     member, is returned as insufficient; current membership is never queried.
     Costs must come from ISSUE-0128's ``execution-cost-v1`` estimate and be
     supplied as explicit round-trip basis points known by each cutoff.
+    ``inputs`` (built from these memberships, prices and costs) shares their
+    parsing and forward returns between replays.
     """
 
     active_policy = policy or load_rank_validation_policy(policy_path)
@@ -275,30 +387,25 @@ def replay_rank_panel(
         return _empty_replay(config_hashes, config_versions, "dated ISSUE-0128 round-trip costs are unavailable")
 
     evidence_frame = evidence.copy()
-    membership_frame = memberships.copy()
-    price_frame = prices.copy()
-    cost_frame = costs.copy()
-    for frame, column in ((evidence_frame, "known_at"), (evidence_frame, "effective_at"),
-                          (membership_frame, "known_at"), (price_frame, "known_at"),
-                          (cost_frame, "known_at")):
-        frame[f"_{column}"] = _map_repeated(frame[column], _aware_timestamp)
+    for column in ("known_at", "effective_at"):
+        evidence_frame[f"_{column}"] = _map_repeated(evidence_frame[column], _aware_timestamp)
     evidence_frame["_effective_date"] = _map_repeated(evidence_frame["effective_at"], _date_value)
-    membership_frame["_valid_from"] = _map_repeated(membership_frame["valid_from"], _date_value)
-    membership_frame["_valid_to"] = _map_repeated(membership_frame["valid_to"], _optional_date_value)
-    membership_frame["_snapshot_date"] = _map_repeated(membership_frame["snapshot_date"], _date_value)
-    price_frame["_date"] = _map_repeated(price_frame["date"], _date_value)
-    for frame in (evidence_frame, membership_frame, price_frame, cost_frame):
-        if frame["instrument_id"].isna().any() if "instrument_id" in frame else False:
-            return _empty_replay(config_hashes, config_versions, "instrument identifiers are incomplete")
+    shared = inputs or ReplayInputs(memberships, prices, costs)
+    membership_frame, snapshot_rows = shared.membership_snapshots()
+    if evidence_frame["instrument_id"].isna().any() or not shared.identifiers_complete():
+        return _empty_replay(config_hashes, config_versions, "instrument identifiers are incomplete")
 
     # Ranks are materialized first. Forward prices and cost outcomes are joined
     # only after every per-date cross-section has been frozen.
     frozen_rows: list[dict[str, object]] = []
     insufficient: dict[str, str] = {}
-    for cutoff in parsed_times:
+    picks = _latest_known_rows(
+        evidence_frame["instrument_id"], evidence_frame["effective_at"], evidence_frame["known_at"], parsed_times
+    )
+    for position, cutoff in enumerate(parsed_times):
         cutoff_text = cutoff.isoformat().replace("+00:00", "Z")
         decision_day = cutoff.date()
-        snapshot = membership_frame.loc[membership_frame["_snapshot_date"].eq(decision_day)].copy()
+        snapshot = membership_frame.iloc[snapshot_rows.get(decision_day, [])].copy()
         if snapshot.empty or not snapshot["snapshot_complete"].map(_true_flag).all():
             insufficient[cutoff_text] = "dated_membership_snapshot_missing_or_incomplete"
             continue
@@ -320,41 +427,9 @@ def replay_rank_panel(
             insufficient[cutoff_text] = "point_in_time_universe_below_minimum_support"
             continue
 
-        available_evidence = evidence_frame.loc[
-            evidence_frame["_known_at"].notna()
-            & evidence_frame["_effective_date"].notna()
-            & evidence_frame["_known_at"].le(cutoff)
-            & evidence_frame["_effective_date"].map(lambda value: value <= decision_day)
-            & evidence_frame["instrument_id"].astype(str).isin(active["instrument_id"])
-        ].copy()
-        if available_evidence.empty:
-            insufficient[cutoff_text] = "point_in_time_evidence_unavailable"
-            continue
-        available_evidence["instrument_id"] = available_evidence["instrument_id"].astype(str)
-        available_evidence = available_evidence.sort_values(
-            ["instrument_id", "_effective_date", "_known_at"], kind="stable"
-        )
-        latest_keys = available_evidence.groupby("instrument_id", sort=False).tail(1)[
-            ["instrument_id", "_effective_date", "_known_at"]
-        ]
-        latest_key_columns = ["instrument_id", "_effective_date", "_known_at"]
-        latest_candidates = available_evidence.merge(
-            latest_keys,
-            on=latest_key_columns,
-            how="inner",
-            validate="many_to_one",
-        )
-        conflict_columns = [column for column in latest_candidates.columns if column not in latest_key_columns]
-        conflicting_latest = any(
-            len(group[conflict_columns].drop_duplicates()) > 1
-            for _, group in latest_candidates.groupby(latest_key_columns, sort=False, dropna=False)
-        )
-        if conflicting_latest:
-            insufficient[cutoff_text] = "point_in_time_evidence_has_ambiguous_latest_rows"
-            continue
-        latest = latest_candidates.drop_duplicates(subset=latest_key_columns, keep="last")
-        if latest["instrument_id"].duplicated().any() or set(latest["instrument_id"]) != set(active["instrument_id"]):
-            insufficient[cutoff_text] = "point_in_time_evidence_incomplete_for_membership"
+        latest = _latest_evidence(evidence_frame, picks, active["instrument_id"], position)
+        if isinstance(latest, str):
+            insufficient[cutoff_text] = latest
             continue
         required_features = set().union(
             *[set(spec.weights) for spec in active_policy.rankers.values()]
@@ -428,7 +503,7 @@ def replay_rank_panel(
             reason="no decision date has a complete point-in-time universe and evidence panel",
         )
 
-    all_sessions = sorted(price_frame["_date"].dropna().unique())
+    all_sessions = shared.sessions()
     holding = active_policy.holding_period_sessions
     records = frozen.to_dict("records")
     cutoffs = {str(text): pd.Timestamp(text) for text in frozen["decision_time"].unique()}
@@ -436,34 +511,24 @@ def replay_rank_panel(
         text: all_sessions[position] if (position := bisect_right(all_sessions, cutoff.date()) + holding - 1) < len(all_sessions) else None
         for text, cutoff in cutoffs.items()
     }
-    pairs: dict[str, list[str]] = {}
-    for item in records:
-        pairs.setdefault(str(item["instrument_id"]), []).append(str(item["decision_time"]))
-    price_ids = price_frame["instrument_id"].astype(str)
-    # row positions only: one instrument's rows are taken when needed, not a second copy of every group at once
-    positions_by_id = price_frame.groupby(price_ids, sort=False).indices
-    forward: dict[tuple[str, str], tuple[float | None, str]] = {}
-    for instrument, texts in pairs.items():
-        texts = sorted(set(texts))
-        positions = positions_by_id.get(instrument)
-        results = _forward_returns(
-            price_frame.iloc[0:0] if positions is None else price_frame.iloc[positions],
-            [cutoffs[text] for text in texts], [target_sessions[text] for text in texts],
-        )
-        forward.update(((instrument, text), result) for text, result in zip(texts, results))
-    costs_by_id = {str(name): group for name, group in cost_frame.groupby(cost_frame["instrument_id"].astype(str), sort=False)}
+    forward = shared.forward_returns(
+        [(str(item["instrument_id"]), text, cutoffs[text], target_sessions[text])
+         for item in records for text in [str(item["decision_time"])]]
+    )
+    round_trip_costs = _point_in_time_costs(
+        costs, [str(item["instrument_id"]) for item in records],
+        [cutoffs[str(item["decision_time"])] for item in records],
+    )
     comparators = {
         day: (_outcome_for_date(benchmark_returns, day), _outcome_for_date(cash_returns, day))
         for day in frozen["decision_date"].unique()
     }
     outcomes: list[dict[str, object]] = []
-    for item in records:
-        cutoff = cutoffs[str(item["decision_time"])]
+    for item, cost in zip(records, round_trip_costs):
         instrument = str(item["instrument_id"])
         target = target_sessions[str(item["decision_time"])]
         window_end = target.isoformat() if target is not None else None
-        gross, outcome_status = forward[(instrument, str(item["decision_time"]))]
-        cost = _point_in_time_cost(costs_by_id.get(instrument, cost_frame.iloc[0:0]), instrument, cutoff)
+        gross, outcome_status = forward[(instrument, str(item["decision_time"]), target)]
         if outcome_status == "available" and cost is None:
             outcome_status = "round_trip_cost_unavailable"
         net = max(-1.0, gross - float(cost) / 10_000.0) if gross is not None and cost is not None else None
@@ -525,6 +590,7 @@ def evaluate_rank_validation(
     prices: pd.DataFrame | None = None,
     policy: RankValidationPolicy | None = None,
     policy_path: str | Path = _DEFAULT_POLICY_PATH,
+    inputs: ReplayInputs | None = None,
 ) -> RankValidationReport:
     """Evaluate walk-forward development data and a fixed, untouched holdout.
 
@@ -594,14 +660,16 @@ def evaluate_rank_validation(
         for name in rankers
     }
     if prices is not None:
+        # ``inputs`` (built from these prices) keeps the factor price arrays of a window across evaluations
+        shared = inputs or ReplayInputs(pd.DataFrame(), prices, pd.DataFrame())
         holdout = {
             name: dict(metrics)
-            | {"factor_attribution": _factor_attribution(holdout_rows, name, prices, active_policy)}
+            | {"factor_attribution": _factor_attribution(holdout_rows, name, shared, active_policy)}
             for name, metrics in holdout.items()
         }
         development = {
             name: dict(metrics)
-            | {"factor_attribution": _factor_attribution(dev_rows, name, prices, active_policy)}
+            | {"factor_attribution": _factor_attribution(dev_rows, name, shared, active_policy)}
             for name, metrics in development.items()
         }
     else:
@@ -1160,14 +1228,13 @@ def _neutral_metrics(rows: pd.DataFrame, group_column: str, policy: RankValidati
 def _factor_attribution(
     rows: pd.DataFrame,
     ranker: str,
-    prices: pd.DataFrame,
+    inputs: ReplayInputs,
     policy: RankValidationPolicy,
 ) -> dict[str, object]:
     required = {"instrument_id", "date", "known_at", "adjusted_close"}
-    if not _has_columns(prices, required):
+    if not _has_columns(inputs.prices, required):
         return {"status": "unavailable", "reason": "factor risk requires point-in-time adjusted-price history", "factors": []}
     contributions: list[dict[str, object]] = []
-    stamped: pd.DataFrame | None = None
     for decision_time, group in rows.loc[rows["ranker"].astype(str).eq(ranker)].groupby("decision_time", sort=True):
         cutoff = _aware_timestamp(decision_time)
         if cutoff is None:
@@ -1178,18 +1245,8 @@ def _factor_attribution(
         selected = valid.head(min(policy.top_n, len(valid)))
         if len(selected) < 3:
             continue
-        if stamped is None:  # the stamps do not depend on the decision time: parse them once
-            stamped = prices[["instrument_id", "date", "known_at", "adjusted_close"]].copy()
-            stamped["_known"] = _map_repeated(stamped["known_at"], _aware_timestamp)
-            stamped["_date"] = _map_repeated(stamped["date"], _date_value)
-        price_rows = stamped.loc[
-            stamped["_known"].notna()
-            & stamped["_known"].le(cutoff)
-            & stamped["_date"].map(lambda value: value is not None and value <= cutoff.date())
-            & stamped["instrument_id"].astype(str).isin(valid["instrument_id"].astype(str)),
-            ["instrument_id", "date", "adjusted_close"],
-        ]
-        prices_for_risk = price_rows.rename(columns={"instrument_id": "etf_id"})
+        # rows known and dated by the cut-off; the stamps are parsed once per ``inputs``
+        returns = inputs.factor_prices().log_returns(cutoff, set(valid["instrument_id"].astype(str)), 252)
         allocation = pd.DataFrame(
             {
                 "etf_id": selected["instrument_id"].astype(str),
@@ -1210,10 +1267,11 @@ def _factor_attribution(
         )
         try:
             report = build_factor_risk_report(
-                prices_for_risk,
+                None,
                 allocation,
                 latest_features=features,
                 window=252,
+                returns=returns,
             )
         except (ArithmeticError, KeyError, TypeError, ValueError):
             continue
@@ -1398,23 +1456,81 @@ def _forward_returns(
     return results
 
 
-def _point_in_time_cost(costs: pd.DataFrame, instrument_id: str, cutoff: pd.Timestamp) -> float | None:
-    rows = costs.loc[
-        costs["instrument_id"].astype(str).eq(instrument_id)
-        & costs["cost_model_id"].astype(str).eq(COST_MODEL_ID)
-    ].copy()
-    rows["_known"] = rows["known_at"].map(_aware_timestamp)
-    rows = rows.loc[rows["_known"].notna() & rows["_known"].le(cutoff)]
-    if rows.empty:
-        return None
-    latest = rows["_known"].max()
-    rows = rows.loc[rows["_known"].eq(latest)]
-    if len(rows) != 1:
-        return None
-    value = rows.iloc[0]["round_trip_cost_bps"]
-    if not _finite(value) or float(value) < 0:
-        return None
-    return float(value)
+_LatestRows = tuple[pd.Index, np.ndarray, np.ndarray, np.ndarray]
+
+
+def _latest_known_rows(
+    instrument_ids: pd.Series, effective_at: pd.Series, known_at: pd.Series, cutoffs: Sequence[pd.Timestamp],
+) -> _LatestRows:
+    """Latest-known rows of every instrument at every cut-off, in one compiled call.
+
+    A row is usable at a cut-off when its time-zone-aware ``known_at`` and its effective date are no later than
+    it; the greatest (effective date, known_at) among them is the latest key.  Returns the instrument names
+    (text, sorted), the row positions in (instrument, effective date, known_at, input) order, and per (instrument,
+    cut-off) the first and last of those sorted positions holding the latest key (-1: no usable row).
+    """
+
+    effective = _map_repeated(effective_at, _date_ordinal).to_numpy(dtype=np.int64)
+    known = _map_repeated(known_at, _stamp_ns).to_numpy(dtype=np.int64)
+    usable = np.flatnonzero((effective != _MISSING) & (known != _MISSING))
+    codes, names = pd.factorize(instrument_ids.astype(str).to_numpy()[usable], sort=True)
+    order = np.lexsort((known[usable], effective[usable], codes))
+    offsets = np.concatenate(([0], np.cumsum(np.bincount(codes, minlength=len(names))))).astype(np.int64)
+    first, last = etf_kernels.latest_known_per_cutoff(
+        effective[usable][order], known[usable][order], offsets,
+        np.array([cutoff.date().toordinal() for cutoff in cutoffs], dtype=np.int64),
+        np.array([cutoff.value for cutoff in cutoffs], dtype=np.int64),
+    )
+    return pd.Index(names, dtype=object), usable[order], first, last
+
+
+def _latest_evidence(
+    evidence: pd.DataFrame, picks: _LatestRows, active_ids: pd.Series, position: int,
+) -> pd.DataFrame | str:
+    """Latest evidence row of each active instrument at cut-off ``position``, sorted by instrument; else the reason.
+
+    Tied latest rows must agree in every column except the key (instrument, effective date, known_at).
+    """
+
+    names, rows, first, last = picks
+    codes = names.get_indexer(pd.Index(active_ids, dtype=object))
+    found = np.sort(codes[codes >= 0])
+    low, high = first[found, position], last[found, position]
+    if not (high >= 0).any():
+        return "point_in_time_evidence_unavailable"
+    columns = [column for column in evidence.columns if column not in {"instrument_id", "_effective_date", "_known_at"}]
+    for start, end in zip(low, high):
+        if start < end and len(evidence.iloc[rows[start:end + 1]][columns].drop_duplicates()) > 1:
+            return "point_in_time_evidence_has_ambiguous_latest_rows"
+    if len(found) < len(active_ids) or (high < 0).any():
+        return "point_in_time_evidence_incomplete_for_membership"
+    latest = evidence.iloc[rows[high]]
+    return latest.assign(instrument_id=latest["instrument_id"].astype(str))
+
+
+def _point_in_time_costs(
+    costs: pd.DataFrame, instrument_ids: Sequence[str], cutoffs: Sequence[pd.Timestamp],
+) -> list[float | None]:
+    """Round-trip cost of each (instrument, cut-off) query, all queries in one compiled call.
+
+    Per instrument, the ``execution-cost-v1`` rows with a time-zone-aware ``known_at`` no later than the
+    cut-off give the latest stamp; exactly one row at that stamp with a finite, non-negative number gives
+    the cost, anything else ``None``.
+    """
+
+    stamps = _map_repeated(costs["known_at"], _stamp_ns).to_numpy(dtype=np.int64)
+    keep = costs["cost_model_id"].astype(str).eq(COST_MODEL_ID).to_numpy() & (stamps != _MISSING)
+    values = [float(item) if _finite(item) and float(item) >= 0 else math.nan
+              for item in costs["round_trip_cost_bps"].astype(object).to_numpy()[keep]]
+    codes, names = pd.factorize(costs["instrument_id"].astype(str).to_numpy()[keep])
+    order = np.lexsort((stamps[keep], codes))
+    offsets = np.concatenate(([0], np.cumsum(np.bincount(codes, minlength=len(names))))).astype(np.int64)
+    found = etf_kernels.pit_cost_lookup(
+        stamps[keep][order], np.array(values, dtype=float)[order], offsets,
+        pd.Index(names).get_indexer(pd.Index(list(instrument_ids), dtype=object)).astype(np.int64),
+        np.array([cutoff.value for cutoff in cutoffs], dtype=np.int64),
+    )
+    return [None if math.isnan(value) else float(value) for value in found]
 
 
 def _outcome_for_date(frame: pd.DataFrame, decision_date: str) -> float | None:
@@ -1986,31 +2102,29 @@ def attach_fundamental_evidence(
     result = price_evidence.copy()
     if not _has_columns(fundamentals, required) or result.empty:
         return result
-    funds = fundamentals.copy()
-    funds["_known"] = funds["known_at"].map(_aware_timestamp)
-    funds["_effective"] = funds["effective_at"].map(_date_value)
-    funds["instrument_id"] = funds["instrument_id"].astype(str)
-    funds = funds.loc[funds["_known"].notna() & funds["_effective"].notna()]
+    funds = fundamentals.assign(instrument_id=fundamentals["instrument_id"].astype(str))
+    groups = [
+        (cutoff_text, group, cutoff)
+        for cutoff_text, group in result.groupby("known_at", sort=False)
+        if (cutoff := _aware_timestamp(cutoff_text)) is not None
+    ]
+    names, rows, first, last = _latest_known_rows(
+        funds["instrument_id"], funds["effective_at"], funds["known_at"], [cutoff for _, _, cutoff in groups]
+    )
     conflicts: dict[str, list[str]] = {}
-    for cutoff_text, group in result.groupby("known_at", sort=False):
-        cutoff = _aware_timestamp(cutoff_text)
-        if cutoff is None:
+    for position, (cutoff_text, group, _) in enumerate(groups):
+        found = np.flatnonzero(last[:, position] >= 0)
+        if not len(found):
             continue
-        usable = funds.loc[funds["_known"].le(cutoff) & funds["_effective"].map(lambda value: value <= cutoff.date())]
-        if usable.empty:
-            continue
-        chosen: list[pd.Series] = []
-        for instrument, rows in usable.groupby("instrument_id", sort=True):
-            top = rows.loc[rows["_effective"].eq(rows["_effective"].max())]
-            top = top.loc[top["_known"].eq(top["_known"].max())]
-            values = top[score_columns].apply(pd.to_numeric, errors="coerce")
-            if len(values.drop_duplicates()) > 1:
-                conflicts.setdefault(str(cutoff_text), []).append(str(instrument))
+        chosen: list[int] = []
+        for code in found:  # sorted by instrument
+            start, end = first[code, position], last[code, position]
+            tied = funds.iloc[rows[start:end + 1]][score_columns] if start < end else None
+            if tied is not None and len(tied.apply(pd.to_numeric, errors="coerce").drop_duplicates()) > 1:
+                conflicts.setdefault(str(cutoff_text), []).append(str(names[code]))
                 continue
-            chosen.append(top.iloc[-1])
-        by_instrument = (
-            pd.DataFrame(chosen).set_index("instrument_id") if chosen else pd.DataFrame(columns=score_columns)
-        )
+            chosen.append(rows[end])
+        by_instrument = funds.iloc[chosen].set_index("instrument_id")
         for column in score_columns:
             result.loc[group.index, column] = pd.to_numeric(
                 group["instrument_id"].astype(str).map(by_instrument[column]), errors="coerce"
@@ -2083,19 +2197,23 @@ def run_stored_rank_validation(
     *,
     policy: RankValidationPolicy,
     holdout_fraction: float = _HOLDOUT_FRACTION,
+    inputs: ReplayInputs | None = None,
 ) -> tuple[RankReplayReport, RankValidationReport]:
     """Fix the holdout from requested dates, then replay and validate.
 
     A terminal holdout date the replay could not cover stays in the holdout and
     makes the validation insufficient; the boundary never moves to covered dates.
+    ``inputs`` shares the parsed memberships/prices/costs between the replays of
+    one window; it must be built from these frames (prices carrying ``known_at``).
     """
 
     holdout = fixed_terminal_holdout(decision_times, fraction=holdout_fraction)
     # replay and evaluation only read the frame (each copies what it changes): no full copy per replay
     stamped = prices if "known_at" in prices.columns else with_price_stamps(prices)
+    inputs = inputs or ReplayInputs(memberships, stamped, costs)
     replay = replay_rank_panel(
         evidence, memberships, stamped, costs, benchmark_returns, cash_returns,
-        decision_times, policy=policy,
+        decision_times, policy=policy, inputs=inputs,
     )
     if not holdout:
         return replay, _empty_validation(
@@ -2112,7 +2230,7 @@ def run_stored_rank_validation(
             replay, holdout, f"terminal holdout dates without replay evidence: {', '.join(missing)}"
         )
     return replay, evaluate_rank_validation(
-        replay, holdout_decision_times=holdout, prices=stamped, policy=policy
+        replay, holdout_decision_times=holdout, prices=stamped, policy=policy, inputs=inputs
     )
 
 
