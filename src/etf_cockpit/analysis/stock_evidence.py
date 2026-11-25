@@ -254,8 +254,10 @@ class _Builder:
         cohort_values: Mapping[str, Mapping[str, Mapping[str, float]]] | None = None,
         sector: str | None = None,
         industry: str | None = None,
+        blocks: dict[tuple[int, ...], dict[str, Metric]] | None = None,
     ) -> None:
         self.id = instrument_id
+        self.blocks = blocks
         self.sector = (sector or "").strip()
         self.industry = (industry or "").strip()
         self.all_periods = list(periods)
@@ -404,8 +406,17 @@ class _Builder:
                 self.metrics[key] = _missing(key, reason)
             components = self.components()
             return self._finish(components, reason)
-        self.flow_metrics()
-        self.balance_metrics()
+        # flow and balance metrics depend only on the known versions and the config: one build per version set
+        key = tuple(map(id, self.known))
+        blocks = None if self.blocks is None else self.blocks.get(key)
+        if blocks is None:
+            self.flow_metrics()
+            self.balance_metrics()
+            if self.blocks is not None:
+                self.blocks[key] = dict(self.metrics)
+        else:
+            self.metrics.update(blocks)
+        self.net_debt_to_ebitda()
         self.valuation_metrics()
         self.quality_metrics()
         self.sector_metrics()
@@ -776,6 +787,10 @@ class _Builder:
                 currency=equity_currency,
                 source=equity.source,
                 )
+
+    def net_debt_to_ebitda(self) -> None:
+        """Not memoised: the net debt freshness depends on the decision time."""
+
         window = self.window("ebit", "da")
         net = self.metrics["net_debt"]
         if window is None or not net.available:
@@ -1684,10 +1699,13 @@ def build_stock_evidence(
     no_data_reason: str | None = None,
     sector: str | None = None,
     industry: str | None = None,
+    blocks: dict[tuple[int, ...], dict[str, Metric]] | None = None,
 ) -> StockEvidence:
     """Metrics, peer context and the three score components for one stock at ``decision_time``.
 
     ``sector`` (one label, ``stock_labels.sector_label``) and ``industry`` select the configured metric set.
+    ``blocks``: the flow and balance metrics per known version set (keyed by the ``Period`` objects' ids), for one
+    config; the caller keeps those objects alive as long as the dict.
     """
 
-    return _Builder(instrument_id, periods, decision_time, market, analyst, config, peer_values, no_data_reason, cohort_values, sector, industry).build()
+    return _Builder(instrument_id, periods, decision_time, market, analyst, config, peer_values, no_data_reason, cohort_values, sector, industry, blocks).build()
