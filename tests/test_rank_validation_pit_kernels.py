@@ -151,3 +151,64 @@ def test_latest_evidence_matches_the_per_cutoff_oracle() -> None:
                 seen.add(expected if isinstance(expected, str) else "rows")
         assert seen == {"rows", "point_in_time_evidence_unavailable", "point_in_time_evidence_has_ambiguous_latest_rows",
                         "point_in_time_evidence_incomplete_for_membership"}
+
+
+def _oracle_attach(price_evidence, fundamentals, score_columns=("quality_score", "value_score", "v3_score")):
+    """`attach_fundamental_evidence` of base 52d46f27."""
+    score_columns = list(score_columns)
+    required = {"instrument_id", "effective_at", "known_at", *score_columns}
+    result = price_evidence.copy()
+    if not rv._has_columns(fundamentals, required) or result.empty:
+        return result
+    funds = fundamentals.copy()
+    funds["_known"] = funds["known_at"].map(_aware_timestamp)
+    funds["_effective"] = funds["effective_at"].map(rv._date_value)
+    funds["instrument_id"] = funds["instrument_id"].astype(str)
+    funds = funds.loc[funds["_known"].notna() & funds["_effective"].notna()]
+    conflicts: dict[str, list[str]] = {}
+    for cutoff_text, group in result.groupby("known_at", sort=False):
+        cutoff = _aware_timestamp(cutoff_text)
+        if cutoff is None:
+            continue
+        usable = funds.loc[funds["_known"].le(cutoff) & funds["_effective"].map(lambda value: value <= cutoff.date())]
+        if usable.empty:
+            continue
+        chosen: list[pd.Series] = []
+        for instrument, rows in usable.groupby("instrument_id", sort=True):
+            top = rows.loc[rows["_effective"].eq(rows["_effective"].max())]
+            top = top.loc[top["_known"].eq(top["_known"].max())]
+            values = top[score_columns].apply(pd.to_numeric, errors="coerce")
+            if len(values.drop_duplicates()) > 1:
+                conflicts.setdefault(str(cutoff_text), []).append(str(instrument))
+                continue
+            chosen.append(top.iloc[-1])
+        by_instrument = pd.DataFrame(chosen).set_index("instrument_id") if chosen else pd.DataFrame(columns=score_columns)
+        for column in score_columns:
+            result.loc[group.index, column] = pd.to_numeric(group["instrument_id"].astype(str).map(by_instrument[column]), errors="coerce")
+    result.attrs["fundamental_conflicts"] = conflicts
+    return result
+
+
+def test_attach_fundamental_evidence_matches_the_oracle() -> None:
+    funds = _evidence().rename(columns={"momentum_score": "growth"})[
+        ["instrument_id", "effective_at", "known_at", "quality_score", "value_score", "v3_score", "growth"]]
+    funds.loc[len(funds)] = ["B", "2020-01-01", "2020-01-02T00:00:00Z", "3.0", float("nan"), float("nan"), 0.5]  # text, same number
+    cutoffs = ["2019-12-01T23:00:00Z", "2019-12-02T00:00:00Z", "2020-01-02T00:00:00Z", "2020-02-02T00:00:00Z",
+               "2020-03-02T00:00:00Z", "2020-01-01", None]
+    evidence = pd.DataFrame([
+        {"instrument_id": item, "known_at": text, "effective_at": text, "quality_score": float("nan"),
+         "value_score": float("nan"), "v3_score": float("nan"), "momentum_score": 0.1}
+        for text in cutoffs for item in ("A", "B", "C", "D", "7", "E", "F", "G")
+    ])
+    conflicts = []
+    for frame in (funds, funds.iloc[::-1].reset_index(drop=True)):
+        for columns in (("quality_score", "value_score", "v3_score"), ("growth", "quality_score"), ("value_score",)):
+            expected = _oracle_attach(evidence, frame, columns)
+            got = rv.attach_fundamental_evidence(evidence, frame, columns)
+            pd.testing.assert_frame_equal(got, expected, check_exact=True)
+            assert got.attrs == expected.attrs
+            conflicts.append(expected.attrs["fundamental_conflicts"])
+    assert any(conflicts) and not all(conflicts)
+    first = evidence.iloc[:8]  # one cut-off: only row 7 is known; a new score column is created
+    pd.testing.assert_frame_equal(rv.attach_fundamental_evidence(first, funds, ("growth",)),
+                                  _oracle_attach(first, funds, ("growth",)), check_exact=True)

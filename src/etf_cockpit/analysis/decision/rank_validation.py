@@ -2016,31 +2016,29 @@ def attach_fundamental_evidence(
     result = price_evidence.copy()
     if not _has_columns(fundamentals, required) or result.empty:
         return result
-    funds = fundamentals.copy()
-    funds["_known"] = funds["known_at"].map(_aware_timestamp)
-    funds["_effective"] = funds["effective_at"].map(_date_value)
-    funds["instrument_id"] = funds["instrument_id"].astype(str)
-    funds = funds.loc[funds["_known"].notna() & funds["_effective"].notna()]
+    funds = fundamentals.assign(instrument_id=fundamentals["instrument_id"].astype(str))
+    groups = [
+        (cutoff_text, group, cutoff)
+        for cutoff_text, group in result.groupby("known_at", sort=False)
+        if (cutoff := _aware_timestamp(cutoff_text)) is not None
+    ]
+    names, rows, first, last = _latest_known_rows(
+        funds["instrument_id"], funds["effective_at"], funds["known_at"], [cutoff for _, _, cutoff in groups]
+    )
     conflicts: dict[str, list[str]] = {}
-    for cutoff_text, group in result.groupby("known_at", sort=False):
-        cutoff = _aware_timestamp(cutoff_text)
-        if cutoff is None:
+    for position, (cutoff_text, group, _) in enumerate(groups):
+        found = np.flatnonzero(last[:, position] >= 0)
+        if not len(found):
             continue
-        usable = funds.loc[funds["_known"].le(cutoff) & funds["_effective"].map(lambda value: value <= cutoff.date())]
-        if usable.empty:
-            continue
-        chosen: list[pd.Series] = []
-        for instrument, rows in usable.groupby("instrument_id", sort=True):
-            top = rows.loc[rows["_effective"].eq(rows["_effective"].max())]
-            top = top.loc[top["_known"].eq(top["_known"].max())]
-            values = top[score_columns].apply(pd.to_numeric, errors="coerce")
-            if len(values.drop_duplicates()) > 1:
-                conflicts.setdefault(str(cutoff_text), []).append(str(instrument))
+        chosen: list[int] = []
+        for code in found:  # sorted by instrument
+            start, end = first[code, position], last[code, position]
+            tied = funds.iloc[rows[start:end + 1]][score_columns] if start < end else None
+            if tied is not None and len(tied.apply(pd.to_numeric, errors="coerce").drop_duplicates()) > 1:
+                conflicts.setdefault(str(cutoff_text), []).append(str(names[code]))
                 continue
-            chosen.append(top.iloc[-1])
-        by_instrument = (
-            pd.DataFrame(chosen).set_index("instrument_id") if chosen else pd.DataFrame(columns=score_columns)
-        )
+            chosen.append(rows[end])
+        by_instrument = funds.iloc[chosen].set_index("instrument_id")
         for column in score_columns:
             result.loc[group.index, column] = pd.to_numeric(
                 group["instrument_id"].astype(str).map(by_instrument[column]), errors="coerce"
