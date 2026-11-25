@@ -16,6 +16,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+import etf_kernels
 import numpy as np
 import pandas as pd
 
@@ -270,6 +271,68 @@ def _as_traded_closes(frame: pd.DataFrame) -> Callable[[date], tuple[float | Non
     return close_on
 
 
+AsTraded = tuple[tuple[float | None, str | None], tuple[tuple[date, float], ...]]
+_KERNEL_REASONS = (  # by kernel status: the reasons close_on gives
+    None,
+    "actions_evidence_missing: as-traded valuation price is unavailable",
+    "stored valuation close is missing or non-positive",
+    "split_history_invalid: as-traded valuation price is unavailable",
+    "split_history_invalid: restored valuation price is non-finite or non-positive",
+)
+
+
+def as_traded_kernel_ready(frame: pd.DataFrame) -> bool:
+    """True when ``as_traded_prefixes`` gives what ``market_inputs`` gives for every prefix of ``frame``.
+
+    That needs one instrument's bars on strictly rising tz-naive days, numeric closes and splits, action evidence,
+    and no carried full-series factors.
+    """
+
+    if frame.empty or "as_traded_split_factor" in frame or "etf_id" in frame:
+        return False
+    if not {"date", "close", "stock_splits", "actions_evidenced"} <= set(frame.columns):
+        return False
+    if frame["close"].dtype.kind not in "fi" or frame["stock_splits"].dtype.kind not in "fi":
+        return False
+    if frame["date"].dtype.kind != "M" or frame["date"].dt.tz is not None:
+        return False
+    days = frame["date"].to_numpy(dtype="datetime64[D]")
+    return bool(not np.isnat(days).any() and (np.diff(days.astype(np.int64)) > 0).all())
+
+
+def as_traded_prefixes(frame: pd.DataFrame, versions: Sequence[tuple[int, datetime]]) -> list[AsTraded | None]:
+    """Per ``(bars_end, decision_time)``: the as-traded price close and month-end series that ``market_inputs`` derives
+    from ``frame.iloc[:bars_end]`` at ``decision_time``, in one kernel call; None when no bar is known by then.
+
+    ``frame`` must pass ``as_traded_kernel_ready``. The kernel applies the close_on checks in the same order and the
+    same left-to-right split product.
+    """
+
+    days = frame["date"].to_numpy(dtype="datetime64[D]")
+    # a stored day is known from the next midnight UTC (market_inputs)
+    cuts = np.array([pd.Timestamp(when).tz_convert("UTC").tz_localize(None) - pd.Timedelta(days=1) for _, when in versions], dtype="datetime64[ns]")
+    bars_end = np.array([end for end, _ in versions], dtype=np.int64)
+    known_end = np.minimum(bars_end, np.searchsorted(days.astype("datetime64[ns]"), cuts, side="right"))
+    decision_month = np.array([(when.year - 1970) * 12 + when.month - 1 for _, when in versions], dtype=np.int64)
+    price, status, offsets, rows, values = etf_kernels.as_traded_month_end_series(
+        frame["close"].to_numpy(dtype=float),
+        pd.to_numeric(frame["stock_splits"], errors="coerce").to_numpy(dtype=float),
+        _evidenced(frame["actions_evidenced"]),
+        days.astype("datetime64[M]").astype(np.int64),
+        bars_end,
+        known_end,
+        decision_month,
+    )
+    dates = days.astype(object)
+    return [
+        None if known_end[q] == 0 else (
+            (float(price[q]), None) if status[q] == 0 else (None, _KERNEL_REASONS[status[q]]),
+            tuple((dates[row], float(value)) for row, value in zip(rows[offsets[q]:offsets[q + 1]], values[offsets[q]:offsets[q + 1]])),
+        )
+        for q in range(len(versions))
+    ]
+
+
 def market_inputs(
     frame: pd.DataFrame,
     snapshot: Mapping[str, Any] | None,
@@ -277,8 +340,12 @@ def market_inputs(
     decision_time: datetime,
     fx: pd.DataFrame,
     config: Mapping[str, Any],
+    as_traded: AsTraded | None = None,
 ) -> MarketInputs:
-    """Decision-time valuation inputs; later splits only reverse stored price adjustments."""
+    """Decision-time valuation inputs; later splits only reverse stored price adjustments.
+
+    ``as_traded``: this frame's price close and month-end series from ``as_traded_prefixes``, else computed here.
+    """
 
     minor = (config.get("reporting", {}) or {}).get("minor_currency_units", {}) or {}
     if frame.empty:
@@ -290,8 +357,11 @@ def market_inputs(
         return MarketInputs(unavailable_reason="no stored price is known at the decision time")
     last = known.iloc[-1]
     price_date = last["date"].date()
-    close_on = _as_traded_closes(frame)
-    close, price_reason = close_on(price_date)
+    if as_traded is None:
+        close_on = _as_traded_closes(frame)
+        close, price_reason = close_on(price_date)
+    else:
+        (close, price_reason), series = as_traded
     quote = (snapshot or {}).get("quote_currency") or (str(last.get("currency")) if pd.notna(last.get("currency")) else "")
     quote_major, _factor = sm.minor_unit(str(quote), minor)
     fx_rate = None
@@ -319,16 +389,17 @@ def market_inputs(
             dividend_reason = "incomplete_dividend_year: stored dividend rows do not cover the full trailing year"
     else:
         dividend_reason = "incomplete_dividend_year: no complete trailing-year dividend observations are stored"
-    closes = known.set_index("date")["close"].dropna()
-    # the month-end reading is dated by the last stored price, not the calendar label, so filings known between the two never leak in
-    month_ends = closes.groupby(closes.index.to_period("M")).tail(1)
-    running_month = pd.Period(decision_time.date(), "M")
-    month_ends = month_ends[month_ends.index.to_period("M") < running_month]  # the decision month is still running, every earlier month is complete
-    series = tuple(
-        (index.date(), value)
-        for index in month_ends.index
-        if (value := close_on(index.date())[0]) is not None
-    )
+    if as_traded is None:
+        closes = known.set_index("date")["close"].dropna()
+        # the month-end reading is dated by the last stored price, not the calendar label, so filings known between the two never leak in
+        month_ends = closes.groupby(closes.index.to_period("M")).tail(1)
+        running_month = pd.Period(decision_time.date(), "M")
+        month_ends = month_ends[month_ends.index.to_period("M") < running_month]  # the decision month is still running, every earlier month is complete
+        series = tuple(
+            (index.date(), value)
+            for index in month_ends.index
+            if (value := close_on(index.date())[0]) is not None
+        )
     shares = sm._finite((snapshot or {}).get("shares_outstanding"))
     snap_time = sm.as_utc((snapshot or {}).get("known_at"))
     provider_cap = sm._finite((snapshot or {}).get("market_cap_provider"))

@@ -22,6 +22,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Sequence
 
+import numpy as np
 import pandas as pd
 import pyarrow
 
@@ -118,7 +119,7 @@ def _shadow_rows(root: Path, prices: pd.DataFrame) -> pd.DataFrame:
 
     from etf_cockpit.analysis import stock_metrics as sm
     from etf_cockpit.analysis.stock_evidence import build_stock_evidence
-    from etf_cockpit.analysis.stock_universe import market_inputs
+    from etf_cockpit.analysis.stock_universe import as_traded_kernel_ready, as_traded_prefixes, market_inputs
     from etf_cockpit.data import stock_fundamentals as store
 
     frame = store.read_periods(root)
@@ -145,12 +146,23 @@ def _shadow_rows(root: Path, prices: pd.DataFrame) -> pd.DataFrame:
     for instrument in sorted(frame["instrument_id"].astype(str).unique()):
         periods = store.periods_for(instrument, period_rows(instrument), chain)
         history = price_rows(instrument).sort_values("date") if price_rows is not None else traded
-        for known in sorted({period.known_at for period in periods}):
-            visible = sm.known_periods(periods, known)
-            if not visible:
-                continue
-            bars = history.loc[history["_known"] <= known].drop(columns="_known") if not history.empty else history
-            market = market_inputs(bars, store.latest_snapshot(instrument, snapshots, known), visible[-1].currency, known, fx, config)
+        versions = [(known, visible) for known in sorted({period.known_at for period in periods}) if (visible := sm.known_periods(periods, known))]
+        # stamps that never fall make each version's bars a prefix: one kernel call gives every version's as-traded closes
+        stamps = history["_known"] if not history.empty else None
+        bars_all = history.drop(columns="_known") if stamps is not None else history
+        prepared = None
+        if stamps is not None and stamps.notna().all() and stamps.is_monotonic_increasing and as_traded_kernel_ready(bars_all):
+            ends = np.searchsorted(stamps.to_numpy(dtype="datetime64[ns]"), np.array([pd.Timestamp(known).tz_convert("UTC").tz_localize(None) for known, _ in versions], dtype="datetime64[ns]"), side="right")
+            prepared = as_traded_prefixes(bars_all, [(int(end), known) for end, (known, _) in zip(ends, versions)])
+        for index, (known, visible) in enumerate(versions):
+            if prepared is None:
+                bars = history.loc[history["_known"] <= known].drop(columns="_known") if not history.empty else history
+            else:
+                bars = bars_all.iloc[: ends[index]]
+            market = market_inputs(
+                bars, store.latest_snapshot(instrument, snapshots, known), visible[-1].currency, known, fx, config,
+                None if prepared is None else prepared[index],
+            )
             metrics = build_stock_evidence(instrument, periods, known, market, None, config).metrics
             row: dict[str, object] = {
                 "instrument_id": instrument, "effective_at": visible[-1].period_end.isoformat(), "known_at": known.isoformat(),
