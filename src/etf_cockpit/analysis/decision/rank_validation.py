@@ -233,6 +233,70 @@ def _rank_validation_policy_for_content(content: bytes) -> RankValidationPolicy:
     )
 
 
+class ReplayInputs:
+    """Membership, price and cost frames shared by the replays and factor fits of one window.
+
+    Each part is parsed on first use and then kept, with the forward return of each (instrument, cut-off, target
+    session) once computed.  The frames are read only and must not change while the object is in use.
+    """
+
+    def __init__(self, memberships: pd.DataFrame, prices: pd.DataFrame, costs: pd.DataFrame) -> None:
+        self.memberships, self.prices, self.costs = memberships, prices, costs
+        self._snapshots: tuple[pd.DataFrame, dict[object, np.ndarray]] | None = None
+        self._price_stamps: tuple[pd.Series, pd.Series] | None = None
+        self._sessions: list[date] | None = None
+        self._positions: dict[object, np.ndarray] | None = None
+        self._forward: dict[tuple[str, str, date | None], tuple[float | None, str]] = {}
+
+    def membership_snapshots(self) -> tuple[pd.DataFrame, dict[object, np.ndarray]]:
+        """Parsed membership copy and its row positions per snapshot date."""
+        if self._snapshots is None:
+            frame = self.memberships.copy()
+            frame["_known_at"] = _map_repeated(frame["known_at"], _aware_timestamp)
+            frame["_valid_from"] = _map_repeated(frame["valid_from"], _date_value)
+            frame["_valid_to"] = _map_repeated(frame["valid_to"], _optional_date_value)
+            frame["_snapshot_date"] = _map_repeated(frame["snapshot_date"], _date_value)
+            self._snapshots = frame, frame.groupby("_snapshot_date", sort=False).indices
+        return self._snapshots
+
+    def identifiers_complete(self) -> bool:
+        return not any(frame["instrument_id"].isna().any() for frame in (self.memberships, self.prices, self.costs))
+
+    def _stamps(self) -> tuple[pd.Series, pd.Series]:
+        if self._price_stamps is None:
+            self._price_stamps = (_map_repeated(self.prices["known_at"], _aware_timestamp),
+                                  _map_repeated(self.prices["date"], _date_value))
+        return self._price_stamps
+
+    def sessions(self) -> list[date]:
+        """Sorted distinct price session dates of all instruments."""
+        if self._sessions is None:
+            self._sessions = sorted(self._stamps()[1].dropna().unique())
+        return self._sessions
+
+    def forward_returns(
+        self, queries: Sequence[tuple[str, str, pd.Timestamp, date | None]],
+    ) -> dict[tuple[str, str, date | None], tuple[float | None, str]]:
+        """Forward return per (instrument, cut-off text, cut-off, target session); missing ones in one call per instrument."""
+        if self._positions is None:
+            # row positions only: one instrument's rows are taken when needed, not a copy of every group at once
+            self._positions = self.prices.groupby(self.prices["instrument_id"].astype(str), sort=False).indices
+        missing: dict[str, dict[tuple[str, date | None], pd.Timestamp]] = {}
+        for instrument, text, cutoff, target in queries:
+            if (instrument, text, target) not in self._forward:
+                missing.setdefault(instrument, {})[(text, target)] = cutoff
+        known, dates = self._stamps()
+        for instrument, wanted in missing.items():
+            keys = sorted(wanted, key=lambda item: item[0])
+            positions = self._positions.get(instrument, np.empty(0, dtype=np.int64))
+            rows = self.prices.iloc[positions].assign(
+                _known_at=known.iloc[positions].to_numpy(), _date=dates.iloc[positions].to_numpy()
+            )
+            results = _forward_returns(rows, [wanted[key] for key in keys], [target for _, target in keys])
+            self._forward.update(((instrument, text, target), result) for (text, target), result in zip(keys, results))
+        return self._forward
+
+
 def replay_rank_panel(
     evidence: pd.DataFrame,
     memberships: pd.DataFrame,
@@ -246,6 +310,7 @@ def replay_rank_panel(
     policy_path: str | Path = _DEFAULT_POLICY_PATH,
     domain_config_path: str | Path = _DEFAULT_DOMAIN_PATH,
     opportunity_config_path: str | Path = _DEFAULT_OPPORTUNITY_PATH,
+    inputs: ReplayInputs | None = None,
 ) -> RankReplayReport:
     """Freeze ranks from PIT memberships/evidence, then attach net forward outcomes.
 
@@ -255,6 +320,8 @@ def replay_rank_panel(
     member, is returned as insufficient; current membership is never queried.
     Costs must come from ISSUE-0128's ``execution-cost-v1`` estimate and be
     supplied as explicit round-trip basis points known by each cutoff.
+    ``inputs`` (built from these memberships, prices and costs) shares their
+    parsing and forward returns between replays.
     """
 
     active_policy = policy or load_rank_validation_policy(policy_path)
@@ -275,21 +342,13 @@ def replay_rank_panel(
         return _empty_replay(config_hashes, config_versions, "dated ISSUE-0128 round-trip costs are unavailable")
 
     evidence_frame = evidence.copy()
-    membership_frame = memberships.copy()
-    price_frame = prices.copy()
-    cost_frame = costs.copy()
-    for frame, column in ((evidence_frame, "known_at"), (evidence_frame, "effective_at"),
-                          (membership_frame, "known_at"), (price_frame, "known_at"),
-                          (cost_frame, "known_at")):
-        frame[f"_{column}"] = _map_repeated(frame[column], _aware_timestamp)
+    for column in ("known_at", "effective_at"):
+        evidence_frame[f"_{column}"] = _map_repeated(evidence_frame[column], _aware_timestamp)
     evidence_frame["_effective_date"] = _map_repeated(evidence_frame["effective_at"], _date_value)
-    membership_frame["_valid_from"] = _map_repeated(membership_frame["valid_from"], _date_value)
-    membership_frame["_valid_to"] = _map_repeated(membership_frame["valid_to"], _optional_date_value)
-    membership_frame["_snapshot_date"] = _map_repeated(membership_frame["snapshot_date"], _date_value)
-    price_frame["_date"] = _map_repeated(price_frame["date"], _date_value)
-    for frame in (evidence_frame, membership_frame, price_frame, cost_frame):
-        if frame["instrument_id"].isna().any() if "instrument_id" in frame else False:
-            return _empty_replay(config_hashes, config_versions, "instrument identifiers are incomplete")
+    shared = inputs or ReplayInputs(memberships, prices, costs)
+    membership_frame, snapshot_rows = shared.membership_snapshots()
+    if evidence_frame["instrument_id"].isna().any() or not shared.identifiers_complete():
+        return _empty_replay(config_hashes, config_versions, "instrument identifiers are incomplete")
 
     # Ranks are materialized first. Forward prices and cost outcomes are joined
     # only after every per-date cross-section has been frozen.
@@ -301,7 +360,7 @@ def replay_rank_panel(
     for position, cutoff in enumerate(parsed_times):
         cutoff_text = cutoff.isoformat().replace("+00:00", "Z")
         decision_day = cutoff.date()
-        snapshot = membership_frame.loc[membership_frame["_snapshot_date"].eq(decision_day)].copy()
+        snapshot = membership_frame.iloc[snapshot_rows.get(decision_day, [])].copy()
         if snapshot.empty or not snapshot["snapshot_complete"].map(_true_flag).all():
             insufficient[cutoff_text] = "dated_membership_snapshot_missing_or_incomplete"
             continue
@@ -399,7 +458,7 @@ def replay_rank_panel(
             reason="no decision date has a complete point-in-time universe and evidence panel",
         )
 
-    all_sessions = sorted(price_frame["_date"].dropna().unique())
+    all_sessions = shared.sessions()
     holding = active_policy.holding_period_sessions
     records = frozen.to_dict("records")
     cutoffs = {str(text): pd.Timestamp(text) for text in frozen["decision_time"].unique()}
@@ -407,23 +466,12 @@ def replay_rank_panel(
         text: all_sessions[position] if (position := bisect_right(all_sessions, cutoff.date()) + holding - 1) < len(all_sessions) else None
         for text, cutoff in cutoffs.items()
     }
-    pairs: dict[str, list[str]] = {}
-    for item in records:
-        pairs.setdefault(str(item["instrument_id"]), []).append(str(item["decision_time"]))
-    price_ids = price_frame["instrument_id"].astype(str)
-    # row positions only: one instrument's rows are taken when needed, not a second copy of every group at once
-    positions_by_id = price_frame.groupby(price_ids, sort=False).indices
-    forward: dict[tuple[str, str], tuple[float | None, str]] = {}
-    for instrument, texts in pairs.items():
-        texts = sorted(set(texts))
-        positions = positions_by_id.get(instrument)
-        results = _forward_returns(
-            price_frame.iloc[0:0] if positions is None else price_frame.iloc[positions],
-            [cutoffs[text] for text in texts], [target_sessions[text] for text in texts],
-        )
-        forward.update(((instrument, text), result) for text, result in zip(texts, results))
+    forward = shared.forward_returns(
+        [(str(item["instrument_id"]), text, cutoffs[text], target_sessions[text])
+         for item in records for text in [str(item["decision_time"])]]
+    )
     round_trip_costs = _point_in_time_costs(
-        cost_frame, [str(item["instrument_id"]) for item in records],
+        costs, [str(item["instrument_id"]) for item in records],
         [cutoffs[str(item["decision_time"])] for item in records],
     )
     comparators = {
@@ -435,7 +483,7 @@ def replay_rank_panel(
         instrument = str(item["instrument_id"])
         target = target_sessions[str(item["decision_time"])]
         window_end = target.isoformat() if target is not None else None
-        gross, outcome_status = forward[(instrument, str(item["decision_time"]))]
+        gross, outcome_status = forward[(instrument, str(item["decision_time"]), target)]
         if outcome_status == "available" and cost is None:
             outcome_status = "round_trip_cost_unavailable"
         net = max(-1.0, gross - float(cost) / 10_000.0) if gross is not None and cost is not None else None
@@ -2111,11 +2159,14 @@ def run_stored_rank_validation(
     *,
     policy: RankValidationPolicy,
     holdout_fraction: float = _HOLDOUT_FRACTION,
+    inputs: ReplayInputs | None = None,
 ) -> tuple[RankReplayReport, RankValidationReport]:
     """Fix the holdout from requested dates, then replay and validate.
 
     A terminal holdout date the replay could not cover stays in the holdout and
     makes the validation insufficient; the boundary never moves to covered dates.
+    ``inputs`` shares the parsed memberships/prices/costs between the replays of
+    one window; it must be built from these frames (prices carrying ``known_at``).
     """
 
     holdout = fixed_terminal_holdout(decision_times, fraction=holdout_fraction)
@@ -2123,7 +2174,7 @@ def run_stored_rank_validation(
     stamped = prices if "known_at" in prices.columns else with_price_stamps(prices)
     replay = replay_rank_panel(
         evidence, memberships, stamped, costs, benchmark_returns, cash_returns,
-        decision_times, policy=policy,
+        decision_times, policy=policy, inputs=inputs,
     )
     if not holdout:
         return replay, _empty_validation(

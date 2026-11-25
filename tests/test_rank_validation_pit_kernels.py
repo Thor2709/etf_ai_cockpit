@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from dataclasses import fields, replace
+import math
+
 import pandas as pd
 
 from etf_cockpit.analysis.decision import rank_validation as rv
@@ -212,3 +215,59 @@ def test_attach_fundamental_evidence_matches_the_oracle() -> None:
     first = evidence.iloc[:8]  # one cut-off: only row 7 is known; a new score column is created
     pd.testing.assert_frame_equal(rv.attach_fundamental_evidence(first, funds, ("growth",)),
                                   _oracle_attach(first, funds, ("growth",)), check_exact=True)
+
+
+def _replay_frames(names: int = 6, sessions: int = 30) -> dict[str, object]:
+    days = [item.date() for item in pd.bdate_range("2024-01-02", periods=sessions)]
+    decisions = days[5:20:3]
+    prices = pd.DataFrame([
+        {"instrument_id": f"I{item}", "date": day, "known_at": f"{day.isoformat()}T23:59:59Z",
+         "adjusted_close": 100.0 + item + 3.0 * math.sin(index / (2.0 + item)), "delisted": item == 5 and index == 16}
+        for item in range(names) for index, day in enumerate(days)
+    ])
+    memberships = pd.DataFrame([
+        {"instrument_id": f"I{item}", "valid_from": "2023-01-01", "valid_to": None, "known_at": f"{day.isoformat()}T00:00:00Z",
+         "snapshot_date": day.isoformat(), "snapshot_complete": True}
+        for day in days for item in range(names)
+    ])
+    costs = pd.DataFrame([{"instrument_id": f"I{item}", "known_at": "2023-12-01T00:00:00Z", "round_trip_cost_bps": 10.0 + item,
+                           "cost_model_id": COST_MODEL_ID} for item in range(names)])
+    texts = [f"{day.isoformat()}T23:59:59Z" for day in decisions]
+    comparator = pd.DataFrame([{"decision_date": day.isoformat(), "net_return": 0.001} for day in decisions])
+
+    def evidence(shift: float) -> pd.DataFrame:
+        return pd.DataFrame([
+            {"instrument_id": f"I{item}", "effective_at": text, "known_at": text, "quality_score": (item * shift) % 1,
+             "value_score": (item * 0.37 + shift) % 1, "momentum_score": (item * 0.61) % 1, "v3_score": (item * shift * 0.7) % 1,
+             "sector": "s", "size_bucket": "large", "size_value": 1.0 + item}
+            for text in texts for item in range(names)
+        ])
+
+    policy = replace(rv.load_rank_validation_policy(), holding_period_sessions=3, minimum_universe_support=3, top_n=2)
+    return {"evidence": [evidence(0.3), evidence(0.8)], "memberships": memberships, "prices": prices, "costs": costs,
+            "comparator": comparator, "times": texts, "policy": policy}
+
+
+def test_replays_sharing_inputs_equal_separate_replays(monkeypatch) -> None:
+    frames = _replay_frames()
+    calls: list[int] = []
+    forward = rv._forward_returns
+    monkeypatch.setattr(rv, "_forward_returns", lambda frame, *args: calls.append(len(frame)) or forward(frame, *args))
+
+    def run(evidence, inputs=None):
+        return rv.replay_rank_panel(evidence, frames["memberships"], frames["prices"], frames["costs"], frames["comparator"],
+                                    frames["comparator"], frames["times"], policy=frames["policy"], inputs=inputs)
+
+    separate = [run(item) for item in frames["evidence"]]
+    separate_calls = len(calls)
+    shared = rv.ReplayInputs(frames["memberships"], frames["prices"], frames["costs"])
+    together = [run(item, shared) for item in frames["evidence"]]
+    assert separate_calls == 12 and len(calls) - separate_calls == 6  # the second shared replay reuses every forward return
+    for one, two in zip(separate, together):
+        assert one.status == "complete" and not one.rows.empty
+        for item in fields(one):
+            left, right = getattr(one, item.name), getattr(two, item.name)
+            if isinstance(left, pd.DataFrame):
+                pd.testing.assert_frame_equal(left, right, check_exact=True)
+            else:
+                assert left == right
