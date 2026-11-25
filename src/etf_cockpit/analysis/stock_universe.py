@@ -476,7 +476,8 @@ def build_universe_evidence(
     records = [record for record in records if not record.invalid_lifecycle and (record.lifecycle_date is None or decision_time.date() <= record.lifecycle_date)]
     cfg = dict(config) if config is not None else store.load_stock_config(root)
     chain = list((cfg.get("sources", {}) or {}).get("chain", ["sec_edgar", "esef", "yfinance"]))
-    periods_frame, built = _read_fundamentals(root, chain)
+    periods_frame, built, run_blocks = _read_fundamentals(root, chain)
+    blocks = run_blocks.setdefault(repr(cfg), {})  # flow and balance metrics per known version set, for this config
     snapshots = store.read_snapshots(root)
     fx = store.read_fx(root)
     # each frame is grouped by id once (the same rows as a per-id filter of the whole frame)
@@ -490,6 +491,7 @@ def build_universe_evidence(
     all_records = list(records) + [StockRecord(f"peer:{p}", p, p, "", "", "") for p in extra_ids]
     first: dict[str, StockEvidence] = {}
     analysts: dict[str, Mapping[str, Any] | None] = {}
+    reasons: dict[str, str | None] = {}
     for record in all_records:
         iid = record.instrument_id
         periods = built.get(iid)
@@ -507,15 +509,18 @@ def build_universe_evidence(
             market = _market_from_snapshot(snapshot, decision_time)
         else:
             frame = _price_frame(price_rows(iid), iid)
-            market = market_inputs(frame, snapshot, reporting, decision_time, fx, cfg)
-        reason = store.no_data_reason(iid, snapshot_rows(iid), decision_time, bool(known))
+            # one id per frame: without the id column it may take the kernel; frames with carried factors take today's path
+            bars = frame if "as_traded_split_factor" in frame else frame.drop(columns="etf_id", errors="ignore")
+            as_traded = as_traded_prefixes(bars, [(len(bars), decision_time)])[0] if as_traded_kernel_ready(bars) else None
+            market = market_inputs(frame, snapshot, reporting, decision_time, fx, cfg, as_traded)
+        reason = reasons[iid] = store.no_data_reason(iid, snapshot_rows(iid), decision_time, bool(known))
         result.snapshots[iid] = snapshot or {}
         result.periods[iid] = known
         result.prices[iid] = market
         result.names[iid] = (snapshot or {}).get("long_name") if iid.startswith("peer:") and snapshot else record.name
         profile = result.profiles[iid] = _profile(record, snapshot, fx, cfg, decision_time)
         first[iid] = build_stock_evidence(iid, periods, decision_time, market, analyst_inputs(analyst), cfg, no_data_reason=reason,
-                                          sector=getattr(profile, "sector", None), industry=getattr(profile, "industry", None))
+                                          sector=getattr(profile, "sector", None), industry=getattr(profile, "industry", None), blocks=blocks)
     stale_days = int((cfg.get("reporting", {}) or {}).get("max_balance_staleness_days", 400))
     peer_values = {
         key: {
@@ -560,8 +565,8 @@ def build_universe_evidence(
             cohorts[level] = cohort_buckets[bucket]
         result.evidence[iid] = with_sector_route(build_stock_evidence(
             iid, periods, decision_time, result.prices[iid], analyst_inputs(analysts[iid]), cfg,
-            peer_values=scoped, cohort_values=cohorts, no_data_reason=store.no_data_reason(iid, snapshot_rows(iid), decision_time, bool(sm.known_periods(periods, decision_time))),
-            sector=getattr(profile, "sector", None), industry=getattr(profile, "industry", None),
+            peer_values=scoped, cohort_values=cohorts, no_data_reason=reasons[iid],
+            sector=getattr(profile, "sector", None), industry=getattr(profile, "industry", None), blocks=blocks,
         ), getattr(profile, "sector", None), getattr(profile, "industry", None))
     for pid, evidence in first.items():
         if pid.startswith("peer:"):
@@ -625,8 +630,9 @@ def _file_stamp(path: Path) -> tuple[str, int, int] | None:
     return str(path), stat.st_mtime_ns, stat.st_size
 
 
-def _read_fundamentals(root: Path | None, chain: Sequence[str]) -> tuple[pd.DataFrame, dict[str, list[sm.Period]]]:
-    """The fundamentals rows, and the ``periods_for`` results already built from this file state.
+def _read_fundamentals(root: Path | None, chain: Sequence[str]) -> tuple[pd.DataFrame, dict[str, list[sm.Period]], dict[str, Any]]:
+    """The fundamentals rows, the ``periods_for`` results already built from this file state, and the evidence blocks
+    built from those periods (``build_stock_evidence(blocks=)``, one dict per config).
 
     ``periods_for`` has no decision-time input, so later sessions of a run reuse them. They are shared only when the
     file did not change during the read; a new file state starts empty.
@@ -636,13 +642,13 @@ def _read_fundamentals(root: Path | None, chain: Sequence[str]) -> tuple[pd.Data
     stamp = _file_stamp(path)
     frame = store.read_fundamentals(root)
     if stamp is None or stamp != _file_stamp(path):
-        return frame, {}
+        return frame, {}, {}
     key = (stamp, tuple(chain))
     with _LOCK:
         if _PERIODS.get("key") != key:
             _PERIODS.clear()
-            _PERIODS.update(key=key, periods={})
-        return frame, _PERIODS["periods"]
+            _PERIODS.update(key=key, periods={}, blocks={})
+        return frame, _PERIODS["periods"], _PERIODS["blocks"]
 
 
 def get_universe_evidence(
