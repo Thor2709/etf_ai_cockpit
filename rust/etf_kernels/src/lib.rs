@@ -8,6 +8,8 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use rayon::prelude::*;
 
+mod momentum;
+
 fn groups(n: usize, offsets: &[i64]) -> PyResult<Vec<(usize, usize)>> {
     if offsets.first() != Some(&0) || offsets.last().map(|&e| e as usize) != Some(n) || offsets.windows(2).any(|w| w[0] > w[1]) {
         return Err(PyValueError::new_err("offsets must rise from 0 to the row count"));
@@ -316,5 +318,6 @@ fn etf_kernels(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(ewm_mean, m)?)?;
     m.add_function(wrap_pyfunction!(rolling_median, m)?)?;
     m.add_function(wrap_pyfunction!(nancorr, m)?)?;
+    m.add_function(wrap_pyfunction!(momentum::momentum_risk_at_cutoffs, m)?)?;
     Ok(())
 }

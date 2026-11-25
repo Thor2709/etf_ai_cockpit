@@ -22,6 +22,7 @@ from pathlib import Path
 from statistics import NormalDist, fmean, stdev
 from typing import Any
 
+import etf_kernels
 import numpy as np
 import pandas as pd
 import yaml
@@ -1701,13 +1702,11 @@ def with_price_stamps(prices: pd.DataFrame) -> pd.DataFrame:
     A stored close table without a knowledge timestamp may have been downloaded
     or revised long after its session date, so no timestamp is ever derived from
     the session date.  Rows without a verifiable ``known_at`` never enter a
-    cutoff; ``price_knowledge_gap`` names the reason.
+    cutoff; ``price_knowledge_gap`` names the reason.  A frame that has the
+    column is returned itself, not copied: callers must not change it.
     """
 
-    frame = prices.copy()
-    if "known_at" not in frame.columns:
-        frame["known_at"] = None
-    return frame
+    return prices if "known_at" in prices.columns else prices.assign(known_at=None)
 
 
 def price_knowledge_gap(prices: pd.DataFrame) -> str | None:
@@ -1733,7 +1732,7 @@ def window_coverage(prices: pd.DataFrame, years: int, *, end: date | None = None
 
     if not _has_columns(prices, {"instrument_id", "date"}) or prices.empty:
         return {"requested_years": years, "sufficient": False, "reason": "stored_prices_unavailable"}
-    sessions = sorted({item for item in prices["date"].map(_date_value) if item is not None})
+    sessions = sorted(set(_map_repeated(prices["date"], _date_value).dropna()))
     if not sessions:
         return {"requested_years": years, "sufficient": False, "reason": "stored_prices_unavailable"}
     last = end or sessions[-1]
@@ -1771,7 +1770,7 @@ def window_decision_times(
 
     if not _has_columns(prices, {"instrument_id", "date"}) or prices.empty:
         return (), {"window": "stored_prices_unavailable"}
-    sessions = sorted({item for item in prices["date"].map(_date_value) if item is not None})
+    sessions = sorted(set(_map_repeated(prices["date"], _date_value).dropna()))
     if not sessions:
         return (), {"window": "stored_prices_unavailable"}
     last = end or sessions[-1]
@@ -1810,6 +1809,46 @@ def _latest_price_rows(
     return latest.drop_duplicates("_date", keep="last")
 
 
+_KERNEL_REASONS = {3: "invalid_price_rows", 4: "insufficient_price_history", 5: "stale_last_close"}
+_MISSING = np.iinfo(np.int64).min  # not None: pandas turns ints mixed with None into float64, which drops nanoseconds
+
+
+def _date_ordinal(value: object) -> int:
+    day = _date_value(value)
+    return _MISSING if day is None else day.toordinal()
+
+
+def _stamp_ns(value: object) -> int:
+    stamp = _aware_timestamp(value)
+    return _MISSING if stamp is None else stamp.value
+
+
+def _unsorted_series_evidence(
+    group: pd.DataFrame, cutoff: pd.Timestamp, needed: int,
+) -> str | tuple[list[float], float] | None:
+    """One instrument at one cut-off from its rows known then (a revision or late stamp: not a prefix of its rows)."""
+
+    from etf_cockpit.features.momentum import momentum
+    from etf_cockpit.features.returns import daily_log_returns
+    from etf_cockpit.features.volatility import realised_volatility
+
+    known = group.loc[group["_known"].le(cutoff) & group["_date"].map(lambda value: value <= cutoff.date())]
+    if known.empty:
+        return None
+    series = _latest_price_rows(known)
+    if series is None:
+        return "conflicting_price_rows"
+    if not series["_close"].gt(0).all():
+        return "invalid_price_rows"
+    if len(series) < needed:
+        return "insufficient_price_history"
+    if (cutoff.date() - series["_date"].iloc[-1]).days > _MAX_PRICE_STALENESS_DAYS:
+        return "stale_last_close"
+    close = series.set_index("_date")["_close"].astype(float)
+    moves = [float(momentum(close, horizon).iloc[-1]) for horizon in _MOMENTUM_HORIZONS]
+    return moves, float(realised_volatility(daily_log_returns(close), _RISK_WINDOW_SESSIONS).iloc[-1])
+
+
 def price_momentum_risk_evidence(
     prices: pd.DataFrame,
     decision_times: Sequence[datetime | date | str],
@@ -1821,6 +1860,11 @@ def price_momentum_risk_evidence(
     cross-sectional percentile ranks at each cutoff (risk inverted so a higher
     score means lower risk).  Instruments without the full lookback or with a
     stale last close are omitted and listed per cutoff; nothing is filled.
+
+    Both indicators are causal, so each is computed once over all rows of an
+    instrument and read at its last row known at the cut-off.  The compiled
+    kernel finds that row when the known rows are a prefix of the instrument's
+    rows; otherwise the instrument is evaluated from its rows known at that cut-off.
     """
 
     from etf_cockpit.features.momentum import momentum
@@ -1838,42 +1882,71 @@ def price_momentum_risk_evidence(
             _cutoff_text(item): {"all_instruments": "price_known_at_unverifiable"}
             for item in _decision_times(decision_times)
         }
-    frame["_date"] = frame["date"].map(_date_value)
-    frame["_known"] = frame["known_at"].map(_aware_timestamp)
-    frame["_close"] = pd.to_numeric(frame["adjusted_close"], errors="coerce")
-    # Invalid closes stay in the frame so conflict detection sees them; selected invalid evidence fails closed below.
-    frame = frame.loc[frame["_date"].notna() & frame["_known"].notna()]
+    cutoffs = _decision_times(decision_times)
+    days = _map_repeated(frame["date"], _date_ordinal).to_numpy(dtype=np.int64)
+    stamps = _map_repeated(frame["known_at"], _stamp_ns).to_numpy(dtype=np.int64)
+    # Invalid closes stay in so conflict detection sees them; selected invalid evidence fails closed below.
+    keep = (days != _MISSING) & (stamps != _MISSING)  # arrays only: no copy of the whole frame
+    codes, names = pd.factorize(frame["instrument_id"].astype(str).to_numpy()[keep], sort=True)
+    day, stamp = days[keep], stamps[keep]
+    numeric = pd.to_numeric(frame["adjusted_close"], errors="coerce")
+    close = numeric.to_numpy(dtype=float, na_value=np.nan)[keep]
+    order = np.lexsort((stamp, day, codes))
+    offsets = np.concatenate(([0], np.cumsum(np.bincount(codes, minlength=len(names))))).astype(np.int64)
     needed = lookback_sessions_required()
+    entry, status = etf_kernels.momentum_risk_at_cutoffs(
+        day[order], stamp[order], close[order], offsets,
+        np.array([cutoff.date().toordinal() for cutoff in cutoffs], dtype=np.int64),
+        np.array([cutoff.value for cutoff in cutoffs], dtype=np.int64),
+        needed, _MAX_PRICE_STALENESS_DAYS,
+    )
+    flat = pd.Series(close[order])
+    with np.errstate(divide="ignore", invalid="ignore"):  # bad closes outside a read window are never read
+        # momentum crosses instruments only at rows without the full lookback, which are never read
+        moves = np.column_stack([momentum(flat, horizon).to_numpy() for horizon in _MOMENTUM_HORIZONS])
+        returns = daily_log_returns(flat)
+    returns.iloc[offsets[:-1]] = np.nan  # an instrument's first return has no earlier close of its own
+    vols = realised_volatility(returns, _RISK_WINDOW_SESSIONS, offsets=offsets).to_numpy()
+    unsorted: dict[int, pd.DataFrame] = {}
+    if (status == 2).any():
+        mask = np.isin(codes, np.flatnonzero((status == 2).any(axis=1)))
+        where = np.flatnonzero(keep)[mask]
+        rows = pd.DataFrame({
+            "_date": frame["date"].iloc[where].map(_date_value).to_numpy(),
+            "_known": frame["known_at"].iloc[where].map(_aware_timestamp).to_numpy(),
+            "_close": numeric.iloc[where].to_numpy(),
+        })
+        unsorted = {int(code): group for code, group in rows.groupby(codes[mask], sort=False)}
     records: list[dict[str, object]] = []
-    for cutoff in _decision_times(decision_times):
+    for position, cutoff in enumerate(cutoffs):
         text = cutoff.isoformat().replace("+00:00", "Z")
-        known = frame.loc[frame["_known"].le(cutoff) & frame["_date"].map(lambda value: value <= cutoff.date())]
         cross: list[dict[str, object]] = []
         reasons: dict[str, str] = {}
-        for instrument, group in known.groupby(known["instrument_id"].astype(str), sort=True):
-            series = _latest_price_rows(group)
-            if series is None:
-                reasons[str(instrument)] = "conflicting_price_rows"
+        for code, instrument in enumerate(names):
+            kind = int(status[code, position])
+            if kind == 1:
                 continue
-            if not series["_close"].gt(0).all():
-                reasons[str(instrument)] = "invalid_price_rows"
+            result: str | tuple[list[float], float] | None
+            if kind == 0:
+                row = int(entry[code, position])
+                result = [float(item) for item in moves[row]], float(vols[row])
+            elif kind == 2:
+                result = _unsorted_series_evidence(unsorted[code], cutoff, needed)
+            else:
+                result = _KERNEL_REASONS[kind]
+            if result is None:
                 continue
-            if len(series) < needed:
-                reasons[str(instrument)] = "insufficient_price_history"
+            if isinstance(result, str):
+                reasons[instrument] = result
                 continue
-            if (cutoff.date() - series["_date"].iloc[-1]).days > _MAX_PRICE_STALENESS_DAYS:
-                reasons[str(instrument)] = "stale_last_close"
-                continue
-            close = series.set_index("_date")["_close"].astype(float)
-            moves = [float(momentum(close, horizon).iloc[-1]) for horizon in _MOMENTUM_HORIZONS]
-            vol = float(realised_volatility(daily_log_returns(close), _RISK_WINDOW_SESSIONS).iloc[-1])
-            if not all(math.isfinite(item) for item in (*moves, vol)):
-                reasons[str(instrument)] = "non_finite_indicator"
+            values, vol = result
+            if not all(math.isfinite(item) for item in (*values, vol)):
+                reasons[instrument] = "non_finite_indicator"
                 continue
             cross.append(
                 {
-                    "instrument_id": str(instrument),
-                    "momentum_raw": math.fsum(w * m for w, m in zip(_MOMENTUM_WEIGHTS, moves)),
+                    "instrument_id": instrument,
+                    "momentum_raw": math.fsum(w * m for w, m in zip(_MOMENTUM_WEIGHTS, values)),
                     "volatility_raw": vol,
                 }
             )
@@ -1968,10 +2041,16 @@ def forward_comparator_frame(
 
     rows: list[dict[str, object]] = []
     if _has_columns(prices, {"instrument_id", "date", "adjusted_close"}):
-        frame = with_price_stamps(prices)
-        frame["_date"] = frame["date"].map(_date_value)
-        for cutoff in _decision_times(decision_times):
-            value, status = _forward_return(frame, str(instrument_id), cutoff, holding_period_sessions)
+        cutoffs = _decision_times(decision_times)
+        dates = _map_repeated(prices["date"], _date_value)
+        sessions = sorted(set(dates.dropna()))  # the target session counts sessions of all instruments
+        targets = []
+        for cutoff in cutoffs:
+            position = bisect_right(sessions, cutoff.date()) + holding_period_sessions - 1
+            targets.append(sessions[position] if position < len(sessions) else None)
+        own = prices["instrument_id"].astype(str).eq(str(instrument_id)).to_numpy()
+        frame = with_price_stamps(prices.loc[own]).assign(_date=dates.to_numpy()[own])
+        for cutoff, (value, status) in zip(cutoffs, _forward_returns(frame, cutoffs, targets)):
             if value is not None and status.startswith("available"):
                 rows.append({"decision_date": cutoff.date().isoformat(), "net_return": float(value)})
     return pd.DataFrame(rows, columns=["decision_date", "net_return"])
