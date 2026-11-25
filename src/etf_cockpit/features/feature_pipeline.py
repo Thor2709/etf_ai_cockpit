@@ -7,7 +7,7 @@ from datetime import date, datetime
 import numpy as np
 import pandas as pd
 
-from etf_cockpit.data.fx_data import EurRateBook, major_currency
+from etf_cockpit.data.fx_data import EurRateBook, eur_rate_book, major_currency
 from etf_cockpit.features.drawdown import drawdown, rolling_max_drawdown
 from etf_cockpit.features.liquidity import liquidity_score
 from etf_cockpit.features.momentum import momentum, weighted_momentum
@@ -97,7 +97,7 @@ def _resolve_quote_currencies(
         configured = major_currency(configured_currency.get(key))
         row_currencies: set[str] = set()
         if "currency" in group.columns:
-            row_currencies = {code for code in group["currency"].map(major_currency).dropna().unique()}
+            row_currencies = {code for code in map(major_currency, group["currency"].unique()) if code is not None}
         if len(row_currencies) > 1 or (configured is not None and row_currencies and row_currencies != {configured}):
             problems[key] = (
                 f"{FX_UNAVAILABLE_REASON}: price rows carry quote currency "
@@ -134,7 +134,7 @@ def fx_basis_binding(
     days = _session_days(prices["date"]).dropna()
     if days.empty:
         return binding
-    binding["fx_snapshot_checksum"] = EurRateBook(fx_rates, known_by=known_by).identity(min(days), max(days))
+    binding["fx_snapshot_checksum"] = eur_rate_book(fx_rates, known_by=known_by).identity(min(days), max(days))
     return binding
 
 
@@ -186,7 +186,7 @@ def eur_basis_prices(
         if currency == "EUR":
             continue
         if book is None:
-            book = EurRateBook(fx_rates, known_by=known_by)
+            book = eur_rate_book(fx_rates, known_by=known_by)
         series = book.series(currency, sorted(set(valid_days)))
         rate = member_days.map(series.rates.to_dict()).astype(float)
         frame.loc[group.index, "adjusted_close"] = frame.loc[group.index, "adjusted_close"] * rate

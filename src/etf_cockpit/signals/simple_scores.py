@@ -46,8 +46,8 @@ from etf_cockpit.data.classification import classification_score_state
 from etf_cockpit.data.fx_data import (
     MINOR_UNIT_MAJOR_CURRENCY,
     FxRateSnapshot,
-    build_fx_rate_snapshot,
     fx_cross_rate,
+    fx_rate_snapshot,
     fx_rates_for_prices,
     load_fx_rates,
 )
@@ -5149,7 +5149,7 @@ def _liquidity_fx_snapshot(fx_state: dict[str, object], row_day: date, known_at:
             fx_state["frame"] = frame
         if not isinstance(frame, pd.DataFrame):
             frame = pd.DataFrame()
-        snapshots[cache_key] = build_fx_rate_snapshot(frame, decision_time=row_day, known_at=known_at)
+        snapshots[cache_key] = fx_rate_snapshot(frame, decision_time=row_day, known_at=known_at)  # run memo in a backfill
     return snapshots[cache_key]
 
 

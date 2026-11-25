@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import bisect
+import copy
 import hashlib
 import json
 import math
@@ -574,6 +575,9 @@ class EurRateBook:
         self._by_date: dict[date, pd.DataFrame] = {}
         self._dates: list[date] = []
         self._days: dict[date, _QuoteDay] = {}
+        self._rate_memo: dict[tuple[str, date], tuple[float | None, str | None]] | None = None  # run book only
+        self._memo_until: date | None = None
+        self._row_ends: np.ndarray = np.zeros(0, dtype=np.int64)
         try:
             self._prepare(fx, known_by)
         except Exception as exc:  # malformed frames fail closed with an explicit reason
@@ -684,7 +688,35 @@ class EurRateBook:
             reasons.append(reason)
         return EurRateSeries(major, pd.Series(values, index=index, dtype=float), pd.Series(reasons, index=index, dtype=object))
 
+    def _session_view(self, known_by: date | datetime | str | None) -> EurRateBook | None:
+        """This run book as the book of one session read at its close, or None when that is not exact (see ``fx_run_memo``).
+
+        A session's known rows are the rows dated up to it (every row is known by its quote-day close), so the view is the
+        date prefix; it shares the validated quote days and the rates read so far.
+        """
+
+        known_date, cutoff, date_only = _decision_cutoff(known_by)
+        if known_date is None or date_only or cutoff != _quote_day_close(known_date) or known_date > self._memo_until:
+            return None
+        end = bisect.bisect_right(self._dates, known_date)
+        if end == 0:
+            return None  # no row known: the session book carries its own reason
+        view = copy.copy(self)
+        view._dates = self._dates[:end]
+        view._rows = self._rows.iloc[: int(self._row_ends[end - 1])]
+        view._memo_until = known_date
+        return view
+
     def _rate(self, currency: str, session: date) -> tuple[float | None, str | None]:
+        # A rate reads only quote days on or before ``session``: equal in every view that holds all of them.
+        if self._rate_memo is None or session > self._memo_until:
+            return self._read_rate(currency, session)
+        key = (currency, session)
+        if key not in self._rate_memo:
+            self._rate_memo[key] = self._read_rate(currency, session)
+        return self._rate_memo[key]
+
+    def _read_rate(self, currency: str, session: date) -> tuple[float | None, str | None]:
         if self.unavailable_reason is not None:
             return None, self.unavailable_reason
         position = bisect.bisect_right(self._dates, session)
@@ -794,6 +826,86 @@ def fx_cross_rate_memo() -> Iterator[None]:
         yield
     finally:
         _CROSS_RATE_MEMO.reset(token)
+
+
+def _quote_day_close(day: date) -> pd.Timestamp:
+    return pd.Timestamp(day).tz_localize("UTC") + pd.Timedelta(hours=23, minutes=59, seconds=59)
+
+
+@dataclass(frozen=True)
+class _RunFx:
+    fx: pd.DataFrame
+    book: EurRateBook | None
+    snapshots: dict[tuple[object, object], FxRateSnapshot]
+
+
+_RUN_FX: ContextVar[_RunFx | None] = ContextVar("fx_run_memo", default=None)
+
+
+def _run_book(fx: pd.DataFrame, known_by: datetime) -> EurRateBook | None:
+    """One book for every session up to ``known_by``, or None when some FX row dated by then is known only after its quote-day
+    close (a session book would then hold fewer rows than the date prefix)."""
+
+    book = EurRateBook(fx, known_by=known_by)
+    known_date, cutoff, date_only = _decision_cutoff(known_by)
+    if book.unavailable_reason is not None or known_date is None or date_only or cutoff != _quote_day_close(known_date):
+        return None
+    rows = book._rows
+    available = rows["available_at"] if "available_at" in rows.columns else rows["ingested_at"]
+    closes = pd.to_datetime(rows["as_of_date"]).dt.tz_localize("UTC") + pd.Timedelta(hours=23, minutes=59, seconds=59)
+    dated = int(pd.to_datetime(fx[_first_present(fx, DATE_COLUMNS)], errors="coerce", utc=False).dt.date.le(known_date).sum())
+    if dated != len(rows) or not bool(available.le(closes).all()):
+        return None
+    book._rate_memo = {}
+    book._memo_until = known_date
+    book._row_ends = np.cumsum([len(book._by_date[day]) for day in book._dates])
+    return book
+
+
+@contextmanager
+def fx_run_memo(fx: pd.DataFrame | None, *, known_by: datetime) -> Iterator[None]:
+    """Read one FX frame once for a run of sessions up to ``known_by`` (score backfill); nothing survives the scope.
+
+    Only calls that pass this very frame object reuse the run state, and the frame must not change inside the scope.
+    ``fx_rate_snapshot`` keeps each snapshot of the frame. ``eur_rate_book`` serves a session read at its close from one run
+    book when every FX row dated up to ``known_by`` is known by its quote-day close (reconstructed PIT, OD-1 = b): a session
+    then knows exactly the rows dated up to it. Otherwise, and for any other cut-off, each call builds its own book.
+    Nested scopes keep the outermost state.
+    """
+
+    if fx is None or _RUN_FX.get() is not None:
+        yield
+        return
+    token = _RUN_FX.set(_RunFx(fx, _run_book(fx, known_by), {}))
+    try:
+        yield
+    finally:
+        _RUN_FX.reset(token)
+
+
+def eur_rate_book(fx: pd.DataFrame | None, *, known_by: date | datetime | str | None) -> EurRateBook:
+    """``EurRateBook(fx, known_by=known_by)``; inside ``fx_run_memo`` for the run's frame, the equal view of the run book."""
+
+    run = _RUN_FX.get()
+    if run is not None and run.book is not None and fx is run.fx:
+        view = run.book._session_view(known_by)
+        if view is not None:
+            return view
+    return EurRateBook(fx, known_by=known_by)
+
+
+def fx_rate_snapshot(
+    frame: pd.DataFrame, *, decision_time: date | datetime | str | None, known_at: date | datetime | str | None
+) -> FxRateSnapshot:
+    """``build_fx_rate_snapshot``; inside ``fx_run_memo`` built once per (decision_time, known_at) for the run's frame."""
+
+    run = _RUN_FX.get()
+    if run is None or frame is not run.fx:
+        return build_fx_rate_snapshot(frame, decision_time=decision_time, known_at=known_at)
+    key = (decision_time, known_at)
+    if key not in run.snapshots:
+        run.snapshots[key] = build_fx_rate_snapshot(frame, decision_time=decision_time, known_at=known_at)
+    return run.snapshots[key]
 
 
 SAMPLE_PRICE_SOURCE = "synthetic_sample"
