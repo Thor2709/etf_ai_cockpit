@@ -1,5 +1,6 @@
 """Valuation reverses later splits without changing adjusted return inputs."""
 
+import math
 from dataclasses import replace
 from datetime import date, datetime, timezone
 from types import SimpleNamespace
@@ -290,3 +291,25 @@ def test_invalid_future_action_evidence_cannot_be_hidden_by_truncation(column, v
     truncated = carried.loc[carried["date"] < pd.Timestamp("2023-01-01")]
     price, reason = as_traded_close(truncated, date(2022, 10, 17))
     assert price is None and "split_history_invalid" in reason
+
+
+@pytest.mark.parametrize("order", ["sorted", "unsorted", "no_splits"])
+def test_split_factor_is_the_same_float_as_the_full_series_product(order):
+    days = pd.date_range("2020-01-31", periods=8, freq="ME")
+    prices = pd.DataFrame({
+        "etf_id": "X", "date": days, "close": [3.7, 11.1, 0.31, 7.3, 2.9, 13.3, 5.5, 1.7],
+        "stock_splits": [0.0, 3.0, 1 / 3, 0.0, 0.1, 10.0, 7.0, 0.0], "actions_evidenced": True,
+    })
+    if order == "unsorted":
+        prices = prices.iloc[[3, 0, 6, 1, 7, 2, 5, 4]].reset_index(drop=True)
+    elif order == "no_splits":
+        prices["stock_splits"] = 0.0
+    dates, splits = prices["date"].dt.date, prices["stock_splits"]
+    whens = [*dates, date(2019, 1, 1), date(2021, 1, 1), date(2020, 2, 15)]  # before/after all splits, a missing date
+    for when in whens:
+        if when not in set(dates):
+            assert as_traded_close(prices, when) == (None, "no stored close for the valuation date")
+            continue
+        close = float(prices.loc[dates == when, "close"].iloc[0])
+        expected = close * math.prod(float(ratio) for ratio in splits[(dates > when) & (splits != 0)])
+        assert as_traded_close(prices, when) == (expected, None)  # exact float, not approx
