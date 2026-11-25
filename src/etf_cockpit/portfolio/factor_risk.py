@@ -114,15 +114,18 @@ def build_factor_risk_report(
     window: int = 252,
     as_of: object | None = None,
     exposure_panel: pd.DataFrame | None = None,
+    returns: pd.DataFrame | None = None,
 ) -> dict[str, object]:
     """Estimate factor, specific and portfolio risk with visible limitations.
 
     ``exposure_panel`` (rows of ``etf_id``, ``date`` and descriptor columns) makes each cross-sectional fit use the
     latest descriptor matrix dated strictly before that date; ``None`` replays the current exposures.
+    ``returns`` is the log-return matrix of ``_return_matrix(prices, window=window)`` when the caller built it
+    already; ``prices`` then only gives the coverage row count (``None``: 0).
     """
 
     exposures = build_factor_exposures(allocation, latest_features, holdings, as_of=as_of)
-    returns = _return_matrix(prices, window=window)
+    returns = _return_matrix(prices, window=window) if returns is None else returns
     empty_factor_returns = pd.DataFrame(columns=["date", "factor", "factor_return", "standard_error", "sample_count", "method"])
     empty_contributions = pd.DataFrame(columns=["factor", "portfolio_exposure", "variance_contribution", "variance_share"])
     empty_specific = pd.DataFrame(columns=["instrument_id", "specific_vol_ann", "sample_count", "coverage"])
@@ -482,11 +485,22 @@ def _panel_matrices(allocation: pd.DataFrame, panel: pd.DataFrame, holdings: pd.
 
 
 def _fit_cross_sectional(returns: pd.DataFrame, exposures: pd.DataFrame, panels: list[tuple[pd.Timestamp, pd.DataFrame]] | None = None) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, object]]:
+    """Per date, the robust fit of the instruments with a return and every exposure, in ``returns`` column order.
+
+    Each exposure matrix is aligned to the return columns once. The fit gets the rows a per-date pandas join
+    gave, in that join's memory order (BLAS results can depend on it), so ``_robust_fit`` sees identical inputs.
+    """
+
     factor_names = list(exposures.columns)
     factor_rows: list[dict[str, object]] = []
-    residual_rows: list[dict[str, object]] = []
+    residual_parts: list[tuple[object, pd.Index, np.ndarray, np.ndarray, np.ndarray]] = []
     dates = sorted(returns.index)
     usable_dates = 0
+    values = returns.to_numpy(dtype=float)
+    row_of = {dt: position for position, dt in enumerate(returns.index)}
+    aligned: dict[int, tuple[np.ndarray, pd.Index, np.ndarray, np.ndarray]] = {}
+    fortran: dict[tuple[int, bool], bool] = {}
+    minimum = max(5, 2 * len(factor_names))
     for dt in dates:
         matrix = exposures
         if panels is not None:
@@ -494,21 +508,43 @@ def _fit_cross_sectional(returns: pd.DataFrame, exposures: pd.DataFrame, panels:
             if not known:
                 continue
             matrix = known[-1]
-        joined = pd.concat([returns.loc[[dt]].T.rename(columns={dt: "observed_return"}), matrix], axis=1, join="inner")
-        joined = joined.dropna(subset=["observed_return", *factor_names])
-        minimum = max(5, 2 * len(factor_names))
-        if len(joined) < minimum:
+        if id(matrix) not in aligned:
+            columns = np.flatnonzero(returns.columns.isin(matrix.index))
+            ids = returns.columns[columns]
+            x_values = matrix.loc[ids, factor_names].to_numpy(dtype=float)
+            aligned[id(matrix)] = columns, ids, x_values, ~np.isnan(x_values).any(axis=1)
+        columns, ids, x_values, complete = aligned[id(matrix)]
+        observed = values[row_of[dt], columns]
+        keep = complete & ~np.isnan(observed)
+        if keep.sum() < minimum:
             continue
-        beta, standard_error, residual = _robust_fit(joined[factor_names].to_numpy(float), joined["observed_return"].to_numpy(float))
+        order = (id(matrix), bool(keep.all()))
+        if order not in fortran:  # the join's layout depends on the matrix blocks and on whether rows drop
+            joined = pd.concat([returns.loc[[dt]].T.rename(columns={dt: "observed_return"}), matrix], axis=1, join="inner")
+            joined = joined.dropna(subset=["observed_return", *factor_names])
+            fortran[order] = bool(joined[factor_names].to_numpy(float).flags.f_contiguous)
+        x_date = np.asfortranarray(x_values[keep]) if fortran[order] else np.ascontiguousarray(x_values[keep])
+        beta, standard_error, residual = _robust_fit(x_date, observed[keep])
         usable_dates += 1
+        day = pd.Timestamp(dt).date()
         for index, factor in enumerate(factor_names):
-            factor_rows.append({"date": pd.Timestamp(dt).date(), "factor": factor, "factor_return": float(beta[index]), "standard_error": float(standard_error[index]), "sample_count": int(len(joined)), "method": "robust_cross_sectional"})
-        fitted = joined[factor_names].to_numpy(float) @ beta
-        for instrument_id, observed, fitted_value, residual_value in zip(joined.index, joined["observed_return"], fitted, residual):
-            residual_rows.append({"date": pd.Timestamp(dt).date(), "instrument_id": str(instrument_id), "observed_return": float(observed), "fitted_return": float(fitted_value), "residual": float(residual_value)})
+            factor_rows.append({"date": day, "factor": factor, "factor_return": float(beta[index]), "standard_error": float(standard_error[index]), "sample_count": int(keep.sum()), "method": "robust_cross_sectional"})
+        residual_parts.append((day, ids[keep], observed[keep], x_date @ beta, residual))
     factor_columns = ["date", "factor", "factor_return", "standard_error", "sample_count", "method"]
     residual_columns = ["date", "instrument_id", "observed_return", "fitted_return", "residual"]
-    return pd.DataFrame(factor_rows, columns=factor_columns), pd.DataFrame(residual_rows, columns=residual_columns), {"candidate_dates": len(dates), "usable_dates": usable_dates, "factor_count": len(factor_names)}
+    residuals = pd.DataFrame([], columns=residual_columns)
+    if residual_parts:
+        residuals = pd.DataFrame(
+            {
+                "date": np.array([day for day, ids, *_ in residual_parts for _ in ids], dtype=object),
+                "instrument_id": np.array([str(item) for _, ids, *_ in residual_parts for item in ids], dtype=object),
+                "observed_return": np.concatenate([part[2] for part in residual_parts]),
+                "fitted_return": np.concatenate([part[3] for part in residual_parts]),
+                "residual": np.concatenate([part[4] for part in residual_parts]),
+            },
+            columns=residual_columns,
+        )
+    return pd.DataFrame(factor_rows, columns=factor_columns), residuals, {"candidate_dates": len(dates), "usable_dates": usable_dates, "factor_count": len(factor_names)}
 
 
 def _robust_fit(x_values: np.ndarray, y_values: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -576,8 +612,9 @@ def _factor_covariance(factor_returns: pd.DataFrame, selected: list[str]) -> tup
 def _specific_risk(residuals: pd.DataFrame, returns: pd.DataFrame) -> pd.DataFrame:
     ids = sorted(map(str, returns.columns))
     rows: list[dict[str, object]] = []
+    positions = residuals.groupby("instrument_id", sort=False).indices if not residuals.empty else {}
     for instrument_id in ids:
-        values = residuals.loc[residuals["instrument_id"].eq(instrument_id), "residual"] if not residuals.empty else pd.Series(dtype=float)
+        values = residuals["residual"].iloc[positions[instrument_id]] if instrument_id in positions else pd.Series(dtype=float)
         values = pd.to_numeric(values, errors="coerce").dropna()
         volatility = float(values.std(ddof=1) * np.sqrt(ANNUALISATION_FACTOR)) if len(values) >= 2 else float("nan")
         rows.append({"instrument_id": instrument_id, "specific_vol_ann": volatility, "sample_count": int(len(values)), "coverage": float(len(values) / max(1, len(returns)))})

@@ -233,6 +233,30 @@ def _rank_validation_policy_for_content(content: bytes) -> RankValidationPolicy:
     )
 
 
+@dataclass(frozen=True)
+class _FactorPrices:
+    dates: pd.DatetimeIndex
+    days: np.ndarray
+    ids: np.ndarray
+    known: np.ndarray
+    close: np.ndarray
+    names: pd.Index
+
+    def log_returns(self, cutoff: pd.Timestamp, instrument_ids: set[str], window: int) -> pd.DataFrame:
+        """``factor_risk._return_matrix`` of the rows known and dated by ``cutoff`` for ``instrument_ids``."""
+        keep = np.array([str(name) in instrument_ids for name in self.names], dtype=bool)
+        rows, ratios = etf_kernels.trailing_price_ratios(
+            self.dates.asi8, self.days, self.ids, self.known, self.close, keep,
+            cutoff.date().toordinal(), cutoff.value, len(self.ids), window,
+        )
+        frame = pd.DataFrame(
+            ratios,
+            index=pd.DatetimeIndex(self.dates.take(rows), name="date"),
+            columns=pd.Index(self.names[keep], name="etf_id"),
+        )
+        return np.log(frame).dropna(axis=1, how="all")
+
+
 class ReplayInputs:
     """Membership, price and cost frames shared by the replays and factor fits of one window.
 
@@ -247,6 +271,7 @@ class ReplayInputs:
         self._sessions: list[date] | None = None
         self._positions: dict[object, np.ndarray] | None = None
         self._forward: dict[tuple[str, str, date | None], tuple[float | None, str]] = {}
+        self._factor_prices: _FactorPrices | None = None
 
     def membership_snapshots(self) -> tuple[pd.DataFrame, dict[object, np.ndarray]]:
         """Parsed membership copy and its row positions per snapshot date."""
@@ -273,6 +298,26 @@ class ReplayInputs:
         if self._sessions is None:
             self._sessions = sorted(self._stamps()[1].dropna().unique())
         return self._sessions
+
+    def factor_prices(self) -> _FactorPrices:
+        """Price rows usable for factor returns, sorted by (date, input order), as kernel arrays."""
+        if self._factor_prices is None:
+            known, dates = self._stamps()
+            key = pd.to_datetime(self.prices["date"], errors="coerce")
+            close = pd.to_numeric(self.prices["adjusted_close"], errors="coerce")
+            ids = self.prices["instrument_id"]
+            usable = np.flatnonzero((known.notna() & dates.notna() & key.notna() & close.gt(0) & ids.notna()).to_numpy())
+            order = usable[np.argsort(pd.DatetimeIndex(key.iloc[usable]).asi8, kind="stable")]
+            codes, names = pd.factorize(ids.iloc[order], sort=True)
+            self._factor_prices = _FactorPrices(
+                pd.DatetimeIndex(key.iloc[order]),
+                _map_repeated(dates.iloc[order], date.toordinal).to_numpy(np.int64),
+                codes.astype(np.int64),
+                _map_repeated(known.iloc[order], lambda stamp: stamp.value).to_numpy(np.int64),
+                close.iloc[order].to_numpy(np.float64),
+                names,
+            )
+        return self._factor_prices
 
     def forward_returns(
         self, queries: Sequence[tuple[str, str, pd.Timestamp, date | None]],
@@ -545,6 +590,7 @@ def evaluate_rank_validation(
     prices: pd.DataFrame | None = None,
     policy: RankValidationPolicy | None = None,
     policy_path: str | Path = _DEFAULT_POLICY_PATH,
+    inputs: ReplayInputs | None = None,
 ) -> RankValidationReport:
     """Evaluate walk-forward development data and a fixed, untouched holdout.
 
@@ -614,14 +660,16 @@ def evaluate_rank_validation(
         for name in rankers
     }
     if prices is not None:
+        # ``inputs`` (built from these prices) keeps the factor price arrays of a window across evaluations
+        shared = inputs or ReplayInputs(pd.DataFrame(), prices, pd.DataFrame())
         holdout = {
             name: dict(metrics)
-            | {"factor_attribution": _factor_attribution(holdout_rows, name, prices, active_policy)}
+            | {"factor_attribution": _factor_attribution(holdout_rows, name, shared, active_policy)}
             for name, metrics in holdout.items()
         }
         development = {
             name: dict(metrics)
-            | {"factor_attribution": _factor_attribution(dev_rows, name, prices, active_policy)}
+            | {"factor_attribution": _factor_attribution(dev_rows, name, shared, active_policy)}
             for name, metrics in development.items()
         }
     else:
@@ -1180,14 +1228,13 @@ def _neutral_metrics(rows: pd.DataFrame, group_column: str, policy: RankValidati
 def _factor_attribution(
     rows: pd.DataFrame,
     ranker: str,
-    prices: pd.DataFrame,
+    inputs: ReplayInputs,
     policy: RankValidationPolicy,
 ) -> dict[str, object]:
     required = {"instrument_id", "date", "known_at", "adjusted_close"}
-    if not _has_columns(prices, required):
+    if not _has_columns(inputs.prices, required):
         return {"status": "unavailable", "reason": "factor risk requires point-in-time adjusted-price history", "factors": []}
     contributions: list[dict[str, object]] = []
-    stamped: pd.DataFrame | None = None
     for decision_time, group in rows.loc[rows["ranker"].astype(str).eq(ranker)].groupby("decision_time", sort=True):
         cutoff = _aware_timestamp(decision_time)
         if cutoff is None:
@@ -1198,18 +1245,8 @@ def _factor_attribution(
         selected = valid.head(min(policy.top_n, len(valid)))
         if len(selected) < 3:
             continue
-        if stamped is None:  # the stamps do not depend on the decision time: parse them once
-            stamped = prices[["instrument_id", "date", "known_at", "adjusted_close"]].copy()
-            stamped["_known"] = _map_repeated(stamped["known_at"], _aware_timestamp)
-            stamped["_date"] = _map_repeated(stamped["date"], _date_value)
-        price_rows = stamped.loc[
-            stamped["_known"].notna()
-            & stamped["_known"].le(cutoff)
-            & stamped["_date"].map(lambda value: value is not None and value <= cutoff.date())
-            & stamped["instrument_id"].astype(str).isin(valid["instrument_id"].astype(str)),
-            ["instrument_id", "date", "adjusted_close"],
-        ]
-        prices_for_risk = price_rows.rename(columns={"instrument_id": "etf_id"})
+        # rows known and dated by the cut-off; the stamps are parsed once per ``inputs``
+        returns = inputs.factor_prices().log_returns(cutoff, set(valid["instrument_id"].astype(str)), 252)
         allocation = pd.DataFrame(
             {
                 "etf_id": selected["instrument_id"].astype(str),
@@ -1230,10 +1267,11 @@ def _factor_attribution(
         )
         try:
             report = build_factor_risk_report(
-                prices_for_risk,
+                None,
                 allocation,
                 latest_features=features,
                 window=252,
+                returns=returns,
             )
         except (ArithmeticError, KeyError, TypeError, ValueError):
             continue
@@ -2172,6 +2210,7 @@ def run_stored_rank_validation(
     holdout = fixed_terminal_holdout(decision_times, fraction=holdout_fraction)
     # replay and evaluation only read the frame (each copies what it changes): no full copy per replay
     stamped = prices if "known_at" in prices.columns else with_price_stamps(prices)
+    inputs = inputs or ReplayInputs(memberships, stamped, costs)
     replay = replay_rank_panel(
         evidence, memberships, stamped, costs, benchmark_returns, cash_returns,
         decision_times, policy=policy, inputs=inputs,
@@ -2191,7 +2230,7 @@ def run_stored_rank_validation(
             replay, holdout, f"terminal holdout dates without replay evidence: {', '.join(missing)}"
         )
     return replay, evaluate_rank_validation(
-        replay, holdout_decision_times=holdout, prices=stamped, policy=policy
+        replay, holdout_decision_times=holdout, prices=stamped, policy=policy, inputs=inputs
     )
 
 
