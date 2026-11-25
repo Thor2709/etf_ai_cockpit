@@ -1702,13 +1702,11 @@ def with_price_stamps(prices: pd.DataFrame) -> pd.DataFrame:
     A stored close table without a knowledge timestamp may have been downloaded
     or revised long after its session date, so no timestamp is ever derived from
     the session date.  Rows without a verifiable ``known_at`` never enter a
-    cutoff; ``price_knowledge_gap`` names the reason.
+    cutoff; ``price_knowledge_gap`` names the reason.  A frame that has the
+    column is returned itself, not copied: callers must not change it.
     """
 
-    frame = prices.copy()
-    if "known_at" not in frame.columns:
-        frame["known_at"] = None
-    return frame
+    return prices if "known_at" in prices.columns else prices.assign(known_at=None)
 
 
 def price_knowledge_gap(prices: pd.DataFrame) -> str | None:
