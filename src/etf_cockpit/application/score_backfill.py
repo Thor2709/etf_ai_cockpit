@@ -23,6 +23,7 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 from etf_cockpit.application.feature_service import FeatureService
@@ -40,7 +41,7 @@ from etf_cockpit.core.config import AppConfig, load_config
 from etf_cockpit.core.values import finite_float_or_none
 from etf_cockpit.core.versioning import build_version_registry
 from etf_cockpit.data.duckdb_store import load_prices
-from etf_cockpit.data.fx_data import fx_cross_rate_memo, fx_rates_for_prices
+from etf_cockpit.data.fx_data import fx_cross_rate_memo, fx_rates_for_prices, fx_run_memo
 from etf_cockpit.data.reference_data import load_reference_dataset
 from etf_cockpit.data.score_history_backfill import (
     BACKFILL_PROVENANCE,
@@ -385,9 +386,12 @@ def backfill_score_history(
             unavailable.update({session.isoformat(): f"{type(exc).__name__}: {str(exc)[:200]}" for _index, session in todo})
             as_traded, todo = frame, []
         # FX quote days validated once per run (S6, OD-14): the memo is keyed by a day's quote rows, so a session reuses
-        # only a result for rows its own book holds. Serial sessions only; pool workers keep their per-session books.
-        with fx_cross_rate_memo():
-            for index, session, outcome in _score_sessions(config, as_traded, todo, fx, registry_signature, excluded, workers, membership, completed_at, reference_order_value):
+        # only a result for rows its own book holds. The run FX memo (B2, B5) reads the FX frame once for all sessions.
+        # Serial sessions only; pool workers keep their per-session books.
+        run_prices = _RunPrices.parse(as_traded, membership) if todo else None
+        last = max((session for _index, session in todo), default=start)
+        with fx_cross_rate_memo(), fx_run_memo(fx, known_by=datetime(last.year, last.month, last.day, 23, 59, 59, tzinfo=timezone.utc)):
+            for index, session, outcome in _score_sessions(config, as_traded, todo, fx, registry_signature, excluded, workers, membership, completed_at, reference_order_value, run_prices):
                 say(f"[{index}/{len(sessions)}] scored as of {session}")
                 if isinstance(outcome, str):  # fail closed per session: never store a partial or guessed run
                     unavailable[session.isoformat()] = outcome
@@ -409,6 +413,27 @@ def backfill_score_history(
     return result
 
 
+@dataclass(frozen=True)
+class _RunPrices:
+    """A run's price frame parsed once (B3): each session cuts by day and id code instead of re-parsing every row.
+
+    ``membership`` was observed on these rows (``with_observed_trading``), so a session does not observe it again.
+    """
+
+    prices: pd.DataFrame
+    membership: ListingHistory
+    dates: pd.Series  # _as_dates(prices["date"])
+    days: np.ndarray  # the same dates as datetime64[D]; NaT never passes a cut
+    codes: np.ndarray  # each row's position in ``ids``
+    ids: pd.Index  # the distinct ids as text
+
+    @classmethod
+    def parse(cls, prices: pd.DataFrame, membership: ListingHistory) -> _RunPrices:
+        dates = _as_dates(prices["date"])
+        codes, ids = pd.factorize(prices["etf_id"].astype(str))
+        return cls(prices, membership, dates, pd.to_datetime(dates).to_numpy(dtype="datetime64[D]"), codes, pd.Index(ids))
+
+
 _WORKER_STATE: dict[str, Any] = {}
 
 
@@ -419,11 +444,11 @@ def _worker_init(config: AppConfig, prices: pd.DataFrame, fx_rates: pd.DataFrame
     _WORKER_STATE.update(config=config, prices=prices, fx=fx_rates, registry=registry_signature, excluded=excluded, membership=membership, reference=reference_order_value_eur)
 
 
-def _score_one(config: AppConfig, prices: pd.DataFrame, session: date, fx_rates: pd.DataFrame | None, registry_signature: str, excluded: Mapping[str, str] | None, membership: ListingHistory, completed_at: datetime | None = None, reference_order_value_eur: float | None = None):
+def _score_one(config: AppConfig, prices: pd.DataFrame, session: date, fx_rates: pd.DataFrame | None, registry_signature: str, excluded: Mapping[str, str] | None, membership: ListingHistory, completed_at: datetime | None = None, reference_order_value_eur: float | None = None, run_prices: _RunPrices | None = None):
     try:
         return score_as_of(
             config, prices, session, fx_rates=fx_rates, version_registry_signature=registry_signature, excluded=excluded,
-            membership=membership, completed_at=completed_at, reference_order_value_eur=reference_order_value_eur,
+            membership=membership, completed_at=completed_at, reference_order_value_eur=reference_order_value_eur, run_prices=run_prices,
         )
     except Exception as exc:  # reported as the session's unavailable reason; a forward run fails loudly (SDD C4)
         if completed_at is not None:
@@ -436,12 +461,12 @@ def _worker_score(session: date):
     return _score_one(state["config"], state["prices"], session, state["fx"], state["registry"], state["excluded"], state["membership"], None, state["reference"])
 
 
-def _score_sessions(config, frame, todo, fx, registry_signature, excluded, workers, membership, completed_at=None, reference_order_value_eur=None):
+def _score_sessions(config, frame, todo, fx, registry_signature, excluded, workers, membership, completed_at=None, reference_order_value_eur=None, run_prices=None):
     """Yield ``(index, session, outcome)`` in session order; outcome is ``(run, eligibility)`` or an error string."""
 
     if workers <= 1 or len(todo) <= 1:  # a forward run has one session, so it always takes this branch
         for index, session in todo:
-            yield index, session, _score_one(config, frame, session, fx, registry_signature, excluded, membership, completed_at, reference_order_value_eur)
+            yield index, session, _score_one(config, frame, session, fx, registry_signature, excluded, membership, completed_at, reference_order_value_eur, run_prices)
         return
     import multiprocessing
     from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
@@ -460,7 +485,7 @@ def _score_sessions(config, frame, todo, fx, registry_signature, excluded, worke
 
         warnings.warn("Process pool unavailable; scoring sessions with parallel threads.", RuntimeWarning, stacklevel=2)
         with ThreadPoolExecutor(max_workers=min(workers, len(todo))) as threads:
-            futures = [(index, session, threads.submit(_score_one, config, frame, session, fx, registry_signature, excluded, membership, None, reference_order_value_eur))
+            futures = [(index, session, threads.submit(_score_one, config, frame, session, fx, registry_signature, excluded, membership, None, reference_order_value_eur, run_prices))
                        for index, session in todo]
             for index, session, future in futures:
                 yield index, session, future.result()
@@ -483,11 +508,13 @@ def score_as_of(
     membership: ListingHistory | None = None,
     completed_at: datetime | None = None,
     reference_order_value_eur: float | None = None,
+    run_prices: _RunPrices | None = None,
 ) -> tuple[pd.DataFrame | None, pd.DataFrame]:
     """The canonical score history run for one session plus its eligibility log; only data known at ``as_of`` is read.
 
     With ``completed_at`` (t_S, forward mode, SDD C4) every consumed price row must carry ``known_at`` <= t_S (else raise);
     an instrument with an unstamped consumed row is not admitted (``price_unstamped``).
+    ``run_prices`` (a backfill run) is used only when it was parsed from this very ``prices`` and ``membership``.
     """
 
     decision_time = datetime(as_of.year, as_of.month, as_of.day, 23, 59, 59, tzinfo=timezone.utc)
@@ -503,17 +530,18 @@ def score_as_of(
         reference_order_value_eur = research_reference_order_value_eur(ROOT)
     config = _historical_config(config, membership)
     log_config = config
-    membership = membership.with_observed_trading(prices, config)
+    if run_prices is None or run_prices.prices is not prices or run_prices.membership is not membership:
+        run_prices = _RunPrices.parse(prices, membership.with_observed_trading(prices, config))
+    membership = run_prices.membership
     snapshot = membership.snapshot(as_of, config.universe.enabled_ids)
     excluded = {**snapshot.reasons, **dict(excluded or {})}
     config = config.model_copy(update={"universe": config.universe.model_copy(update={
         "etfs": [item for item in config.universe.etfs if item.id in snapshot.eligible_ids and item.id not in excluded]
     })})
-    known = with_as_traded_factors(prices).loc[
-        (_as_dates(prices["date"]) <= as_of) & ~prices["etf_id"].astype(str).isin(excluded)
-    ].copy()
-    known = known.loc[known["etf_id"].astype(str).isin(config.universe.enabled_ids)]
-    known["date"] = _as_dates(known["date"])
+    kept_ids = ~run_prices.ids.isin(excluded) & run_prices.ids.isin(config.universe.enabled_ids)
+    rows = (run_prices.days <= np.datetime64(as_of, "D")) & kept_ids[run_prices.codes]
+    known = with_as_traded_factors(prices).loc[rows].copy()
+    known["date"] = run_prices.dates.to_numpy()[rows]
     if completed_at is not None:
         stamps = pd.to_datetime(known["known_at"], utc=True, errors="coerce", format="mixed") if "known_at" in known.columns else pd.Series(pd.NaT, index=known.index)
         late = known.loc[stamps > pd.Timestamp(completed_at)]

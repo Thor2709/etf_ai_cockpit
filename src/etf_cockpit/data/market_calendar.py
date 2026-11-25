@@ -30,13 +30,24 @@ CALENDAR_LIBRARY = "exchange_calendars"
 CALENDAR_LIBRARY_VERSION = str(getattr(xcals, "__version__", "unavailable"))
 
 
-@lru_cache(maxsize=4096)
 def _exchange_calendar(name: str, start_year: int, end_year: int) -> Any:
     """exchange_calendars keeps one instance per name and rebuilds it when the window changes; keep each window.
 
-    In memory, once per process: one price validation asks for more than 64 (name, window) keys.
+    In memory, once per process: one price validation asks for more than 64 (name, window) keys. A window that fails
+    (for example holidays not recorded that far) is also kept and raises the same error again without a rebuild.
     """
-    return xcals.get_calendar(name, start=f"{start_year}-01-01", end=f"{end_year}-12-31")
+    outcome = _exchange_calendar_or_error(name, start_year, end_year)
+    if isinstance(outcome, (KeyError, ValueError, TypeError)):
+        raise outcome.with_traceback(None)
+    return outcome
+
+
+@lru_cache(maxsize=4096)
+def _exchange_calendar_or_error(name: str, start_year: int, end_year: int) -> Any:
+    try:
+        return xcals.get_calendar(name, start=f"{start_year}-01-01", end=f"{end_year}-12-31")
+    except (KeyError, ValueError, TypeError) as exc:  # the errors _raw_calendar falls back on
+        return exc
 
 
 UTC = timezone.utc
