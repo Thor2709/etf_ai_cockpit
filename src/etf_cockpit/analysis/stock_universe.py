@@ -7,6 +7,7 @@ The caller supplies the decision time; ``live_decision_time`` is the single rule
 
 from __future__ import annotations
 
+import bisect
 import math
 import threading
 from collections.abc import Callable, Iterable, Mapping, Sequence
@@ -234,6 +235,10 @@ def _as_traded_closes(frame: pd.DataFrame) -> Callable[[date], tuple[float | Non
     last_unevidenced = unevidenced.max() if len(unevidenced) else None  # the close on when and later splits need evidence
     splits = pd.to_numeric(frame["stock_splits"], errors="coerce")
     splits_invalid = bool(splits.isna().any() or not np.isfinite(splits).all() or (splits < 0).any())
+    sorted_days = bool(dates.is_monotonic_increasing)
+    if sorted_days:  # later splits are a suffix of the frame-order events: same factors, same order, same float
+        events = splits != 0
+        event_days, ratios = dates[events].tolist(), [float(ratio) for ratio in splits[events]]
 
     def close_on(when: date) -> tuple[float | None, str | None]:
         index = position.get(when)
@@ -253,6 +258,8 @@ def _as_traded_closes(frame: pd.DataFrame) -> Callable[[date], tuple[float | Non
             factor = sm._finite(row["as_traded_split_factor"])
             if factor is None or factor <= 0:
                 return None, "split_history_invalid: full-series split factor is unavailable"
+        elif sorted_days:
+            factor = math.prod(ratios[bisect.bisect_right(event_days, when):])
         else:
             factor = math.prod(float(ratio) for ratio in splits[(dates > when) & (splits != 0)])
         value = sm._finite(close * factor)
