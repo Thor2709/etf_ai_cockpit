@@ -323,5 +323,6 @@ fn etf_kernels(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(momentum::momentum_risk_at_cutoffs, m)?)?;
     m.add_function(wrap_pyfunction!(as_traded::as_traded_month_end_series, m)?)?;
     m.add_function(wrap_pyfunction!(pit::pit_cost_lookup, m)?)?;
+    m.add_function(wrap_pyfunction!(pit::latest_known_per_cutoff, m)?)?;
     Ok(())
 }

@@ -295,7 +295,10 @@ def replay_rank_panel(
     # only after every per-date cross-section has been frozen.
     frozen_rows: list[dict[str, object]] = []
     insufficient: dict[str, str] = {}
-    for cutoff in parsed_times:
+    picks = _latest_known_rows(
+        evidence_frame["instrument_id"], evidence_frame["effective_at"], evidence_frame["known_at"], parsed_times
+    )
+    for position, cutoff in enumerate(parsed_times):
         cutoff_text = cutoff.isoformat().replace("+00:00", "Z")
         decision_day = cutoff.date()
         snapshot = membership_frame.loc[membership_frame["_snapshot_date"].eq(decision_day)].copy()
@@ -320,41 +323,9 @@ def replay_rank_panel(
             insufficient[cutoff_text] = "point_in_time_universe_below_minimum_support"
             continue
 
-        available_evidence = evidence_frame.loc[
-            evidence_frame["_known_at"].notna()
-            & evidence_frame["_effective_date"].notna()
-            & evidence_frame["_known_at"].le(cutoff)
-            & evidence_frame["_effective_date"].map(lambda value: value <= decision_day)
-            & evidence_frame["instrument_id"].astype(str).isin(active["instrument_id"])
-        ].copy()
-        if available_evidence.empty:
-            insufficient[cutoff_text] = "point_in_time_evidence_unavailable"
-            continue
-        available_evidence["instrument_id"] = available_evidence["instrument_id"].astype(str)
-        available_evidence = available_evidence.sort_values(
-            ["instrument_id", "_effective_date", "_known_at"], kind="stable"
-        )
-        latest_keys = available_evidence.groupby("instrument_id", sort=False).tail(1)[
-            ["instrument_id", "_effective_date", "_known_at"]
-        ]
-        latest_key_columns = ["instrument_id", "_effective_date", "_known_at"]
-        latest_candidates = available_evidence.merge(
-            latest_keys,
-            on=latest_key_columns,
-            how="inner",
-            validate="many_to_one",
-        )
-        conflict_columns = [column for column in latest_candidates.columns if column not in latest_key_columns]
-        conflicting_latest = any(
-            len(group[conflict_columns].drop_duplicates()) > 1
-            for _, group in latest_candidates.groupby(latest_key_columns, sort=False, dropna=False)
-        )
-        if conflicting_latest:
-            insufficient[cutoff_text] = "point_in_time_evidence_has_ambiguous_latest_rows"
-            continue
-        latest = latest_candidates.drop_duplicates(subset=latest_key_columns, keep="last")
-        if latest["instrument_id"].duplicated().any() or set(latest["instrument_id"]) != set(active["instrument_id"]):
-            insufficient[cutoff_text] = "point_in_time_evidence_incomplete_for_membership"
+        latest = _latest_evidence(evidence_frame, picks, active["instrument_id"], position)
+        if isinstance(latest, str):
+            insufficient[cutoff_text] = latest
             continue
         required_features = set().union(
             *[set(spec.weights) for spec in active_policy.rankers.values()]
@@ -1397,6 +1368,58 @@ def _forward_returns(
         else:
             results.append((float(close[low]) / entry - 1.0, "available"))
     return results
+
+
+_LatestRows = tuple[pd.Index, np.ndarray, np.ndarray, np.ndarray]
+
+
+def _latest_known_rows(
+    instrument_ids: pd.Series, effective_at: pd.Series, known_at: pd.Series, cutoffs: Sequence[pd.Timestamp],
+) -> _LatestRows:
+    """Latest-known rows of every instrument at every cut-off, in one compiled call.
+
+    A row is usable at a cut-off when its time-zone-aware ``known_at`` and its effective date are no later than
+    it; the greatest (effective date, known_at) among them is the latest key.  Returns the instrument names
+    (text, sorted), the row positions in (instrument, effective date, known_at, input) order, and per (instrument,
+    cut-off) the first and last of those sorted positions holding the latest key (-1: no usable row).
+    """
+
+    effective = _map_repeated(effective_at, _date_ordinal).to_numpy(dtype=np.int64)
+    known = _map_repeated(known_at, _stamp_ns).to_numpy(dtype=np.int64)
+    usable = np.flatnonzero((effective != _MISSING) & (known != _MISSING))
+    codes, names = pd.factorize(instrument_ids.astype(str).to_numpy()[usable], sort=True)
+    order = np.lexsort((known[usable], effective[usable], codes))
+    offsets = np.concatenate(([0], np.cumsum(np.bincount(codes, minlength=len(names))))).astype(np.int64)
+    first, last = etf_kernels.latest_known_per_cutoff(
+        effective[usable][order], known[usable][order], offsets,
+        np.array([cutoff.date().toordinal() for cutoff in cutoffs], dtype=np.int64),
+        np.array([cutoff.value for cutoff in cutoffs], dtype=np.int64),
+    )
+    return pd.Index(names, dtype=object), usable[order], first, last
+
+
+def _latest_evidence(
+    evidence: pd.DataFrame, picks: _LatestRows, active_ids: pd.Series, position: int,
+) -> pd.DataFrame | str:
+    """Latest evidence row of each active instrument at cut-off ``position``, sorted by instrument; else the reason.
+
+    Tied latest rows must agree in every column except the key (instrument, effective date, known_at).
+    """
+
+    names, rows, first, last = picks
+    codes = names.get_indexer(pd.Index(active_ids, dtype=object))
+    found = np.sort(codes[codes >= 0])
+    low, high = first[found, position], last[found, position]
+    if not (high >= 0).any():
+        return "point_in_time_evidence_unavailable"
+    columns = [column for column in evidence.columns if column not in {"instrument_id", "_effective_date", "_known_at"}]
+    for start, end in zip(low, high):
+        if start < end and len(evidence.iloc[rows[start:end + 1]][columns].drop_duplicates()) > 1:
+            return "point_in_time_evidence_has_ambiguous_latest_rows"
+    if len(found) < len(active_ids) or (high < 0).any():
+        return "point_in_time_evidence_incomplete_for_membership"
+    latest = evidence.iloc[rows[high]]
+    return latest.assign(instrument_id=latest["instrument_id"].astype(str))
 
 
 def _point_in_time_costs(

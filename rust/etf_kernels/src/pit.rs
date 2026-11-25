@@ -1,7 +1,8 @@
 //! Point-in-time row picks of rank validation: which stored row is the latest known at each cut-off.
 //! Rows come sorted by (group, key...) with group `offsets`; the caller keeps every value check in Python.
 use crate::groups;
-use numpy::{IntoPyArray, PyArray1, PyReadonlyArray1};
+use numpy::ndarray::Array2;
+use numpy::{IntoPyArray, PyArray1, PyArray2, PyReadonlyArray1};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
@@ -39,4 +40,41 @@ pub fn pit_cost_lookup<'py>(
         }
     }
     Ok(out.into_pyarray(py))
+}
+
+/// Latest-known rows per (group, cut-off): rows sorted by (group, `eff`, `known`, input order). The rows usable at
+/// cut-off j have `eff <= cut_day[j]` and `known <= cut_stamp[j]`; the greatest (eff, known) among them is a block of
+/// equal keys, returned as its first and last sorted row (`first[g, j]`, `last[g, j]`; -1 when no row is usable).
+#[pyfunction]
+#[allow(clippy::type_complexity)]
+pub fn latest_known_per_cutoff<'py>(
+    py: Python<'py>,
+    eff: PyReadonlyArray1<'py, i64>,
+    known: PyReadonlyArray1<'py, i64>,
+    offsets: PyReadonlyArray1<'py, i64>,
+    cut_day: PyReadonlyArray1<'py, i64>,
+    cut_stamp: PyReadonlyArray1<'py, i64>,
+) -> PyResult<(Bound<'py, PyArray2<i64>>, Bound<'py, PyArray2<i64>>)> {
+    let (eff, known, cut_day, cut_stamp) = (eff.as_slice()?, known.as_slice()?, cut_day.as_slice()?, cut_stamp.as_slice()?);
+    if known.len() != eff.len() || cut_stamp.len() != cut_day.len() {
+        return Err(PyValueError::new_err("array lengths differ"));
+    }
+    let spans = groups(eff.len(), offsets.as_slice()?)?;
+    let mut first = Array2::from_elem((spans.len(), cut_day.len()), -1i64);
+    let mut last = Array2::from_elem((spans.len(), cut_day.len()), -1i64);
+    for (g, &(a, b)) in spans.iter().enumerate() {
+        let (e, k) = (&eff[a..b], &known[a..b]);
+        for (j, (&cd, &cs)) in cut_day.iter().zip(cut_stamp).enumerate() {
+            let Some(end) = (0..e.partition_point(|&x| x <= cd)).rev().find(|&i| k[i] <= cs) else {
+                continue;
+            };
+            let mut start = end;
+            while start > 0 && e[start - 1] == e[end] && k[start - 1] == k[end] {
+                start -= 1;
+            }
+            first[[g, j]] = (a + start) as i64;
+            last[[g, j]] = (a + end) as i64;
+        }
+    }
+    Ok((first.into_pyarray(py), last.into_pyarray(py)))
 }
