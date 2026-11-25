@@ -36,7 +36,10 @@ def build(root: Path, out: Path) -> dict[str, object]:
     from etf_cockpit.portfolio import cost_table
 
     prices_path, fx_path = root / _PRICE_RELATIVE, root / _FX_RELATIVE
-    prices = pd.read_parquet(prices_path, columns=["etf_id", "date", "close", "adjusted_close", "volume", "currency"])
+    prices = pd.read_parquet(  # ids and currencies as categories: the store has ~5M rows
+        prices_path, columns=["etf_id", "date", "close", "adjusted_close", "volume", "currency"],
+        read_dictionary=["etf_id", "currency"],
+    )
     order_value = research_reference_order_value_eur(root)
     table, skipped = cost_table.build_pit_cost_table(prices, load_fx_rates(fx_path), load_config(), order_value_eur=order_value)
     manifest = {
