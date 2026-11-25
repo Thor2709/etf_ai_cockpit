@@ -84,7 +84,7 @@ def test_factor_attribution_stamps_prices_once_for_all_decisions(monkeypatch) ->
     assert len(seen) == len(decisions)
     expected = [int((prices["date"] <= pd.Timestamp(item).date()).sum()) for item in decisions]
     assert seen == expected and seen[0] > 0  # the point-in-time cut-off still applies to every decision
-    assert calls[0] == len(prices)  # once per price row, not once per decision
+    assert calls[0] == prices["date"].nunique()  # once per distinct session date, not once per row or decision
 
 
 def test_report_counts_unverifiable_known_at_stamps_with_one_parse_per_distinct_stamp(tmp_path, monkeypatch) -> None:

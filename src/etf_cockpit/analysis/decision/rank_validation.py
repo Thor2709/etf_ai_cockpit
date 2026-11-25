@@ -280,12 +280,12 @@ def replay_rank_panel(
     for frame, column in ((evidence_frame, "known_at"), (evidence_frame, "effective_at"),
                           (membership_frame, "known_at"), (price_frame, "known_at"),
                           (cost_frame, "known_at")):
-        frame[f"_{column}"] = frame[column].map(_aware_timestamp)
-    evidence_frame["_effective_date"] = evidence_frame["effective_at"].map(_date_value)
-    membership_frame["_valid_from"] = membership_frame["valid_from"].map(_date_value)
-    membership_frame["_valid_to"] = membership_frame["valid_to"].map(_optional_date_value)
-    membership_frame["_snapshot_date"] = membership_frame["snapshot_date"].map(_date_value)
-    price_frame["_date"] = price_frame["date"].map(_date_value)
+        frame[f"_{column}"] = _map_repeated(frame[column], _aware_timestamp)
+    evidence_frame["_effective_date"] = _map_repeated(evidence_frame["effective_at"], _date_value)
+    membership_frame["_valid_from"] = _map_repeated(membership_frame["valid_from"], _date_value)
+    membership_frame["_valid_to"] = _map_repeated(membership_frame["valid_to"], _optional_date_value)
+    membership_frame["_snapshot_date"] = _map_repeated(membership_frame["snapshot_date"], _date_value)
+    price_frame["_date"] = _map_repeated(price_frame["date"], _date_value)
     for frame in (evidence_frame, membership_frame, price_frame, cost_frame):
         if frame["instrument_id"].isna().any() if "instrument_id" in frame else False:
             return _empty_replay(config_hashes, config_versions, "instrument identifiers are incomplete")
@@ -439,12 +439,14 @@ def replay_rank_panel(
     for item in records:
         pairs.setdefault(str(item["instrument_id"]), []).append(str(item["decision_time"]))
     price_ids = price_frame["instrument_id"].astype(str)
-    prices_by_id = {str(name): group for name, group in price_frame.groupby(price_ids, sort=False)}
+    # row positions only: one instrument's rows are taken when needed, not a second copy of every group at once
+    positions_by_id = price_frame.groupby(price_ids, sort=False).indices
     forward: dict[tuple[str, str], tuple[float | None, str]] = {}
     for instrument, texts in pairs.items():
         texts = sorted(set(texts))
+        positions = positions_by_id.get(instrument)
         results = _forward_returns(
-            prices_by_id.get(instrument, price_frame.iloc[0:0]),
+            price_frame.iloc[0:0] if positions is None else price_frame.iloc[positions],
             [cutoffs[text] for text in texts], [target_sessions[text] for text in texts],
         )
         forward.update(((instrument, text), result) for text, result in zip(texts, results))
@@ -1176,16 +1178,17 @@ def _factor_attribution(
         if len(selected) < 3:
             continue
         if stamped is None:  # the stamps do not depend on the decision time: parse them once
-            stamped = prices.copy()
-            stamped["_known"] = stamped["known_at"].map(_aware_timestamp)
-            stamped["_date"] = stamped["date"].map(_date_value)
+            stamped = prices[["instrument_id", "date", "known_at", "adjusted_close"]].copy()
+            stamped["_known"] = _map_repeated(stamped["known_at"], _aware_timestamp)
+            stamped["_date"] = _map_repeated(stamped["date"], _date_value)
         price_rows = stamped.loc[
             stamped["_known"].notna()
             & stamped["_known"].le(cutoff)
             & stamped["_date"].map(lambda value: value is not None and value <= cutoff.date())
-            & stamped["instrument_id"].astype(str).isin(valid["instrument_id"].astype(str))
+            & stamped["instrument_id"].astype(str).isin(valid["instrument_id"].astype(str)),
+            ["instrument_id", "date", "adjusted_close"],
         ]
-        prices_for_risk = price_rows.rename(columns={"instrument_id": "etf_id"})[["etf_id", "date", "adjusted_close"]]
+        prices_for_risk = price_rows.rename(columns={"instrument_id": "etf_id"})
         allocation = pd.DataFrame(
             {
                 "etf_id": selected["instrument_id"].astype(str),
@@ -1535,6 +1538,26 @@ def _date_value(value: object) -> date | None:
     except (TypeError, ValueError, OverflowError):
         return None
     return None if pd.isna(timestamp) else timestamp.date()
+
+
+def _map_repeated(values: pd.Series, parse: Any) -> pd.Series:
+    """``values.map(parse)`` with each distinct value parsed once: stored stamps and dates repeat for every instrument.
+
+    The key keeps the type and time zone, so equal instants in different zones are parsed apart.
+    """
+
+    cache: dict[object, object] = {}
+
+    def once(value: object) -> object:
+        try:
+            key = (type(value), value, getattr(value, "tzinfo", None))
+            if key not in cache:
+                cache[key] = parse(value)
+            return cache[key]
+        except TypeError:  # unhashable value
+            return parse(value)
+
+    return values.map(once)
 
 
 def _optional_date_value(value: object) -> date | None:
@@ -1989,7 +2012,8 @@ def run_stored_rank_validation(
     """
 
     holdout = fixed_terminal_holdout(decision_times, fraction=holdout_fraction)
-    stamped = with_price_stamps(prices)
+    # replay and evaluation only read the frame (each copies what it changes): no full copy per replay
+    stamped = prices if "known_at" in prices.columns else with_price_stamps(prices)
     replay = replay_rank_panel(
         evidence, memberships, stamped, costs, benchmark_returns, cash_returns,
         decision_times, policy=policy,
