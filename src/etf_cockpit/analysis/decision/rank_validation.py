@@ -1886,11 +1886,11 @@ def price_momentum_risk_evidence(
     days = _map_repeated(frame["date"], _date_ordinal).to_numpy(dtype=np.int64)
     stamps = _map_repeated(frame["known_at"], _stamp_ns).to_numpy(dtype=np.int64)
     # Invalid closes stay in so conflict detection sees them; selected invalid evidence fails closed below.
-    keep = (days != _MISSING) & (stamps != _MISSING)
-    kept = frame.loc[keep]
-    codes, names = pd.factorize(kept["instrument_id"].astype(str).to_numpy(), sort=True)
+    keep = (days != _MISSING) & (stamps != _MISSING)  # arrays only: no copy of the whole frame
+    codes, names = pd.factorize(frame["instrument_id"].astype(str).to_numpy()[keep], sort=True)
     day, stamp = days[keep], stamps[keep]
-    close = pd.to_numeric(kept["adjusted_close"], errors="coerce").to_numpy(dtype=float, na_value=np.nan)
+    numeric = pd.to_numeric(frame["adjusted_close"], errors="coerce")
+    close = numeric.to_numpy(dtype=float, na_value=np.nan)[keep]
     order = np.lexsort((stamp, day, codes))
     offsets = np.concatenate(([0], np.cumsum(np.bincount(codes, minlength=len(names))))).astype(np.int64)
     needed = lookback_sessions_required()
@@ -1910,11 +1910,11 @@ def price_momentum_risk_evidence(
     unsorted: dict[int, pd.DataFrame] = {}
     if (status == 2).any():
         mask = np.isin(codes, np.flatnonzero((status == 2).any(axis=1)))
-        rows = kept.loc[mask]
+        where = np.flatnonzero(keep)[mask]
         rows = pd.DataFrame({
-            "_date": rows["date"].map(_date_value).to_numpy(),
-            "_known": rows["known_at"].map(_aware_timestamp).to_numpy(),
-            "_close": pd.to_numeric(kept["adjusted_close"], errors="coerce").to_numpy()[mask],
+            "_date": frame["date"].iloc[where].map(_date_value).to_numpy(),
+            "_known": frame["known_at"].iloc[where].map(_aware_timestamp).to_numpy(),
+            "_close": numeric.iloc[where].to_numpy(),
         })
         unsorted = {int(code): group for code, group in rows.groupby(codes[mask], sort=False)}
     records: list[dict[str, object]] = []
