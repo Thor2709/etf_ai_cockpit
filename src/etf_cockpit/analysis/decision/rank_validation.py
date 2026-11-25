@@ -451,19 +451,20 @@ def replay_rank_panel(
             [cutoffs[text] for text in texts], [target_sessions[text] for text in texts],
         )
         forward.update(((instrument, text), result) for text, result in zip(texts, results))
-    costs_by_id = {str(name): group for name, group in cost_frame.groupby(cost_frame["instrument_id"].astype(str), sort=False)}
+    round_trip_costs = _point_in_time_costs(
+        cost_frame, [str(item["instrument_id"]) for item in records],
+        [cutoffs[str(item["decision_time"])] for item in records],
+    )
     comparators = {
         day: (_outcome_for_date(benchmark_returns, day), _outcome_for_date(cash_returns, day))
         for day in frozen["decision_date"].unique()
     }
     outcomes: list[dict[str, object]] = []
-    for item in records:
-        cutoff = cutoffs[str(item["decision_time"])]
+    for item, cost in zip(records, round_trip_costs):
         instrument = str(item["instrument_id"])
         target = target_sessions[str(item["decision_time"])]
         window_end = target.isoformat() if target is not None else None
         gross, outcome_status = forward[(instrument, str(item["decision_time"]))]
-        cost = _point_in_time_cost(costs_by_id.get(instrument, cost_frame.iloc[0:0]), instrument, cutoff)
         if outcome_status == "available" and cost is None:
             outcome_status = "round_trip_cost_unavailable"
         net = max(-1.0, gross - float(cost) / 10_000.0) if gross is not None and cost is not None else None
@@ -1398,23 +1399,29 @@ def _forward_returns(
     return results
 
 
-def _point_in_time_cost(costs: pd.DataFrame, instrument_id: str, cutoff: pd.Timestamp) -> float | None:
-    rows = costs.loc[
-        costs["instrument_id"].astype(str).eq(instrument_id)
-        & costs["cost_model_id"].astype(str).eq(COST_MODEL_ID)
-    ].copy()
-    rows["_known"] = rows["known_at"].map(_aware_timestamp)
-    rows = rows.loc[rows["_known"].notna() & rows["_known"].le(cutoff)]
-    if rows.empty:
-        return None
-    latest = rows["_known"].max()
-    rows = rows.loc[rows["_known"].eq(latest)]
-    if len(rows) != 1:
-        return None
-    value = rows.iloc[0]["round_trip_cost_bps"]
-    if not _finite(value) or float(value) < 0:
-        return None
-    return float(value)
+def _point_in_time_costs(
+    costs: pd.DataFrame, instrument_ids: Sequence[str], cutoffs: Sequence[pd.Timestamp],
+) -> list[float | None]:
+    """Round-trip cost of each (instrument, cut-off) query, all queries in one compiled call.
+
+    Per instrument, the ``execution-cost-v1`` rows with a time-zone-aware ``known_at`` no later than the
+    cut-off give the latest stamp; exactly one row at that stamp with a finite, non-negative number gives
+    the cost, anything else ``None``.
+    """
+
+    stamps = _map_repeated(costs["known_at"], _stamp_ns).to_numpy(dtype=np.int64)
+    keep = costs["cost_model_id"].astype(str).eq(COST_MODEL_ID).to_numpy() & (stamps != _MISSING)
+    values = [float(item) if _finite(item) and float(item) >= 0 else math.nan
+              for item in costs["round_trip_cost_bps"].astype(object).to_numpy()[keep]]
+    codes, names = pd.factorize(costs["instrument_id"].astype(str).to_numpy()[keep])
+    order = np.lexsort((stamps[keep], codes))
+    offsets = np.concatenate(([0], np.cumsum(np.bincount(codes, minlength=len(names))))).astype(np.int64)
+    found = etf_kernels.pit_cost_lookup(
+        stamps[keep][order], np.array(values, dtype=float)[order], offsets,
+        pd.Index(names).get_indexer(pd.Index(list(instrument_ids), dtype=object)).astype(np.int64),
+        np.array([cutoff.value for cutoff in cutoffs], dtype=np.int64),
+    )
+    return [None if math.isnan(value) else float(value) for value in found]
 
 
 def _outcome_for_date(frame: pd.DataFrame, decision_date: str) -> float | None:
