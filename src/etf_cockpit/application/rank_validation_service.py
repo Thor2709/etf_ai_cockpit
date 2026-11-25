@@ -138,10 +138,13 @@ def _shadow_rows(root: Path, prices: pd.DataFrame) -> pd.DataFrame:
             pd.to_datetime(traded["known_at"], errors="coerce", utc=True) if "known_at" in traded
             else (traded["date"] + pd.Timedelta(days=1)).dt.tz_localize("UTC")
         )
+    # grouped once: a per-instrument mask scanned the full price frame once per instrument
+    period_rows = store.group_rows(frame)
+    price_rows = store.group_rows(traded) if not traded.empty else None
     rows: list[dict[str, object]] = []
     for instrument in sorted(frame["instrument_id"].astype(str).unique()):
-        periods = store.periods_for(instrument, frame, chain)
-        history = traded.loc[traded["instrument_id"].astype(str) == instrument].sort_values("date") if not traded.empty else traded
+        periods = store.periods_for(instrument, period_rows(instrument), chain)
+        history = price_rows(instrument).sort_values("date") if price_rows is not None else traded
         for known in sorted({period.known_at for period in periods}):
             visible = sm.known_periods(periods, known)
             if not visible:
